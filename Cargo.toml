@@ -1,18 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/core",
-  "crates/desktop",
+  "core",
+  "desktop",
 ]
 
-default-members = ["crates/desktop"]
+default-members = ["desktop"]
 
 [workspace.dependencies]
-core = { path = "crates/core" }
+core = { path = "core" }
 
+anyhow = "1"
+gpui = "0.2"
+interprocess = { version = "2", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-interprocess = { version = "2", features = ["tokio"] }
 tokio = { version = "1", features = ["full"] }
-gpui = "0.2"
-anyhow = "1"
