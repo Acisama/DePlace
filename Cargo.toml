@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/core",
+  "crates/daemon",
+  "crates/desktop",
+  "crates/shared",
+]
+
+default-members = ["crates/daemon"]
+
+[workspace.dependencies]
+shared = { path = "crates/shared" }
+desktop = { path = "crates/desktop" }
+core = { path = "crates/core" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+interprocess = { version = "2", features = ["tokio"] }
+tokio = { version = "1", features = ["full"] }
+gpui = "0.2"
+anyhow = "1"
