@@ -1,8 +1,32 @@
+use gpui::{App, Application, Window, WindowOptions, div, prelude::*, rgb};
+
+struct HelloWorld;
+
+impl Render for HelloWorld {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .bg(rgb(0x18181b))
+            .size_full()
+            .justify_center()
+            .items_center()
+            .text_color(rgb(0xf4f4f5))
+            .child("Hello World")
+    }
+}
+
+pub fn run_ui() {
+    Application::new().run(|cx: &mut App| {
+        cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| HelloWorld))
+            .unwrap();
+    });
+}
+
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::tokio::Listener as TokioListener;
 use interprocess::local_socket::traits::tokio::Stream;
 use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName};
-use shared::CoreCommand;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{self, Write};
 use std::process::{Child, Command};
@@ -11,6 +35,12 @@ use tokio::io::AsyncReadExt;
 
 const SOCKET_NAME: &str = "deplace.sock";
 
+#[derive(Serialize, Deserialize)]
+pub enum CoreCommand {
+    OpenUi,
+    Ping,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let args: Vec<String> = env::args().collect();
@@ -18,7 +48,7 @@ async fn main() -> Result<(), anyhow::Error> {
     // only get's called internally
     if args.len() > 1 && args[1] == "--ui-child" {
         println!("Spawning UI");
-        desktop::run_ui();
+        run_ui();
 
         // Exit instead of spawning daemon
         return Ok(());
