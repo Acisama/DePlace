@@ -1267,6 +1267,7 @@ version = "0.1.0"
 dependencies = [
  "matrix-sdk",
  "matrix-sdk-ui",
+ "tracing",
 ]
 
 [[package]]
@@ -1721,11 +1722,14 @@ name = "desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "core",
  "gpui",
  "interprocess",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

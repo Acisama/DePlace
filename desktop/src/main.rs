@@ -10,6 +10,7 @@ use std::io::{self, Write};
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncReadExt;
+use tracing_subscriber::EnvFilter;
 
 struct HelloWorld;
 
@@ -43,6 +44,10 @@ pub enum CoreCommand {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env().or_else(|_| EnvFilter::new("debug")))
+        .init();
+
     let args: Vec<String> = env::args().collect();
 
     // only get's called internally
@@ -122,19 +127,20 @@ async fn listen_for_ipc_commands(
             let mut buf = vec![0u8; 1024];
 
             if let Ok(bytes_read) = reader.read(&mut buf).await
-                && let Ok(cmd) = serde_json::from_slice::<CoreCommand>(&buf[..bytes_read]) {
-                    match cmd {
-                        CoreCommand::OpenUi => {
-                            println!("Received command to open ui");
-                            if let Err(e) = spawn_or_focus_ui(&ui_child) {
-                                eprintln!("Failed to spawn or focus ui: {}", e);
-                            }
-                        }
-                        CoreCommand::Ping => {
-                            // Pong or something i dunno
+                && let Ok(cmd) = serde_json::from_slice::<CoreCommand>(&buf[..bytes_read])
+            {
+                match cmd {
+                    CoreCommand::OpenUi => {
+                        println!("Received command to open ui");
+                        if let Err(e) = spawn_or_focus_ui(&ui_child) {
+                            eprintln!("Failed to spawn or focus ui: {}", e);
                         }
                     }
+                    CoreCommand::Ping => {
+                        // Pong or something i dunno
+                    }
                 }
+            }
         });
     }
 }
