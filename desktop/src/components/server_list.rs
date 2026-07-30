@@ -1,7 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
 use deplace_core::{colors::Color, matrix_api::account_data::ServerOrderContent, state::AppState};
-use gpui::{Context, IntoElement, ParentElement, Render, Styled, Window, div};
+use gpui::{
+    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window, div, transparent_black,
+};
+use gpui_component::{
+    StyledExt,
+    button::{Button, ButtonCustomVariant, ButtonVariants},
+};
 use matrix_sdk::{
     Room, RoomDisplayName,
     ruma::{OwnedMxcUri, OwnedRoomId, events::room::MediaSource},
@@ -9,7 +16,7 @@ use matrix_sdk::{
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{MediaCache, avatar, gpui_format_from},
+    components::{ActiveRoomChange, MediaCache, avatar, gpui_format_from},
     theme::ActiveAppTheme,
     watch_bridge::notify_on_change,
 };
@@ -19,6 +26,8 @@ pub struct ServerListView {
     rooms: watch::Receiver<HashMap<OwnedRoomId, Room>>,
     server_order: watch::Receiver<ServerOrderContent>,
 }
+
+impl EventEmitter<ActiveRoomChange> for ServerListView {}
 
 impl ServerListView {
     pub fn new(state: &AppState, cx: &mut Context<Self>, tokio_rt: Arc<Runtime>) -> Self {
@@ -44,8 +53,8 @@ impl Render for ServerListView {
         let icon_size = theme.structure.server_column.icon_width;
         let rounding = icon_size / 4.0;
 
-        let rooms_map = self.rooms.borrow();
-        let mut sorted_rooms = rooms_map.values().collect::<Vec<_>>();
+        let rooms_map = self.rooms.borrow().clone();
+        let mut sorted_rooms = rooms_map.values().cloned().collect::<Vec<_>>();
 
         let server_order = self.server_order.borrow();
         for room_id in rooms_map.keys() {
@@ -55,7 +64,7 @@ impl Render for ServerListView {
         }
 
         let icons: Vec<_> = sorted_rooms
-            .iter()
+            .into_iter()
             .map(|room| {
                 let image = room.avatar_url().and_then(|url| {
                     let source = MediaSource::Plain(url);
@@ -77,8 +86,25 @@ impl Render for ServerListView {
                     .unwrap_or('?');
 
                 let color = Color::from(room.room_id().as_ref());
+                let room_id = room.room_id().to_owned();
 
-                avatar(initial, color, icon_size, rounding, image)
+                let variant = ButtonCustomVariant::new(cx)
+                    .color(transparent_black())
+                    .active(transparent_black())
+                    .foreground(transparent_black())
+                    .hover(transparent_black())
+                    .shadow(false);
+
+                Button::new(format!("server-{}", room_id))
+                    .on_click(cx.listener({
+                        move |_, _, _, cx| {
+                            tracing::trace!("Server {} clicked", room_id);
+                            cx.emit(ActiveRoomChange::SetServer(room.clone()));
+                        }
+                    }))
+                    .custom(variant)
+                    .margins(theme.tile.gap / 2.0)
+                    .child(avatar(initial, color, icon_size, rounding, image))
             })
             .collect();
 

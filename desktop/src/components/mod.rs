@@ -13,7 +13,7 @@ use gpui_component::{
     input::{Input, InputState},
 };
 use matrix_sdk::{
-    Client,
+    Client, Room,
     media::{MediaFormat, MediaRequestParameters},
     ruma::{OwnedMxcUri, events::room::MediaSource},
 };
@@ -21,12 +21,19 @@ use tokio::{runtime::Runtime, sync::watch};
 
 use crate::theme::AppTheme;
 
-pub mod discovery;
-pub mod dm_list;
-pub mod home;
-pub mod login;
 pub mod root;
-pub mod server_list;
+
+mod discovery;
+mod dm_list;
+mod header;
+mod home;
+mod login;
+mod server_list;
+
+pub enum ActiveRoomChange {
+    SetRoom(Option<Room>),
+    SetServer(Room),
+}
 
 pub fn floating_tile(theme: &AppTheme) -> Div {
     div()
@@ -159,6 +166,7 @@ pub fn text_circle(initial: char, color: Color, size: Pixels, rounding: Pixels) 
         .text_color(color.to_gpui())
         .items_center()
         .justify_center()
+        .cursor_pointer()
         .child(initial.to_string())
         .child(
             div()
@@ -188,6 +196,7 @@ pub fn avatar(
             .object_fit(ObjectFit::Cover)
             .rounded(rounding)
             .size(size)
+            .cursor_pointer()
             .into_any()
     } else {
         text_circle(initial, color, size, rounding)

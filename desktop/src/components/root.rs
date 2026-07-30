@@ -58,7 +58,7 @@ impl RootView {
                 match outcome {
                     Ok(RestoreResult::Success(state)) => {
                         let tokio_rt = Arc::clone(&root.tokio_rt);
-                        let home_view = cx.new(|cx| HomeView::new(tokio_rt, state, cx));
+                        let home_view = cx.new(|cx| HomeView::new(tokio_rt, state, window, cx));
                         root.active_screen = Screen::Home(home_view);
                         // root.show_login(state.client, window, cx, discovery_view.clone());
                     }
@@ -97,12 +97,12 @@ impl RootView {
         let tokio_rt = Arc::clone(&self.tokio_rt);
         let login_view = cx.new(|cx| LoginView::new(tokio_rt, window, cx, client));
 
-        cx.subscribe(&login_view, {
+        cx.subscribe_in(&login_view, window, {
             let login_view = login_view.clone();
-            move |this: &mut RootView, _child, event, cx| match event {
+            move |this: &mut RootView, _child, event, window, cx| match event {
                 LoginResult::Success(state) => {
                     let tokio_rt = Arc::clone(&this.tokio_rt);
-                    let home_view = cx.new(|cx| HomeView::new(tokio_rt, state.clone(), cx));
+                    let home_view = cx.new(|cx| HomeView::new(tokio_rt, state.clone(), window, cx));
                     this.active_screen = Screen::Home(home_view);
                     cx.notify();
                 }
