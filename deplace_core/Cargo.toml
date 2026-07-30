@@ -13,6 +13,7 @@ getrandom.workspace = true
 hex = "0.4.3"
 keyring-core = "1.0.0"
 matrix-sdk.workspace = true
+ruma.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

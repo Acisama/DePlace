@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use deplace_core::{colors::Color, state::AppState};
+use deplace_core::{colors::Color, matrix_api::account_data::ServerOrderContent, state::AppState};
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, Window, div};
 use matrix_sdk::{
     Room, RoomDisplayName,
@@ -17,17 +17,24 @@ use crate::{
 pub struct ServerListView {
     cache: MediaCache<OwnedMxcUri>,
     rooms: watch::Receiver<HashMap<OwnedRoomId, Room>>,
+    server_order: watch::Receiver<ServerOrderContent>,
 }
 
 impl ServerListView {
     pub fn new(state: &AppState, cx: &mut Context<Self>, tokio_rt: Arc<Runtime>) -> Self {
         let rooms = state.server_rooms();
         let cache = MediaCache::new(state.client.clone(), tokio_rt);
+        let server_order = state.server_order();
 
         notify_on_change(rooms.clone(), cx);
         notify_on_change(cache.subscribe(), cx);
+        notify_on_change(server_order.clone(), cx);
 
-        Self { rooms, cache }
+        Self {
+            rooms,
+            cache,
+            server_order,
+        }
     }
 }
 
@@ -37,10 +44,18 @@ impl Render for ServerListView {
         let icon_size = theme.structure.server_column.icon_width;
         let rounding = icon_size / 4.0;
 
-        let rooms: Vec<_> = self
-            .rooms
-            .borrow()
-            .values()
+        let rooms_map = self.rooms.borrow();
+        let mut sorted_rooms = rooms_map.values().collect::<Vec<_>>();
+
+        let server_order = self.server_order.borrow();
+        for room_id in rooms_map.keys() {
+            if let Some(index) = server_order.servers.iter().position(|id| id == room_id) {
+                sorted_rooms.swap(index, 0);
+            }
+        }
+
+        let icons: Vec<_> = sorted_rooms
+            .iter()
             .map(|room| {
                 let image = room.avatar_url().and_then(|url| {
                     let source = MediaSource::Plain(url);
@@ -74,6 +89,6 @@ impl Render for ServerListView {
             .items_center()
             .content_center()
             .gap(theme.tile.gap)
-            .children(rooms)
+            .children(icons)
     }
 }

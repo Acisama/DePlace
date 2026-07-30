@@ -6,6 +6,8 @@ use matrix_sdk::{
 };
 use tokio::sync::watch::{self, Sender};
 
+use crate::matrix_api::account_data::ServerOrderContent;
+
 #[derive(Clone)]
 pub struct UserDevice {
     pub user_id: OwnedUserId,
@@ -21,6 +23,7 @@ pub struct AppState {
     dm_rooms: Sender<RoomMap>,
     server_rooms: Sender<RoomMap>,
     active_room: Sender<Option<Room>>,
+    pub server_order: Sender<ServerOrderContent>,
 }
 
 impl AppState {
@@ -28,6 +31,7 @@ impl AppState {
         let (dm_rooms, _) = watch::channel(HashMap::new());
         let (server_rooms, _) = watch::channel(HashMap::new());
         let (active_room, _) = watch::channel(None);
+        let (server_order, _) = watch::channel(ServerOrderContent::default());
 
         Self {
             client,
@@ -35,6 +39,7 @@ impl AppState {
             dm_rooms,
             server_rooms,
             active_room,
+            server_order,
         }
     }
 
@@ -48,6 +53,10 @@ impl AppState {
 
     pub fn active_room(&self) -> watch::Receiver<Option<Room>> {
         self.active_room.subscribe()
+    }
+
+    pub fn server_order(&self) -> watch::Receiver<ServerOrderContent> {
+        self.server_order.subscribe()
     }
 
     pub(crate) fn set_dm_rooms(&self, rooms: RoomMap) {

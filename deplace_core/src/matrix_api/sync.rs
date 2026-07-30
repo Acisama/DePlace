@@ -5,12 +5,24 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use matrix_sdk::{Client, config::SyncSettings, ruma::presence::PresenceState};
 
-use crate::state::AppState;
+use crate::{
+    matrix_api::account_data::{ServerOrderContent, get_account_data},
+    state::AppState,
+};
 
-/// Starts the background sync loop and the room classification loop for `state`.
 pub fn spawn_room_sync(client: &Client, state: &AppState) {
     tokio::spawn(run_sync_stream(client.clone()));
     tokio::spawn(run_room_classification(client.clone(), state.clone()));
+    tokio::spawn(init_stuff(client.clone(), state.clone()));
+}
+
+async fn init_stuff(client: Client, state: AppState) {
+    if let Err(e) = state
+        .server_order
+        .send(get_account_data::<ServerOrderContent>(&client).await)
+    {
+        tracing::error!("Failed to send server order: {}", e);
+    }
 }
 
 async fn run_sync_stream(client: Client) {
@@ -31,11 +43,6 @@ async fn run_sync_stream(client: Client) {
     tracing::warn!("Sync stream ended");
 }
 
-/// Classifies every room into `dm_rooms`/`server_rooms` once at startup, then
-/// re-classifies all rooms from scratch whenever any room's info notably changes.
-/// `AppState::set_dm_rooms`/`set_server_rooms` already skip the `watch` send when
-/// the resulting set of room IDs didn't actually change, so this stays cheap even
-/// though it's a full rescan rather than an incremental patch.
 async fn run_room_classification(client: Client, state: AppState) {
     reclassify_rooms(&client, &state).await;
 
@@ -59,10 +66,27 @@ async fn reclassify_rooms(client: &Client, state: &AppState) {
         };
 
         if is_dm {
-            dm_rooms.insert(room.room_id().to_owned(), room);
-        } else if room.is_space() {
-            server_rooms.insert(room.room_id().to_owned(), room);
+            dm_rooms.insert(room.room_id().to_owned(), room.clone());
+            continue;
         }
+
+        let clone = room.clone();
+        let mut parents = match clone.parent_spaces().await {
+            Ok(parents) => parents,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to get parent spaces for room {}: {e}",
+                    room.room_id()
+                );
+                continue;
+            }
+        };
+
+        if parents.next().await.is_some() {
+            continue;
+        }
+
+        server_rooms.insert(room.room_id().to_owned(), room);
     }
 
     state.set_dm_rooms(dm_rooms);

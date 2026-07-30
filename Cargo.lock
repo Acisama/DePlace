@@ -1859,6 +1859,7 @@ dependencies = [
  "hex",
  "keyring-core",
  "matrix-sdk",
+ "ruma",
  "serde",
  "serde_json",
  "sha2 0.11.0",
