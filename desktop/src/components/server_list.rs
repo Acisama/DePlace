@@ -1,14 +1,15 @@
 use std::{collections::HashMap, sync::Arc};
 
-use deplace_core::{colors::Color, matrix_api::account_data::ServerOrderContent, state::AppState};
+use deplace_core::{
+    colors::Color,
+    matrix_api::account_data::{ServerOrderContent, get_account_data, set_account_data},
+    state::AppState,
+};
 use gpui::{
-    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Window, div, transparent_black,
+    Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div,
+    transparent_black,
 };
-use gpui_component::{
-    StyledExt,
-    button::{Button, ButtonCustomVariant, ButtonVariants},
-};
+use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use matrix_sdk::{
     Room, RoomDisplayName,
     ruma::{OwnedMxcUri, OwnedRoomId, events::room::MediaSource},
@@ -22,9 +23,11 @@ use crate::{
 };
 
 pub struct ServerListView {
+    state: AppState,
+    tokio_rt: Arc<Runtime>,
     cache: MediaCache<OwnedMxcUri>,
     rooms: watch::Receiver<HashMap<OwnedRoomId, Room>>,
-    server_order: watch::Receiver<ServerOrderContent>,
+    server_order: Vec<OwnedRoomId>,
 }
 
 impl EventEmitter<ActiveRoomChange> for ServerListView {}
@@ -32,18 +35,44 @@ impl EventEmitter<ActiveRoomChange> for ServerListView {}
 impl ServerListView {
     pub fn new(state: &AppState, cx: &mut Context<Self>, tokio_rt: Arc<Runtime>) -> Self {
         let rooms = state.server_rooms();
-        let cache = MediaCache::new(state.client.clone(), tokio_rt);
-        let server_order = state.server_order();
+        let cache = MediaCache::new(state.client.clone(), tokio_rt.clone());
 
         notify_on_change(rooms.clone(), cx);
         notify_on_change(cache.subscribe(), cx);
-        notify_on_change(server_order.clone(), cx);
+
+        let client = state.client.clone();
+        let task =
+            tokio_rt.spawn(async move { get_account_data::<ServerOrderContent>(&client).await });
+        cx.spawn(async move |this, cx| {
+            let Ok(order) = task.await else {
+                return;
+            };
+
+            cx.update(|cx| {
+                let _ = this.update(cx, |view, cx| {
+                    view.server_order = order.servers;
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
 
         Self {
+            state: state.clone(),
+            tokio_rt,
             rooms,
             cache,
-            server_order,
+            server_order: Vec::new(),
         }
+    }
+
+    fn set_server_order(&mut self, servers: Vec<OwnedRoomId>) {
+        self.server_order = servers.clone();
+
+        let client = self.state.client.clone();
+        self.tokio_rt.spawn(async move {
+            set_account_data(&client, ServerOrderContent { servers }).await;
+        });
     }
 }
 
@@ -56,11 +85,18 @@ impl Render for ServerListView {
         let rooms_map = self.rooms.borrow().clone();
         let mut sorted_rooms = rooms_map.values().cloned().collect::<Vec<_>>();
 
-        let server_order = self.server_order.borrow();
         for room_id in rooms_map.keys() {
-            if let Some(index) = server_order.servers.iter().position(|id| id == room_id) {
+            if let Some(index) = self.server_order.iter().position(|id| id == room_id) {
                 sorted_rooms.swap(index, 0);
             }
+        }
+
+        let new_server_order: Vec<_> = sorted_rooms
+            .iter()
+            .map(|room| room.room_id().to_owned())
+            .collect();
+        if new_server_order != self.server_order {
+            self.set_server_order(new_server_order);
         }
 
         let icons: Vec<_> = sorted_rooms
@@ -103,7 +139,8 @@ impl Render for ServerListView {
                         }
                     }))
                     .custom(variant)
-                    .margins(theme.tile.gap / 2.0)
+                    .size(icon_size)
+                    .p_0()
                     .child(avatar(initial, color, icon_size, rounding, image))
             })
             .collect();

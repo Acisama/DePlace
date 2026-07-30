@@ -8,24 +8,11 @@ use matrix_sdk::{
 };
 use ruma::OwnedRoomId;
 
-use crate::{
-    matrix_api::account_data::{ServerOrderContent, get_account_data},
-    state::AppState,
-};
+use crate::state::AppState;
 
 pub fn spawn_room_sync(client: &Client, state: &AppState) {
     tokio::spawn(run_sync_stream(client.clone()));
     tokio::spawn(run_room_classification(client.clone(), state.clone()));
-    tokio::spawn(init_stuff(client.clone(), state.clone()));
-}
-
-async fn init_stuff(client: Client, state: AppState) {
-    if let Err(e) = state
-        .server_order
-        .send(get_account_data::<ServerOrderContent>(&client).await)
-    {
-        tracing::error!("Failed to send server order: {}", e);
-    }
 }
 
 async fn run_sync_stream(client: Client) {

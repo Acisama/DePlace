@@ -111,7 +111,7 @@ pub async fn login(
         device_id: device_id.to_owned(),
     };
 
-    let state = AppState::new(client.clone(), device.clone());
+    let state = AppState::new(client.clone(), device.clone()).await;
     spawn_room_sync(&client, &state);
 
     LoginResult::Success(state)
