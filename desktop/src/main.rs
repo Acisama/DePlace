@@ -1,168 +1,134 @@
-use gpui::{App, Application, Window, WindowOptions, div, prelude::*, rgb};
+use deplace_core::APP_HUMAN_NAME;
+use gpui::{App, Application, TitlebarOptions, WindowOptions, prelude::*};
+use gpui_component::Root;
 
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::tokio::Listener as TokioListener;
-use interprocess::local_socket::traits::tokio::Stream;
+use interprocess::local_socket::traits::tokio::{Listener as _, Stream as _};
 use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName};
 use serde::{Deserialize, Serialize};
-use std::env;
-use std::io::{self, Write};
-use std::process::{Child, Command};
-use std::sync::{Arc, Mutex};
+use std::io::Write;
+use std::sync::Arc;
 use tokio::io::AsyncReadExt;
+use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
-struct HelloWorld;
-
-impl Render for HelloWorld {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex()
-            .bg(rgb(0x18181b))
-            .size_full()
-            .justify_center()
-            .items_center()
-            .text_color(rgb(0xf4f4f5))
-            .child("Hello World")
-    }
-}
-
-pub fn run_ui() {
-    Application::new().run(|cx: &mut App| {
-        cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| HelloWorld))
-            .unwrap();
-    });
-}
+use crate::components::root::RootView;
 
 const SOCKET_NAME: &str = "deplace.sock";
 
+mod components;
+
 #[derive(Serialize, Deserialize)]
-pub enum CoreCommand {
-    OpenUi,
-    Ping,
+enum InstanceCommand {
+    FocusWindow,
+}
+
+#[derive(Default)]
+pub enum GenericState {
+    Success,
+    #[default]
+    Default,
+    Loading,
+    Error(String),
+}
+
+impl GenericState {
+    pub fn is_loading(&self) -> bool {
+        matches!(self, GenericState::Loading)
+    }
+
+    pub fn error(&self) -> Option<String> {
+        match self {
+            GenericState::Error(err) => Some(err.clone()),
+            _ => None,
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().or_else(|_| EnvFilter::new("debug")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("warn,desktop=trace,deplace_core=trace")),
+        )
         .init();
-
-    let args: Vec<String> = env::args().collect();
-
-    // only get's called internally
-    if args.len() > 1 && args[1] == "--ui-child" {
-        println!("Spawning UI");
-        run_ui();
-
-        // Exit instead of spawning daemon
-        return Ok(());
-    }
 
     let namespaced_socket_name = SOCKET_NAME.to_ns_name::<GenericNamespaced>()?;
 
-    // Try finding out if a daemon is already running and if yes, signal it to open the ui
+    // Another instance already holds the socket: ask it to focus its window and exit.
     if let Ok(mut stream) = LocalSocketStream::connect(namespaced_socket_name.clone()) {
-        println!("Daemon is running. Signaling to open ui");
-
-        let msg = serde_json::to_vec(&CoreCommand::OpenUi)?;
+        tracing::info!("Another instance is already running, focusing it");
+        let msg = serde_json::to_vec(&InstanceCommand::FocusWindow)?;
         stream.write_all(&msg)?;
         stream.flush()?;
-
-        // Exit instead of spawning new daemon
         return Ok(());
     }
 
-    // Since no daemon is running, we aquire the socket and run as the daemon
-    println!("No daemon running yet");
+    // Nobody's holding the socket, so we are the instance: keep it and run the UI directly
+    let listener = ListenerOptions::new()
+        .name(namespaced_socket_name)
+        .create_tokio()?;
 
-    let opts = ListenerOptions::new().name(namespaced_socket_name);
-    let listener = match opts.create_tokio() {
-        Ok(l) => l,
-        Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
-            println!("Socket in use, cleaning up");
-            let _ = std::fs::remove_file(SOCKET_NAME);
-            todo!("Spawn the socket after cleaning up")
-        }
-        Err(e) => return Err(e.into()),
-    };
+    let (focus_tx, focus_rx) = mpsc::unbounded_channel();
+    tokio::spawn(listen_for_focus_requests(listener, focus_tx));
 
-    // Thread-safe handle to ui child process
-    let ui_child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
+    run_ui(focus_rx);
 
-    // Spawn IPC listener task
-    let ui_child_ipc = Arc::clone(&ui_child);
-    tokio::spawn(async move {
-        listen_for_ipc_commands(listener, ui_child_ipc).await;
-    });
-
-    // Automatically spawn UI on initial daemon launch
-    if let Err(e) = spawn_or_focus_ui(&ui_child) {
-        eprintln!("Failed to spawn ui: {}", e);
-    }
-
-    // keep daemon alive
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
-    }
+    Ok(())
 }
 
-async fn listen_for_ipc_commands(
-    listener: TokioListener,
-    ui_child_handle: Arc<Mutex<Option<Child>>>,
-) {
+async fn listen_for_focus_requests(listener: TokioListener, focus_tx: mpsc::UnboundedSender<()>) {
     loop {
-        let stream =
-            match interprocess::local_socket::traits::tokio::Listener::accept(&listener).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("Couldn't accept IPC connection: {}", e);
-                    continue;
-                }
-            };
+        let stream = match listener.accept().await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("Couldn't accept IPC connection: {e}");
+                continue;
+            }
+        };
 
-        let ui_child = ui_child_handle.clone();
+        let focus_tx = focus_tx.clone();
         tokio::spawn(async move {
             let (mut reader, _) = stream.split();
-            let mut buf = vec![0u8; 1024];
-
+            let mut buf = [0u8; 256];
             if let Ok(bytes_read) = reader.read(&mut buf).await
-                && let Ok(cmd) = serde_json::from_slice::<CoreCommand>(&buf[..bytes_read])
+                && serde_json::from_slice::<InstanceCommand>(&buf[..bytes_read]).is_ok()
             {
-                match cmd {
-                    CoreCommand::OpenUi => {
-                        println!("Received command to open ui");
-                        if let Err(e) = spawn_or_focus_ui(&ui_child) {
-                            eprintln!("Failed to spawn or focus ui: {}", e);
-                        }
-                    }
-                    CoreCommand::Ping => {
-                        // Pong or something i dunno
-                    }
-                }
+                let _ = focus_tx.send(());
             }
         });
     }
 }
 
-fn spawn_or_focus_ui(ui_child_handle: &Arc<Mutex<Option<Child>>>) -> io::Result<()> {
-    let mut guard = ui_child_handle.lock().unwrap();
+fn run_ui(focus_rx: mpsc::UnboundedReceiver<()>) {
+    let tokio_rt = Arc::new(
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime"),
+    );
 
-    // See if child is already running
-    let is_running = match guard.as_mut() {
-        Some(child) => matches!(child.try_wait(), Ok(None)),
-        None => false,
+    let options = WindowOptions {
+        titlebar: Some(TitlebarOptions {
+            title: Some(APP_HUMAN_NAME.into()),
+            ..Default::default()
+        }),
+        ..Default::default()
     };
 
-    if is_running {
-        println!("Focusing window");
-        todo!("Actually focus window")
-    } else {
-        println!("Spawning new ui child");
-        let current_exe = env::current_exe()?;
-        let child = Command::new(current_exe).arg("--ui-child").spawn()?;
-        *guard = Some(child);
-    }
+    let platform = gpui_platform::current_platform(false);
+    Application::with_platform(platform).run(move |cx: &mut App| {
+        gpui_component::init(cx);
 
-    Ok(())
+        let tokio_rt = Arc::clone(&tokio_rt);
+        cx.open_window(options, |window, cx| {
+            let root_view = cx.new(|cx| RootView::new(tokio_rt, window, cx));
+            cx.new(|cx| Root::new(root_view, window, cx))
+        })
+        .expect("Failed to open window");
+
+        cx.activate(true);
+    });
 }

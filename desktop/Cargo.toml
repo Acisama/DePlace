@@ -4,13 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-core.workspace = true
+deplace_core.workspace = true
 
-tokio.workspace = true
 anyhow.workspace = true
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui-platform = {
+  package = "gpui_platform",
+  git = "https://github.com/zed-industries/zed",
+  features = ["wayland", "x11"]
+}
+interprocess.workspace = true
+matrix-sdk.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-interprocess.workspace = true
-gpui.workspace = true
+tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace=true
+tracing-subscriber.workspace = true

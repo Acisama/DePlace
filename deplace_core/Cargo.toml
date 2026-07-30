@@ -1,0 +1,32 @@
+[package]
+name = "deplace_core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+const_format = "0.2.36"
+dirs = "6.0.0"
+getrandom.workspace = true
+hex = "0.4.3"
+keyring-core = "1.0.0"
+matrix-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store = "1.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = {
+  version = "1.0",
+  features = ["rt-async-io-crypto-rust"]
+}
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1.0", features = ["keychain"] }
+
+[target."cfg(windows)".dependencies]
+windows-native-keyring-store = "1.0"
