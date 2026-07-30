@@ -1,5 +1,5 @@
 use deplace_core::APP_HUMAN_NAME;
-use gpui::{App, Application, TitlebarOptions, WindowOptions, prelude::*};
+use gpui::{App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, prelude::*};
 use gpui_component::Root;
 
 use interprocess::local_socket::prelude::*;
@@ -14,10 +14,12 @@ use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
 use crate::components::root::RootView;
+use crate::theme::AppTheme;
 
 const SOCKET_NAME: &str = "deplace.sock";
 
 mod components;
+mod theme;
 
 #[derive(Serialize, Deserialize)]
 enum InstanceCommand {
@@ -29,6 +31,7 @@ pub enum GenericState {
     Success,
     #[default]
     Default,
+    Disabled,
     Loading,
     Error(String),
 }
@@ -38,11 +41,11 @@ impl GenericState {
         matches!(self, GenericState::Loading)
     }
 
-    pub fn error(&self) -> Option<String> {
-        match self {
-            GenericState::Error(err) => Some(err.clone()),
-            _ => None,
-        }
+    pub fn is_disabled(&self) -> bool {
+        matches!(
+            self,
+            GenericState::Error(_) | GenericState::Loading | GenericState::Disabled
+        )
     }
 }
 
@@ -113,25 +116,44 @@ fn run_ui(focus_rx: mpsc::UnboundedReceiver<()>) {
             .expect("Failed to create Tokio runtime"),
     );
 
-    let options = WindowOptions {
-        titlebar: Some(TitlebarOptions {
-            title: Some(APP_HUMAN_NAME.into()),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+    use gpui::{Image, ImageFormat};
+    use std::sync::Arc;
+
+    let image_path = dirs::home_dir().unwrap().join(".deplace/bg.jpeg");
+    let bytes = std::fs::read(image_path).ok();
+    let background_image = bytes.map(|bytes| Arc::new(Image::from_bytes(ImageFormat::Jpeg, bytes)));
 
     let platform = gpui_platform::current_platform(false);
-    Application::with_platform(platform).run(move |cx: &mut App| {
-        gpui_component::init(cx);
+    Application::with_platform(platform)
+        .with_assets(gpui_component_assets::Assets)
+        .run(move |cx: &mut App| {
+            gpui_component::init(cx);
+            let app_theme = AppTheme::new();
+            cx.set_global(app_theme.clone());
 
-        let tokio_rt = Arc::clone(&tokio_rt);
-        cx.open_window(options, |window, cx| {
-            let root_view = cx.new(|cx| RootView::new(tokio_rt, window, cx));
-            cx.new(|cx| Root::new(root_view, window, cx))
-        })
-        .expect("Failed to open window");
+            let theme = gpui_component::Theme::global_mut(cx);
+            theme.muted_foreground = app_theme.text.muted;
+            theme.caret = app_theme.text.normal;
+            theme.font_size = app_theme.text.font_size;
+            theme.primary = app_theme.accent;
+            theme.border = app_theme.tile.border;
 
-        cx.activate(true);
-    });
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Maximized(Bounds::maximized(None, cx))),
+                titlebar: Some(TitlebarOptions {
+                    title: Some(APP_HUMAN_NAME.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+
+            let tokio_rt = Arc::clone(&tokio_rt);
+            cx.open_window(options, |window, cx| {
+                let root_view = cx.new(|cx| RootView::new(tokio_rt, background_image, window, cx));
+                cx.new(|cx| Root::new(root_view, window, cx))
+            })
+            .expect("Failed to open window");
+
+            cx.activate(true);
+        });
 }

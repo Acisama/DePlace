@@ -11,6 +11,7 @@ default-members = ["desktop"]
 deplace_core = { path = "deplace_core" }
 
 anyhow = "1"
+dirs = "6.0.0"
 getrandom = "0.4.3"
 interprocess = { version = "2", features = ["tokio"] }
 matrix-sdk = {

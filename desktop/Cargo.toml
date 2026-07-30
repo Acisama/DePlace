@@ -7,8 +7,11 @@ edition = "2024"
 deplace_core.workspace = true
 
 anyhow.workspace = true
+dirs.workspace = true
+
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 gpui-platform = {
   package = "gpui_platform",
   git = "https://github.com/zed-industries/zed",

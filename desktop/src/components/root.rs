@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use deplace_core::{RestoreResult, matrix_api::LoginResult, try_restore};
 use gpui::{
-    AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Window, blue, div,
+    AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, StyledImage, Window,
+    blue, div, img,
 };
 use matrix_sdk::Client;
 
@@ -12,6 +13,7 @@ use crate::{
 };
 
 pub struct RootView {
+    background_image: Option<Arc<gpui::Image>>,
     active_screen: Screen,
     tokio_rt: Arc<tokio::runtime::Runtime>,
 }
@@ -28,17 +30,19 @@ enum Screen {
 impl RootView {
     pub fn new(
         tokio_rt: Arc<tokio::runtime::Runtime>,
+        background_image: Option<Arc<gpui::Image>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let discovery_view = cx.new(|cx| DiscoveryView::new(Arc::clone(&tokio_rt), window, cx));
 
+        let discovery_view_clone = discovery_view.clone();
         cx.subscribe_in(
             &discovery_view,
             window,
-            |this: &mut RootView, _child, event, window, cx| {
+            move |this: &mut RootView, _child, event, window, cx| {
                 if let Some((client, _url)) = event {
-                    this.show_login(client.clone(), window, cx);
+                    this.show_login(client.clone(), window, cx, discovery_view_clone.clone());
                 }
             },
         )
@@ -53,15 +57,16 @@ impl RootView {
             let _ = this.update_in(cx, |root, window, cx| {
                 match outcome {
                     Ok(RestoreResult::Success(state)) => {
-                        let tokio_rt = Arc::clone(&root.tokio_rt);
-                        let home_view = cx.new(|_cx| HomeView::new(tokio_rt, state));
-                        root.active_screen = Screen::Home(home_view);
+                        // let tokio_rt = Arc::clone(&root.tokio_rt);
+                        // let home_view = cx.new(|_cx| HomeView::new(tokio_rt, state));
+                        // root.active_screen = Screen::Home(home_view);
+                        root.show_login(state.client, window, cx, discovery_view.clone());
                     }
                     Ok(RestoreResult::NoSession) => {
                         root.active_screen = Screen::ServerDiscovery(discovery_view.clone());
                     }
                     Ok(RestoreResult::NeedsLogin(client)) => {
-                        root.show_login(client, window, cx);
+                        root.show_login(client, window, cx, discovery_view.clone());
                     }
                     Err(_join_error) => {
                         discovery_view.update(cx, |view, _cx| {
@@ -77,11 +82,18 @@ impl RootView {
 
         Self {
             active_screen: Screen::default(),
+            background_image,
             tokio_rt,
         }
     }
 
-    fn show_login(&mut self, client: Client, window: &mut Window, cx: &mut Context<Self>) {
+    fn show_login(
+        &mut self,
+        client: Client,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        discovery_view: Entity<DiscoveryView>,
+    ) {
         let tokio_rt = Arc::clone(&self.tokio_rt);
         let login_view = cx.new(|cx| LoginView::new(tokio_rt, window, cx, client));
 
@@ -102,6 +114,10 @@ impl RootView {
                     this.active_screen = Screen::Login(login_view.clone());
                     cx.notify();
                 }
+                LoginResult::BackToDiscovery => {
+                    this.active_screen = Screen::ServerDiscovery(discovery_view.clone());
+                    cx.notify();
+                }
             }
         })
         .detach();
@@ -112,7 +128,19 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().child(match &self.active_screen {
+        let mut root_div = div().size_full();
+
+        if let Some(image) = self.background_image.clone() {
+            root_div = root_div.child(
+                img(image)
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .object_fit(gpui::ObjectFit::Cover),
+            )
+        }
+
+        root_div.child(match &self.active_screen {
             Screen::Loading => div().bg(blue()).child("Loading...").into_any_element(),
             Screen::ServerDiscovery(view) => view.clone().into_any_element(),
             Screen::Login(view) => view.clone().into_any_element(),

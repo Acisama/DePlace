@@ -3,22 +3,27 @@ use std::{str::FromStr, sync::Arc};
 use deplace_core::matrix_api::test_server;
 use gpui::{
     AppContext, ClickEvent, Context, Entity, EventEmitter, IntoElement, Render, Subscription,
-    Window, div, prelude::*, red,
+    Window, div, prelude::*,
 };
 use gpui_component::{
-    Disableable,
-    button::{Button, ButtonVariants},
-    input::{Input, InputEvent, InputState},
-    v_flex,
+    Disableable, StyledExt,
+    button::{Button, ButtonCustomVariant, ButtonVariants},
+    input::{InputEvent, InputState},
 };
 use matrix_sdk::{Client, reqwest::Url};
 
-use crate::GenericState;
+use crate::{
+    GenericState,
+    components::{floating_tile, input},
+    theme::ActiveAppTheme,
+};
 
 pub struct DiscoveryView {
     tokio_rt: Arc<tokio::runtime::Runtime>,
     pub state: GenericState,
     server_input: Entity<InputState>,
+    valid_result: Option<(Client, Url)>,
+    current_request: Option<tokio::task::AbortHandle>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -36,25 +41,26 @@ impl DiscoveryView {
                 .default_value("erik-is.gay")
         });
 
-        let _subscriptions = vec![cx.subscribe_in(
-            &server_input,
-            window,
-            |this, _, event: &InputEvent, _, cx| {
-                if let InputEvent::PressEnter { .. } = event {
+        let _subscriptions =
+            vec![
+                cx.subscribe_in(&server_input, window, |this, _, _: &InputEvent, _, cx| {
                     this.test_server(cx);
-                }
-            },
-        )];
+                }),
+            ];
 
-        Self {
+        let mut view = Self {
             tokio_rt,
             state: GenericState::default(),
+            valid_result: None,
+            current_request: None,
             server_input,
             _subscriptions,
-        }
+        };
+        view.test_server(cx);
+        view
     }
 
-    fn check_input(&mut self, cx: &Context<Self>) -> Option<Url> {
+    fn check_input(&mut self, cx: &mut Context<Self>) -> Option<Url> {
         let mut text = self.server_input.read(cx).value().to_string();
 
         if !text.starts_with("https://") {
@@ -62,45 +68,67 @@ impl DiscoveryView {
         }
 
         if text.is_empty() {
-            self.state = GenericState::Default;
+            self.state = GenericState::Disabled;
+            cx.notify();
             return None;
         }
-        Url::from_str(text.as_ref()).ok()
+
+        match Url::from_str(text.as_ref()) {
+            Ok(url) => Some(url),
+            Err(_) => {
+                self.state = GenericState::Error("Enter a valid server URL".to_string());
+                cx.notify();
+                None
+            }
+        }
     }
 
     fn on_discover_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        self.test_server(cx);
+        let event = self.valid_result.clone();
+
+        cx.spawn(async move |this, cx| {
+            cx.update(|cx| {
+                let _ = this.update(cx, |_, cx| {
+                    cx.emit(event);
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
     }
 
     fn test_server(&mut self, cx: &mut Context<Self>) {
-        if matches!(self.state, GenericState::Loading) {
-            return;
-        }
-
         let tokio_rt = Arc::clone(&self.tokio_rt);
 
         let Some(url) = self.check_input(cx) else {
-            self.state = GenericState::Error("Enter a valid server URL".to_string());
-            cx.notify();
             return;
         };
+
+        if let Some(handle) = self.current_request.take() {
+            handle.abort();
+        }
 
         self.state = GenericState::Loading;
         cx.notify();
 
+        let task = tokio_rt.spawn(async move { test_server(url.to_string()).await });
+        self.current_request = Some(task.abort_handle());
+
         cx.spawn(async move |this, cx| {
-            let result = tokio_rt
-                .spawn(async move { test_server(url.to_string()).await })
-                .await
-                .unwrap();
+            // If this task was aborted by a newer request, just drop the update.
+            let Ok(result) = task.await else {
+                return;
+            };
 
             cx.update(|cx| {
                 let _ = this.update(cx, |view, cx| {
                     if result.is_none() {
-                        view.state =
-                            GenericState::Error("Couldn't reach that server".to_string());
+                        view.state = GenericState::Error("Couldn't reach that server".to_string());
+                    } else {
+                        view.state = GenericState::Success;
                     }
-                    cx.emit(result);
+                    view.valid_result = result;
+                    view.current_request = None;
                     cx.notify();
                 });
             });
@@ -110,9 +138,19 @@ impl DiscoveryView {
 }
 
 impl Render for DiscoveryView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let loading = self.state.is_loading();
-        let error = self.state.error();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let disabled = self.state.is_disabled();
+
+        let theme = cx.app_theme();
+
+        let (message, color) = match &self.state {
+            GenericState::Default => ("Ready to discover".to_string(), theme.colors.muted),
+            GenericState::Loading | GenericState::Disabled => {
+                ("Discovering...".to_string(), theme.colors.muted)
+            }
+            GenericState::Error(err) => (err.clone(), theme.colors.error),
+            GenericState::Success => ("Discovered successfully".to_string(), theme.colors.success),
+        };
 
         div()
             .size_full()
@@ -120,21 +158,50 @@ impl Render for DiscoveryView {
             .items_center()
             .justify_center()
             .child(
-                v_flex()
+                floating_tile(theme)
+                    .flex_col()
                     .w(gpui::px(320.))
-                    .gap_3()
-                    .child(Input::new(&self.server_input))
-                    .when_some(error, |this, message| {
-                        this.child(div().text_color(red()).child(message))
-                    })
                     .child(
-                        Button::new("discover-continue")
-                            .label(if loading { "Searching…" } else { "Continue" })
-                            .primary()
+                        div()
                             .w_full()
-                            .loading(loading)
-                            .disabled(loading)
-                            .on_click(cx.listener(Self::on_discover_click)),
+                            .text_center()
+                            .text_2xl()
+                            .font_extrabold()
+                            .text_color(theme.accent)
+                            .child("Discovery"),
+                    )
+                    .child(
+                        div()
+                            .flex_col()
+                            .flex()
+                            .gap(theme.small_gap)
+                            .child("Homeserver")
+                            .text_color(theme.text.dim)
+                            .child(input(theme, &self.server_input, window, cx)),
+                    )
+                    .child(
+                        div()
+                            .flex_col()
+                            .flex()
+                            .gap(theme.small_gap)
+                            .child(div().child(message).text_color(color))
+                            .child({
+                                let bg = if disabled {
+                                    theme.colors.muted
+                                } else {
+                                    theme.accent
+                                };
+                                let variant =
+                                    ButtonCustomVariant::new(cx).color(bg).hover(bg).active(bg);
+
+                                Button::new("server-submit")
+                                    .label("Continue")
+                                    .custom(variant)
+                                    .w_full()
+                                    .disabled(disabled)
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(Self::on_discover_click))
+                            }),
                     ),
             )
     }

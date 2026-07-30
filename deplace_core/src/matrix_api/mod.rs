@@ -34,6 +34,7 @@ pub enum LoginResult {
     Success(AppState),
     InvalidCredentials,
     Error(String),
+    BackToDiscovery,
 }
 
 impl Default for LoginResult {

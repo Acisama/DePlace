@@ -1,4 +1,4 @@
-use matrix_sdk::Client;
+use matrix_sdk::{Client, SessionMeta, SessionTokens, authentication::matrix::MatrixSession};
 
 use crate::{
     keyring::init_keyring,
@@ -61,6 +61,23 @@ pub async fn try_restore() -> RestoreResult {
             return RestoreResult::NoSession;
         }
     };
+
+    if let Err(error) = client
+        .restore_session(MatrixSession {
+            meta: SessionMeta {
+                user_id: user_id.clone(),
+                device_id: device_id.clone(),
+            },
+            tokens: SessionTokens {
+                access_token: session.access_token,
+                refresh_token: session.refresh_token,
+            },
+        })
+        .await
+    {
+        tracing::error!("Failed to restore session on client: {:?}", error);
+        return RestoreResult::NoSession;
+    }
 
     matrix_api::save_session(&client);
 

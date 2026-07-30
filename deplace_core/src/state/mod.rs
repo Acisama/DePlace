@@ -11,8 +11,8 @@ pub struct UserDevice {
 
 #[derive(Clone)]
 pub struct AppState {
-    client: Client,
-    user_device: UserDevice,
+    pub client: Client,
+    pub user_device: UserDevice,
 }
 
 impl AppState {

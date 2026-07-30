@@ -2,17 +2,21 @@ use std::sync::Arc;
 
 use deplace_core::matrix_api::{LoginResult, login};
 use gpui::{
-    ClickEvent, Context, Entity, EventEmitter, Render, Subscription, Window, div, prelude::*, red,
+    ClickEvent, Context, Entity, EventEmitter, Render, Subscription, Window, div, prelude::*,
 };
 use gpui_component::{
-    Disableable,
-    button::{Button, ButtonVariants},
-    input::{Input, InputEvent, InputState},
-    v_flex,
+    Disableable, IconName, StyledExt,
+    button::{Button, ButtonCustomVariant, ButtonVariants},
+    h_flex,
+    input::{InputEvent, InputState},
 };
 use matrix_sdk::Client;
 
-use crate::GenericState;
+use crate::{
+    GenericState,
+    components::{floating_tile, input},
+    theme::ActiveAppTheme,
+};
 
 pub struct LoginView {
     tokio_rt: Arc<tokio::runtime::Runtime>,
@@ -21,6 +25,7 @@ pub struct LoginView {
     password_input: Entity<InputState>,
     recovery_key_input: Entity<InputState>,
     state: GenericState,
+    current_request: Option<tokio::task::AbortHandle>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -33,15 +38,15 @@ impl LoginView {
         cx: &mut Context<Self>,
         client: Client,
     ) -> Self {
-        let username_input = cx.new(|cx| InputState::new(window, cx).placeholder("Username"));
+        let username_input = cx.new(|cx| InputState::new(window, cx).placeholder("luke"));
         let password_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Password")
+                .placeholder("••••••••")
                 .masked(true)
         });
         let recovery_key_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Recovery key")
+                .placeholder("ABCD xxxx xxxx...")
                 .masked(true)
         });
 
@@ -57,18 +62,21 @@ impl LoginView {
         });
         let _subscriptions = input_subscriptions.collect();
 
-        Self {
+        let mut view = Self {
             tokio_rt,
             client,
             username_input,
             password_input,
             recovery_key_input,
+            current_request: None,
             _subscriptions,
             state: GenericState::Default,
-        }
+        };
+        view.check_inputs(cx);
+        view
     }
 
-    fn check_inputs(&mut self, cx: &Context<Self>) -> Option<(String, String, String)> {
+    fn check_inputs(&mut self, cx: &mut Context<Self>) -> Option<(String, String, String)> {
         let username = self.username_input.read(cx).value().to_string();
         if username.is_empty() {
             self.state = GenericState::Error("Username is required".to_string());
@@ -100,6 +108,8 @@ impl LoginView {
             }
         }
 
+        self.state = GenericState::Default;
+        cx.notify();
         Some((username, password, key))
     }
 
@@ -114,15 +124,21 @@ impl LoginView {
             return;
         };
 
+        if let Some(handle) = self.current_request.take() {
+            handle.abort();
+        }
+
         let client = self.client.clone();
 
         self.state = GenericState::Loading;
+        cx.notify();
+
+        let task =
+            tokio_rt.spawn(async move { login(&client, username, password, recovery_key).await });
+        self.current_request = Some(task.abort_handle());
 
         cx.spawn(async move |this, cx| {
-            let result = tokio_rt
-                .spawn(async move { login(&client, username, password, recovery_key).await })
-                .await
-                .unwrap_or_default();
+            let result = task.await.unwrap_or_default();
 
             cx.update(|cx| {
                 let _ = this.update(cx, |view, cx| {
@@ -136,7 +152,11 @@ impl LoginView {
                         LoginResult::Error(err) => {
                             view.state = GenericState::Error(err.clone());
                         }
+                        LoginResult::BackToDiscovery => {
+                            view.state = GenericState::Default;
+                        }
                     }
+                    view.current_request = None;
                     cx.emit(result);
                     cx.notify();
                 });
@@ -148,12 +168,25 @@ impl LoginView {
     fn on_login_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.perform_login(cx);
     }
+
+    fn on_back_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(LoginResult::BackToDiscovery);
+    }
 }
 
 impl Render for LoginView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let loading = self.state.is_loading();
-        let error = self.state.error();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.app_theme();
+        let disabled = self.state.is_disabled();
+
+        let (message, color) = match &self.state {
+            GenericState::Default => ("All inputs look good".to_string(), theme.colors.success),
+            GenericState::Loading | GenericState::Disabled => {
+                ("Logging in...".to_string(), theme.colors.muted)
+            }
+            GenericState::Error(err) => (err.clone(), theme.colors.error),
+            GenericState::Success => ("Logged in successfully".to_string(), theme.colors.success),
+        };
 
         div()
             .size_full()
@@ -161,23 +194,87 @@ impl Render for LoginView {
             .items_center()
             .justify_center()
             .child(
-                v_flex()
-                    .w(gpui::px(320.))
-                    .gap_3()
-                    .child(Input::new(&self.username_input))
-                    .child(Input::new(&self.password_input))
-                    .child(Input::new(&self.recovery_key_input))
-                    .when_some(error, |this, message| {
-                        this.child(div().text_color(red()).child(message))
-                    })
+                floating_tile(theme)
+                    .flex_col()
+                    .gap(theme.tile.gap * 2)
+                    .w(gpui::px(360.0))
                     .child(
-                        Button::new("discover-continue")
-                            .label("Login")
-                            .primary()
+                        div()
+                            .relative()
                             .w_full()
-                            .loading(loading)
-                            .disabled(loading)
-                            .on_click(cx.listener(Self::on_login_click)),
+                            .child(
+                                div().absolute().left_0().top_0().child(
+                                    h_flex()
+                                        .id("login-back")
+                                        .items_center()
+                                        .gap_1()
+                                        .cursor_pointer()
+                                        .text_color(theme.text.dim)
+                                        .hover(|style| style.text_decoration_1())
+                                        .child(IconName::ArrowLeft)
+                                        .child("back")
+                                        .on_click(cx.listener(Self::on_back_click)),
+                                ),
+                            )
+                            .child(
+                                div()
+                                    .w_full()
+                                    .text_center()
+                                    .text_2xl()
+                                    .font_extrabold()
+                                    .text_color(theme.accent)
+                                    .child("Login"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_col()
+                            .flex()
+                            .gap(theme.small_gap)
+                            .child("Username")
+                            .text_color(theme.text.dim)
+                            .child(input(theme, &self.username_input, window, cx)),
+                    )
+                    .child(
+                        div()
+                            .flex_col()
+                            .flex()
+                            .gap(theme.small_gap)
+                            .child("Password")
+                            .text_color(theme.text.dim)
+                            .child(input(theme, &self.password_input, window, cx)),
+                    )
+                    .child(
+                        div()
+                            .flex_col()
+                            .flex()
+                            .gap(theme.small_gap)
+                            .child("Recovery Key")
+                            .text_color(theme.text.dim)
+                            .child(input(theme, &self.recovery_key_input, window, cx)),
+                    )
+                    .child(
+                        div()
+                            .flex_col()
+                            .flex()
+                            .gap(theme.small_gap)
+                            .child(div().child(message).text_color(color))
+                            .child({
+                                let bg = if disabled {
+                                    theme.colors.muted
+                                } else {
+                                    theme.accent
+                                };
+                                let variant =
+                                    ButtonCustomVariant::new(cx).color(bg).hover(bg).active(bg);
+
+                                Button::new("login-submit")
+                                    .label("Log in")
+                                    .custom(variant)
+                                    .w_full()
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(Self::on_login_click))
+                            }),
                     ),
             )
     }

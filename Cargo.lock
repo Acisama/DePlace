@@ -1941,8 +1941,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "deplace_core",
+ "dirs 6.0.0",
  "gpui",
  "gpui-component",
+ "gpui-component-assets",
  "gpui_platform",
  "interprocess",
  "matrix-sdk",
