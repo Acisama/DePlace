@@ -61,6 +61,22 @@ impl Colors {
 }
 
 #[derive(Clone)]
+pub struct ChatSidebarWidth {
+    pub member: Pixels,
+    pub search: Pixels,
+    pub pinned: Pixels,
+    pub members: Pixels,
+}
+
+#[derive(Clone)]
+pub struct Structure {
+    pub server_column_width: Pixels,
+    pub header_height: Pixels,
+    pub sidebar_width: Pixels,
+    pub chat_sidebar_width: ChatSidebarWidth,
+}
+
+#[derive(Clone)]
 pub struct AppTheme {
     pub background: Hsla,
     pub small_gap: Pixels,
@@ -69,6 +85,7 @@ pub struct AppTheme {
     pub text: TextTheme,
     pub input: InputTheme,
     pub colors: Colors,
+    pub structure: Structure,
 }
 
 impl Global for AppTheme {}
@@ -97,8 +114,8 @@ impl AppTheme {
             text: TextTheme {
                 font_size: px(16.0),
                 muted: muted_color,
-                dim: hsla(0.66, 0.15, 0.5, 1.0),
-                normal: hsla(0.66, 0.15, 0.7, 1.0),
+                dim: hsla(0.66, 0.15, 0.55, 1.0),
+                normal: hsla(0.66, 0.15, 0.8, 1.0),
             },
             input: InputTheme {
                 background: hsla(0.0, 0.0, 0.0, 0.2),
@@ -108,6 +125,17 @@ impl AppTheme {
             },
             colors: Colors::new(red, green, yellow, muted_color),
             accent,
+            structure: Structure {
+                server_column_width: px(70.0),
+                header_height: px(50.0),
+                sidebar_width: px(300.0),
+                chat_sidebar_width: ChatSidebarWidth {
+                    member: px(320.0),
+                    search: px(480.0),
+                    pinned: px(480.0),
+                    members: px(240.0),
+                },
+            },
         }
     }
 }

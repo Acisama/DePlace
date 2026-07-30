@@ -8,9 +8,13 @@ use matrix_sdk::{
     search_index::SearchIndexStoreKind,
 };
 
+pub mod account_data;
+pub mod sync;
+
 use crate::{
     APP_NAME, DEVICE_DISPLAY_NAME,
     keyring::{self, StoredSession, get_or_create_store_key},
+    matrix_api::sync::spawn_room_sync,
     state::{AppState, UserDevice},
 };
 
@@ -102,13 +106,15 @@ pub async fn login(
 
     save_session(&client);
 
-    LoginResult::Success(AppState::new(
-        client,
-        UserDevice {
-            user_id: user_id.to_owned(),
-            device_id: device_id.to_owned(),
-        },
-    ))
+    let device = UserDevice {
+        user_id: user_id.to_owned(),
+        device_id: device_id.to_owned(),
+    };
+
+    let state = AppState::new(client.clone(), device.clone());
+    spawn_room_sync(&client, &state);
+
+    LoginResult::Success(state)
 }
 
 pub fn save_session(client: &Client) {

@@ -166,7 +166,7 @@ impl Render for DiscoveryView {
                             .w_full()
                             .text_center()
                             .text_2xl()
-                            .font_extrabold()
+                            .font_bold()
                             .text_color(theme.accent)
                             .child("Discovery"),
                     )

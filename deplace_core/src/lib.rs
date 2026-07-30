@@ -2,7 +2,7 @@ use matrix_sdk::{Client, SessionMeta, SessionTokens, authentication::matrix::Mat
 
 use crate::{
     keyring::init_keyring,
-    matrix_api::matrix_client_builder,
+    matrix_api::{matrix_client_builder, sync::spawn_room_sync},
     state::{AppState, UserDevice},
 };
 use const_format::formatcp;
@@ -81,6 +81,13 @@ pub async fn try_restore() -> RestoreResult {
 
     matrix_api::save_session(&client);
 
+    let device = UserDevice {
+        user_id: user_id.clone(),
+        device_id: device_id.clone(),
+    };
+    let state = AppState::new(client.clone(), device);
+    spawn_room_sync(&client, &state);
+
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");
-    RestoreResult::Success(AppState::new(client, UserDevice { user_id, device_id }))
+    RestoreResult::Success(state)
 }

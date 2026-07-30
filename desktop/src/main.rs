@@ -8,7 +8,6 @@ use interprocess::local_socket::traits::tokio::{Listener as _, Stream as _};
 use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -20,6 +19,7 @@ const SOCKET_NAME: &str = "deplace.sock";
 
 mod components;
 mod theme;
+mod watch_bridge;
 
 #[derive(Serialize, Deserialize)]
 enum InstanceCommand {
@@ -108,7 +108,7 @@ async fn listen_for_focus_requests(listener: TokioListener, focus_tx: mpsc::Unbo
     }
 }
 
-fn run_ui(focus_rx: mpsc::UnboundedReceiver<()>) {
+fn run_ui(_: mpsc::UnboundedReceiver<()>) {
     let tokio_rt = Arc::new(
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -137,6 +137,11 @@ fn run_ui(focus_rx: mpsc::UnboundedReceiver<()>) {
             theme.font_size = app_theme.text.font_size;
             theme.primary = app_theme.accent;
             theme.border = app_theme.tile.border;
+            // The default ".SystemUIFont" resolves to "IBM Plex Sans" on Linux, which
+            // usually isn't installed. When it's missing, gpui falls back to a generic
+            // font at regular weight, silently dropping any requested bold/extrabold —
+            // pin to an installed font family so font-weight utilities actually apply.
+            theme.font_family = "Noto Sans".into();
 
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Maximized(Bounds::maximized(None, cx))),

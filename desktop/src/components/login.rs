@@ -5,7 +5,7 @@ use gpui::{
     ClickEvent, Context, Entity, EventEmitter, Render, Subscription, Window, div, prelude::*,
 };
 use gpui_component::{
-    Disableable, IconName, StyledExt,
+    Disableable, StyledExt,
     button::{Button, ButtonCustomVariant, ButtonVariants},
     h_flex,
     input::{InputEvent, InputState},
@@ -46,7 +46,7 @@ impl LoginView {
         });
         let recovery_key_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("ABCD xxxx xxxx...")
+                .placeholder("Es9o xxxx xxxx...")
                 .masked(true)
         });
 
@@ -203,18 +203,23 @@ impl Render for LoginView {
                             .relative()
                             .w_full()
                             .child(
-                                div().absolute().left_0().top_0().child(
-                                    h_flex()
-                                        .id("login-back")
-                                        .items_center()
-                                        .gap_1()
-                                        .cursor_pointer()
-                                        .text_color(theme.text.dim)
-                                        .hover(|style| style.text_decoration_1())
-                                        .child(IconName::ArrowLeft)
-                                        .child("back")
-                                        .on_click(cx.listener(Self::on_back_click)),
-                                ),
+                                div()
+                                    .absolute()
+                                    .left(theme.tile.gap)
+                                    .top(theme.tile.gap)
+                                    .child(
+                                        h_flex()
+                                            .id("login-back")
+                                            .items_center()
+                                            .gap_1()
+                                            .cursor_pointer()
+                                            .text_color(theme.text.dim)
+                                            .text_xs()
+                                            .font_bold()
+                                            .hover(|style| style.text_decoration_1())
+                                            .child("⟵ back")
+                                            .on_click(cx.listener(Self::on_back_click)),
+                                    ),
                             )
                             .child(
                                 div()

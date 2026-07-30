@@ -12,7 +12,9 @@ deplace_core = { path = "deplace_core" }
 
 anyhow = "1"
 dirs = "6.0.0"
+futures-util = "0.3"
 getrandom = "0.4.3"
+image = "0.25.10"
 interprocess = { version = "2", features = ["tokio"] }
 matrix-sdk = {
   version = "0.18.0",

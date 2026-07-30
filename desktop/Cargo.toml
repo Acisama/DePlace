@@ -17,6 +17,7 @@ gpui-platform = {
   git = "https://github.com/zed-industries/zed",
   features = ["wayland", "x11"]
 }
+image.workspace = true
 interprocess.workspace = true
 matrix-sdk.workspace = true
 serde.workspace = true

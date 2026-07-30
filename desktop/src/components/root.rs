@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use deplace_core::{RestoreResult, matrix_api::LoginResult, try_restore};
 use gpui::{
@@ -57,10 +57,10 @@ impl RootView {
             let _ = this.update_in(cx, |root, window, cx| {
                 match outcome {
                     Ok(RestoreResult::Success(state)) => {
-                        // let tokio_rt = Arc::clone(&root.tokio_rt);
-                        // let home_view = cx.new(|_cx| HomeView::new(tokio_rt, state));
-                        // root.active_screen = Screen::Home(home_view);
-                        root.show_login(state.client, window, cx, discovery_view.clone());
+                        let tokio_rt = Arc::clone(&root.tokio_rt);
+                        let home_view = cx.new(|cx| HomeView::new(tokio_rt, state, cx));
+                        root.active_screen = Screen::Home(home_view);
+                        // root.show_login(state.client, window, cx, discovery_view.clone());
                     }
                     Ok(RestoreResult::NoSession) => {
                         root.active_screen = Screen::ServerDiscovery(discovery_view.clone());
@@ -102,7 +102,7 @@ impl RootView {
             move |this: &mut RootView, _child, event, cx| match event {
                 LoginResult::Success(state) => {
                     let tokio_rt = Arc::clone(&this.tokio_rt);
-                    let home_view = cx.new(|_cx| HomeView::new(tokio_rt, state.clone()));
+                    let home_view = cx.new(|cx| HomeView::new(tokio_rt, state.clone(), cx));
                     this.active_screen = Screen::Home(home_view);
                     cx.notify();
                 }

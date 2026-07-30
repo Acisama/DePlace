@@ -1,15 +1,29 @@
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    sync::{Arc, RwLock},
+};
+
 use gpui::{App, Div, Entity, Focusable, Window, div, prelude::*};
 use gpui_component::{
     StyledExt,
     input::{Input, InputState},
 };
+use matrix_sdk::{
+    Client,
+    media::{MediaFormat, MediaRequestParameters},
+    ruma::{OwnedMxcUri, events::room::MediaSource},
+};
+use tokio::{runtime::Runtime, sync::watch};
 
 use crate::theme::AppTheme;
 
 pub mod discovery;
+pub mod dm_list;
 pub mod home;
 pub mod login;
 pub mod root;
+pub mod server_list;
 
 pub fn floating_tile(theme: &AppTheme) -> Div {
     div()
@@ -40,4 +54,88 @@ pub fn input(theme: &AppTheme, entity: &Entity<InputState>, window: &Window, cx:
         .border_1()
         .cleanable(true)
         .border_color(border)
+}
+
+#[derive(Clone)]
+enum MediaState {
+    Loading,
+    Loaded(Arc<Vec<u8>>),
+    Failed,
+}
+
+#[derive(Clone)]
+pub struct MediaCache<T> {
+    client: Client,
+    tokio_rt: Arc<Runtime>,
+    cache: Arc<RwLock<HashMap<T, MediaState>>>,
+    changed: watch::Sender<()>,
+}
+
+impl<T> MediaCache<T> {
+    pub fn new(client: Client, tokio_rt: Arc<Runtime>) -> Self {
+        let (changed, _) = watch::channel(());
+        Self {
+            client,
+            tokio_rt,
+            cache: Arc::new(RwLock::new(HashMap::new())),
+            changed,
+        }
+    }
+
+    pub fn subscribe(&self) -> watch::Receiver<()> {
+        self.changed.subscribe()
+    }
+}
+
+impl MediaCache<OwnedMxcUri> {
+    pub fn get(&self, source: &MediaSource) -> Option<Arc<Vec<u8>>> {
+        let uri = match source {
+            MediaSource::Plain(uri) => uri.clone(),
+            MediaSource::Encrypted(file) => file.url.clone(),
+        };
+
+        {
+            let cache = self.cache.read().unwrap();
+            match cache.get(&uri) {
+                Some(MediaState::Loaded(bytes)) => return Some(bytes.clone()),
+                Some(_) => return None, // already Loading/Failed
+                None => {}
+            }
+        }
+
+        self.cache
+            .write()
+            .unwrap()
+            .insert(uri.clone(), MediaState::Loading);
+
+        let store = self.clone();
+        let source = source.clone();
+        let tokio_rt = self.tokio_rt.clone();
+        tokio_rt.spawn(async move {
+            let request = MediaRequestParameters {
+                source,
+                format: MediaFormat::File,
+            };
+            let state = match store.client.media().get_media_content(&request, true).await {
+                Ok(bytes) => MediaState::Loaded(Arc::new(bytes)),
+                Err(e) => {
+                    tracing::error!("Failed to fetch media {uri}: {e}");
+                    MediaState::Failed
+                }
+            };
+            store.cache.write().unwrap().insert(uri, state);
+            let _ = store.changed.send(());
+        });
+
+        None
+    }
+}
+
+fn gpui_format_from(format: image::ImageFormat) -> gpui::ImageFormat {
+    match format {
+        image::ImageFormat::Png => gpui::ImageFormat::Png,
+        image::ImageFormat::Jpeg => gpui::ImageFormat::Jpeg,
+        image::ImageFormat::Gif => gpui::ImageFormat::Gif,
+        _ => gpui::ImageFormat::Png,
+    }
 }
