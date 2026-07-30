@@ -3,7 +3,10 @@ use std::pin::pin;
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use matrix_sdk::{Client, config::SyncSettings, ruma::presence::PresenceState};
+use matrix_sdk::{
+    Client, Room, config::SyncSettings, room::ParentSpace, ruma::presence::PresenceState,
+};
+use ruma::OwnedRoomId;
 
 use crate::{
     matrix_api::account_data::{ServerOrderContent, get_account_data},
@@ -55,23 +58,14 @@ async fn run_room_classification(client: Client, state: AppState) {
 async fn reclassify_rooms(client: &Client, state: &AppState) {
     let mut dm_rooms = HashMap::new();
     let mut server_rooms = HashMap::new();
+    let mut single_rooms = HashMap::new();
 
-    for room in client.rooms() {
-        let is_dm = match room.compute_is_dm().await {
-            Ok(is_dm) => is_dm,
-            Err(e) => {
-                tracing::error!("Failed to compute is_dm for room {}: {e}", room.room_id());
-                false
-            }
-        };
+    let mut parent_to_children: HashMap<OwnedRoomId, Vec<Room>> = HashMap::new();
+    let mut child_to_parents: HashMap<OwnedRoomId, Vec<Room>> = HashMap::new();
 
-        if is_dm {
-            dm_rooms.insert(room.room_id().to_owned(), room.clone());
-            continue;
-        }
-
-        let clone = room.clone();
-        let mut parents = match clone.parent_spaces().await {
+    let rooms = client.rooms();
+    for room in rooms {
+        let parents = match room.parent_spaces().await {
             Ok(parents) => parents,
             Err(e) => {
                 tracing::error!(
@@ -82,13 +76,65 @@ async fn reclassify_rooms(client: &Client, state: &AppState) {
             }
         };
 
-        if parents.next().await.is_some() {
+        let parents_res = parents.collect::<Vec<_>>().await;
+
+        let parents: Vec<Room> = parents_res
+            .iter()
+            .filter_map(|res| {
+                if let Ok(ParentSpace::Reciprocal(room)) = res {
+                    Some(room.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        child_to_parents.insert(room.room_id().to_owned(), parents.clone());
+
+        for parent in parents {
+            let entry = parent_to_children
+                .entry(parent.room_id().to_owned())
+                .or_default();
+            entry.push(parent.clone());
+        }
+    }
+
+    for room in client.rooms() {
+        let room_id = room.room_id().to_owned();
+
+        let is_dm = match room.compute_is_dm().await {
+            Ok(is_dm) => is_dm,
+            Err(e) => {
+                tracing::error!("Failed to compute is_dm for room {}: {e}", room_id);
+                false
+            }
+        };
+
+        if is_dm {
+            dm_rooms.insert(room.room_id().to_owned(), room.clone());
             continue;
         }
 
-        server_rooms.insert(room.room_id().to_owned(), room);
+        let has_children = !parent_to_children
+            .get(&room_id)
+            .cloned()
+            .unwrap_or_default()
+            .is_empty();
+        let has_parents = !child_to_parents
+            .get(&room_id)
+            .cloned()
+            .unwrap_or_default()
+            .is_empty();
+
+        if has_children && !has_parents {
+            server_rooms.insert(room_id, room.clone());
+            continue;
+        }
+
+        single_rooms.insert(room_id, room.clone());
     }
 
     state.set_dm_rooms(dm_rooms);
     state.set_server_rooms(server_rooms);
+    state.set_single_rooms(single_rooms);
 }

@@ -21,6 +21,7 @@ pub struct AppState {
     pub client: Client,
     pub user_device: UserDevice,
     dm_rooms: Sender<RoomMap>,
+    single_rooms: Sender<RoomMap>,
     server_rooms: Sender<RoomMap>,
     active_room: Sender<Option<Room>>,
     pub server_order: Sender<ServerOrderContent>,
@@ -29,6 +30,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(client: Client, user_device: UserDevice) -> Self {
         let (dm_rooms, _) = watch::channel(HashMap::new());
+        let (single_rooms, _) = watch::channel(HashMap::new());
         let (server_rooms, _) = watch::channel(HashMap::new());
         let (active_room, _) = watch::channel(None);
         let (server_order, _) = watch::channel(ServerOrderContent::default());
@@ -37,6 +39,7 @@ impl AppState {
             client,
             user_device,
             dm_rooms,
+            single_rooms,
             server_rooms,
             active_room,
             server_order,
@@ -49,6 +52,10 @@ impl AppState {
 
     pub fn server_rooms(&self) -> watch::Receiver<RoomMap> {
         self.server_rooms.subscribe()
+    }
+
+    pub fn single_rooms(&self) -> watch::Receiver<RoomMap> {
+        self.single_rooms.subscribe()
     }
 
     pub fn active_room(&self) -> watch::Receiver<Option<Room>> {
@@ -65,6 +72,10 @@ impl AppState {
 
     pub(crate) fn set_server_rooms(&self, rooms: RoomMap) {
         Self::send_if_keys_changed(&self.server_rooms, rooms);
+    }
+
+    pub(crate) fn set_single_rooms(&self, rooms: RoomMap) {
+        Self::send_if_keys_changed(&self.single_rooms, rooms);
     }
 
     /// Called from the frontend when the user selects a different room.
