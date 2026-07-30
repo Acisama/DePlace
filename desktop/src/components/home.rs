@@ -79,7 +79,7 @@ impl Render for HomeView {
                     .gap(padding)
                     .child(
                         floating_tile(theme)
-                            .w(structure.server_column_width)
+                            .w(structure.server_column.width)
                             .child(self.server_list.clone()),
                     )
                     .child(

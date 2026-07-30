@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 const_format = "0.2.36"
+csscolorparser.workspace = true
 dirs.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
@@ -14,8 +15,11 @@ keyring-core = "1.0.0"
 matrix-sdk.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+gpui = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1.0"
@@ -31,3 +35,6 @@ apple-native-keyring-store = { version = "1.0", features = ["keychain"] }
 
 [target."cfg(windows)".dependencies]
 windows-native-keyring-store = "1.0"
+
+[features]
+desktop = ["gpui"]

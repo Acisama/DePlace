@@ -11,9 +11,11 @@ default-members = ["desktop"]
 deplace_core = { path = "deplace_core" }
 
 anyhow = "1"
+csscolorparser = "0.8.3"
 dirs = "6.0.0"
 futures-util = "0.3"
 getrandom = "0.4.3"
+gpui = { git = "https://github.com/zed-industries/zed" }
 image = "0.25.10"
 interprocess = { version = "2", features = ["tokio"] }
 matrix-sdk = {
@@ -30,6 +32,7 @@ matrix-sdk = {
 matrix-sdk-ui = "0.18.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11.0"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

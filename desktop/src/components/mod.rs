@@ -1,10 +1,13 @@
 use std::{
     collections::HashMap,
-    hash::Hash,
     sync::{Arc, RwLock},
 };
 
-use gpui::{App, Div, Entity, Focusable, Window, div, prelude::*};
+use deplace_core::colors::Color;
+use gpui::{
+    AnyElement, App, BoxShadow, Div, Entity, Focusable, Image, ObjectFit, Pixels, Window, div, img,
+    prelude::*, px,
+};
 use gpui_component::{
     StyledExt,
     input::{Input, InputState},
@@ -137,5 +140,56 @@ fn gpui_format_from(format: image::ImageFormat) -> gpui::ImageFormat {
         image::ImageFormat::Jpeg => gpui::ImageFormat::Jpeg,
         image::ImageFormat::Gif => gpui::ImageFormat::Gif,
         _ => gpui::ImageFormat::Png,
+    }
+}
+
+pub fn text_circle(initial: char, color: Color, size: Pixels, rounding: Pixels) -> AnyElement {
+    let font_size = size / 2.0;
+
+    let bg_color = color.set_lightness(0.1);
+
+    div()
+        .bg(bg_color.to_gpui())
+        .relative()
+        .rounded(rounding)
+        .size(size)
+        .flex()
+        .font_bold()
+        .text_size(font_size)
+        .text_color(color.to_gpui())
+        .items_center()
+        .justify_center()
+        .child(initial.to_string())
+        .child(
+            div()
+                .absolute()
+                .rounded(rounding)
+                .inset_0()
+                .shadow(vec![BoxShadow {
+                    color: color.to_gpui(),
+                    blur_radius: px(4.0),
+                    inset: true,
+                    offset: Default::default(),
+                    spread_radius: px(2.0),
+                }]),
+        )
+        .into_any()
+}
+
+pub fn avatar(
+    initial: char,
+    color: Color,
+    size: Pixels,
+    rounding: Pixels,
+    image: Option<Arc<Image>>,
+) -> AnyElement {
+    if let Some(image) = image {
+        img(image)
+            .object_fit(ObjectFit::Cover)
+            .rounded(rounding)
+            .size(size)
+            .into_any()
+    } else {
+        text_circle(initial, color, size, rounding)
     }
 }

@@ -1,16 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
 
-use deplace_core::state::AppState;
-use gpui::{Context, IntoElement, ParentElement, Render, Styled, Window, div, img, white};
-use gpui_component::gray;
+use deplace_core::{colors::Color, state::AppState};
+use gpui::{Context, IntoElement, ParentElement, Render, Styled, Window, div};
 use matrix_sdk::{
-    Room,
+    Room, RoomDisplayName,
     ruma::{OwnedMxcUri, OwnedRoomId, events::room::MediaSource},
 };
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{MediaCache, gpui_format_from},
+    components::{MediaCache, avatar, gpui_format_from},
+    theme::ActiveAppTheme,
     watch_bridge::notify_on_change,
 };
 
@@ -32,30 +32,48 @@ impl ServerListView {
 }
 
 impl Render for ServerListView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.app_theme();
+        let icon_size = theme.structure.server_column.icon_width;
+        let rounding = icon_size / 4.0;
+
         let rooms: Vec<_> = self
             .rooms
             .borrow()
             .values()
             .map(|room| {
-                let bytes = room.avatar_url().and_then(|url| {
+                let image = room.avatar_url().and_then(|url| {
                     let source = MediaSource::Plain(url);
-                    self.cache.get(&source)
-                });
-
-                if let Some(bytes) = bytes {
-                    let format = image::guess_format(&bytes).unwrap_or(image::ImageFormat::Png);
+                    let bytes = self.cache.get(&source)?;
+                    let format = image::guess_format(&bytes).ok()?;
                     let image = Arc::new(gpui::Image::from_bytes(
                         gpui_format_from(format),
                         bytes.to_vec(),
                     ));
-                    img(image).size_6().rounded_full().into_any_element()
-                } else {
-                    div().size_6().rounded_full().bg(white()).into_any_element()
-                }
+                    Some(image)
+                });
+
+                let initial = room
+                    .cached_display_name()
+                    .unwrap_or(RoomDisplayName::Empty)
+                    .to_string()
+                    .chars()
+                    .next()
+                    .unwrap_or('?');
+
+                let color = Color::from(room.room_id().as_ref());
+
+                avatar(initial, color, icon_size, rounding, image)
             })
             .collect();
 
-        div().flex().flex_col().children(rooms)
+        div()
+            .flex()
+            .flex_col()
+            .w_full()
+            .items_center()
+            .content_center()
+            .gap(theme.tile.gap)
+            .children(rooms)
     }
 }

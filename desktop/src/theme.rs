@@ -69,10 +69,16 @@ pub struct ChatSidebarWidth {
 }
 
 #[derive(Clone)]
+pub struct ServerColumn {
+    pub width: Pixels,
+    pub icon_width: Pixels,
+}
+
+#[derive(Clone)]
 pub struct Structure {
-    pub server_column_width: Pixels,
     pub header_height: Pixels,
     pub sidebar_width: Pixels,
+    pub server_column: ServerColumn,
     pub chat_sidebar_width: ChatSidebarWidth,
 }
 
@@ -126,9 +132,12 @@ impl AppTheme {
             colors: Colors::new(red, green, yellow, muted_color),
             accent,
             structure: Structure {
-                server_column_width: px(70.0),
                 header_height: px(50.0),
                 sidebar_width: px(300.0),
+                server_column: ServerColumn {
+                    width: px(70.0),
+                    icon_width: px(40.0),
+                },
                 chat_sidebar_width: ChatSidebarWidth {
                     member: px(320.0),
                     search: px(480.0),

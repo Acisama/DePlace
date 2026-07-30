@@ -8,6 +8,8 @@ use crate::{
 use const_format::formatcp;
 
 mod keyring;
+
+pub mod colors;
 pub mod matrix_api;
 pub mod state;
 
