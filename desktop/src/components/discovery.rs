@@ -95,7 +95,11 @@ impl DiscoveryView {
                 .unwrap();
 
             cx.update(|cx| {
-                let _ = this.update(cx, |_view, cx| {
+                let _ = this.update(cx, |view, cx| {
+                    if result.is_none() {
+                        view.state =
+                            GenericState::Error("Couldn't reach that server".to_string());
+                    }
                     cx.emit(result);
                     cx.notify();
                 });

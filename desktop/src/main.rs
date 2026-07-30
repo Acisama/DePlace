@@ -53,6 +53,9 @@ async fn main() -> Result<(), anyhow::Error> {
             EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| EnvFilter::new("warn,desktop=trace,deplace_core=trace")),
         )
+        .with_target(true)
+        .with_file(true)
+        .with_line_number(true)
         .init();
 
     let namespaced_socket_name = SOCKET_NAME.to_ns_name::<GenericNamespaced>()?;

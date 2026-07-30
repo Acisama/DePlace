@@ -1,6 +1,10 @@
 use matrix_sdk::Client;
 
-use crate::{keyring::init_keyring, matrix_api::matrix_client_builder, state::AppState};
+use crate::{
+    keyring::init_keyring,
+    matrix_api::matrix_client_builder,
+    state::{AppState, UserDevice},
+};
 use const_format::formatcp;
 
 mod keyring;
@@ -21,8 +25,7 @@ const PLATFORM: &str = "android";
 #[cfg(target_os = "ios")]
 const PLATFORM: &str = "ios";
 
-// Set initial display name for new devices to "Opal on <Platform>".
-const DEVICE_DISPLAY_NAME: &str = formatcp!("Opal matrix on {PLATFORM}");
+const DEVICE_DISPLAY_NAME: &str = formatcp!("DePlace on {PLATFORM}");
 
 pub enum RestoreResult {
     Success(AppState),
@@ -59,6 +62,8 @@ pub async fn try_restore() -> RestoreResult {
         }
     };
 
+    matrix_api::save_session(&client);
+
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");
-    RestoreResult::Success(AppState::new(client))
+    RestoreResult::Success(AppState::new(client, UserDevice { user_id, device_id }))
 }

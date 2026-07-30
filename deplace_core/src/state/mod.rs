@@ -3,6 +3,7 @@ use matrix_sdk::{
     ruma::{OwnedDeviceId, OwnedUserId},
 };
 
+#[derive(Clone)]
 pub struct UserDevice {
     pub user_id: OwnedUserId,
     pub device_id: OwnedDeviceId,
@@ -11,10 +12,14 @@ pub struct UserDevice {
 #[derive(Clone)]
 pub struct AppState {
     client: Client,
+    user_device: UserDevice,
 }
 
 impl AppState {
-    pub fn new(client: Client) -> Self {
-        Self { client }
+    pub fn new(client: Client, user_device: UserDevice) -> Self {
+        Self {
+            client,
+            user_device,
+        }
     }
 }
