@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use deplace_core::state::AppState;
+use deplace_core::{matrix_api::account_data::set_account_data, state::AppState};
 use gpui::{
     AppContext, Context, Entity, IntoElement, ParentElement, Pixels, Render, Styled, Window, div,
     prelude::FluentBuilder,
@@ -78,6 +78,8 @@ impl HomeView {
     ) -> Self {
         let avatar_cache: AvatarCache = MediaCache::new(state.client.clone(), tokio_rt.clone());
 
+        let breadcrumbs = state.breadcrumbs.clone();
+
         let server_list =
             cx.new(|cx| ServerListView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
         let dm_list = cx.new(|cx| DmListView::new(&state, cx));
@@ -88,10 +90,65 @@ impl HomeView {
         cx.subscribe_in(
             &server_list,
             window,
-            move |this: &mut HomeView, _child, event, _, _| {
+            move |this: &mut HomeView, _child, event: &ActiveServerChange, &mut _, &mut _| {
                 let room = event.room();
-                this.state.set_active_room(room.clone());
-                this.state.set_active_server(room);
+                let room_id = room.as_ref().map(|r| r.room_id());
+
+                this.state.set_active_server(room.clone());
+                let mut breadcrumbs = this.state.breadcrumbs.clone();
+                let new_room_id = if let Some(room_id) = room_id {
+                    breadcrumbs
+                        .last_space_ids
+                        .get(room_id)
+                        .cloned()
+                        .or_else(|| {
+                            let mut children: Vec<(Room, Option<String>)> = this
+                                .state
+                                .parent_to_children()
+                                .borrow()
+                                .get(room_id)
+                                .cloned()
+                                .unwrap_or_default()
+                                .values()
+                                .cloned()
+                                .collect();
+
+                            children
+                                .sort_by_key(|(r, o)| o.clone().unwrap_or(r.room_id().to_string()));
+                            children.first().map(|(r, _)| r.room_id().to_owned())
+                        })
+                } else {
+                    breadcrumbs.last_dm_id.clone().or_else(|| {
+                        this.state
+                            .dm_rooms()
+                            .borrow()
+                            .values()
+                            .next()
+                            .map(|r| r.room_id().to_owned())
+                    })
+                };
+
+                let new_room = if let Some(id) = new_room_id {
+                    if let Some(room_id) = room_id {
+                        breadcrumbs
+                            .last_space_ids
+                            .insert(room_id.to_owned(), id.clone());
+                    } else {
+                        breadcrumbs.last_dm_id = Some(id.clone());
+                    };
+
+                    this.state.client.get_room(&id)
+                } else {
+                    None
+                };
+
+                this.state.set_active_room(new_room);
+                this.state.breadcrumbs = breadcrumbs.clone();
+
+                let client = this.state.client.clone();
+                this.tokio_rt.spawn(async move {
+                    set_account_data(&client, breadcrumbs).await;
+                });
             },
         )
         .detach();
@@ -99,9 +156,9 @@ impl HomeView {
         cx.subscribe_in(
             &sidebar,
             window,
-            move |this: &mut HomeView, _child, event, _, _| {
+            move |this: &mut HomeView, _child, event: &ActiveRoomChange, _, _| {
                 let room = event.room();
-                this.state.set_active_room(room);
+                this.state.set_active_room(room.clone());
             },
         )
         .detach();

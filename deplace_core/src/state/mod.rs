@@ -8,7 +8,7 @@ use matrix_sdk::{
 use tokio::sync::watch::{self, Sender};
 
 use crate::matrix_api::{
-    account_data::{ServerOrderContent, get_account_data},
+    account_data::{BreadcrumbsContent, ServerOrderContent, get_account_data},
     sync::ParentToChildren,
 };
 
@@ -33,6 +33,7 @@ pub struct AppState {
     active_server: Sender<Option<Room>>,
     membership_map: Sender<MembershipMap>,
     pub server_order: Vec<OwnedRoomId>,
+    pub breadcrumbs: BreadcrumbsContent,
 }
 
 impl AppState {
@@ -46,6 +47,7 @@ impl AppState {
         let (membership_map, _) = watch::channel(MembershipMap::default());
 
         let server_order = get_account_data::<ServerOrderContent>(&client).await;
+        let breadcrumbs = get_account_data::<BreadcrumbsContent>(&client).await;
 
         Self {
             client,
@@ -58,6 +60,7 @@ impl AppState {
             active_server,
             membership_map,
             server_order: server_order.servers,
+            breadcrumbs,
         }
     }
 
