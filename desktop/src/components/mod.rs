@@ -10,7 +10,7 @@ use deplace_core::{
 };
 use gpui::{
     AnyElement, App, BoxShadow, Div, Entity, Focusable, Image, Length, ObjectFit, Pixels, Window,
-    div, img, prelude::*, px, svg, white,
+    div, img, prelude::*, px, svg,
 };
 use gpui_component::{
     StyledExt,
@@ -18,8 +18,8 @@ use gpui_component::{
 };
 use matrix_sdk::{
     Client, Room,
-    media::{MediaFormat, MediaRequestParameters},
-    ruma::{OwnedMxcUri, UserId, events::room::MediaSource},
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+    ruma::{OwnedMxcUri, UInt, UserId, events::room::MediaSource},
 };
 use tokio::{runtime::Runtime, sync::watch};
 
@@ -35,11 +35,6 @@ mod login;
 mod server_list;
 mod sidebar;
 
-pub enum ActiveRoomChange {
-    SetRoom(Option<Room>),
-    SetServer(Option<Room>),
-}
-
 pub fn floating_tile(theme: &AppTheme) -> Div {
     div()
         .flex()
@@ -49,7 +44,7 @@ pub fn floating_tile(theme: &AppTheme) -> Div {
         .border(theme.tile.border_thickness)
         .border_color(theme.tile.border)
         .rounded(theme.tile.border_radius)
-        .gap(theme.tile.gap)
+        .gap(theme.gap)
         .shadow_sm()
         .overflow_y_hidden()
 }
@@ -131,7 +126,10 @@ impl MediaCache<OwnedMxcUri> {
         tokio_rt.spawn(async move {
             let request = MediaRequestParameters {
                 source,
-                format: MediaFormat::File,
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    UInt::new_saturating(100),
+                    UInt::new_saturating(100),
+                )),
             };
             let state = match store.client.media().get_media_content(&request, true).await {
                 Ok(bytes) => MediaState::Loaded(Arc::new(bytes)),
@@ -215,12 +213,7 @@ pub fn render_icon(svg_content: &'static str, size: impl Clone + Into<Length>) -
         .flex()
         .items_center()
         .justify_center()
-        .child(
-            svg()
-                .source(svg_content.as_bytes())
-                .size(size)
-                .text_color(white()),
-        )
+        .child(svg().source(svg_content.as_bytes()).size(size))
         .into_any()
 }
 

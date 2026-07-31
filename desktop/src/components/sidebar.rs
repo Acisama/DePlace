@@ -1,25 +1,27 @@
 use std::sync::Arc;
 
 use deplace_core::{
-    RoomMap, get_dm_room_name, get_room_name,
+    RoomMap, get_room_name,
     matrix_api::sync::ParentToChildren,
     state::{AppState, MembershipMap},
 };
 use gpui::{
-    AnyElement, Context, Div, Element, IntoElement, ParentElement, Render, Styled, div, px,
+    Context, EventEmitter, InteractiveElement, ParentElement, Render, StatefulInteractiveElement,
+    Styled, div, prelude::FluentBuilder, transparent_black,
 };
 use gpui_component::StyledExt;
 use matrix_sdk::{Room, ruma::OwnedUserId};
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{AvatarCache, render_room_avatar, render_room_icon},
+    components::{AvatarCache, home::ActiveRoomChange, render_room_avatar, render_room_icon},
     theme::ActiveAppTheme,
     watch_bridge::notify_on_change,
 };
 
 pub struct SidebarView {
     active_server: watch::Receiver<Option<Room>>,
+    active_room: watch::Receiver<Option<Room>>,
     parent_to_children: watch::Receiver<ParentToChildren>,
     dm_rooms: watch::Receiver<RoomMap>,
     tokio_rt: Arc<Runtime>,
@@ -27,6 +29,8 @@ pub struct SidebarView {
     own_id: OwnedUserId,
     cache: AvatarCache,
 }
+
+impl EventEmitter<ActiveRoomChange> for SidebarView {}
 
 impl SidebarView {
     pub fn new(
@@ -36,17 +40,20 @@ impl SidebarView {
         cache: AvatarCache,
     ) -> Self {
         let active_server = state.active_server();
+        let active_room = state.active_room();
         let parent_to_children = state.parent_to_children();
         let dm_rooms = state.dm_rooms();
         let membership_map = state.membership_map();
 
         notify_on_change(active_server.clone(), cx);
+        notify_on_change(active_room.clone(), cx);
         notify_on_change(parent_to_children.clone(), cx);
         notify_on_change(dm_rooms.clone(), cx);
         notify_on_change(membership_map.clone(), cx);
 
         Self {
             active_server,
+            active_room,
             parent_to_children,
             dm_rooms,
             tokio_rt,
@@ -64,6 +71,7 @@ impl Render for SidebarView {
         cx: &mut Context<Self>,
     ) -> impl gpui::IntoElement {
         let theme = cx.app_theme();
+        let sidebar = &theme.structure.sidebar;
 
         let membership_map = self.membership_map.borrow().clone();
         let own_id = self.own_id.clone();
@@ -89,12 +97,76 @@ impl Render for SidebarView {
             self.dm_rooms.borrow().values().cloned().collect::<Vec<_>>()
         };
 
-        let divs = items.into_iter().map(|item| {
-            if in_dms {
-                render_dm_room(&item, &membership_map, &own_id, &cache)
+        let dm_icon_size = sidebar.dm_icon_height;
+        let channel_icon_size = sidebar.channel_icon_height;
+
+        let active_id = self
+            .active_room
+            .borrow()
+            .clone()
+            .map(|r| r.room_id().to_owned());
+
+        let heights = move |in_dms| {
+            let icon_height = if in_dms {
+                dm_icon_size
             } else {
-                render_server_room(&item)
-            }
+                channel_icon_size
+            };
+            let height = icon_height + theme.gap * 2;
+            (icon_height, height)
+        };
+
+        let divs = items.into_iter().map(|room| {
+            let name = get_room_name(&room);
+            let room_id = room.room_id().to_owned();
+
+            let is_active = Some(&room_id) == active_id.as_ref();
+
+            let (icon_height, height) = heights(in_dms);
+
+            div()
+                .border_1()
+                .border_color(transparent_black())
+                .paddings(theme.small_gap)
+                .text_color(theme.text.dim)
+                .items_center()
+                .h(height)
+                .flex()
+                .flex_row()
+                .gap(theme.gap)
+                .rounded(theme.inner_border_radius)
+                .hover(|style| {
+                    style
+                        .border_color(theme.tile.border)
+                        .text_color(theme.text.normal)
+                })
+                .cursor_pointer()
+                .when(is_active, |el| {
+                    el.bg(theme.soldid_hover_bg)
+                        .text_color(theme.text.normal)
+                        .border_color(theme.tile.border)
+                        .cursor_default()
+                })
+                .id(room_id.to_string())
+                .child(if in_dms {
+                    render_room_avatar(
+                        &room,
+                        &membership_map,
+                        &own_id,
+                        &cache,
+                        icon_height,
+                        icon_height / 2.0,
+                    )
+                } else {
+                    render_room_icon(&room, icon_height)
+                })
+                .on_click(cx.listener({
+                    tracing::trace!("Room {} clicked", room_id);
+                    move |_, _, _, cx| {
+                        cx.emit(ActiveRoomChange::new(Some(room.clone())));
+                    }
+                }))
+                .child(name)
         });
 
         div()
@@ -112,30 +184,14 @@ impl Render for SidebarView {
                     .border_color(theme.tile.border)
                     .text_color(theme.text.normal),
             )
-            .children(divs)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(theme.small_gap)
+                    .px(theme.gap)
+                    .py(theme.small_gap)
+                    .children(divs),
+            )
     }
-}
-
-fn render_dm_room(
-    room: &Room,
-    map: &MembershipMap,
-    own_id: &OwnedUserId,
-    cache: &AvatarCache,
-) -> AnyElement {
-    let name = get_dm_room_name(room, map, own_id);
-    div()
-        .child(render_room_avatar(
-            room,
-            map,
-            own_id,
-            cache,
-            px(20.0),
-            px(4.0),
-        ))
-        .into_any()
-}
-
-fn render_server_room(room: &Room) -> AnyElement {
-    let name = get_room_name(room);
-    div().child(render_room_icon(room, px(20.0))).into_any()
 }

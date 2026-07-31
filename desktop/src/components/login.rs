@@ -196,30 +196,26 @@ impl Render for LoginView {
             .child(
                 floating_tile(theme)
                     .flex_col()
-                    .gap(theme.tile.gap * 2)
+                    .gap(theme.gap * 2)
                     .w(gpui::px(360.0))
                     .child(
                         div()
                             .relative()
                             .w_full()
                             .child(
-                                div()
-                                    .absolute()
-                                    .left(theme.tile.gap)
-                                    .top(theme.tile.gap)
-                                    .child(
-                                        h_flex()
-                                            .id("login-back")
-                                            .items_center()
-                                            .gap_1()
-                                            .cursor_pointer()
-                                            .text_color(theme.text.dim)
-                                            .text_xs()
-                                            .font_bold()
-                                            .hover(|style| style.text_decoration_1())
-                                            .child("⟵ back")
-                                            .on_click(cx.listener(Self::on_back_click)),
-                                    ),
+                                div().absolute().left(theme.gap).top(theme.gap).child(
+                                    h_flex()
+                                        .id("login-back")
+                                        .items_center()
+                                        .gap_1()
+                                        .cursor_pointer()
+                                        .text_color(theme.text.dim)
+                                        .text_xs()
+                                        .font_bold()
+                                        .hover(|style| style.text_decoration_1())
+                                        .child("⟵ back")
+                                        .on_click(cx.listener(Self::on_back_click)),
+                                ),
                             )
                             .child(
                                 div()

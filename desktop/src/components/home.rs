@@ -6,12 +6,12 @@ use gpui::{
     prelude::FluentBuilder,
 };
 use gpui_component::StyledExt;
-use matrix_sdk::ruma::OwnedUserId;
+use matrix_sdk::{Room, ruma::OwnedUserId};
 
 use crate::{
     components::{
-        ActiveRoomChange, AvatarCache, MediaCache, dm_list::DmListView, floating_tile,
-        header::HeaderView, server_list::ServerListView, sidebar::SidebarView,
+        AvatarCache, MediaCache, dm_list::DmListView, floating_tile, header::HeaderView,
+        server_list::ServerListView, sidebar::SidebarView,
     },
     theme::{ActiveAppTheme, Structure},
 };
@@ -32,6 +32,30 @@ enum ChatSidebar {
     Search,
     Pinned,
     Member(OwnedUserId),
+}
+
+pub struct ActiveServerChange(Option<Room>);
+
+impl ActiveServerChange {
+    pub fn new(room: Option<Room>) -> Self {
+        Self(room)
+    }
+
+    pub fn room(&self) -> Option<Room> {
+        self.0.clone()
+    }
+}
+
+pub struct ActiveRoomChange(Option<Room>);
+
+impl ActiveRoomChange {
+    pub fn new(room: Option<Room>) -> Self {
+        Self(room)
+    }
+
+    pub fn room(&self) -> Option<Room> {
+        self.0.clone()
+    }
 }
 
 impl ChatSidebar {
@@ -64,12 +88,20 @@ impl HomeView {
         cx.subscribe_in(
             &server_list,
             window,
-            move |this: &mut HomeView, _child, event, _, _| match event {
-                ActiveRoomChange::SetRoom(room) => this.state.set_active_room(room.clone()),
-                ActiveRoomChange::SetServer(server) => {
-                    this.state.set_active_room(server.clone());
-                    this.state.set_active_server(server.clone());
-                }
+            move |this: &mut HomeView, _child, event, _, _| {
+                let room = event.room();
+                this.state.set_active_room(room.clone());
+                this.state.set_active_server(room);
+            },
+        )
+        .detach();
+
+        cx.subscribe_in(
+            &sidebar,
+            window,
+            move |this: &mut HomeView, _child, event, _, _| {
+                let room = event.room();
+                this.state.set_active_room(room);
             },
         )
         .detach();
@@ -112,7 +144,7 @@ impl Render for HomeView {
                         div()
                             .flex()
                             .flex_col()
-                            .w(structure.sidebar_width)
+                            .w(structure.sidebar.width)
                             .gap(padding)
                             .child(
                                 floating_tile(theme)

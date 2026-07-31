@@ -1,4 +1,4 @@
-use gpui::{App, Global, Hsla, Pixels, hsla, px, white};
+use gpui::{App, Global, Hsla, Pixels, hsla, px, rgba, white};
 use gpui_component::Colorize;
 
 #[derive(Clone)]
@@ -7,7 +7,6 @@ pub struct TileTheme {
     pub border: Hsla,
     pub border_thickness: Pixels,
     pub border_radius: Pixels,
-    pub gap: Pixels,
 }
 
 #[derive(Clone)]
@@ -73,18 +72,24 @@ pub struct ServerColumn {
 }
 
 #[derive(Clone)]
+pub struct Sidebar {
+    pub width: Pixels,
+    pub dm_icon_height: Pixels,
+    pub channel_icon_height: Pixels,
+}
+
+#[derive(Clone)]
 pub struct Structure {
     pub header_height: Pixels,
-    pub sidebar_width: Pixels,
     pub server_column: ServerColumn,
     pub chat_sidebar_width: ChatSidebarWidth,
     pub divider_width: Pixels,
+    pub sidebar: Sidebar,
 }
 
 #[derive(Clone)]
 pub struct AppTheme {
     pub gap: Pixels,
-    pub background: Hsla,
     pub small_gap: Pixels,
     pub accent: Hsla,
     pub tile: TileTheme,
@@ -93,6 +98,8 @@ pub struct AppTheme {
     pub colors: Colors,
     pub structure: Structure,
     pub pill_color: Hsla,
+    pub soldid_hover_bg: Hsla,
+    pub inner_border_radius: Pixels,
 }
 
 impl Global for AppTheme {}
@@ -107,17 +114,22 @@ impl AppTheme {
         let green = hsla(0.3682, 0.5446, 0.6039, 1.0);
         let yellow = hsla(0.155, 0.786, 0.743, 1.0);
 
+        let tile_border_radius = px(12.0);
+        let gap = px(8.0);
+        let small_gap = px(4.0);
+        let inner_border_radius = tile_border_radius - small_gap;
+
         Self {
-            gap: px(8.0),
-            background: hsla(0.0, 0.0, 0.1, 1.0),
-            small_gap: px(2.0),
+            soldid_hover_bg: hsla(0.667, 0.211, 0.149, 1.0),
+            gap,
+            small_gap,
             pill_color: white(),
+            inner_border_radius,
             tile: TileTheme {
                 background: hsla(0.66, 0.2, 0.1, 0.5),
-                border: hsla(0.0, 0.0, 0.2, 1.0),
+                border: hsla(0.0, 0.0, 1.0, 0.175),
                 border_thickness: px(1.0),
-                border_radius: px(12.0),
-                gap: px(8.0),
+                border_radius: tile_border_radius,
             },
             text: TextTheme {
                 font_size: px(16.0),
@@ -135,7 +147,11 @@ impl AppTheme {
             accent,
             structure: Structure {
                 header_height: px(50.0),
-                sidebar_width: px(300.0),
+                sidebar: Sidebar {
+                    width: px(300.0),
+                    dm_icon_height: px(30.0),
+                    channel_icon_height: px(10.0),
+                },
                 server_column: ServerColumn {
                     icon_width: px(40.0),
                 },

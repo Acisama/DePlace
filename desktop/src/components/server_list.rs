@@ -5,7 +5,7 @@ use std::{
 
 use deplace_core::{
     colors::Color,
-    matrix_api::account_data::{ServerOrderContent, get_account_data, set_account_data},
+    matrix_api::account_data::{ServerOrderContent, set_account_data},
     state::AppState,
 };
 use gpui::{
@@ -20,7 +20,7 @@ use matrix_sdk::{
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{ActiveRoomChange, AvatarCache, avatar, gpui_format_from},
+    components::{AvatarCache, avatar, gpui_format_from, home::ActiveServerChange},
     theme::{ActiveAppTheme, AppTheme},
     watch_bridge::notify_on_change,
 };
@@ -35,7 +35,7 @@ pub struct ServerListView {
     hovered_server: Option<Option<OwnedRoomId>>,
 }
 
-impl EventEmitter<ActiveRoomChange> for ServerListView {}
+impl EventEmitter<ActiveServerChange> for ServerListView {}
 
 impl ServerListView {
     pub fn new(
@@ -168,10 +168,9 @@ impl Render for ServerListView {
             .child(
                 Button::new(format!("server-{}", room.room_id()))
                     .on_click(cx.listener({
-                        let room_id = room_id.clone();
+                        tracing::trace!("Server {} clicked", room_id);
                         move |_, _, _, cx| {
-                            tracing::trace!("Server {} clicked", room_id);
-                            cx.emit(ActiveRoomChange::SetServer(Some(room.clone())));
+                            cx.emit(ActiveServerChange::new(Some(room.clone())));
                         }
                     }))
                     .on_hover(cx.listener({
@@ -222,7 +221,7 @@ impl Render for ServerListView {
                         .on_click(cx.listener({
                             move |_, _, _, cx| {
                                 tracing::trace!("Home icon clicked");
-                                cx.emit(ActiveRoomChange::SetServer(None));
+                                cx.emit(ActiveServerChange::new(None));
                             }
                         }))
                         .on_hover(cx.listener(move |view, is_hovered: &bool, _, cx| {
