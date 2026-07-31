@@ -7,7 +7,7 @@ use deplace_core::{
 };
 use gpui::{
     Context, Div, EventEmitter, IntoElement, ObjectFit, ParentElement, Pixels, Render, Styled,
-    StyledImage, Window, div, img, prelude::FluentBuilder, red, svg, transparent_black, white,
+    StyledImage, Window, div, img, prelude::FluentBuilder, transparent_black, white,
 };
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use matrix_sdk::{
@@ -83,7 +83,7 @@ impl ServerListView {
 }
 
 impl Render for ServerListView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.app_theme().clone();
         let icon_size = theme.structure.server_column.icon_width;
         let rounding = icon_size / 4.0;
@@ -222,21 +222,29 @@ impl Render for ServerListView {
                             view.hovered_server = is_hovered.then_some(None);
                             cx.notify();
                         }))
-                        .size(icon_size)
                         .custom(variant)
                         .p_0()
                         .cursor_pointer()
-                        .border_2()
-                        .when_else(
-                            active_server_id.is_none(),
-                            |el| el.border_color(theme.accent),
-                            |el| el.border_color(transparent_black()),
-                        )
+                        .size(icon_size)
                         .child(
-                            img("icon.png")
-                                .size(icon_size * 0.8)
-                                .object_fit(ObjectFit::Cover)
-                                .rounded(rounding),
+                            div()
+                                .size(icon_size)
+                                .rounded(rounding)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .border_2()
+                                .when_else(
+                                    active_server_id.is_none(),
+                                    |el| el.border_color(theme.accent),
+                                    |el| el.border_color(transparent_black()),
+                                )
+                                .child(
+                                    img("icon.png")
+                                        .size(icon_size * 0.8)
+                                        .object_fit(ObjectFit::Cover)
+                                        .rounded(rounding),
+                                ),
                         ),
                 ),
             )

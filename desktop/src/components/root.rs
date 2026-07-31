@@ -2,19 +2,21 @@ use std::sync::Arc;
 
 use deplace_core::{RestoreResult, matrix_api::LoginResult, try_restore};
 use gpui::{
-    AppContext, Context, Entity, IntoElement, ObjectFit, ParentElement, Render, Styled,
-    StyledImage, Window, blue, div, img,
+    AppContext, Context, Entity, IntoElement, ObjectFit, ParentElement, Render, RenderImage,
+    Styled, StyledImage, Window, blue, div, img,
 };
 use matrix_sdk::Client;
 
 use crate::{
     GenericState,
+    assets::decode_embedded_image,
     components::{discovery::DiscoveryView, home::HomeView, login::LoginView},
 };
 
 pub struct RootView {
     active_screen: Screen,
     tokio_rt: Arc<tokio::runtime::Runtime>,
+    bg_image: Arc<RenderImage>,
 }
 
 #[derive(Default)]
@@ -81,6 +83,7 @@ impl RootView {
         Self {
             active_screen: Screen::default(),
             tokio_rt,
+            bg_image: decode_embedded_image("bg.png").expect("failed to decode bg.png"),
         }
     }
 
@@ -129,7 +132,7 @@ impl Render for RootView {
             .size_full()
             .relative()
             .child(
-                img("bg.png")
+                img(self.bg_image.clone())
                     .size_full()
                     .object_fit(ObjectFit::Cover)
                     .absolute()
