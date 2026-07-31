@@ -139,7 +139,7 @@ impl Render for SidebarView {
             div()
                 .border_1()
                 .border_color(transparent_black())
-                .paddings(theme.small_gap)
+                .px(theme.gap)
                 .text_color(theme.text.dim)
                 .items_center()
                 .h(height)
