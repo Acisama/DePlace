@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use deplace_core::{
     colors::Color,
@@ -12,12 +15,12 @@ use gpui::{
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use matrix_sdk::{
     Room, RoomDisplayName,
-    ruma::{OwnedMxcUri, OwnedRoomId, events::room::MediaSource},
+    ruma::{OwnedRoomId, events::room::MediaSource},
 };
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{ActiveRoomChange, MediaCache, avatar, gpui_format_from},
+    components::{ActiveRoomChange, AvatarCache, avatar, gpui_format_from},
     theme::{ActiveAppTheme, AppTheme},
     watch_bridge::notify_on_change,
 };
@@ -25,8 +28,8 @@ use crate::{
 pub struct ServerListView {
     state: AppState,
     tokio_rt: Arc<Runtime>,
-    cache: MediaCache<OwnedMxcUri>,
-    rooms: watch::Receiver<HashMap<OwnedRoomId, Room>>,
+    cache: AvatarCache,
+    servers: watch::Receiver<HashMap<OwnedRoomId, Room>>,
     server_order: Vec<OwnedRoomId>,
     active_server: watch::Receiver<Option<Room>>,
     hovered_server: Option<Option<OwnedRoomId>>,
@@ -35,44 +38,35 @@ pub struct ServerListView {
 impl EventEmitter<ActiveRoomChange> for ServerListView {}
 
 impl ServerListView {
-    pub fn new(state: &AppState, cx: &mut Context<Self>, tokio_rt: Arc<Runtime>) -> Self {
+    pub fn new(
+        state: &AppState,
+        cx: &mut Context<Self>,
+        tokio_rt: Arc<Runtime>,
+        cache: AvatarCache,
+    ) -> Self {
         let rooms = state.server_rooms();
-        let cache = MediaCache::new(state.client.clone(), tokio_rt.clone());
         let active_server = state.active_server().clone();
 
         notify_on_change(rooms.clone(), cx);
         notify_on_change(cache.subscribe(), cx);
         notify_on_change(active_server.clone(), cx);
 
-        let client = state.client.clone();
-        let task =
-            tokio_rt.spawn(async move { get_account_data::<ServerOrderContent>(&client).await });
-        cx.spawn(async move |this, cx| {
-            let Ok(order) = task.await else {
-                return;
-            };
-
-            cx.update(|cx| {
-                let _ = this.update(cx, |view, cx| {
-                    view.server_order = order.servers;
-                    cx.notify();
-                });
-            });
-        })
-        .detach();
-
         Self {
             state: state.clone(),
             tokio_rt,
-            rooms,
+            servers: rooms,
             cache,
             active_server,
             hovered_server: None,
-            server_order: Vec::new(),
+            server_order: state.server_order.clone(),
         }
     }
 
     fn set_server_order(&mut self, servers: Vec<OwnedRoomId>) {
+        if servers.is_empty() {
+            return;
+        }
+
         self.server_order = servers.clone();
 
         let client = self.state.client.clone();
@@ -90,26 +84,42 @@ impl Render for ServerListView {
 
         let pill_width = theme.gap / 2.5;
 
+        let ordered_server_ids_vec = self.server_order.clone();
+
+        let ordered_server_ids: HashSet<OwnedRoomId> =
+            ordered_server_ids_vec.iter().cloned().collect();
+        let all_server_ids: HashSet<OwnedRoomId> = self.servers.borrow().keys().cloned().collect();
+
+        let unsorted_server_ids: Vec<OwnedRoomId> = all_server_ids
+            .difference(&ordered_server_ids)
+            .cloned()
+            .collect();
+
         let active_server_id = self
             .active_server
             .borrow()
             .as_ref()
             .map(|s| s.room_id().to_owned());
 
-        let rooms_map = self.rooms.borrow().clone();
-        let mut sorted_rooms = rooms_map.values().cloned().collect::<Vec<_>>();
+        let rooms_map = self.servers.borrow().clone();
+        let mut sorted_rooms: Vec<Room> = self
+            .server_order
+            .iter()
+            .filter_map(|id| rooms_map.get(id).cloned())
+            .collect();
 
-        for room_id in rooms_map.keys() {
-            if let Some(index) = self.server_order.iter().position(|id| id == room_id) {
-                sorted_rooms.swap(index, 0);
-            }
-        }
+        let mut unsorted_rooms: Vec<Room> = unsorted_server_ids
+            .iter()
+            .filter_map(|id| rooms_map.get(id).cloned())
+            .collect();
+        unsorted_rooms.sort_by_key(|r| r.room_id().to_string());
+        sorted_rooms.extend(unsorted_rooms);
 
         let new_server_order: Vec<_> = sorted_rooms
             .iter()
             .map(|room| room.room_id().to_owned())
             .collect();
-        if new_server_order != self.server_order {
+        if new_server_order != ordered_server_ids_vec {
             self.set_server_order(new_server_order);
         }
 
@@ -120,79 +130,76 @@ impl Render for ServerListView {
             .hover(transparent_black())
             .shadow(false);
 
-        let icons: Vec<_> = sorted_rooms
-            .into_iter()
-            .map(|room| {
-                let image = room.avatar_url().and_then(|url| {
-                    let source = MediaSource::Plain(url);
-                    let bytes = self.cache.get(&source)?;
-                    let format = image::guess_format(&bytes).ok()?;
-                    let image = Arc::new(gpui::Image::from_bytes(
-                        gpui_format_from(format),
-                        bytes.to_vec(),
-                    ));
-                    Some(image)
-                });
+        let icons = sorted_rooms.into_iter().map(|room| {
+            let image = room.avatar_url().and_then(|url| {
+                let source = MediaSource::Plain(url);
+                let bytes = self.cache.get(&source)?;
+                let format = image::guess_format(&bytes).ok()?;
+                let image = Arc::new(gpui::Image::from_bytes(
+                    gpui_format_from(format),
+                    bytes.to_vec(),
+                ));
+                Some(image)
+            });
 
-                let initial = room
-                    .cached_display_name()
-                    .unwrap_or(RoomDisplayName::Empty)
-                    .to_string()
-                    .chars()
-                    .next()
-                    .unwrap_or('?');
+            let initial = room
+                .cached_display_name()
+                .unwrap_or(RoomDisplayName::Empty)
+                .to_string()
+                .chars()
+                .next()
+                .unwrap_or('?');
 
-                let room_id = room.room_id().to_owned();
-                let color = Color::from(room_id.as_ref());
+            let room_id = room.room_id().to_owned();
+            let color = Color::from(room_id.as_str());
 
-                let hovered = self
-                    .hovered_server
-                    .as_ref()
-                    .map_or_else(|| false, |o| o.as_ref() == Some(&room_id));
+            let hovered = self
+                .hovered_server
+                .as_ref()
+                .map_or_else(|| false, |o| o.as_ref() == Some(&room_id));
 
-                pill(
-                    hovered,
-                    Some(&room_id) == active_server_id.as_ref(),
-                    false,
-                    pill_width,
-                    &theme,
-                )
-                .child(
-                    Button::new(format!("server-{}", room.room_id()))
-                        .on_click(cx.listener({
-                            let room_id = room_id.clone();
-                            move |_, _, _, cx| {
-                                tracing::trace!("Server {} clicked", room_id);
-                                cx.emit(ActiveRoomChange::SetServer(Some(room.clone())));
-                            }
-                        }))
-                        .on_hover(cx.listener({
-                            let room_id = room_id.clone();
-                            move |view, is_hovered: &bool, _, cx| {
-                                view.hovered_server = is_hovered.then_some(Some(room_id.clone()));
-                                cx.notify();
-                            }
-                        }))
-                        .custom(variant)
-                        .size(icon_size)
-                        .p_0()
-                        .relative()
-                        .child(avatar(initial, color, icon_size, rounding, image))
-                        .when(Some(room_id) == active_server_id, |el| {
-                            el.child(
-                                div()
-                                    .bg(white())
-                                    .absolute()
-                                    .inset_0()
-                                    .left(-2.0 * pill_width)
-                                    .h_full()
-                                    .rounded(pill_width / 2.0)
-                                    .w(pill_width),
-                            )
-                        }),
-                )
-            })
-            .collect();
+            pill(
+                hovered,
+                Some(&room_id) == active_server_id.as_ref(),
+                false,
+                pill_width,
+                &theme,
+            )
+            .child(
+                Button::new(format!("server-{}", room.room_id()))
+                    .on_click(cx.listener({
+                        let room_id = room_id.clone();
+                        move |_, _, _, cx| {
+                            tracing::trace!("Server {} clicked", room_id);
+                            cx.emit(ActiveRoomChange::SetServer(Some(room.clone())));
+                        }
+                    }))
+                    .on_hover(cx.listener({
+                        let room_id = room_id.clone();
+                        move |view, is_hovered: &bool, _, cx| {
+                            view.hovered_server = is_hovered.then_some(Some(room_id.clone()));
+                            cx.notify();
+                        }
+                    }))
+                    .custom(variant)
+                    .size(icon_size)
+                    .p_0()
+                    .relative()
+                    .child(avatar(initial, color, icon_size, rounding, image))
+                    .when(Some(room_id) == active_server_id, |el| {
+                        el.child(
+                            div()
+                                .bg(white())
+                                .absolute()
+                                .inset_0()
+                                .left(-2.0 * pill_width)
+                                .h_full()
+                                .rounded(pill_width / 2.0)
+                                .w(pill_width),
+                        )
+                    }),
+            )
+        });
 
         div()
             .flex()

@@ -47,3 +47,6 @@ gpui = {
 }
 gpui_macros = { git = "https://github.com/acisama/zed", branch = "main" }
 gpui_wgpu = { git = "https://github.com/acisama/zed", branch = "main" }
+# gpui = { path = "/home/eriko/zed/crates/gpui" }
+# gpui_macros = { path = "/home/eriko/zed/crates/gpui_macros" }
+# gpui_wgpu = { path = "/home/eriko/zed/crates/gpui_wgpu" }

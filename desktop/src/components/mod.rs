@@ -3,10 +3,14 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use deplace_core::colors::Color;
+use deplace_core::{
+    colors::{Color, UNKNOWN_COLOR},
+    get_dm_room_name, get_other_member, get_room_name,
+    state::MembershipMap,
+};
 use gpui::{
-    AnyElement, App, BoxShadow, Div, Entity, Focusable, Image, ObjectFit, Pixels, Window, div, img,
-    prelude::*, px,
+    AnyElement, App, BoxShadow, Div, Entity, Focusable, Image, Length, ObjectFit, Pixels, Window,
+    div, img, prelude::*, px, svg, white,
 };
 use gpui_component::{
     StyledExt,
@@ -15,7 +19,7 @@ use gpui_component::{
 use matrix_sdk::{
     Client, Room,
     media::{MediaFormat, MediaRequestParameters},
-    ruma::{OwnedMxcUri, events::room::MediaSource},
+    ruma::{OwnedMxcUri, UserId, events::room::MediaSource},
 };
 use tokio::{runtime::Runtime, sync::watch};
 
@@ -29,6 +33,7 @@ mod header;
 mod home;
 mod login;
 mod server_list;
+mod sidebar;
 
 pub enum ActiveRoomChange {
     SetRoom(Option<Room>),
@@ -65,6 +70,8 @@ pub fn input(theme: &AppTheme, entity: &Entity<InputState>, window: &Window, cx:
         .cleanable(true)
         .border_color(border)
 }
+
+pub type AvatarCache = MediaCache<OwnedMxcUri>;
 
 #[derive(Clone)]
 enum MediaState {
@@ -201,4 +208,72 @@ pub fn avatar(
     } else {
         text_circle(initial, color, size, rounding)
     }
+}
+
+pub fn render_icon(svg_content: &'static str, size: impl Clone + Into<Length>) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            svg()
+                .source(svg_content.as_bytes())
+                .size(size)
+                .text_color(white()),
+        )
+        .into_any()
+}
+
+pub fn render_room_icon(room: &Room, size: impl Clone + Into<Length>) -> AnyElement {
+    if room.is_call() {
+        render_icon(phosphor_svgs::icon::hash::BOLD, size)
+    } else {
+        render_icon(phosphor_svgs::icon::speaker_high::BOLD, size)
+    }
+}
+
+fn render_room_avatar(
+    room: &Room,
+    map: &MembershipMap,
+    own_id: &UserId,
+    cache: &AvatarCache,
+    size: Pixels,
+    rounding: Pixels,
+) -> AnyElement {
+    let (url, color): (Option<OwnedMxcUri>, Color) = if room.is_dm() {
+        let Some(other_member) = get_other_member(own_id, map, room.room_id()) else {
+            return avatar(' ', UNKNOWN_COLOR.into(), px(24.0), px(4.0), None).into_any();
+        };
+        (
+            other_member.avatar_url().map(|u| u.to_owned()),
+            other_member.into(),
+        )
+    } else {
+        (room.avatar_url().map(|u| u.to_owned()), room.into())
+    };
+
+    let image = url.and_then(|url| {
+        let source = MediaSource::Plain(url);
+        let bytes = cache.get(&source)?;
+        let format = image::guess_format(&bytes).ok()?;
+        let image = Arc::new(gpui::Image::from_bytes(
+            gpui_format_from(format),
+            bytes.to_vec(),
+        ));
+        Some(image)
+    });
+
+    let name = if room.is_dm() {
+        get_dm_room_name(room, map, own_id)
+    } else {
+        get_room_name(room)
+    };
+
+    avatar(
+        name.chars().next().unwrap_or(' '),
+        color,
+        size,
+        rounding,
+        image,
+    )
 }

@@ -1,4 +1,9 @@
-use matrix_sdk::{Client, SessionMeta, SessionTokens, authentication::matrix::MatrixSession};
+use crate::state::MembershipMap;
+use matrix_sdk::{
+    Client, Room, RoomMemberships, SessionMeta, SessionTokens,
+    authentication::matrix::MatrixSession, room::RoomMember, store::AvatarCache,
+};
+use ruma::{RoomId, UserId};
 
 use crate::{
     keyring::init_keyring,
@@ -29,6 +34,8 @@ const PLATFORM: &str = "android";
 const PLATFORM: &str = "ios";
 
 const DEVICE_DISPLAY_NAME: &str = formatcp!("DePlace on {PLATFORM}");
+
+pub use state::RoomMap;
 
 pub enum RestoreResult {
     Success(AppState),
@@ -93,4 +100,39 @@ pub async fn try_restore() -> RestoreResult {
 
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");
     RestoreResult::Success(state)
+}
+
+fn get_member_name(member: &RoomMember) -> String {
+    member
+        .display_name()
+        .map(|n| n.to_string())
+        .unwrap_or(member.user_id().to_string())
+}
+
+pub fn get_room_name(room: &Room) -> String {
+    room.cached_display_name()
+        .map(|n| n.to_string())
+        .unwrap_or("Unknown Room".to_string())
+}
+
+pub fn get_dm_room_name(room: &Room, map: &MembershipMap, own_id: &UserId) -> String {
+    if !room.is_dm() {
+        return "Unknown Room".to_string();
+    }
+
+    let room_id = room.room_id();
+
+    let other_member = get_other_member(own_id, map, room_id);
+    other_member
+        .map(|m| get_member_name(&m))
+        .unwrap_or("Unknown Room".to_string())
+}
+
+pub fn get_other_member(
+    own_id: &UserId,
+    map: &MembershipMap,
+    room_id: &RoomId,
+) -> Option<RoomMember> {
+    let members = map.get(room_id).cloned().unwrap_or_default();
+    members.iter().find(|m| m.user_id() != own_id).cloned()
 }

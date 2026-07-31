@@ -1,4 +1,5 @@
 use csscolorparser::Color as CssColor;
+use matrix_sdk::{Room, room::RoomMember};
 use sha2::{Digest, Sha256};
 
 pub const UNKNOWN_COLOR: CssColor = CssColor::from_hsla(0.0, 1.0, 0.7, 1.0);
@@ -38,6 +39,30 @@ impl From<&str> for Color {
         let hash = Sha256::digest(string.as_bytes());
         let h = hash[0] as f32 / 255.0 * 360.0;
         Color(CssColor::from_hsla(h, 0.9, 0.7, 1.0))
+    }
+}
+
+impl From<CssColor> for Color {
+    fn from(color: CssColor) -> Self {
+        Color(color)
+    }
+}
+
+impl From<&RoomMember> for Color {
+    fn from(member: &RoomMember) -> Self {
+        member.user_id().as_str().into()
+    }
+}
+
+impl From<RoomMember> for Color {
+    fn from(member: RoomMember) -> Self {
+        member.user_id().as_str().into()
+    }
+}
+
+impl From<&Room> for Color {
+    fn from(room: &Room) -> Self {
+        room.room_id().as_str().into()
     }
 }
 

@@ -8,11 +8,27 @@ use matrix_sdk::{
 };
 use ruma::OwnedRoomId;
 
-use crate::state::AppState;
+use crate::{
+    matrix_api::{members::run_membership_map_update, save_session},
+    state::AppState,
+};
 
 pub fn spawn_room_sync(client: &Client, state: &AppState) {
     tokio::spawn(run_sync_stream(client.clone()));
+    tokio::spawn(run_keystore_save_stream(client.clone()));
     tokio::spawn(run_room_classification(client.clone(), state.clone()));
+    tokio::spawn(run_membership_map_update(client.clone(), state.clone()));
+
+    client.add_event_handler_context(state.clone());
+}
+
+async fn run_keystore_save_stream(client: Client) {
+    save_session(&client);
+
+    let mut updates = client.subscribe_to_session_changes();
+    while updates.recv().await.is_ok() {
+        save_session(&client);
+    }
 }
 
 async fn run_sync_stream(client: Client) {
@@ -42,13 +58,16 @@ async fn run_room_classification(client: Client, state: AppState) {
     }
 }
 
+pub type ParentToChildren = HashMap<OwnedRoomId, Vec<Room>>;
+pub type ChildToParents = HashMap<OwnedRoomId, Vec<Room>>;
+
 async fn reclassify_rooms(client: &Client, state: &AppState) {
     let mut dm_rooms = HashMap::new();
     let mut server_rooms = HashMap::new();
     let mut single_rooms = HashMap::new();
 
-    let mut parent_to_children: HashMap<OwnedRoomId, Vec<Room>> = HashMap::new();
-    let mut child_to_parents: HashMap<OwnedRoomId, Vec<Room>> = HashMap::new();
+    let mut parent_to_children: ParentToChildren = HashMap::new();
+    let mut child_to_parents: ChildToParents = HashMap::new();
 
     let rooms = client.rooms();
     for room in rooms {
@@ -82,7 +101,7 @@ async fn reclassify_rooms(client: &Client, state: &AppState) {
             let entry = parent_to_children
                 .entry(parent.room_id().to_owned())
                 .or_default();
-            entry.push(parent.clone());
+            entry.push(room.clone());
         }
     }
 
@@ -121,7 +140,10 @@ async fn reclassify_rooms(client: &Client, state: &AppState) {
         single_rooms.insert(room_id, room.clone());
     }
 
+    parent_to_children.retain(|room_id, _| server_rooms.contains_key(room_id));
+
     state.set_dm_rooms(dm_rooms);
     state.set_server_rooms(server_rooms);
     state.set_single_rooms(single_rooms);
+    state.set_parent_to_children(parent_to_children);
 }

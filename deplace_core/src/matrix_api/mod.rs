@@ -9,6 +9,7 @@ use matrix_sdk::{
 };
 
 pub mod account_data;
+mod members;
 pub mod sync;
 
 use crate::{

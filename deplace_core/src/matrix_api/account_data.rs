@@ -22,7 +22,7 @@ pub struct BreadcrumbsContent {
 }
 
 #[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]
-#[ruma_event(type = "com.deplace.server-order", kind = GlobalAccountData)]
+#[ruma_event(type = "com.deplace.server_order", kind = GlobalAccountData)]
 pub struct ServerOrderContent {
     #[serde(default)]
     pub servers: Vec<OwnedRoomId>,
@@ -36,19 +36,27 @@ pub async fn get_account_data<
 >(
     client: &Client,
 ) -> T {
-    client
+    let res = client
         .account()
         .account_data::<T>()
         .await
-        .map_err(|e| tracing::error!("Failed to get server order: {}", e))
-        .ok()
-        .flatten()
-        .and_then(|raw| {
-            raw.deserialize()
-                .map_err(|e| tracing::error!("Failed to deserialize account data: {}", e))
-                .ok()
+        .map_err(|e| {
+            tracing::error!("Failed to get account data for {}: {}", T::TYPE, e);
+            e
         })
-        .unwrap_or_default()
+        .ok()
+        .flatten();
+
+    if let Some(raw) = res {
+        raw.deserialize()
+            .map_err(|e| {
+                tracing::error!("Failed to deserialize {}: {}", T::TYPE, e);
+                e
+            })
+            .unwrap_or_default()
+    } else {
+        T::default()
+    }
 }
 
 pub async fn set_account_data<T: StaticEventContent + GlobalAccountDataEventContent + Serialize>(

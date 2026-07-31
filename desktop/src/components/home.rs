@@ -10,8 +10,8 @@ use matrix_sdk::ruma::OwnedUserId;
 
 use crate::{
     components::{
-        ActiveRoomChange, dm_list::DmListView, floating_tile, header::HeaderView,
-        server_list::ServerListView,
+        ActiveRoomChange, AvatarCache, MediaCache, dm_list::DmListView, floating_tile,
+        header::HeaderView, server_list::ServerListView, sidebar::SidebarView,
     },
     theme::{ActiveAppTheme, Structure},
 };
@@ -23,6 +23,7 @@ pub struct HomeView {
     server_list: Entity<ServerListView>,
     header: Entity<HeaderView>,
     dm_list: Entity<DmListView>,
+    sidebar: Entity<SidebarView>,
 }
 
 #[derive(Clone)]
@@ -51,9 +52,14 @@ impl HomeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let server_list = cx.new(|cx| ServerListView::new(&state, cx, tokio_rt.clone()));
+        let avatar_cache: AvatarCache = MediaCache::new(state.client.clone(), tokio_rt.clone());
+
+        let server_list =
+            cx.new(|cx| ServerListView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
         let dm_list = cx.new(|cx| DmListView::new(&state, cx));
         let header = cx.new(|cx| HeaderView::new(&state, cx, tokio_rt.clone()));
+        let sidebar =
+            cx.new(|cx| SidebarView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
 
         cx.subscribe_in(
             &server_list,
@@ -74,6 +80,7 @@ impl HomeView {
             tokio_rt,
             state,
             header,
+            sidebar,
             chat_sidebar: Some(ChatSidebar::Members),
         }
     }
@@ -107,7 +114,11 @@ impl Render for HomeView {
                             .flex_col()
                             .w(structure.sidebar_width)
                             .gap(padding)
-                            .child(floating_tile(theme).flex_grow_1())
+                            .child(
+                                floating_tile(theme)
+                                    .flex_grow_1()
+                                    .child(self.sidebar.clone()),
+                            )
                             .child(floating_tile(theme).h(structure.header_height)),
                     ),
             )
