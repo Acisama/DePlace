@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use matrix_sdk::{
     Client, Room,
@@ -9,7 +9,7 @@ use tokio::sync::watch::{self, Sender};
 
 use crate::matrix_api::{
     account_data::{BreadcrumbsContent, ServerOrderContent, get_account_data},
-    sync::ParentToChildren,
+    sync::{ParentToChildren, reclassify_rooms},
 };
 
 #[derive(Clone)]
@@ -38,16 +38,41 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(client: Client, user_device: UserDevice) -> Self {
-        let (dm_rooms, _) = watch::channel(HashMap::new());
-        let (single_rooms, _) = watch::channel(HashMap::new());
-        let (server_rooms, _) = watch::channel(HashMap::new());
-        let (parent_to_children, _) = watch::channel(ParentToChildren::default());
-        let (active_room, _) = watch::channel(None);
-        let (active_server, _) = watch::channel(None);
+        let breadcrumbs = get_account_data::<BreadcrumbsContent>(&client).await;
+
+        let last_room_id = breadcrumbs.recent_rooms.first().cloned();
+
+        let response = reclassify_rooms(&client).await;
+
+        let last_server = if let Some(room_id) = &last_room_id {
+            let parent_ids: HashSet<OwnedRoomId> = response
+                .child_to_parents
+                .get(room_id)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| r.room_id().to_owned())
+                .collect();
+
+            response
+                .server_rooms
+                .clone()
+                .keys()
+                .find(|id| parent_ids.contains(*id))
+                .cloned()
+        } else {
+            None
+        };
+
+        let (dm_rooms, _) = watch::channel(response.dm_rooms);
+        let (server_rooms, _) = watch::channel(response.server_rooms);
+        let (single_rooms, _) = watch::channel(response.single_rooms);
+        let (parent_to_children, _) = watch::channel(response.parent_to_children);
+        let (active_room, _) = watch::channel(last_room_id.and_then(|id| client.get_room(&id)));
+        let (active_server, _) = watch::channel(last_server.and_then(|id| client.get_room(&id)));
         let (membership_map, _) = watch::channel(MembershipMap::default());
 
         let server_order = get_account_data::<ServerOrderContent>(&client).await;
-        let breadcrumbs = get_account_data::<BreadcrumbsContent>(&client).await;
 
         Self {
             client,

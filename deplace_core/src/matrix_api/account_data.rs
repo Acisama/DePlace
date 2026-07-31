@@ -36,6 +36,7 @@ pub async fn get_account_data<
 >(
     client: &Client,
 ) -> T {
+    tracing::debug!("Getting account data of type \"{}\"", T::TYPE);
     let res = client
         .account()
         .account_data::<T>()
@@ -63,6 +64,7 @@ pub async fn set_account_data<T: StaticEventContent + GlobalAccountDataEventCont
     client: &Client,
     data: T,
 ) {
+    tracing::debug!("Setting acccount data of type \"{}\"", T::TYPE);
     client
         .account()
         .set_account_data(data)

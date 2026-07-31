@@ -78,8 +78,6 @@ impl HomeView {
     ) -> Self {
         let avatar_cache: AvatarCache = MediaCache::new(state.client.clone(), tokio_rt.clone());
 
-        let breadcrumbs = state.breadcrumbs.clone();
-
         let server_list =
             cx.new(|cx| ServerListView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
         let dm_list = cx.new(|cx| DmListView::new(&state, cx));
@@ -92,11 +90,11 @@ impl HomeView {
             window,
             move |this: &mut HomeView, _child, event: &ActiveServerChange, &mut _, &mut _| {
                 let room = event.room();
-                let room_id = room.as_ref().map(|r| r.room_id());
+                let server_id = room.as_ref().map(|r| r.room_id());
 
                 this.state.set_active_server(room.clone());
                 let mut breadcrumbs = this.state.breadcrumbs.clone();
-                let new_room_id = if let Some(room_id) = room_id {
+                let new_room_id = if let Some(room_id) = server_id {
                     breadcrumbs
                         .last_space_ids
                         .get(room_id)
@@ -129,18 +127,23 @@ impl HomeView {
                 };
 
                 let new_room = if let Some(id) = new_room_id {
-                    if let Some(room_id) = room_id {
+                    if let Some(server_id) = server_id {
                         breadcrumbs
                             .last_space_ids
-                            .insert(room_id.to_owned(), id.clone());
+                            .insert(server_id.to_owned(), id.clone());
                     } else {
                         breadcrumbs.last_dm_id = Some(id.clone());
                     };
 
+                    breadcrumbs.recent_rooms.insert(0, id.clone());
                     this.state.client.get_room(&id)
                 } else {
                     None
                 };
+
+                if breadcrumbs.recent_rooms.len() > 10 {
+                    breadcrumbs.recent_rooms.truncate(10);
+                }
 
                 this.state.set_active_room(new_room);
                 this.state.breadcrumbs = breadcrumbs.clone();
@@ -159,6 +162,22 @@ impl HomeView {
             move |this: &mut HomeView, _child, event: &ActiveRoomChange, _, _| {
                 let room = event.room();
                 this.state.set_active_room(room.clone());
+
+                if let Some(room) = room {
+                    let mut breadcrumbs = this.state.breadcrumbs.clone();
+                    breadcrumbs
+                        .recent_rooms
+                        .insert(0, room.room_id().to_owned());
+
+                    if breadcrumbs.recent_rooms.len() > 10 {
+                        breadcrumbs.recent_rooms.truncate(10);
+                    }
+
+                    this.state.breadcrumbs = breadcrumbs.clone();
+                    let client = this.state.client.clone();
+                    this.tokio_rt
+                        .spawn(async move { set_account_data(&client, breadcrumbs).await });
+                }
             },
         )
         .detach();

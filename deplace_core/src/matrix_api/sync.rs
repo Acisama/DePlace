@@ -9,6 +9,7 @@ use matrix_sdk::{
 use ruma::{OwnedRoomId, events::space::child::SpaceChildEventContent};
 
 use crate::{
+    RoomMap,
     matrix_api::{members::run_membership_map_update, save_session},
     state::AppState,
 };
@@ -50,18 +51,29 @@ async fn run_sync_stream(client: Client) {
 }
 
 async fn run_room_classification(client: Client, state: AppState) {
-    reclassify_rooms(&client, &state).await;
-
     let mut updates = client.room_info_notable_update_receiver();
     while updates.recv().await.is_ok() {
-        reclassify_rooms(&client, &state).await;
+        let response = reclassify_rooms(&client).await;
+
+        state.set_dm_rooms(response.dm_rooms);
+        state.set_server_rooms(response.server_rooms);
+        state.set_single_rooms(response.single_rooms);
+        state.set_parent_to_children(response.parent_to_children);
     }
 }
 
 pub type ParentToChildren = HashMap<OwnedRoomId, HashMap<OwnedRoomId, (Room, Option<String>)>>;
 pub type ChildToParents = HashMap<OwnedRoomId, Vec<Room>>;
 
-async fn reclassify_rooms(client: &Client, state: &AppState) {
+pub struct ClasifiedRooms {
+    pub dm_rooms: RoomMap,
+    pub single_rooms: RoomMap,
+    pub server_rooms: RoomMap,
+    pub parent_to_children: ParentToChildren,
+    pub child_to_parents: ChildToParents,
+}
+
+pub async fn reclassify_rooms(client: &Client) -> ClasifiedRooms {
     let mut dm_rooms = HashMap::new();
     let mut server_rooms = HashMap::new();
     let mut single_rooms = HashMap::new();
@@ -161,10 +173,11 @@ async fn reclassify_rooms(client: &Client, state: &AppState) {
         single_rooms.insert(room_id, room.clone());
     }
 
-    parent_to_children.retain(|room_id, _| server_rooms.contains_key(room_id));
-
-    state.set_dm_rooms(dm_rooms);
-    state.set_server_rooms(server_rooms);
-    state.set_single_rooms(single_rooms);
-    state.set_parent_to_children(parent_to_children);
+    ClasifiedRooms {
+        dm_rooms,
+        server_rooms,
+        single_rooms,
+        parent_to_children,
+        child_to_parents,
+    }
 }
