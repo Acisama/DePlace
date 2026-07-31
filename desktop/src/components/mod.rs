@@ -32,6 +32,7 @@ mod dm_list;
 mod header;
 mod home;
 mod login;
+mod quick_select;
 mod server_list;
 mod sidebar;
 

@@ -1,0 +1,14 @@
+[
+  {
+    "context": "!QuickSelect",
+    "bindings": {
+      "ctrl-k": "quick_select::Open"
+    }
+  },
+  {
+    "context": "QuickSelect",
+    "bindings": {
+      "ctrl-k": "quick_select::Close"
+    }
+  }
+]

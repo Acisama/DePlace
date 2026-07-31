@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use deplace_core::{matrix_api::account_data::set_account_data, state::AppState};
 use gpui::{
-    AppContext, Context, Entity, IntoElement, ParentElement, Pixels, Render, Styled, Window, div,
-    prelude::FluentBuilder,
+    AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, Styled, Window, div, prelude::FluentBuilder,
 };
 use gpui_component::StyledExt;
 use matrix_sdk::{Room, ruma::OwnedUserId};
@@ -11,19 +11,29 @@ use matrix_sdk::{Room, ruma::OwnedUserId};
 use crate::{
     components::{
         AvatarCache, MediaCache, dm_list::DmListView, floating_tile, header::HeaderView,
-        server_list::ServerListView, sidebar::SidebarView,
+        quick_select, server_list::ServerListView, sidebar::SidebarView,
     },
     theme::{ActiveAppTheme, Structure},
 };
 
 pub struct HomeView {
     tokio_rt: Arc<tokio::runtime::Runtime>,
+    focus: FocusHandle,
+
     state: AppState,
     chat_sidebar: Option<ChatSidebar>,
     server_list: Entity<ServerListView>,
     header: Entity<HeaderView>,
     dm_list: Entity<DmListView>,
     sidebar: Entity<SidebarView>,
+    overlay: Overlay,
+}
+
+#[derive(Debug)]
+enum Overlay {
+    None,
+    Settings,
+    QuickSelect(Entity<quick_select::QuickSelect>),
 }
 
 #[derive(Clone)]
@@ -76,6 +86,8 @@ impl HomeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let focus_handle = cx.focus_handle();
+        window.focus(&focus_handle, cx);
         let avatar_cache: AvatarCache = MediaCache::new(state.client.clone(), tokio_rt.clone());
 
         let server_list =
@@ -190,7 +202,15 @@ impl HomeView {
             header,
             sidebar,
             chat_sidebar: Some(ChatSidebar::Members),
+            focus: focus_handle,
+            overlay: Overlay::None,
         }
+    }
+}
+
+impl Focusable for HomeView {
+    fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
+        self.focus.clone()
     }
 }
 
@@ -201,6 +221,30 @@ impl Render for HomeView {
         let structure = &theme.structure;
 
         div()
+            .track_focus(&self.focus)
+            .id("home-view")
+            .key_context("Home")
+            .on_action(
+                cx.listener(|this, _action: &quick_select::Open, window, cx| {
+                    tracing::debug!("Opening quick select");
+
+                    let quick_select = cx.new(|cx| quick_select::QuickSelect::new(window, cx));
+
+                    cx.subscribe_in(
+                        &quick_select,
+                        window,
+                        |this: &mut HomeView, _child, _event: &quick_select::Close, window, cx| {
+                            this.overlay = Overlay::None;
+                            window.focus(&this.focus, cx);
+                            cx.notify()
+                        },
+                    )
+                    .detach();
+
+                    this.overlay = Overlay::QuickSelect(quick_select);
+                    cx.notify();
+                }),
+            )
             .flex()
             .flex_row()
             .paddings(padding)
@@ -257,5 +301,21 @@ impl Render for HomeView {
                             }),
                     ),
             )
+            .child(match &self.overlay {
+                Overlay::None => div().into_any_element(),
+                overlay => div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(gpui::rgba(0x00000080))
+                    .child(match overlay {
+                        Overlay::QuickSelect(ent) => ent.clone().into_any_element(),
+                        Overlay::Settings => div().into_any_element(),
+                        Overlay::None => unreachable!(),
+                    })
+                    .into_any_element(),
+            })
     }
 }

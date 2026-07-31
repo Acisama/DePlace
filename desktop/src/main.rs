@@ -15,12 +15,14 @@ use tracing_subscriber::EnvFilter;
 
 use crate::assets::AppAssets;
 use crate::components::root::RootView;
+use crate::keybinds::load_keymap_from_json;
 use crate::theme::AppTheme;
 
 const SOCKET_NAME: &str = "deplace.sock";
 
 mod assets;
 mod components;
+mod keybinds;
 mod theme;
 mod watch_bridge;
 
@@ -149,6 +151,10 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
             };
 
             let tokio_rt = Arc::clone(&tokio_rt);
+            load_keymap_from_json(include_str!("../keybindings/default.json"), cx)
+                .expect("Failed to load keymap");
+            cx.observe_keystrokes(|e, _, _| tracing::trace!("{:?}", e.context_stack))
+                .detach();
             cx.open_window(options, |window, cx| {
                 let root_view = cx.new(|cx| RootView::new(tokio_rt, window, cx));
                 cx.new(|cx| Root::new(root_view, window, cx))
