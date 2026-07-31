@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     Client, Room, config::SyncSettings, room::ParentSpace, ruma::presence::PresenceState,
 };
-use ruma::OwnedRoomId;
+use ruma::{OwnedRoomId, events::space::child::SpaceChildEventContent};
 
 use crate::{
     matrix_api::{members::run_membership_map_update, save_session},
@@ -58,7 +58,7 @@ async fn run_room_classification(client: Client, state: AppState) {
     }
 }
 
-pub type ParentToChildren = HashMap<OwnedRoomId, Vec<Room>>;
+pub type ParentToChildren = HashMap<OwnedRoomId, HashMap<OwnedRoomId, (Room, Option<String>)>>;
 pub type ChildToParents = HashMap<OwnedRoomId, Vec<Room>>;
 
 async fn reclassify_rooms(client: &Client, state: &AppState) {
@@ -97,11 +97,32 @@ async fn reclassify_rooms(client: &Client, state: &AppState) {
 
         child_to_parents.insert(room.room_id().to_owned(), parents.clone());
 
+        let room_id = room.room_id();
+
         for parent in parents {
+            let order = parent
+                .get_state_event_static_for_key::<SpaceChildEventContent, _>(room_id)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to get state event for key {}: {e}", room_id);
+                    e
+                })
+                .ok()
+                .flatten()
+                .and_then(|raw| {
+                    raw.deserialize()
+                        .map_err(|e| tracing::error!("Failed to deserialize state event: {e}"))
+                        .ok()
+                })
+                .and_then(|v| v.as_sync().cloned())
+                .and_then(|v| v.as_original().cloned())
+                .and_then(|v| v.content.order.clone())
+                .map(|o| o.to_string());
+
             let entry = parent_to_children
                 .entry(parent.room_id().to_owned())
                 .or_default();
-            entry.push(room.clone());
+            entry.insert(room_id.to_owned(), (room.clone(), order));
         }
     }
 

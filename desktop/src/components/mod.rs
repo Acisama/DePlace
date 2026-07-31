@@ -171,6 +171,7 @@ pub fn text_circle(initial: char, color: Color, size: Pixels, rounding: Pixels) 
         .text_color(color.to_gpui())
         .items_center()
         .justify_center()
+        .text_center()
         .cursor_pointer()
         .child(initial.to_string())
         .child(
@@ -180,7 +181,7 @@ pub fn text_circle(initial: char, color: Color, size: Pixels, rounding: Pixels) 
                 .inset_0()
                 .shadow(vec![BoxShadow {
                     color: color.to_gpui(),
-                    blur_radius: px(4.0),
+                    blur_radius: px(2.0),
                     inset: true,
                     offset: Default::default(),
                     spread_radius: px(2.0),
@@ -221,7 +222,7 @@ pub fn render_room_icon(room: &Room, size: impl Clone + Into<Length>) -> AnyElem
     if room.is_call() {
         render_icon(phosphor_svgs::icon::hash::BOLD, size)
     } else {
-        render_icon(phosphor_svgs::icon::speaker_high::BOLD, size)
+        render_icon(phosphor_svgs::icon::speaker_high::FILL, size)
     }
 }
 

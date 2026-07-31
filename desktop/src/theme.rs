@@ -150,7 +150,7 @@ impl AppTheme {
                 sidebar: Sidebar {
                     width: px(300.0),
                     dm_icon_height: px(30.0),
-                    channel_icon_height: px(10.0),
+                    channel_icon_height: px(20.0),
                 },
                 server_column: ServerColumn {
                     icon_width: px(40.0),

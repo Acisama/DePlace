@@ -88,13 +88,25 @@ impl Render for SidebarView {
         let heading_padding = (theme.structure.header_height - heading_font_size) / 2.0;
 
         let items = if let Some(server) = active_server {
-            self.parent_to_children
+            let mut children: Vec<(Room, Option<String>)> = self
+                .parent_to_children
                 .borrow()
                 .get(server.room_id())
                 .cloned()
                 .unwrap_or_default()
+                .values()
+                .cloned()
+                .collect();
+
+            children.sort_by_key(|(room, order_str)| {
+                order_str.clone().unwrap_or(room.room_id().to_string())
+            });
+            children.into_iter().map(|(room, _)| room).collect()
         } else {
-            self.dm_rooms.borrow().values().cloned().collect::<Vec<_>>()
+            let mut dms: Vec<Room> = self.dm_rooms.borrow().values().cloned().collect();
+
+            dms.sort_by_key(|r| r.latest_event_timestamp());
+            dms
         };
 
         let dm_icon_size = sidebar.dm_icon_height;
