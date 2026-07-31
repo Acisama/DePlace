@@ -1,4 +1,4 @@
-use gpui::{App, Global, Hsla, Pixels, hsla, px};
+use gpui::{App, Global, Hsla, Pixels, hsla, px, white};
 use gpui_component::Colorize;
 
 #[derive(Clone)]
@@ -7,7 +7,6 @@ pub struct TileTheme {
     pub border: Hsla,
     pub border_thickness: Pixels,
     pub border_radius: Pixels,
-    pub padding: Pixels,
     pub gap: Pixels,
 }
 
@@ -70,7 +69,6 @@ pub struct ChatSidebarWidth {
 
 #[derive(Clone)]
 pub struct ServerColumn {
-    pub width: Pixels,
     pub icon_width: Pixels,
 }
 
@@ -80,10 +78,12 @@ pub struct Structure {
     pub sidebar_width: Pixels,
     pub server_column: ServerColumn,
     pub chat_sidebar_width: ChatSidebarWidth,
+    pub divider_width: Pixels,
 }
 
 #[derive(Clone)]
 pub struct AppTheme {
+    pub gap: Pixels,
     pub background: Hsla,
     pub small_gap: Pixels,
     pub accent: Hsla,
@@ -92,6 +92,7 @@ pub struct AppTheme {
     pub input: InputTheme,
     pub colors: Colors,
     pub structure: Structure,
+    pub pill_color: Hsla,
 }
 
 impl Global for AppTheme {}
@@ -107,14 +108,15 @@ impl AppTheme {
         let yellow = hsla(0.155, 0.786, 0.743, 1.0);
 
         Self {
+            gap: px(8.0),
             background: hsla(0.0, 0.0, 0.1, 1.0),
             small_gap: px(2.0),
+            pill_color: white(),
             tile: TileTheme {
-                background: hsla(0.66, 0.2, 0.1, 1.0),
+                background: hsla(0.66, 0.2, 0.1, 0.5),
                 border: hsla(0.0, 0.0, 0.2, 1.0),
                 border_thickness: px(1.0),
                 border_radius: px(12.0),
-                padding: px(8.0),
                 gap: px(8.0),
             },
             text: TextTheme {
@@ -135,7 +137,6 @@ impl AppTheme {
                 header_height: px(50.0),
                 sidebar_width: px(300.0),
                 server_column: ServerColumn {
-                    width: px(70.0),
                     icon_width: px(40.0),
                 },
                 chat_sidebar_width: ChatSidebarWidth {
@@ -144,8 +145,13 @@ impl AppTheme {
                     pinned: px(480.0),
                     members: px(240.0),
                 },
+                divider_width: px(2.0),
             },
         }
+    }
+
+    pub fn server_column_width(&self) -> Pixels {
+        self.structure.server_column.icon_width + 3.0 * self.gap
     }
 }
 

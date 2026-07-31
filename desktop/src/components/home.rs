@@ -61,7 +61,8 @@ impl HomeView {
             move |this: &mut HomeView, _child, event, _, _| match event {
                 ActiveRoomChange::SetRoom(room) => this.state.set_active_room(room.clone()),
                 ActiveRoomChange::SetServer(server) => {
-                    this.state.set_active_room(Some(server.clone()))
+                    this.state.set_active_room(server.clone());
+                    this.state.set_active_server(server.clone());
                 }
             },
         )
@@ -81,7 +82,7 @@ impl HomeView {
 impl Render for HomeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.app_theme();
-        let padding = theme.tile.padding;
+        let padding = theme.gap;
         let structure = &theme.structure;
 
         div()
@@ -97,7 +98,7 @@ impl Render for HomeView {
                     .gap(padding)
                     .child(
                         floating_tile(theme)
-                            .w(structure.server_column.width)
+                            .w(theme.server_column_width())
                             .child(self.server_list.clone()),
                     )
                     .child(

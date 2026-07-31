@@ -22,6 +22,7 @@ pub struct AppState {
     single_rooms: Sender<RoomMap>,
     server_rooms: Sender<RoomMap>,
     active_room: Sender<Option<Room>>,
+    active_server: Sender<Option<Room>>,
 }
 
 impl AppState {
@@ -30,6 +31,7 @@ impl AppState {
         let (single_rooms, _) = watch::channel(HashMap::new());
         let (server_rooms, _) = watch::channel(HashMap::new());
         let (active_room, _) = watch::channel(None);
+        let (active_server, _) = watch::channel(None);
 
         Self {
             client,
@@ -38,6 +40,7 @@ impl AppState {
             single_rooms,
             server_rooms,
             active_room,
+            active_server,
         }
     }
 
@@ -57,6 +60,10 @@ impl AppState {
         self.active_room.subscribe()
     }
 
+    pub fn active_server(&self) -> watch::Receiver<Option<Room>> {
+        self.active_server.subscribe()
+    }
+
     pub(crate) fn set_dm_rooms(&self, rooms: RoomMap) {
         Self::send_if_keys_changed(&self.dm_rooms, rooms);
     }
@@ -69,7 +76,16 @@ impl AppState {
         Self::send_if_keys_changed(&self.single_rooms, rooms);
     }
 
-    /// Called from the frontend when the user selects a different room.
+    pub fn set_active_server(&self, server: Option<Room>) {
+        self.active_server.send_if_modified(|cur| {
+            let changed = cur.as_ref().map(|r| r.room_id()) != server.as_ref().map(|r| r.room_id());
+            if changed {
+                *cur = server;
+            }
+            changed
+        });
+    }
+
     pub fn set_active_room(&self, room: Option<Room>) {
         self.active_room.send_if_modified(|cur| {
             let changed = cur.as_ref().map(|r| r.room_id()) != room.as_ref().map(|r| r.room_id());
@@ -80,9 +96,6 @@ impl AppState {
         });
     }
 
-    /// `Room` has no `PartialEq`, and `HashMap` iteration order isn't stable
-    /// across two independently-built maps, so equality is judged by set
-    /// membership rather than by comparing entries pairwise.
     fn send_if_keys_changed(sender: &Sender<RoomMap>, rooms: RoomMap) {
         sender.send_if_modified(|cur| {
             let changed = cur.len() != rooms.len() || rooms.keys().any(|id| !cur.contains_key(id));

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use deplace_core::{RestoreResult, matrix_api::LoginResult, try_restore};
 use gpui::{
-    AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, StyledImage, Window,
-    blue, div, img,
+    AppContext, Context, Entity, IntoElement, ObjectFit, ParentElement, Render, Styled,
+    StyledImage, Window, blue, div, img,
 };
 use matrix_sdk::Client;
 
@@ -13,7 +13,6 @@ use crate::{
 };
 
 pub struct RootView {
-    background_image: Option<Arc<gpui::Image>>,
     active_screen: Screen,
     tokio_rt: Arc<tokio::runtime::Runtime>,
 }
@@ -30,7 +29,6 @@ enum Screen {
 impl RootView {
     pub fn new(
         tokio_rt: Arc<tokio::runtime::Runtime>,
-        background_image: Option<Arc<gpui::Image>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -82,7 +80,6 @@ impl RootView {
 
         Self {
             active_screen: Screen::default(),
-            background_image,
             tokio_rt,
         }
     }
@@ -128,23 +125,21 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let mut root_div = div().size_full();
-
-        if let Some(image) = self.background_image.clone() {
-            root_div = root_div.child(
-                img(image)
-                    .absolute()
-                    .inset_0()
+        div()
+            .size_full()
+            .relative()
+            .child(
+                img("bg.png")
                     .size_full()
-                    .object_fit(gpui::ObjectFit::Cover),
+                    .object_fit(ObjectFit::Cover)
+                    .absolute()
+                    .inset_0(),
             )
-        }
-
-        root_div.child(match &self.active_screen {
-            Screen::Loading => div().bg(blue()).child("Loading...").into_any_element(),
-            Screen::ServerDiscovery(view) => view.clone().into_any_element(),
-            Screen::Login(view) => view.clone().into_any_element(),
-            Screen::Home(view) => view.clone().into_any_element(),
-        })
+            .child(match &self.active_screen {
+                Screen::Loading => div().bg(blue()).child("Loading...").into_any_element(),
+                Screen::ServerDiscovery(view) => view.clone().into_any_element(),
+                Screen::Login(view) => view.clone().into_any_element(),
+                Screen::Home(view) => view.clone().into_any_element(),
+            })
     }
 }

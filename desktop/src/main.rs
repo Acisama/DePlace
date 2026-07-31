@@ -8,15 +8,18 @@ use interprocess::local_socket::traits::tokio::{Listener as _, Stream as _};
 use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
+use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
+use crate::assets::AppAssets;
 use crate::components::root::RootView;
 use crate::theme::AppTheme;
 
 const SOCKET_NAME: &str = "deplace.sock";
 
+mod assets;
 mod components;
 mod theme;
 mod watch_bridge;
@@ -116,16 +119,9 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
             .expect("Failed to create Tokio runtime"),
     );
 
-    use gpui::{Image, ImageFormat};
-    use std::sync::Arc;
-
-    let image_path = dirs::home_dir().unwrap().join(".deplace/bg.jpeg");
-    let bytes = std::fs::read(image_path).ok();
-    let background_image = bytes.map(|bytes| Arc::new(Image::from_bytes(ImageFormat::Jpeg, bytes)));
-
     let platform = gpui_platform::current_platform(false);
     Application::with_platform(platform)
-        .with_assets(gpui_component_assets::Assets)
+        .with_assets(AppAssets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
             let app_theme = AppTheme::new();
@@ -154,7 +150,7 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
 
             let tokio_rt = Arc::clone(&tokio_rt);
             cx.open_window(options, |window, cx| {
-                let root_view = cx.new(|cx| RootView::new(tokio_rt, background_image, window, cx));
+                let root_view = cx.new(|cx| RootView::new(tokio_rt, window, cx));
                 cx.new(|cx| Root::new(root_view, window, cx))
             })
             .expect("Failed to open window");

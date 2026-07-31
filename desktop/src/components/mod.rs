@@ -32,19 +32,19 @@ mod server_list;
 
 pub enum ActiveRoomChange {
     SetRoom(Option<Room>),
-    SetServer(Room),
+    SetServer(Option<Room>),
 }
 
 pub fn floating_tile(theme: &AppTheme) -> Div {
     div()
         .flex()
+        .backdrop_blur(px(30.0))
         .flex_shrink_0()
         .bg(theme.tile.background)
         .border(theme.tile.border_thickness)
         .border_color(theme.tile.border)
         .rounded(theme.tile.border_radius)
         .gap(theme.tile.gap)
-        .paddings(theme.tile.padding)
         .shadow_sm()
         .overflow_y_hidden()
 }
