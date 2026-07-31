@@ -173,8 +173,8 @@ impl Render for SidebarView {
                     render_room_icon(&room, icon_height)
                 })
                 .on_click(cx.listener({
-                    tracing::trace!("Room {} clicked", room_id);
                     move |_, _, _, cx| {
+                        tracing::trace!("Room {} clicked", room_id);
                         cx.emit(ActiveRoomChange::new(Some(room.clone())));
                     }
                 }))

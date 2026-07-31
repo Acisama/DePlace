@@ -168,8 +168,9 @@ impl Render for ServerListView {
             .child(
                 Button::new(format!("server-{}", room.room_id()))
                     .on_click(cx.listener({
-                        tracing::trace!("Server {} clicked", room_id);
+                        let room_id = room_id.clone();
                         move |_, _, _, cx| {
+                            tracing::trace!("Server {} clicked", room_id);
                             cx.emit(ActiveServerChange::new(Some(room.clone())));
                         }
                     }))
