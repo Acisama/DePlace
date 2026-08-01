@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use deplace_core::{matrix_api::account_data::set_account_data, state::AppState};
 use gpui::{
-    AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    AppContext, Context, Empty, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     ParentElement, Pixels, Render, Styled, Window, div, prelude::FluentBuilder,
 };
 use gpui_component::StyledExt;
@@ -312,7 +312,7 @@ impl Render for HomeView {
                     ),
             )
             .child(match &self.overlay {
-                Overlay::None => div().into_any_element(),
+                Overlay::None => Empty.into_any_element(),
                 overlay => div()
                     .absolute()
                     .inset_0()
