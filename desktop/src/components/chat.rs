@@ -125,11 +125,7 @@ impl ChatView {
                 // finished right as a newer room was selected. Applying it here would silently
                 // overwrite the newer room's (still in-flight) selection with stale data, so
                 // discard anything that isn't for the room we're currently showing.
-                let is_current = view
-                    .active_room
-                    .borrow()
-                    .as_ref()
-                    .map(|r| r.room_id())
+                let is_current = view.active_room.borrow().as_ref().map(|r| r.room_id())
                     == Some(expected_room_id.as_ref());
                 if !is_current {
                     tracing::debug!(

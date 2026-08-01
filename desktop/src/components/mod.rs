@@ -6,12 +6,12 @@ use std::{
 use deplace_core::{
     NameExt,
     colors::{Color, ColorExt},
-    get_dm_room_name, get_other_member,
+    get_other_member,
     state::MembershipMap,
 };
 use gpui::{
-    AnyElement, App, BoxShadow, Div, Entity, Focusable, Image, Length, ObjectFit, Pixels, Window,
-    div, img, prelude::*, px, svg,
+    AnyElement, App, BoxShadow, Div, Entity, Focusable, Length, ObjectFit, Pixels, Window, div,
+    img, prelude::*, px, svg,
 };
 use gpui_component::{
     StyledExt,
@@ -317,7 +317,7 @@ fn render_unknown_name(size: Pixels) -> Div {
 
 impl MemberRenderer for RoomMember {
     fn render_avatar(&self, size: Pixels, rounding: Pixels, cache: &AvatarCache) -> AnyElement {
-        let image = self.avatar_url().map(|url| cache.get(url)).flatten();
+        let image = self.avatar_url().and_then(|url| cache.get(url));
         avatar(self.initial(), self.color(), size, rounding, image)
     }
 

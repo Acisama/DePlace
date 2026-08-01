@@ -7,10 +7,10 @@ use anyhow::Result;
 use futures_util::StreamExt;
 use matrix_sdk::Room;
 use matrix_sdk_ui::timeline::{
-    DateDividerMode, Timeline, TimelineBuilder, TimelineFocus, TimelineItem,
+    DateDividerMode, MemberProfileChange, Timeline, TimelineBuilder, TimelineFocus, TimelineItem,
     TimelineReadReceiptTracking,
 };
-use ruma::{OwnedEventId, OwnedRoomId};
+use ruma::{OwnedEventId, OwnedRoomId, events::room::member::Change};
 use tokio::{
     sync::watch::{self, Receiver},
     task::JoinHandle,
@@ -174,5 +174,42 @@ impl TimelineManager {
                     .insert(id, (timeline, false));
             }
         }
+    }
+}
+
+pub trait DisplayString {
+    fn display_string(&self) -> String;
+}
+
+impl DisplayString for MemberProfileChange {
+    fn display_string(&self) -> String {
+        let mut changes = Vec::new();
+
+        if let Some(Change { old, new }) = self.displayname_change() {
+            if let Some(new) = new {
+                if let Some(old) = old {
+                    changes.push(format!(
+                        "changed their display name from '{}' to '{}'",
+                        old, new
+                    ));
+                } else {
+                    changes.push(format!("set their display name to '{}'", new));
+                }
+            } else {
+                changes.push("removed their display name".to_string());
+            }
+        }
+
+        if let Some(Change { old, new }) = &self.avatar_url_change() {
+            if new.is_some() && old.is_none() {
+                changes.push("set a profile picture".to_string());
+            } else if new.is_none() && old.is_some() {
+                changes.push("removed their profile picture".to_string());
+            } else {
+                changes.push("changed their profile picture".to_string());
+            }
+        }
+
+        changes.join(" and ")
     }
 }
