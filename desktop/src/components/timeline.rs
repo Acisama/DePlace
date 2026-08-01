@@ -13,12 +13,12 @@ use gpui::{
 use gpui_component::red_600;
 use matrix_sdk::ruma::{
     OwnedUserId, RoomId, UserId,
-    events::{StateEventContentChange, rtc::notification::CallIntent},
+    events::{StateEventContentChange, room::message::MessageType, rtc::notification::CallIntent},
 };
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, EventTimelineItem, MemberProfileChange, MembershipChange,
-    OtherState, RoomMembershipChange, TimelineItem, TimelineItemContent, TimelineItemKind,
-    VirtualTimelineItem,
+    Message, MsgLikeContent, MsgLikeKind, OtherState, RoomMembershipChange, TimelineItem,
+    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 
 use crate::{
@@ -158,9 +158,13 @@ fn render_timeline_event(
         TimelineItemContent::MembershipChange(change) => {
             render_membership_change(change, sender_div)
         }
-        TimelineItemContent::MsgLike(msg) => div().child(format!("{:?}", msg)),
-        TimelineItemContent::OtherState(other) => render_other_state(other, sender_div),
-        TimelineItemContent::ProfileChange(change) => render_profile_change(change, sender_div),
+        TimelineItemContent::MsgLike(msg) => render_msg_like(msg, sender_div, theme),
+        TimelineItemContent::OtherState(other) => {
+            render_other_state(other, sender_div).text_color(theme.text.dim)
+        }
+        TimelineItemContent::ProfileChange(change) => {
+            render_profile_change(change, sender_div).text_color(theme.text.dim)
+        }
         TimelineItemContent::RtcNotification {
             call_intent,
             declined_by,
@@ -171,7 +175,8 @@ fn render_timeline_event(
             sender_div,
             |id| member_avatar(id, px(20.0)),
             |id| member_name(id, px(16.0)),
-        ),
+        )
+        .text_color(theme.text.dim),
     };
 
     div()
@@ -352,4 +357,73 @@ fn render_other_state(other: &OtherState, sender_div: impl Fn() -> Div) -> Div {
             .child("changed the space's parent"),
         _ => div().child(sender_div()).child("changed the room's "),
     }
+}
+
+fn render_msg_like(msg: &MsgLikeContent, _sender_div: impl Fn() -> Div, theme: &AppTheme) -> Div {
+    // TODO: Render reactions
+    // TODO: Render reply header
+
+    let content = match &msg.kind {
+        MsgLikeKind::Redacted => div().text_color(theme.text.dim).child("redacted"),
+        // TODO: Render live location
+        MsgLikeKind::LiveLocation(_) => div()
+            .text_color(theme.colors.warning)
+            .child("Locations are not supported yet"),
+        MsgLikeKind::Poll(_) => div()
+            .text_color(theme.colors.warning)
+            .child("Polls are not supported yet"),
+        MsgLikeKind::UnableToDecrypt(_) => div()
+            .text_color(theme.colors.warning)
+            .child("Unable to decrypt"),
+        MsgLikeKind::Other(kind) => div().text_color(theme.colors.warning).child(format!(
+            "This message kind is not supported yet: {:?}",
+            kind
+        )),
+        MsgLikeKind::Sticker(_) => div()
+            .text_color(theme.colors.warning)
+            .child("Stickers are not supported yet"),
+        MsgLikeKind::Message(msg) => render_message(msg, theme),
+    };
+
+    div().child(content)
+}
+
+fn render_message(msg: &Message, theme: &AppTheme) -> Div {
+    let msg_type = &msg.msgtype();
+    let content = match msg_type {
+        MessageType::Audio(_) => div()
+            .text_color(theme.text.dim)
+            .child("Audio messages are not supported yet"),
+        MessageType::Emote(_) => div()
+            .text_color(theme.text.dim)
+            .child("Emotes are not supported yet"),
+        MessageType::File(_) => div()
+            .text_color(theme.text.dim)
+            .child("Files are not supported yet"),
+        MessageType::Image(_) => div()
+            .text_color(theme.text.dim)
+            .child("Images are not supported yet"),
+        MessageType::Location(_) => div()
+            .text_color(theme.text.dim)
+            .child("Locations are not supported yet"),
+        MessageType::Notice(_) => div()
+            .text_color(theme.text.dim)
+            .child("Notices are not supported yet"),
+        MessageType::ServerNotice(_) => div()
+            .text_color(theme.text.dim)
+            .child("Server notices are not supported yet"),
+        MessageType::Text(text) => div().text_color(theme.text.normal).child(text.body.clone()),
+        MessageType::VerificationRequest(_) => div()
+            .text_color(theme.text.dim)
+            .child("Verification requests are not supported yet"),
+        MessageType::Video(_) => div()
+            .text_color(theme.text.dim)
+            .child("Video messages are not supported yet"),
+        _ => div().text_color(theme.text.dim).child(format!(
+            "Unsupported message type: {:?}",
+            msg_type.msgtype()
+        )),
+    };
+
+    div().child(content)
 }
