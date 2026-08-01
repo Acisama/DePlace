@@ -159,7 +159,7 @@ fn render_timeline_event(
             render_membership_change(change, sender_div)
         }
         TimelineItemContent::MsgLike(msg) => div().child(format!("{:?}", msg)),
-        TimelineItemContent::OtherState(other) => div(),
+        TimelineItemContent::OtherState(other) => render_other_state(other, sender_div),
         TimelineItemContent::ProfileChange(change) => render_profile_change(change, sender_div),
         TimelineItemContent::RtcNotification {
             call_intent,
@@ -269,7 +269,7 @@ fn render_error(text: String, sender_div: impl Fn() -> Div, theme: &AppTheme) ->
         .text_color(theme.colors.error)
 }
 
-fn render_other_state(other: OtherState, sender_div: impl Fn() -> Div) -> Div {
+fn render_other_state(other: &OtherState, sender_div: impl Fn() -> Div) -> Div {
     match other.content() {
         AnyOtherStateEventContentChange::PolicyRuleRoom(_) => {
             div().child(sender_div()).child("changed the room's policy")
