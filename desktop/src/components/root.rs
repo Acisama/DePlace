@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use deplace_core::{RestoreResult, matrix_api::LoginResult, state::AppState, try_restore};
 use gpui::{
-    AppContext, Context, Entity, IntoElement, ObjectFit, ParentElement, Render, RenderImage,
-    Styled, StyledImage, Window, blue, div, img,
+    AppContext, Context, Entity, InteractiveElement, IntoElement, KeyContext, ObjectFit,
+    ParentElement, Render, RenderImage, Styled, StyledImage, Window, blue, div, img,
 };
 use matrix_sdk::Client;
 
@@ -131,6 +131,7 @@ impl RootView {
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .key_context(KeyContext::new_with_defaults())
             .size_full()
             .relative()
             .child(
