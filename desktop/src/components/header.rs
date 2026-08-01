@@ -1,26 +1,47 @@
 use std::sync::Arc;
 
-use deplace_core::state::AppState;
-use gpui::{Context, ParentElement, Render, Styled, div, white};
-use matrix_sdk::Room;
+use deplace_core::{
+    get_other_member, get_room_name,
+    state::{AppState, MembershipMap},
+};
+use gpui::{Context, ParentElement, Render, Styled, div};
+use gpui_component::StyledExt;
+use matrix_sdk::{Room, ruma::OwnedUserId};
 use tokio::{runtime::Runtime, sync::watch};
 
-use crate::watch_bridge::notify_on_change;
+use crate::{
+    components::{AvatarCache, render_icon, render_member_name, render_room_icon},
+    theme::ActiveAppTheme,
+    watch_bridge::notify_on_change,
+};
 
 pub struct HeaderView {
     tokio_rt: Arc<Runtime>,
     active_room: watch::Receiver<Option<Room>>,
+    membership_map: watch::Receiver<MembershipMap>,
+    cache: AvatarCache,
+    own_id: OwnedUserId,
 }
 
 impl HeaderView {
-    pub fn new(state: &AppState, cx: &mut Context<Self>, tokio_rt: Arc<Runtime>) -> Self {
+    pub fn new(
+        state: &AppState,
+        cx: &mut Context<Self>,
+        tokio_rt: Arc<Runtime>,
+        cache: AvatarCache,
+    ) -> Self {
         let active_room = state.active_room();
+        let membership_map = state.membership_map();
 
         notify_on_change(active_room.clone(), cx);
+        notify_on_change(membership_map.clone(), cx);
 
         Self {
             tokio_rt,
             active_room,
+            membership_map,
+            cache,
+            own_id: state.user_device.user_id.clone(),
         }
     }
 }
@@ -29,17 +50,56 @@ impl Render for HeaderView {
     fn render(
         &mut self,
         _window: &mut gpui::Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> impl gpui::IntoElement {
         let room = self.active_room.borrow().clone();
-        let Some(room) = room else {
-            return div().text_color(white()).child("No room selected");
-        };
 
-        div().text_color(white()).child(
-            room.cached_display_name()
-                .map(|n| n.to_string())
-                .unwrap_or_default(),
-        )
+        let theme = cx.app_theme();
+        let header = &theme.structure.header;
+
+        let name = room
+            .as_ref()
+            .map(get_room_name)
+            .unwrap_or("No room selected".to_string());
+
+        let map = self.membership_map.borrow().clone();
+        let name_div = div().child(name);
+
+        div()
+            .size_full()
+            .text_color(theme.text.normal)
+            .paddings(theme.gap)
+            .flex()
+            .items_center()
+            .flex_row()
+            .gap(theme.gap)
+            .child(
+                div()
+                    .child(if let Some(room) = &room {
+                        render_room_icon(
+                            room,
+                            &map,
+                            &self.own_id,
+                            &self.cache,
+                            header.icon_size,
+                            header.icon_size / 2.0,
+                        )
+                    } else {
+                        render_icon(phosphor_svgs::icon::aperture::BOLD, header.icon_size)
+                    })
+                    .pl(header.icon_padding() - theme.gap)
+                    .text_color(theme.text.dim),
+            )
+            .child(
+                if let Some(room) = room
+                    && room.is_dm()
+                {
+                    get_other_member(&self.own_id, &map, room.room_id())
+                        .map(|m| render_member_name(&m))
+                        .unwrap_or(name_div)
+                } else {
+                    name_div
+                },
+            )
     }
 }

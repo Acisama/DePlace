@@ -10,8 +10,8 @@ use matrix_sdk::{Room, ruma::OwnedUserId};
 
 use crate::{
     components::{
-        AvatarCache, MediaCache, dm_list::DmListView, floating_tile, header::HeaderView,
-        quick_select, server_list::ServerListView, sidebar::SidebarView,
+        AvatarCache, MediaCache, chat::ChatView, dm_list::DmListView, floating_tile,
+        header::HeaderView, quick_select, server_list::ServerListView, sidebar::SidebarView,
     },
     theme::{ActiveAppTheme, Structure},
 };
@@ -26,6 +26,8 @@ pub struct HomeView {
     header: Entity<HeaderView>,
     dm_list: Entity<DmListView>,
     sidebar: Entity<SidebarView>,
+    chat: Entity<ChatView>,
+
     overlay: Overlay,
 }
 
@@ -93,9 +95,11 @@ impl HomeView {
         let server_list =
             cx.new(|cx| ServerListView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
         let dm_list = cx.new(|cx| DmListView::new(&state, cx));
-        let header = cx.new(|cx| HeaderView::new(&state, cx, tokio_rt.clone()));
+        let header =
+            cx.new(|cx| HeaderView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
         let sidebar =
             cx.new(|cx| SidebarView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
+        let chat = cx.new(|cx| ChatView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
 
         cx.subscribe_in(
             &server_list,
@@ -201,6 +205,7 @@ impl HomeView {
             state,
             header,
             sidebar,
+            chat,
             chat_sidebar: Some(ChatSidebar::Members),
             focus: focus_handle,
             overlay: Overlay::None,
@@ -271,7 +276,7 @@ impl Render for HomeView {
                                     .flex_grow_1()
                                     .child(self.sidebar.clone()),
                             )
-                            .child(floating_tile(theme).h(structure.header_height)),
+                            .child(floating_tile(theme).h(structure.header.height)),
                     ),
             )
             .child(
@@ -282,7 +287,7 @@ impl Render for HomeView {
                     .size_full()
                     .child(
                         floating_tile(theme)
-                            .h(structure.header_height)
+                            .h(structure.header.height)
                             .child(self.header.clone()),
                     )
                     .child(
@@ -291,7 +296,12 @@ impl Render for HomeView {
                             .flex_row()
                             .gap(padding)
                             .size_full()
-                            .child(floating_tile(theme).flex_grow_1().h_full())
+                            .child(
+                                floating_tile(theme)
+                                    .flex_grow_1()
+                                    .h_full()
+                                    .child(self.chat.clone()),
+                            )
                             .when_some(self.chat_sidebar.clone(), |el, sidebar| {
                                 el.child(
                                     floating_tile(theme)

@@ -10,6 +10,7 @@ use tokio::sync::watch::{self, Sender};
 use crate::matrix_api::{
     account_data::{BreadcrumbsContent, ServerOrderContent, get_account_data},
     sync::{ParentToChildren, reclassify_rooms},
+    timeline::TimelineManager,
 };
 
 #[derive(Clone)]
@@ -34,6 +35,8 @@ pub struct AppState {
     membership_map: Sender<MembershipMap>,
     pub server_order: Vec<OwnedRoomId>,
     pub breadcrumbs: BreadcrumbsContent,
+
+    pub timeline_manager: TimelineManager,
 }
 
 impl AppState {
@@ -86,6 +89,8 @@ impl AppState {
             membership_map,
             server_order: server_order.servers,
             breadcrumbs,
+
+            timeline_manager: TimelineManager::default(),
         }
     }
 

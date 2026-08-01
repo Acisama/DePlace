@@ -1,7 +1,7 @@
 use crate::state::MembershipMap;
 use matrix_sdk::{
-    Client, Room, RoomMemberships, SessionMeta, SessionTokens,
-    authentication::matrix::MatrixSession, room::RoomMember, store::AvatarCache,
+    Client, Room, SessionMeta, SessionTokens, authentication::matrix::MatrixSession,
+    room::RoomMember,
 };
 use ruma::{RoomId, UserId};
 
@@ -15,6 +15,7 @@ use const_format::formatcp;
 mod keyring;
 
 pub mod colors;
+pub mod helpers;
 pub mod matrix_api;
 pub mod state;
 
@@ -38,7 +39,7 @@ const DEVICE_DISPLAY_NAME: &str = formatcp!("DePlace on {PLATFORM}");
 pub use state::RoomMap;
 
 pub enum RestoreResult {
-    Success(AppState),
+    Success(Box<AppState>),
     NoSession,
     NeedsLogin(Client),
 }
@@ -99,7 +100,7 @@ pub async fn try_restore() -> RestoreResult {
     spawn_room_sync(&client, &state);
 
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");
-    RestoreResult::Success(state)
+    RestoreResult::Success(Box::new(state))
 }
 
 fn get_member_name(member: &RoomMember) -> String {
@@ -113,6 +114,12 @@ pub fn get_room_name(room: &Room) -> String {
     room.cached_display_name()
         .map(|n| n.to_string())
         .unwrap_or("Unknown Room".to_string())
+}
+
+pub fn get_room_name_fallback(room: &Room, fallback: &str) -> String {
+    room.cached_display_name()
+        .map(|n| n.to_string())
+        .unwrap_or(fallback.to_string())
 }
 
 pub fn get_dm_room_name(room: &Room, map: &MembershipMap, own_id: &UserId) -> String {

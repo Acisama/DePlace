@@ -14,7 +14,7 @@ use matrix_sdk::{Room, ruma::OwnedUserId};
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{AvatarCache, home::ActiveRoomChange, render_room_avatar, render_room_icon},
+    components::{AvatarCache, home::ActiveRoomChange, render_room_icon},
     theme::ActiveAppTheme,
     watch_bridge::notify_on_change,
 };
@@ -85,7 +85,7 @@ impl Render for SidebarView {
             .unwrap_or("Direct Messages".to_string());
 
         let heading_font_size = theme.text.font_size * 1.1;
-        let heading_padding = (theme.structure.header_height - heading_font_size) / 2.0;
+        let heading_padding = (theme.structure.header.height - heading_font_size) / 2.0;
 
         let items = if let Some(server) = active_server {
             let mut children: Vec<(Room, Option<String>)> = self
@@ -160,18 +160,14 @@ impl Render for SidebarView {
                         .cursor_default()
                 })
                 .id(room_id.to_string())
-                .child(if in_dms {
-                    render_room_avatar(
-                        &room,
-                        &membership_map,
-                        &own_id,
-                        &cache,
-                        icon_height,
-                        icon_height / 2.0,
-                    )
-                } else {
-                    render_room_icon(&room, icon_height)
-                })
+                .child(render_room_icon(
+                    &room,
+                    &membership_map,
+                    &own_id,
+                    &cache,
+                    icon_height,
+                    icon_height / 2.0,
+                ))
                 .on_click(cx.listener({
                     move |_, _, _, cx| {
                         tracing::trace!("Room {} clicked", room_id);
@@ -185,7 +181,7 @@ impl Render for SidebarView {
             .w_full()
             .child(
                 div()
-                    .h(theme.structure.header_height)
+                    .h(theme.structure.header.height)
                     .flex()
                     .child(name)
                     .items_center()

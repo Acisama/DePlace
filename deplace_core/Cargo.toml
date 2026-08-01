@@ -5,21 +5,26 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 const_format = "0.2.36"
 csscolorparser.workspace = true
 dirs.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
+gpui = { workspace = true, optional = true }
 hex = "0.4.3"
+imbl.workspace = true
 keyring-core = "1.0.0"
 matrix-sdk.workspace = true
+matrix-sdk-ui.workspace = true
 ruma.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
-gpui = { workspace = true, optional = true }
+uuid.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1.0"

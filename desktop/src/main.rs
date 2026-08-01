@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use deplace_core::APP_HUMAN_NAME;
 use gpui::{App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, prelude::*};
 use gpui_component::Root;
@@ -13,18 +15,19 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
-use crate::assets::AppAssets;
-use crate::components::root::RootView;
-use crate::keybinds::load_keymap_from_json;
-use crate::theme::AppTheme;
+use assets::AppAssets;
+use components::root::RootView;
+use keybinds::load_keymap_from_json;
+use theme::AppTheme;
 
 const SOCKET_NAME: &str = "deplace.sock";
 
-mod assets;
-mod components;
-mod keybinds;
-mod theme;
-mod watch_bridge;
+pub(crate) mod assets;
+pub(crate) mod components;
+pub(crate) mod helpers;
+pub(crate) mod keybinds;
+pub(crate) mod theme;
+pub(crate) mod watch_bridge;
 
 #[derive(Serialize, Deserialize)]
 enum InstanceCommand {

@@ -19,6 +19,7 @@ use gpui_component::{
 use matrix_sdk::{
     Client, Room,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+    room::RoomMember,
     ruma::{OwnedMxcUri, UInt, UserId, events::room::MediaSource},
 };
 use tokio::{runtime::Runtime, sync::watch};
@@ -27,6 +28,7 @@ use crate::theme::AppTheme;
 
 pub mod root;
 
+mod chat;
 mod discovery;
 mod dm_list;
 mod header;
@@ -35,6 +37,7 @@ mod login;
 mod quick_select;
 mod server_list;
 mod sidebar;
+mod timeline;
 
 pub fn floating_tile(theme: &AppTheme) -> Div {
     div()
@@ -203,6 +206,9 @@ pub fn avatar(
             .object_fit(ObjectFit::Cover)
             .rounded(rounding)
             .size(size)
+            .items_center()
+            .justify_center()
+            .overflow_hidden()
             .cursor_pointer()
             .into_any()
     } else {
@@ -219,7 +225,7 @@ pub fn render_icon(svg_content: &'static str, size: impl Clone + Into<Length>) -
         .into_any()
 }
 
-pub fn render_room_icon(room: &Room, size: impl Clone + Into<Length>) -> AnyElement {
+pub fn render_simple_room_icon(room: &Room, size: impl Clone + Into<Length>) -> AnyElement {
     if room.is_call() {
         render_icon(phosphor_svgs::icon::hash::BOLD, size)
     } else {
@@ -237,7 +243,7 @@ fn render_room_avatar(
 ) -> AnyElement {
     let (url, color): (Option<OwnedMxcUri>, Color) = if room.is_dm() {
         let Some(other_member) = get_other_member(own_id, map, room.room_id()) else {
-            return avatar(' ', UNKNOWN_COLOR.into(), px(24.0), px(4.0), None).into_any();
+            return avatar(' ', UNKNOWN_COLOR.into(), size, rounding, None).into_any();
         };
         (
             other_member.avatar_url().map(|u| u.to_owned()),
@@ -271,4 +277,30 @@ fn render_room_avatar(
         rounding,
         image,
     )
+}
+
+fn render_room_icon(
+    room: &Room,
+    map: &MembershipMap,
+    own_id: &UserId,
+    cache: &AvatarCache,
+    size: Pixels,
+    rounding: Pixels,
+) -> AnyElement {
+    if room.is_dm() {
+        render_room_avatar(room, map, own_id, cache, size, rounding)
+    } else {
+        render_simple_room_icon(room, size)
+    }
+}
+
+fn render_member_name(member: &RoomMember) -> Div {
+    let name = member
+        .display_name()
+        .map(|n| n.to_string())
+        .unwrap_or(member.user_id().to_string());
+
+    let color: Color = member.into();
+
+    div().text_color(color.to_gpui()).font_bold().child(name)
 }

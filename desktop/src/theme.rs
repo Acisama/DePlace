@@ -79,12 +79,24 @@ pub struct Sidebar {
 }
 
 #[derive(Clone)]
+pub struct Header {
+    pub height: Pixels,
+    pub icon_size: Pixels,
+}
+
+impl Header {
+    pub fn icon_padding(&self) -> Pixels {
+        (self.height - self.icon_size) / 2.0
+    }
+}
+
+#[derive(Clone)]
 pub struct Structure {
-    pub header_height: Pixels,
     pub server_column: ServerColumn,
     pub chat_sidebar_width: ChatSidebarWidth,
     pub divider_width: Pixels,
     pub sidebar: Sidebar,
+    pub header: Header,
 }
 
 #[derive(Clone)]
@@ -146,7 +158,10 @@ impl AppTheme {
             colors: Colors::new(red, green, yellow, muted_color),
             accent,
             structure: Structure {
-                header_height: px(50.0),
+                header: Header {
+                    height: px(50.0),
+                    icon_size: px(20.0),
+                },
                 sidebar: Sidebar {
                     width: px(300.0),
                     dm_icon_height: px(30.0),

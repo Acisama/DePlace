@@ -11,6 +11,7 @@ use matrix_sdk::{
 pub mod account_data;
 mod members;
 pub mod sync;
+pub mod timeline;
 
 use crate::{
     APP_NAME, DEVICE_DISPLAY_NAME,
@@ -36,7 +37,7 @@ pub async fn test_server(server_name_or_url: String) -> Option<(Client, Url)> {
 }
 
 pub enum LoginResult {
-    Success(AppState),
+    Success(Box<AppState>),
     InvalidCredentials,
     Error(String),
     BackToDiscovery,
@@ -115,7 +116,7 @@ pub async fn login(
     let state = AppState::new(client.clone(), device.clone()).await;
     spawn_room_sync(&client, &state);
 
-    LoginResult::Success(state)
+    LoginResult::Success(Box::new(state))
 }
 
 pub fn save_session(client: &Client) {

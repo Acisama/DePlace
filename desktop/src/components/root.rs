@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use deplace_core::{RestoreResult, matrix_api::LoginResult, try_restore};
+use deplace_core::{RestoreResult, matrix_api::LoginResult, state::AppState, try_restore};
 use gpui::{
     AppContext, Context, Entity, IntoElement, ObjectFit, ParentElement, Render, RenderImage,
     Styled, StyledImage, Window, blue, div, img,
@@ -57,6 +57,7 @@ impl RootView {
             let _ = this.update_in(cx, |root, window, cx| {
                 match outcome {
                     Ok(RestoreResult::Success(state)) => {
+                        let state = *state;
                         let tokio_rt = Arc::clone(&root.tokio_rt);
                         let home_view = cx.new(|cx| HomeView::new(tokio_rt, state, window, cx));
                         root.active_screen = Screen::Home(home_view);
@@ -101,6 +102,7 @@ impl RootView {
             let login_view = login_view.clone();
             move |this: &mut RootView, _child, event, window, cx| match event {
                 LoginResult::Success(state) => {
+                    let state: AppState = *state.clone();
                     let tokio_rt = Arc::clone(&this.tokio_rt);
                     let home_view = cx.new(|cx| HomeView::new(tokio_rt, state.clone(), window, cx));
                     this.active_screen = Screen::Home(home_view);

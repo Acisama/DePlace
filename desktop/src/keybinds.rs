@@ -75,7 +75,7 @@ pub fn load_keymap_from_json(json_str: &str, cx: &mut App) -> Result<()> {
                 _ => continue,
             };
 
-            if let Some(action) = cx.build_action(action_name, args.cloned()).ok() {
+            if let Ok(action) = cx.build_action(action_name, args.cloned()) {
                 match create_keybinding(&keystroke, action, context_str, false, cx) {
                     Ok(binding) => key_bindings.push(binding),
                     Err(err) => eprintln!("Failed to load keybind '{keystroke}': {err}"),
