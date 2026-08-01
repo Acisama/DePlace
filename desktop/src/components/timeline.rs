@@ -2,16 +2,23 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Local, TimeZone};
 use deplace_core::{
-    helpers::format_date_divider, matrix_api::timeline::DisplayString, state::MembershipMap,
+    get_change,
+    helpers::format_date_divider,
+    matrix_api::timeline::{DisplayString, EventChange, get_current_and_prev},
+    state::MembershipMap,
 };
 use gpui::{
     AnyElement, Div, Element, InteractiveElement, ParentElement, Pixels, Styled, div, hsla, px,
 };
 use gpui_component::red_600;
-use matrix_sdk::ruma::{OwnedUserId, RoomId, UserId, events::rtc::notification::CallIntent};
+use matrix_sdk::ruma::{
+    OwnedUserId, RoomId, UserId,
+    events::{StateEventContentChange, rtc::notification::CallIntent},
+};
 use matrix_sdk_ui::timeline::{
-    EventTimelineItem, MemberProfileChange, MembershipChange, RoomMembershipChange, TimelineItem,
-    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    AnyOtherStateEventContentChange, EventTimelineItem, MemberProfileChange, MembershipChange,
+    OtherState, RoomMembershipChange, TimelineItem, TimelineItemContent, TimelineItemKind,
+    VirtualTimelineItem,
 };
 
 use crate::{
@@ -260,4 +267,89 @@ fn render_error(text: String, sender_div: impl Fn() -> Div, theme: &AppTheme) ->
         .child(sender_div())
         .child(text)
         .text_color(theme.colors.error)
+}
+
+fn render_other_state(other: OtherState, sender_div: impl Fn() -> Div) -> Div {
+    match other.content() {
+        AnyOtherStateEventContentChange::PolicyRuleRoom(_) => {
+            div().child(sender_div()).child("changed the room's policy")
+        }
+        AnyOtherStateEventContentChange::PolicyRuleServer(_) => div()
+            .child(sender_div())
+            .child("changed the server's policy"),
+        AnyOtherStateEventContentChange::PolicyRuleUser(_) => {
+            div().child(sender_div()).child("changed their policy")
+        }
+        AnyOtherStateEventContentChange::RoomAvatar(content) => {
+            let change = get_change!(content, |c| c.url.clone());
+            let text = change.display_string("the room's avatar");
+            div().child(sender_div()).child(text)
+        }
+        AnyOtherStateEventContentChange::RoomCanonicalAlias(content) => {
+            let change = get_change!(content, |c| c.alias.clone());
+            let text = change.display_string("the room's canonical alias");
+
+            div().child(sender_div()).child(text)
+        }
+        AnyOtherStateEventContentChange::RoomCreate(_) => {
+            div().child(sender_div()).child("created the room")
+        }
+        AnyOtherStateEventContentChange::RoomEncryption(_) => {
+            div().child(sender_div()).child("enabled room encryption")
+        }
+        AnyOtherStateEventContentChange::RoomGuestAccess(content) => {
+            let change = get_current_and_prev(
+                content,
+                |c| Some(c.guest_access.clone()),
+                |c| c.guest_access.clone(),
+            );
+            let text = change.display_string("the room's guest access");
+            div().child(sender_div()).child(text)
+        }
+        AnyOtherStateEventContentChange::RoomHistoryVisibility(content) => {
+            let change = get_change!(content, |c| Some(c.history_visibility.clone()));
+            let text = change.display_string("the room's history visibility");
+            div().child(sender_div()).child(text)
+        }
+        AnyOtherStateEventContentChange::RoomJoinRules(content) => {
+            let change = get_change!(content, |c| Some(c.join_rule.clone()));
+            let text = change
+                .display_string_with_render_fn(|c| c.as_str().to_string(), "the room's join rules");
+            div().child(sender_div()).child(text)
+        }
+        AnyOtherStateEventContentChange::RoomName(content) => {
+            let change =
+                get_current_and_prev(content, |c| Some(c.name.clone()), |c| c.name.clone());
+            let text = change.display_string("the room's name");
+            div().child(sender_div()).child(text)
+        }
+        AnyOtherStateEventContentChange::RoomPinnedEvents(_) => div()
+            .child(sender_div())
+            .child("changed the room's pinned events"),
+        AnyOtherStateEventContentChange::RoomPowerLevels(_) => div()
+            .child(sender_div())
+            .child("changed the room's power levels"),
+        AnyOtherStateEventContentChange::RoomServerAcl(_) => div()
+            .child(sender_div())
+            .child("changed the room's server ACL"),
+        AnyOtherStateEventContentChange::RoomThirdPartyInvite(_) => div()
+            .child(sender_div())
+            .child("changed the room's third party invite"),
+        AnyOtherStateEventContentChange::RoomTombstone(_) => div()
+            .child(sender_div())
+            .child("changed the room's tombstone"),
+        AnyOtherStateEventContentChange::RoomTopic(content) => {
+            let change =
+                get_current_and_prev(content, |c| Some(c.topic.clone()), |c| c.topic.clone());
+            let text = change.display_string("the room's topic");
+            div().child(sender_div()).child(text)
+        }
+        AnyOtherStateEventContentChange::SpaceChild(_) => {
+            div().child(sender_div()).child("changed the space's child")
+        }
+        AnyOtherStateEventContentChange::SpaceParent(_) => div()
+            .child(sender_div())
+            .child("changed the space's parent"),
+        _ => div().child(sender_div()).child("changed the room's "),
+    }
 }

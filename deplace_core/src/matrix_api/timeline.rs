@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     sync::{Arc, Mutex},
 };
 
@@ -10,7 +11,12 @@ use matrix_sdk_ui::timeline::{
     DateDividerMode, MemberProfileChange, Timeline, TimelineBuilder, TimelineFocus, TimelineItem,
     TimelineReadReceiptTracking,
 };
-use ruma::{OwnedEventId, OwnedRoomId, events::room::member::Change};
+use ruma::{
+    OwnedEventId, OwnedRoomId,
+    events::{
+        RedactContent, StateEventContentChange, StaticStateEventContent, room::member::Change,
+    },
+};
 use tokio::{
     sync::watch::{self, Receiver},
     task::JoinHandle,
@@ -18,8 +24,17 @@ use tokio::{
 use uuid::Uuid;
 
 type TimelineFocusMap = HashMap<(OwnedRoomId, Option<OwnedEventId>), (Arc<Timeline>, Uuid)>;
-type TimelineMap = HashMap<Uuid, (Arc<Timeline>, bool)>;
+type TimelineMap = HashMap<Uuid, (Arc<Timeline>, PaginationState)>;
 pub type Messages = imbl::Vector<Arc<TimelineItem>>;
+
+/// Tracked separately per direction: reaching the live end (trivially true for a live
+/// timeline, since there's nothing to paginate forward into) must not also block
+/// backwards pagination for older history.
+#[derive(Default, Clone, Copy)]
+struct PaginationState {
+    reached_start: bool,
+    reached_end: bool,
+}
 
 pub enum ScrollDirection {
     Up,
@@ -88,12 +103,12 @@ impl TimelineManager {
         self.timelines_by_id
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
-            .insert(id, (timeline.clone(), false));
+            .insert(id, (timeline.clone(), PaginationState::default()));
 
         Ok((timeline, id))
     }
 
-    async fn get_timeline_by_id(&self, id: Uuid) -> Option<(Arc<Timeline>, bool)> {
+    async fn get_timeline_by_id(&self, id: Uuid) -> Option<(Arc<Timeline>, PaginationState)> {
         self.timelines_by_id
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
@@ -145,12 +160,17 @@ impl TimelineManager {
 
     pub async fn scroll_timeline(&self, id: Uuid, direction: ScrollDirection) {
         tracing::debug!("Scrolling timeline {} {}", id, direction);
-        let Some((timeline, reached_start)) = self.get_timeline_by_id(id).await else {
+        let Some((timeline, state)) = self.get_timeline_by_id(id).await else {
             tracing::error!("Timeline not found: {}", id);
             return;
         };
 
-        if reached_start {
+        let already_reached = match direction {
+            ScrollDirection::Up => state.reached_start,
+            ScrollDirection::Down => state.reached_end,
+        };
+        if already_reached {
+            tracing::debug!("Timeline {} already reached the {} edge", id, direction);
             return;
         }
 
@@ -159,21 +179,29 @@ impl TimelineManager {
             ScrollDirection::Down => timeline.paginate_forwards(30).await,
         };
 
+        let mut state = state;
         match res {
-            Ok(reached_start) => {
-                self.timelines_by_id
-                    .lock()
-                    .unwrap_or_else(|poison| poison.into_inner())
-                    .insert(id, (timeline.clone(), reached_start));
+            Ok(reached) => {
+                tracing::debug!(
+                    "Scrolled timeline {} {}: reached={}",
+                    id,
+                    direction,
+                    reached
+                );
+                match direction {
+                    ScrollDirection::Up => state.reached_start = reached,
+                    ScrollDirection::Down => state.reached_end = reached,
+                }
             }
             Err(e) => {
                 tracing::error!("Failed to scroll timeline: {}", e);
-                self.timelines_by_id
-                    .lock()
-                    .unwrap_or_else(|poison| poison.into_inner())
-                    .insert(id, (timeline, false));
             }
         }
+
+        self.timelines_by_id
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .insert(id, (timeline, state));
     }
 }
 
@@ -212,4 +240,84 @@ impl DisplayString for MemberProfileChange {
 
         changes.join(" and ")
     }
+}
+
+pub enum EventChange<T> {
+    Unset(T),
+    Set(T),
+    Changed { old: T, new: T },
+    Something,
+}
+
+impl<T> EventChange<T> {
+    pub fn display_string_with_render_fn<C: Display>(
+        &self,
+        render_fn: impl Fn(&T) -> C,
+        property_name: &str,
+    ) -> String {
+        match self {
+            EventChange::Unset(_) => format!("unset {}", property_name),
+            EventChange::Set(_) => format!("set {}", property_name),
+            EventChange::Changed { old, new } => {
+                format!(
+                    "changed {} from {} to {}",
+                    property_name,
+                    render_fn(old),
+                    render_fn(new)
+                )
+            }
+            EventChange::Something => format!("changed {}", property_name),
+        }
+    }
+}
+
+impl<T: Display> EventChange<T> {
+    pub fn display_string(&self, property_name: &str) -> String {
+        match self {
+            EventChange::Unset(_) => format!("unset {}", property_name),
+            EventChange::Set(_) => format!("set {}", property_name),
+            EventChange::Changed { old, new } => {
+                format!("changed {} from {} to {}", property_name, old, new)
+            }
+            EventChange::Something => format!("changed {}", property_name),
+        }
+    }
+}
+
+pub fn get_current_and_prev<T: RedactContent + Clone + StaticStateEventContent, C>(
+    change: &StateEventContentChange<T>,
+    get_val1: impl FnOnce(&T) -> Option<C>,
+    get_val2: impl FnOnce(&<T as StaticStateEventContent>::PossiblyRedacted) -> Option<C>,
+) -> EventChange<C> {
+    if let StateEventContentChange::Original {
+        content,
+        prev_content,
+    } = change
+    {
+        let current = get_val1(content);
+        let prev = prev_content.as_ref().and_then(get_val2);
+
+        match (current, prev) {
+            (Some(current), Some(prev)) => EventChange::Changed {
+                old: prev,
+                new: current,
+            },
+            (Some(current), None) => EventChange::Set(current),
+            (None, Some(prev)) => EventChange::Unset(prev),
+            (None, None) => EventChange::Something,
+        }
+    } else {
+        EventChange::Something
+    }
+}
+
+#[macro_export]
+macro_rules! get_change {
+    ($change:expr, |$arg:ident| $body:expr) => {
+        $crate::matrix_api::timeline::get_current_and_prev(
+            $change,
+            |$arg| $body, // The compiler type-checks $arg as &T here
+            |$arg| $body, // The compiler type-checks $arg as &T::PossiblyRedacted here
+        )
+    };
 }

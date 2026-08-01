@@ -138,10 +138,6 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
             theme.font_size = app_theme.text.font_size;
             theme.primary = app_theme.accent;
             theme.border = app_theme.tile.border;
-            // The default ".SystemUIFont" resolves to "IBM Plex Sans" on Linux, which
-            // usually isn't installed. When it's missing, gpui falls back to a generic
-            // font at regular weight, silently dropping any requested bold/extrabold —
-            // pin to an installed font family so font-weight utilities actually apply.
             theme.font_family = "Noto Sans".into();
 
             let options = WindowOptions {

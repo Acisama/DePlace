@@ -161,7 +161,7 @@ impl ChatView {
     }
 
     fn scroll(&mut self, cx: &mut Context<Self>, direction: ScrollDirection) {
-        if self.current_fetch.is_some() {
+        if self.current_scroll.is_some() {
             return;
         }
 
@@ -175,8 +175,12 @@ impl ChatView {
         });
         self.current_scroll = Some(task.abort_handle());
 
-        cx.spawn(async move |_, _| {
-            if let Err(e) = task.await {
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |view, _cx| {
+                view.current_scroll = None;
+            });
+            if let Err(e) = result {
                 tracing::error!("Failed to scroll timeline: {}", e);
             }
         })
