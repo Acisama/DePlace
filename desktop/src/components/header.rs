@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
 use deplace_core::{
-    get_other_member, get_room_name,
+    NameExt, get_other_member,
     state::{AppState, MembershipMap},
 };
-use gpui::{Context, ParentElement, Render, Styled, div};
+use gpui::{Context, ParentElement, Render, Styled, div, px};
 use gpui_component::StyledExt;
 use matrix_sdk::{Room, ruma::OwnedUserId};
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{AvatarCache, render_icon, render_member_name, render_room_icon},
+    components::{AvatarCache, MemberRenderer, render_icon, render_room_icon},
     theme::ActiveAppTheme,
     watch_bridge::notify_on_change,
 };
@@ -59,7 +59,7 @@ impl Render for HeaderView {
 
         let name = room
             .as_ref()
-            .map(get_room_name)
+            .map(|r| r.get_name())
             .unwrap_or("No room selected".to_string());
 
         let map = self.membership_map.borrow().clone();
@@ -95,7 +95,7 @@ impl Render for HeaderView {
                     && room.is_dm()
                 {
                     get_other_member(&self.own_id, &map, room.room_id())
-                        .map(|m| render_member_name(&m))
+                        .map(|m| m.render_name(px(16.0)))
                         .unwrap_or(name_div)
                 } else {
                     name_div

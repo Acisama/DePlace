@@ -103,19 +103,6 @@ pub async fn try_restore() -> RestoreResult {
     RestoreResult::Success(Box::new(state))
 }
 
-fn get_member_name(member: &RoomMember) -> String {
-    member
-        .display_name()
-        .map(|n| n.to_string())
-        .unwrap_or(member.user_id().to_string())
-}
-
-pub fn get_room_name(room: &Room) -> String {
-    room.cached_display_name()
-        .map(|n| n.to_string())
-        .unwrap_or("Unknown Room".to_string())
-}
-
 pub fn get_room_name_fallback(room: &Room, fallback: &str) -> String {
     room.cached_display_name()
         .map(|n| n.to_string())
@@ -131,7 +118,7 @@ pub fn get_dm_room_name(room: &Room, map: &MembershipMap, own_id: &UserId) -> St
 
     let other_member = get_other_member(own_id, map, room_id);
     other_member
-        .map(|m| get_member_name(&m))
+        .map(|m| m.get_name())
         .unwrap_or("Unknown Room".to_string())
 }
 
@@ -141,5 +128,37 @@ pub fn get_other_member(
     room_id: &RoomId,
 ) -> Option<RoomMember> {
     let members = map.get(room_id).cloned().unwrap_or_default();
-    members.iter().find(|m| m.user_id() != own_id).cloned()
+    members
+        .iter()
+        .find(|(id, _)| *id != own_id)
+        .map(|(_, m)| m.clone())
+}
+
+pub trait NameExt {
+    fn get_name(&self) -> String;
+    fn initial(&self) -> char;
+}
+
+impl NameExt for RoomMember {
+    fn get_name(&self) -> String {
+        self.display_name()
+            .map(|n| n.to_string())
+            .unwrap_or(self.user_id().to_string())
+    }
+
+    fn initial(&self) -> char {
+        self.get_name().chars().next().unwrap_or('?')
+    }
+}
+
+impl NameExt for Room {
+    fn get_name(&self) -> String {
+        self.cached_display_name()
+            .map(|n| n.to_string())
+            .unwrap_or("Unknown Room".to_string())
+    }
+
+    fn initial(&self) -> char {
+        self.get_name().chars().next().unwrap_or('?')
+    }
 }

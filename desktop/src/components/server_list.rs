@@ -4,7 +4,6 @@ use std::{
 };
 
 use deplace_core::{
-    colors::Color,
     matrix_api::account_data::{ServerOrderContent, set_account_data},
     state::AppState,
 };
@@ -13,14 +12,14 @@ use gpui::{
     StyledImage, Window, div, img, prelude::FluentBuilder, transparent_black, white,
 };
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants};
-use matrix_sdk::{
-    Room, RoomDisplayName,
-    ruma::{OwnedRoomId, events::room::MediaSource},
-};
+use matrix_sdk::{Room, ruma::OwnedRoomId};
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{AvatarCache, avatar, gpui_format_from, home::ActiveServerChange},
+    components::{
+        AvatarCache, avatar, gpui_format_from, home::ActiveServerChange, render_room_avatar,
+        render_room_no_dm,
+    },
     theme::{ActiveAppTheme, AppTheme},
     watch_bridge::notify_on_change,
 };
@@ -131,27 +130,7 @@ impl Render for ServerListView {
             .shadow(false);
 
         let icons = sorted_rooms.into_iter().map(|room| {
-            let image = room.avatar_url().and_then(|url| {
-                let source = MediaSource::Plain(url);
-                let bytes = self.cache.get(&source)?;
-                let format = image::guess_format(&bytes).ok()?;
-                let image = Arc::new(gpui::Image::from_bytes(
-                    gpui_format_from(format),
-                    bytes.to_vec(),
-                ));
-                Some(image)
-            });
-
-            let initial = room
-                .cached_display_name()
-                .unwrap_or(RoomDisplayName::Empty)
-                .to_string()
-                .chars()
-                .next()
-                .unwrap_or('?');
-
             let room_id = room.room_id().to_owned();
-            let color = Color::from(room_id.as_str());
 
             let hovered = self
                 .hovered_server
@@ -169,6 +148,7 @@ impl Render for ServerListView {
                 Button::new(format!("server-{}", room.room_id()))
                     .on_click(cx.listener({
                         let room_id = room_id.clone();
+                        let room = room.clone();
                         move |_, _, _, cx| {
                             tracing::trace!("Server {} clicked", room_id);
                             cx.emit(ActiveServerChange::new(Some(room.clone())));
@@ -185,7 +165,13 @@ impl Render for ServerListView {
                     .size(icon_size)
                     .p_0()
                     .relative()
-                    .child(avatar(initial, color, icon_size, rounding, image))
+                    .child(render_room_no_dm(
+                        &room,
+                        &self.cache,
+                        icon_size,
+                        rounding,
+                        false,
+                    ))
                     .when(Some(room_id) == active_server_id, |el| {
                         el.child(
                             div()

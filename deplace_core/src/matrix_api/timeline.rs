@@ -18,6 +18,7 @@ use tokio::{
 use uuid::Uuid;
 
 type TimelineFocusMap = HashMap<(OwnedRoomId, Option<OwnedEventId>), (Arc<Timeline>, Uuid)>;
+type TimelineMap = HashMap<Uuid, (Arc<Timeline>, bool)>;
 pub type Messages = imbl::Vector<Arc<TimelineItem>>;
 
 pub enum ScrollDirection {
@@ -25,10 +26,19 @@ pub enum ScrollDirection {
     Down,
 }
 
+impl std::fmt::Display for ScrollDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScrollDirection::Up => write!(f, "up"),
+            ScrollDirection::Down => write!(f, "down"),
+        }
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct TimelineManager {
     timelines: Arc<Mutex<TimelineFocusMap>>,
-    timelines_by_id: Arc<Mutex<HashMap<Uuid, (Arc<Timeline>, bool)>>>,
+    timelines_by_id: Arc<Mutex<TimelineMap>>,
     handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
@@ -96,6 +106,11 @@ impl TimelineManager {
         room: &Room,
         focus: TimelineFocus,
     ) -> Result<(Receiver<Messages>, Uuid)> {
+        tracing::debug!(
+            "Getting timeline with focues {:?} for room {}",
+            focus.clone(),
+            room.room_id()
+        );
         let (timeline, id) = self.get_or_create_timeline(room, focus).await?;
 
         if let Some(handle) = &*self
@@ -129,6 +144,7 @@ impl TimelineManager {
     }
 
     pub async fn scroll_timeline(&self, id: Uuid, direction: ScrollDirection) {
+        tracing::debug!("Scrolling timeline {} {}", id, direction);
         let Some((timeline, reached_start)) = self.get_timeline_by_id(id).await else {
             tracing::error!("Timeline not found: {}", id);
             return;

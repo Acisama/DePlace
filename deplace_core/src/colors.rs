@@ -2,13 +2,13 @@ use csscolorparser::Color as CssColor;
 use matrix_sdk::{Room, room::RoomMember};
 use sha2::{Digest, Sha256};
 
-pub const UNKNOWN_COLOR: CssColor = CssColor::from_hsla(0.0, 1.0, 0.7, 1.0);
-pub const DEFAULT_COLOR: CssColor = CssColor::from_hsla(0.0, 0.0, 0.7, 1.0);
-
 #[derive(Debug, Clone)]
 pub struct Color(CssColor);
 
 impl Color {
+    pub const UNKNOWN: Self = Self(CssColor::from_hsla(0.0, 1.0, 0.7, 1.0));
+    pub const DEFAULT: Self = Self(CssColor::from_hsla(0.0, 0.0, 0.7, 1.0));
+
     pub fn get(&self) -> CssColor {
         self.0.clone()
     }
@@ -48,21 +48,19 @@ impl From<CssColor> for Color {
     }
 }
 
-impl From<&RoomMember> for Color {
-    fn from(member: &RoomMember) -> Self {
-        member.user_id().as_str().into()
+pub trait ColorExt {
+    fn color(&self) -> Color;
+}
+
+impl ColorExt for RoomMember {
+    fn color(&self) -> Color {
+        self.user_id().as_str().into()
     }
 }
 
-impl From<RoomMember> for Color {
-    fn from(member: RoomMember) -> Self {
-        member.user_id().as_str().into()
-    }
-}
-
-impl From<&Room> for Color {
-    fn from(room: &Room) -> Self {
-        room.room_id().as_str().into()
+impl ColorExt for Room {
+    fn color(&self) -> Color {
+        self.room_id().as_str().into()
     }
 }
 

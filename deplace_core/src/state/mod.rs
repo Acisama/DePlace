@@ -20,7 +20,7 @@ pub struct UserDevice {
 }
 
 pub type RoomMap = HashMap<OwnedRoomId, Room>;
-pub type MembershipMap = HashMap<OwnedRoomId, Vec<RoomMember>>;
+pub type MembershipMap = HashMap<OwnedRoomId, HashMap<OwnedUserId, RoomMember>>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -143,7 +143,9 @@ impl AppState {
 
     pub(crate) fn add_membership(&self, room_id: OwnedRoomId, member: RoomMember) {
         self.membership_map.send_if_modified(|cur| {
-            cur.entry(room_id).or_default().push(member);
+            cur.entry(room_id)
+                .or_default()
+                .insert(member.user_id().to_owned(), member);
             true
         });
     }

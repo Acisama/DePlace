@@ -1,5 +1,6 @@
-use matrix_sdk::{Client, Room, RoomMemberships, event_handler::Ctx};
-use ruma::events::room::member::OriginalSyncRoomMemberEvent;
+use matrix_sdk::{Client, Room, RoomMemberships, event_handler::Ctx, room::RoomMember};
+use ruma::{OwnedUserId, events::room::member::OriginalSyncRoomMemberEvent};
+use std::collections::HashMap;
 
 use crate::state::{AppState, MembershipMap};
 
@@ -23,13 +24,16 @@ async fn set_membership_map(rooms: Vec<Room>, state: AppState) {
     let mut membership_map = MembershipMap::default();
 
     for room in rooms {
-        let members = room
+        let members: HashMap<OwnedUserId, RoomMember> = room
             .members(RoomMemberships::JOIN)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to get room members: {:?}", e);
             })
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| (m.user_id().to_owned(), m))
+            .collect();
         membership_map.insert(room.room_id().into(), members);
     }
     state.set_membership_map(membership_map);

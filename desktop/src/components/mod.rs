@@ -4,8 +4,9 @@ use std::{
 };
 
 use deplace_core::{
-    colors::{Color, UNKNOWN_COLOR},
-    get_dm_room_name, get_other_member, get_room_name,
+    NameExt,
+    colors::{Color, ColorExt},
+    get_dm_room_name, get_other_member,
     state::MembershipMap,
 };
 use gpui::{
@@ -20,7 +21,7 @@ use matrix_sdk::{
     Client, Room,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     room::RoomMember,
-    ruma::{OwnedMxcUri, UInt, UserId, events::room::MediaSource},
+    ruma::{MxcUri, OwnedMxcUri, UInt, UserId, events::room::MediaSource},
 };
 use tokio::{runtime::Runtime, sync::watch};
 
@@ -104,15 +105,13 @@ impl<T> MediaCache<T> {
 }
 
 impl MediaCache<OwnedMxcUri> {
-    pub fn get(&self, source: &MediaSource) -> Option<Arc<Vec<u8>>> {
-        let uri = match source {
-            MediaSource::Plain(uri) => uri.clone(),
-            MediaSource::Encrypted(file) => file.url.clone(),
-        };
-
+    pub fn get(&self, uri: &MxcUri) -> Option<Arc<Vec<u8>>> {
         {
-            let cache = self.cache.read().unwrap();
-            match cache.get(&uri) {
+            let cache = self
+                .cache
+                .read()
+                .unwrap_or_else(|poison| poison.into_inner());
+            match cache.get(uri) {
                 Some(MediaState::Loaded(bytes)) => return Some(bytes.clone()),
                 Some(_) => return None, // already Loading/Failed
                 None => {}
@@ -122,11 +121,12 @@ impl MediaCache<OwnedMxcUri> {
         self.cache
             .write()
             .unwrap()
-            .insert(uri.clone(), MediaState::Loading);
+            .insert(uri.to_owned(), MediaState::Loading);
 
         let store = self.clone();
-        let source = source.clone();
+        let source = MediaSource::Plain(uri.to_owned());
         let tokio_rt = self.tokio_rt.clone();
+        let uri = uri.to_owned();
         tokio_rt.spawn(async move {
             let request = MediaRequestParameters {
                 source,
@@ -194,14 +194,25 @@ pub fn text_circle(initial: char, color: Color, size: Pixels, rounding: Pixels) 
         .into_any()
 }
 
-pub fn avatar(
+fn avatar(
     initial: char,
     color: Color,
     size: Pixels,
     rounding: Pixels,
-    image: Option<Arc<Image>>,
+    image_bytes: Option<Arc<Vec<u8>>>,
 ) -> AnyElement {
-    if let Some(image) = image {
+    if let Some(image_bytes) = image_bytes {
+        let format = match image::guess_format(&image_bytes) {
+            Ok(format) => format,
+            Err(e) => {
+                tracing::error!("Failed to guess image format: {:?}", e);
+                return text_circle(initial, color, size, rounding);
+            }
+        };
+        let image = Arc::new(gpui::Image::from_bytes(
+            gpui_format_from(format),
+            image_bytes.to_vec(),
+        ));
         img(image)
             .object_fit(ObjectFit::Cover)
             .rounded(rounding)
@@ -214,6 +225,10 @@ pub fn avatar(
     } else {
         text_circle(initial, color, size, rounding)
     }
+}
+
+fn unknown_avatar(size: Pixels, rounding: Pixels) -> AnyElement {
+    avatar('?', Color::UNKNOWN, size, rounding, None)
 }
 
 pub fn render_icon(svg_content: &'static str, size: impl Clone + Into<Length>) -> AnyElement {
@@ -241,42 +256,31 @@ fn render_room_avatar(
     size: Pixels,
     rounding: Pixels,
 ) -> AnyElement {
-    let (url, color): (Option<OwnedMxcUri>, Color) = if room.is_dm() {
-        let Some(other_member) = get_other_member(own_id, map, room.room_id()) else {
-            return avatar(' ', UNKNOWN_COLOR.into(), size, rounding, None).into_any();
-        };
-        (
-            other_member.avatar_url().map(|u| u.to_owned()),
-            other_member.into(),
-        )
-    } else {
-        (room.avatar_url().map(|u| u.to_owned()), room.into())
-    };
+    if room.is_dm() {
+        let other_member = get_other_member(own_id, map, room.room_id());
+        if let Some(other_member) = other_member {
+            return other_member.render_avatar(size, rounding, cache);
+        }
+    }
 
-    let image = url.and_then(|url| {
-        let source = MediaSource::Plain(url);
-        let bytes = cache.get(&source)?;
-        let format = image::guess_format(&bytes).ok()?;
-        let image = Arc::new(gpui::Image::from_bytes(
-            gpui_format_from(format),
-            bytes.to_vec(),
-        ));
-        Some(image)
-    });
+    render_room_no_dm(room, cache, size, rounding, false)
+}
 
-    let name = if room.is_dm() {
-        get_dm_room_name(room, map, own_id)
-    } else {
-        get_room_name(room)
-    };
+fn render_room_no_dm(
+    room: &Room,
+    cache: &AvatarCache,
+    size: Pixels,
+    rounding: Pixels,
+    warn: bool,
+) -> AnyElement {
+    if room.is_dm() && warn {
+        tracing::warn!("Rendering without dm, but room {} is a dm", room.room_id());
+    }
 
-    avatar(
-        name.chars().next().unwrap_or(' '),
-        color,
-        size,
-        rounding,
-        image,
-    )
+    let url = room.avatar_url().map(|u| u.to_owned());
+    let image_bytes = url.and_then(|url| cache.get(&url));
+
+    avatar(room.initial(), room.color(), size, rounding, image_bytes)
 }
 
 fn render_room_icon(
@@ -294,13 +298,49 @@ fn render_room_icon(
     }
 }
 
-fn render_member_name(member: &RoomMember) -> Div {
-    let name = member
-        .display_name()
-        .map(|n| n.to_string())
-        .unwrap_or(member.user_id().to_string());
+pub trait MemberRenderer {
+    fn render_avatar(&self, size: Pixels, rounding: Pixels, cache: &AvatarCache) -> AnyElement;
+    fn render_name(&self, size: Pixels) -> Div;
+}
 
-    let color: Color = member.into();
+fn render_name(name: String, color: Color, size: Pixels) -> Div {
+    div()
+        .text_color(color.to_gpui())
+        .font_bold()
+        .text_size(size)
+        .child(name)
+}
 
-    div().text_color(color.to_gpui()).font_bold().child(name)
+fn render_unknown_name(size: Pixels) -> Div {
+    render_name("Unknown".to_string(), Color::UNKNOWN, size)
+}
+
+impl MemberRenderer for RoomMember {
+    fn render_avatar(&self, size: Pixels, rounding: Pixels, cache: &AvatarCache) -> AnyElement {
+        let image = self.avatar_url().map(|url| cache.get(url)).flatten();
+        avatar(self.initial(), self.color(), size, rounding, image)
+    }
+
+    fn render_name(&self, size: Pixels) -> Div {
+        let color: Color = self.color();
+        render_name(self.get_name(), color, size)
+    }
+}
+
+impl MemberRenderer for Option<&RoomMember> {
+    fn render_avatar(&self, size: Pixels, rounding: Pixels, cache: &AvatarCache) -> AnyElement {
+        if let Some(member) = self {
+            member.render_avatar(size, rounding, cache)
+        } else {
+            unknown_avatar(size, rounding)
+        }
+    }
+
+    fn render_name(&self, size: Pixels) -> Div {
+        if let Some(member) = self {
+            member.render_name(size)
+        } else {
+            render_unknown_name(size)
+        }
+    }
 }

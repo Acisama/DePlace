@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use deplace_core::{
-    RoomMap, get_room_name,
+    NameExt, RoomMap,
     matrix_api::sync::ParentToChildren,
     state::{AppState, MembershipMap},
 };
@@ -81,7 +81,7 @@ impl Render for SidebarView {
         let in_dms = active_server.is_none();
         let name = active_server
             .as_ref()
-            .map(get_room_name)
+            .map(|room| room.get_name())
             .unwrap_or("Direct Messages".to_string());
 
         let heading_font_size = theme.text.font_size * 1.1;
@@ -129,7 +129,7 @@ impl Render for SidebarView {
         };
 
         let divs = items.into_iter().map(|room| {
-            let name = get_room_name(&room);
+            let name = room.get_name();
             let room_id = room.room_id().to_owned();
 
             let is_active = Some(&room_id) == active_id.as_ref();
