@@ -11,7 +11,8 @@ use crate::{
     components::{
         AvatarCache, CustomStyles, MemberRenderer,
         message::{
-            CachedEventContent, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
+            CachedEventContent, CachedSendState, CachedTimelineEvent, CachedTimelineItem,
+            CachedTimelineItemKind,
         },
     },
     theme::AppTheme,
@@ -50,7 +51,8 @@ impl CachedTimelineItem {
             }
             CachedTimelineItemKind::Event(event) => {
                 let show_header = prev.is_some_and(|item| {
-                    matches!(&item.kind,
+                    !matches!(&item.kind, CachedTimelineItemKind::Event(_))
+                        || matches!(&item.kind,
                         CachedTimelineItemKind::Event(prev_event)
                         if prev_event.sent_time != event.sent_time
                             || prev_event.sender != event.sender)
@@ -75,9 +77,7 @@ impl CachedTimelineItem {
             }
         };
 
-        tailwind_div!(w_full, text_size(theme.structure.chat.text_size))
-            .child(content)
-            .into_any()
+        tailwind_div!(w_full).child(content).into_any()
     }
 }
 
@@ -128,10 +128,8 @@ impl CachedTimelineEvent {
                     return div().into_any();
                 }
             }
-            CachedEventContent::UserMessage(msg) => {
-                tailwind_div!(text_color(theme.text.normal), line_height(relative(1.0)))
-                    .child(msg.body.clone().unwrap_or_default())
-            }
+            CachedEventContent::UserMessage(msg) => tailwind_div!(line_height(relative(1.0)))
+                .child(msg.body.clone().unwrap_or_default()),
         };
 
         let highlight_color = if show_highlight {
@@ -173,10 +171,21 @@ impl CachedTimelineEvent {
         let icon_size = theme.structure.chat.icon_size;
         let col_width = icon_size + 2.0 * theme.gap;
 
+        let text_color = self
+            .state
+            .as_ref()
+            .map(|s| match s {
+                CachedSendState::NotSentYet { .. } => theme.text.dim,
+                CachedSendState::SendingFailed { .. } => colors.error,
+                CachedSendState::Sent { .. } => theme.text.normal,
+            })
+            .unwrap_or(theme.text.normal);
+
         tailwind_div!(
             w_full,
             border_transparent,
             rounded(theme.small_gap),
+            group("message"),
             bg(bg),
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
@@ -192,7 +201,14 @@ impl CachedTimelineEvent {
                 Pixels::ZERO
             }),
             flex_row,
+            text_color(text_color),
         )
+        .when(self.flags.contains_only_emojis, |el| {
+            el.text_size(chat.text_size * 2.0)
+        })
+        .when(!self.flags.contains_only_emojis, |el| {
+            el.text_size(chat.text_size)
+        })
         .id(id)
         .when(!is_system_message, |el| {
             el.child(
