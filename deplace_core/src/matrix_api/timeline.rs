@@ -5,21 +5,20 @@ use std::{
 };
 
 use anyhow::Result;
-use futures_util::StreamExt;
+use futures_util::Stream;
 use matrix_sdk::Room;
-use matrix_sdk_ui::timeline::{
-    DateDividerMode, MemberProfileChange, Timeline, TimelineBuilder, TimelineFocus, TimelineItem,
-    TimelineReadReceiptTracking,
+use matrix_sdk_ui::{
+    eyeball_im::VectorDiff,
+    timeline::{
+        DateDividerMode, MemberProfileChange, Timeline, TimelineBuilder, TimelineFocus,
+        TimelineItem, TimelineReadReceiptTracking,
+    },
 };
 use ruma::{
     OwnedEventId, OwnedRoomId,
     events::{
         RedactContent, StateEventContentChange, StaticStateEventContent, room::member::Change,
     },
-};
-use tokio::{
-    sync::watch::{self, Receiver},
-    task::JoinHandle,
 };
 use uuid::Uuid;
 
@@ -54,7 +53,6 @@ impl std::fmt::Display for ScrollDirection {
 pub struct TimelineManager {
     timelines: Arc<Mutex<TimelineFocusMap>>,
     timelines_by_id: Arc<Mutex<TimelineMap>>,
-    handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl TimelineManager {
@@ -120,42 +118,20 @@ impl TimelineManager {
         &self,
         room: &Room,
         focus: TimelineFocus,
-    ) -> Result<(Receiver<Messages>, Uuid)> {
+    ) -> Result<(
+        Messages,
+        impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>> + use<>,
+        Uuid,
+    )> {
         tracing::debug!(
             "Getting timeline with focues {:?} for room {}",
             focus.clone(),
             room.room_id()
         );
         let (timeline, id) = self.get_or_create_timeline(room, focus).await?;
+        let (initial_messages, update_stream) = timeline.subscribe().await;
 
-        if let Some(handle) = &*self
-            .handle
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-        {
-            handle.abort();
-        }
-
-        let (initial_messages, mut update_stream) = timeline.subscribe().await;
-        let (messages, receiver) = watch::channel(initial_messages);
-
-        let handle = tokio::spawn(async move {
-            loop {
-                let Some(update) = update_stream.next().await else {
-                    break;
-                };
-                messages.send_modify(|current| {
-                    update.into_iter().for_each(|diff| diff.apply(current));
-                });
-            }
-        });
-
-        self.handle
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .replace(handle);
-
-        Ok((receiver, id))
+        Ok((initial_messages, update_stream, id))
     }
 
     pub async fn scroll_timeline(&self, id: Uuid, direction: ScrollDirection) {

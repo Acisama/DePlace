@@ -1,8 +1,6 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::{hash::Hash, sync::Arc};
 
+use dashmap::DashMap;
 use deplace_core::{
     NameExt,
     colors::{Color, ColorExt},
@@ -11,7 +9,7 @@ use deplace_core::{
 };
 use gpui::{
     AnyElement, App, BoxShadow, Div, Entity, Focusable, Length, ObjectFit, Pixels, Window, div,
-    img, prelude::*, px, svg,
+    img, prelude::*, px, svg, transparent_black,
 };
 use gpui_component::{
     StyledExt,
@@ -35,6 +33,7 @@ mod dm_list;
 mod header;
 mod home;
 mod login;
+mod message;
 mod quick_select;
 mod server_list;
 mod sidebar;
@@ -71,30 +70,30 @@ pub fn input(theme: &AppTheme, entity: &Entity<InputState>, window: &Window, cx:
         .border_color(border)
 }
 
-pub type AvatarCache = MediaCache<OwnedMxcUri>;
+pub type AvatarCache = MediaCache<OwnedMxcUri, gpui::Image>;
 
 #[derive(Clone)]
-enum MediaState {
+enum MediaState<C> {
     Loading,
-    Loaded(Arc<Vec<u8>>),
+    Loaded(Arc<C>),
     Failed,
 }
 
 #[derive(Clone)]
-pub struct MediaCache<T> {
+pub struct MediaCache<T: Hash + Eq, C> {
     client: Client,
     tokio_rt: Arc<Runtime>,
-    cache: Arc<RwLock<HashMap<T, MediaState>>>,
+    cache: Arc<DashMap<T, MediaState<C>>>,
     changed: watch::Sender<()>,
 }
 
-impl<T> MediaCache<T> {
+impl<T: Hash + Eq, C> MediaCache<T, C> {
     pub fn new(client: Client, tokio_rt: Arc<Runtime>) -> Self {
         let (changed, _) = watch::channel(());
         Self {
             client,
             tokio_rt,
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache: Arc::new(DashMap::new()),
             changed,
         }
     }
@@ -104,24 +103,16 @@ impl<T> MediaCache<T> {
     }
 }
 
-impl MediaCache<OwnedMxcUri> {
-    pub fn get(&self, uri: &MxcUri) -> Option<Arc<Vec<u8>>> {
-        {
-            let cache = self
-                .cache
-                .read()
-                .unwrap_or_else(|poison| poison.into_inner());
-            match cache.get(uri) {
-                Some(MediaState::Loaded(bytes)) => return Some(bytes.clone()),
-                Some(_) => return None, // already Loading/Failed
-                None => {}
-            }
+impl MediaCache<OwnedMxcUri, gpui::Image> {
+    pub fn get(&self, uri: &MxcUri) -> Option<Arc<gpui::Image>> {
+        if let Some(state) = self.cache.get(uri) {
+            return match &*state {
+                MediaState::Loaded(img) => Some(img.clone()),
+                _ => None, // Loading or Failed
+            };
         }
 
-        self.cache
-            .write()
-            .unwrap()
-            .insert(uri.to_owned(), MediaState::Loading);
+        self.cache.insert(uri.to_owned(), MediaState::Loading);
 
         let store = self.clone();
         let source = MediaSource::Plain(uri.to_owned());
@@ -135,14 +126,32 @@ impl MediaCache<OwnedMxcUri> {
                     UInt::new_saturating(100),
                 )),
             };
-            let state = match store.client.media().get_media_content(&request, true).await {
-                Ok(bytes) => MediaState::Loaded(Arc::new(bytes)),
-                Err(e) => {
-                    tracing::error!("Failed to fetch media {uri}: {e}");
-                    MediaState::Failed
-                }
-            };
-            store.cache.write().unwrap().insert(uri, state);
+
+            let res = store
+                .client
+                .media()
+                .get_media_content(&request, true)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to fetch media: {e}");
+                })
+                .ok();
+
+            let state = res
+                .and_then(|bytes| {
+                    let format = match image::guess_format(&bytes) {
+                        Ok(format) => format,
+                        Err(e) => {
+                            tracing::error!("Failed to guess image format: {:?}", e);
+                            return None;
+                        }
+                    };
+                    let image = gpui::Image::from_bytes(gpui_format_from(format), bytes.to_vec());
+                    Some(MediaState::Loaded(Arc::new(image)))
+                })
+                .unwrap_or(MediaState::Failed);
+
+            store.cache.insert(uri, state);
             let _ = store.changed.send(());
         });
 
@@ -199,20 +208,9 @@ fn avatar(
     color: Color,
     size: Pixels,
     rounding: Pixels,
-    image_bytes: Option<Arc<Vec<u8>>>,
+    image: Option<Arc<gpui::Image>>,
 ) -> AnyElement {
-    if let Some(image_bytes) = image_bytes {
-        let format = match image::guess_format(&image_bytes) {
-            Ok(format) => format,
-            Err(e) => {
-                tracing::error!("Failed to guess image format: {:?}", e);
-                return text_circle(initial, color, size, rounding);
-            }
-        };
-        let image = Arc::new(gpui::Image::from_bytes(
-            gpui_format_from(format),
-            image_bytes.to_vec(),
-        ));
+    if let Some(image) = image {
         img(image)
             .object_fit(ObjectFit::Cover)
             .rounded(rounding)
@@ -242,9 +240,9 @@ pub fn render_icon(svg_content: &'static str, size: impl Clone + Into<Length>) -
 
 pub fn render_simple_room_icon(room: &Room, size: impl Clone + Into<Length>) -> AnyElement {
     if room.is_call() {
-        render_icon(phosphor_svgs::icon::hash::BOLD, size)
-    } else {
         render_icon(phosphor_svgs::icon::speaker_high::FILL, size)
+    } else {
+        render_icon(phosphor_svgs::icon::hash::BOLD, size)
     }
 }
 
@@ -278,9 +276,9 @@ fn render_room_no_dm(
     }
 
     let url = room.avatar_url().map(|u| u.to_owned());
-    let image_bytes = url.and_then(|url| cache.get(&url));
+    let image = url.and_then(|url| cache.get(&url));
 
-    avatar(room.initial(), room.color(), size, rounding, image_bytes)
+    avatar(room.initial(), room.color(), size, rounding, image)
 }
 
 fn render_room_icon(
@@ -344,3 +342,11 @@ impl MemberRenderer for Option<&RoomMember> {
         }
     }
 }
+
+pub trait CustomStyles: Styled + Sized {
+    fn border_transparent(self) -> Self {
+        self.border_1().border_color(transparent_black())
+    }
+}
+
+impl<T: gpui::Styled> CustomStyles for T {}

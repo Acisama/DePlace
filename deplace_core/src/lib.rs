@@ -47,13 +47,14 @@ pub enum RestoreResult {
 pub async fn try_restore() -> RestoreResult {
     init_keyring();
 
-    let session = match tokio::task::spawn_blocking(keyring::get_last_active_session)
-        .await
-        .expect("Keyring blocking task panicked")
-    {
-        Ok(Some(session)) => session,
-        Ok(None) => {
+    let session = match tokio::task::spawn_blocking(keyring::get_last_active_session).await {
+        Ok(Ok(Some(session))) => session,
+        Ok(Ok(None)) => {
             tracing::info!("No active session found");
+            return RestoreResult::NoSession;
+        }
+        Ok(Err(error)) => {
+            tracing::error!("Failed to get last active session: {:?}", error);
             return RestoreResult::NoSession;
         }
         Err(error) => {
@@ -148,6 +149,18 @@ impl NameExt for RoomMember {
 
     fn initial(&self) -> char {
         self.get_name().chars().next().unwrap_or('?')
+    }
+}
+
+impl NameExt for Option<&RoomMember> {
+    fn get_name(&self) -> String {
+        self.as_ref()
+            .map(|m| m.get_name())
+            .unwrap_or("Unknown".to_string())
+    }
+
+    fn initial(&self) -> char {
+        self.as_ref().map(|m| m.initial()).unwrap_or('?')
     }
 }
 

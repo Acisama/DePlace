@@ -4,16 +4,17 @@ use chrono::{DateTime, Local, TimeZone};
 use deplace_core::{
     get_change,
     helpers::format_date_divider,
-    matrix_api::timeline::{DisplayString, EventChange, get_current_and_prev},
+    matrix_api::timeline::{DisplayString, get_current_and_prev},
     state::MembershipMap,
 };
 use gpui::{
-    AnyElement, Div, Element, InteractiveElement, ParentElement, Pixels, Styled, div, hsla, px,
+    AnyElement, Div, Element, InteractiveElement, ParentElement, Pixels, Styled, div, hsla,
+    prelude::FluentBuilder, px,
 };
 use gpui_component::red_600;
 use matrix_sdk::ruma::{
     OwnedUserId, RoomId, UserId,
-    events::{StateEventContentChange, room::message::MessageType, rtc::notification::CallIntent},
+    events::{room::message::MessageType, rtc::notification::CallIntent},
 };
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, EventTimelineItem, MemberProfileChange, MembershipChange,
@@ -44,6 +45,7 @@ pub fn render_timeline_item(
             theme,
             membership_map,
             avatar_cache,
+            true,
         ),
     }
 }
@@ -110,33 +112,41 @@ fn render_timeline_event(
     theme: &AppTheme,
     membership_map: &MembershipMap,
     avatar_cache: &AvatarCache,
+    mut show_header: bool,
 ) -> AnyElement {
     let sender_id = event.sender();
     let member = membership_map.get(room_id).and_then(|m| m.get(sender_id));
 
-    let sender_div_params = |icon_size: Pixels, name_size: Pixels| {
+    let chat = &theme.structure.chat;
+
+    let sender_div = || {
         div()
             .flex()
             .items_center()
             .gap(theme.gap)
             .mr(theme.small_gap)
-            .child(member.render_avatar(icon_size, icon_size / 2.0, avatar_cache))
-            .child(member.render_name(name_size))
+            .child(member.render_avatar(
+                chat.small_icon_size,
+                chat.small_icon_size / 2.0,
+                avatar_cache,
+            ))
+            .child(member.render_name(chat.text_size))
     };
 
-    let member_avatar = |user_id: &UserId, size: Pixels| {
+    let member_avatar = |user_id: &UserId| {
         let member = membership_map.get(room_id).and_then(|m| m.get(user_id));
-        member.render_avatar(size, size / 2.0, avatar_cache)
+        member.render_avatar(chat.icon_size, chat.icon_size / 2.0, avatar_cache)
     };
 
-    let member_name = |user_id: &UserId, size: Pixels| {
+    let member_name = |user_id: &UserId| {
         let member = membership_map.get(room_id).and_then(|m| m.get(user_id));
-        member.render_name(size)
+        member.render_name(chat.text_size)
     };
 
-    let sender_div = || sender_div_params(px(20.0), px(16.0));
+    let content = event.content();
+    show_header &= matches!(content, TimelineItemContent::MsgLike(_));
 
-    let content = match event.content() {
+    let content = match content {
         TimelineItemContent::CallInvite => div(),
         TimelineItemContent::FailedToParseMessageLike { event_type, error } => render_error(
             format!("Failed to parse event of type {}: {}", event_type, error),
@@ -173,8 +183,8 @@ fn render_timeline_event(
             declined_by,
             theme,
             sender_div,
-            |id| member_avatar(id, px(20.0)),
-            |id| member_name(id, px(16.0)),
+            member_avatar,
+            member_name,
         )
         .text_color(theme.text.dim),
     };
@@ -182,10 +192,15 @@ fn render_timeline_event(
     div()
         .w_full()
         .flex()
+        .flex_row()
         .items_start()
         .border_1()
+        .child(div().w(px(30.0)).when(show_header, |el| {
+            el.child(member.render_avatar(px(20.0), px(10.0), avatar_cache))
+        }))
         .child(content)
         .text_color(theme.text.normal)
+        .text_size(chat.text_size)
         .rounded(theme.inner_border_radius)
         .hover(|style| {
             style

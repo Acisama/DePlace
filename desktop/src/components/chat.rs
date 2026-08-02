@@ -1,27 +1,37 @@
 use std::{ops::Range, sync::Arc};
 
 use deplace_core::{
-    matrix_api::timeline::{Messages, ScrollDirection, TimelineManager},
+    matrix_api::timeline::{ScrollDirection, TimelineManager},
     state::{AppState, MembershipMap},
 };
+use futures_util::StreamExt;
 use gpui::{
     Context, FollowMode, IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement,
-    Render, Styled, div, list, px,
+    Render, Styled, Task, div, list, px,
 };
 use gpui_component::{StyledExt, red_600};
-use matrix_sdk::Room;
-use matrix_sdk_ui::timeline::TimelineFocus;
+use matrix_sdk::{
+    Room,
+    ruma::{OwnedUserId, UserId},
+};
+use matrix_sdk_ui::{
+    eyeball_im::VectorDiff,
+    timeline::{TimelineFocus, TimelineItem},
+};
 use tokio::{runtime::Runtime, sync::watch::Receiver, task::AbortHandle};
 use uuid::Uuid;
 
 use crate::{
-    components::{AvatarCache, timeline::render_timeline_item},
+    components::{
+        AvatarCache,
+        message::{CachedTimelineItem, cached_from_timeline_item},
+    },
     theme::ActiveAppTheme,
     watch_bridge::notify_on_change,
 };
 
 pub struct ChatView {
-    messages: Option<Receiver<Messages>>,
+    messages: Vec<CachedTimelineItem>,
     active_room: Receiver<Option<Room>>,
     timeline_manager: TimelineManager,
     timeline_id: Option<Uuid>,
@@ -30,8 +40,9 @@ pub struct ChatView {
     tokio_rt: Arc<Runtime>,
     current_fetch: Option<AbortHandle>,
     current_scroll: Option<AbortHandle>,
+    user_id: OwnedUserId,
+    current_updates: Option<Task<()>>,
     list_state: ListState,
-    rendered_messages: Messages,
 }
 
 impl ChatView {
@@ -53,7 +64,8 @@ impl ChatView {
 
         let mut view = Self {
             timeline_manager: state.timeline_manager.clone(),
-            messages: None,
+            user_id: state.user_device.user_id.clone(),
+            messages: Vec::new(),
             avatar_cache,
             membership_map,
             tokio_rt,
@@ -61,8 +73,8 @@ impl ChatView {
             active_room: state.active_room(),
             current_fetch: None,
             current_scroll: None,
+            current_updates: None,
             list_state,
-            rendered_messages: Messages::default(),
         };
 
         view.load_active_room(cx);
@@ -90,12 +102,11 @@ impl ChatView {
             handle.abort();
         }
 
-        // Clear immediately rather than leaving the previous room's messages on screen
-        // while the new room's timeline loads.
-        self.messages = None;
+        self.current_updates = None;
+
+        self.list_state.splice(0..self.messages.len(), 0);
+        self.messages = Vec::new();
         self.timeline_id = None;
-        self.list_state.splice(0..self.rendered_messages.len(), 0);
-        self.rendered_messages = Messages::default();
         cx.notify();
 
         let Some(room) = self.active_room.borrow_and_update().clone() else {
@@ -118,13 +129,9 @@ impl ChatView {
         });
         self.current_fetch = Some(task.abort_handle());
 
-        cx.spawn(async move |this, cx| {
+        let update_task = cx.spawn(async move |this, cx| {
             let result = task.await;
-            let _ = this.update(cx, |view, cx| {
-                // A fetch that should have been aborted can still resolve successfully if it
-                // finished right as a newer room was selected. Applying it here would silently
-                // overwrite the newer room's (still in-flight) selection with stale data, so
-                // discard anything that isn't for the room we're currently showing.
+            let outcome = this.update(cx, |view, cx| {
                 let is_current = view.active_room.borrow().as_ref().map(|r| r.room_id())
                     == Some(expected_room_id.as_ref());
                 if !is_current {
@@ -132,32 +139,57 @@ impl ChatView {
                         "Discarding stale timeline load for room {}",
                         expected_room_id
                     );
-                    return;
+                    return None;
                 }
 
                 view.current_fetch = None;
-                match result {
-                    Ok(Ok((receiver, id))) => {
+                let update_stream = match result {
+                    Ok(Ok((initial_messages, update_stream, id))) => {
                         tracing::debug!(
                             "Loaded timeline for room {}: {} messages",
                             expected_room_id,
-                            receiver.borrow().len()
+                            initial_messages.len()
                         );
-                        notify_on_change(receiver.clone(), cx); // re-render on new events too
-                        view.messages = Some(receiver);
+                        view.messages = initial_messages
+                            .iter()
+                            .map(|item| cached_from_timeline_item(item, &view.user_id))
+                            .collect();
+                        view.list_state.splice(0..0, view.messages.len());
                         view.timeline_id = Some(id);
-                        // New room: always land on the newest message, regardless of
-                        // whatever scroll/follow state the previous room left behind.
                         view.list_state.set_follow_mode(FollowMode::Tail);
+                        Some(update_stream)
                     }
-                    Ok(Err(e)) => tracing::error!("Failed to load timeline: {e:?}"),
-                    Err(e) if e.is_cancelled() => {}
-                    Err(e) => tracing::error!("Timeline fetch task failed: {e:?}"),
-                }
+                    Ok(Err(e)) => {
+                        tracing::error!("Failed to load timeline: {e:?}");
+                        None
+                    }
+                    Err(e) if e.is_cancelled() => None,
+                    Err(e) => {
+                        tracing::error!("Timeline fetch task failed: {e:?}");
+                        None
+                    }
+                };
                 cx.notify();
+                update_stream
             });
-        })
-        .detach();
+
+            let Ok(Some(mut update_stream)) = outcome else {
+                return;
+            };
+
+            while let Some(diffs) = update_stream.next().await {
+                let updated = this.update(cx, |view, cx| {
+                    for diff in diffs {
+                        apply_diff(&mut view.messages, &view.list_state, diff, &view.user_id);
+                    }
+                    cx.notify();
+                });
+                if updated.is_err() {
+                    break;
+                }
+            }
+        });
+        self.current_updates = Some(update_task);
     }
 
     fn scroll(&mut self, cx: &mut Context<Self>, direction: ScrollDirection) {
@@ -187,49 +219,6 @@ impl ChatView {
         .detach();
     }
 
-    /// Tell `ListState` precisely what changed, so it can preserve scroll position.
-    ///
-    /// Splicing the whole `0..old_len` range on every update (as if the entire list were
-    /// replaced) makes `ListState` reset scroll position to the top on every change, since it
-    /// can't tell that the items it's already measured are still there. Detecting a pure
-    /// prepend (older messages paginated in) or append (new live message) and giving it the
-    /// exact sub-range that changed lets it shift/preserve the current scroll position instead.
-    fn splice_messages(&mut self, messages: &Messages) {
-        let old_len = self.rendered_messages.len();
-        let new_len = messages.len();
-
-        if old_len == new_len {
-            return;
-        }
-
-        let unchanged_at =
-            |a: &Messages, a_ix: usize, b: &Messages, b_ix: usize| match (a.get(a_ix), b.get(b_ix))
-            {
-                (Some(x), Some(y)) => Arc::ptr_eq(x, y),
-                _ => false,
-            };
-
-        let prepended = new_len > old_len
-            && old_len > 0
-            && unchanged_at(messages, new_len - old_len, &self.rendered_messages, 0)
-            && unchanged_at(messages, new_len - 1, &self.rendered_messages, old_len - 1);
-
-        let appended = new_len > old_len
-            && old_len > 0
-            && unchanged_at(messages, 0, &self.rendered_messages, 0)
-            && unchanged_at(messages, old_len - 1, &self.rendered_messages, old_len - 1);
-
-        if prepended {
-            self.list_state.splice(0..0, new_len - old_len);
-        } else if appended {
-            self.list_state.splice(old_len..old_len, new_len - old_len);
-        } else {
-            self.list_state.splice(0..old_len, new_len);
-        }
-
-        self.rendered_messages = messages.clone();
-    }
-
     fn check_pagination(&mut self, range: Range<usize>, len: usize, cx: &mut Context<Self>) {
         const EDGE_THRESHOLD: usize = 10;
 
@@ -238,6 +227,71 @@ impl ChatView {
         }
         if len.saturating_sub(range.end) < EDGE_THRESHOLD {
             self.scroll(cx, ScrollDirection::Down);
+        }
+    }
+}
+
+fn apply_diff(
+    messages: &mut Vec<CachedTimelineItem>,
+    list_state: &ListState,
+    diff: VectorDiff<Arc<TimelineItem>>,
+    own_id: &UserId,
+) {
+    match diff {
+        VectorDiff::Append { values } => {
+            let start = messages.len();
+            messages.extend(
+                values
+                    .iter()
+                    .map(|item| cached_from_timeline_item(item, own_id)),
+            );
+            list_state.splice(start..start, messages.len() - start);
+        }
+        VectorDiff::Clear => {
+            list_state.splice(0..messages.len(), 0);
+            messages.clear();
+        }
+        VectorDiff::PushFront { value } => {
+            messages.insert(0, cached_from_timeline_item(&value, own_id));
+            list_state.splice(0..0, 1);
+        }
+        VectorDiff::PushBack { value } => {
+            messages.push(cached_from_timeline_item(&value, own_id));
+            list_state.splice(messages.len() - 1..messages.len() - 1, 1);
+        }
+        VectorDiff::PopFront => {
+            if !messages.is_empty() {
+                messages.remove(0);
+                list_state.splice(0..1, 0);
+            }
+        }
+        VectorDiff::PopBack => {
+            if messages.pop().is_some() {
+                list_state.splice(messages.len()..messages.len() + 1, 0);
+            }
+        }
+        VectorDiff::Insert { index, value } => {
+            messages.insert(index, cached_from_timeline_item(&value, own_id));
+            list_state.splice(index..index, 1);
+        }
+        VectorDiff::Set { index, value } => {
+            messages[index] = cached_from_timeline_item(&value, own_id);
+            list_state.splice(index..index + 1, 1);
+        }
+        VectorDiff::Remove { index } => {
+            messages.remove(index);
+            list_state.splice(index..index + 1, 0);
+        }
+        VectorDiff::Truncate { length } => {
+            list_state.splice(length..messages.len(), 0);
+            messages.truncate(length);
+        }
+        VectorDiff::Reset { values } => {
+            list_state.splice(0..messages.len(), values.len());
+            *messages = values
+                .iter()
+                .map(|item| cached_from_timeline_item(item, own_id))
+                .collect();
         }
     }
 }
@@ -251,13 +305,7 @@ impl Render for ChatView {
         };
         let room_id = room.room_id().to_owned();
 
-        let messages = self
-            .messages
-            .clone()
-            .map(|r| r.borrow().clone())
-            .unwrap_or_default();
-        self.splice_messages(&messages);
-
+        let messages = self.messages.clone();
         let avatar_cache = self.avatar_cache.clone();
         let map = self.membership_map.borrow().clone();
 
@@ -275,18 +323,11 @@ impl Render for ChatView {
                         return div().into_any_element();
                     };
                     let prev = ix.checked_sub(1).and_then(|prev_ix| messages.get(prev_ix));
-                    let next = ix.checked_sub(1).and_then(|next_ix| messages.get(next_ix));
+                    let next = messages.get(ix + 1);
 
-                    render_timeline_item(
-                        current.clone(),
-                        prev.cloned(),
-                        next.cloned(),
-                        theme,
-                        &room_id,
-                        &map,
-                        &avatar_cache,
-                    )
-                    .into_any_element()
+                    current
+                        .render(prev, next, theme, &room_id, &map, &avatar_cache)
+                        .unwrap_or(div().into_any_element())
                 })
                 .h_full()
                 .w_full(),

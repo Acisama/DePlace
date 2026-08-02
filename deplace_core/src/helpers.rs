@@ -47,3 +47,7 @@ pub fn format_date_divider(date: DateTime<Local>) -> String {
             .to_string()
     }
 }
+
+pub fn format_message_sent_time(date: DateTime<Local>) -> String {
+    date.format("%H:%M").to_string()
+}

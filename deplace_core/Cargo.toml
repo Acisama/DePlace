@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
 chrono.workspace = true
 const_format = "0.2.36"
 csscolorparser.workspace = true
@@ -15,8 +16,10 @@ gpui = { workspace = true, optional = true }
 hex = "0.4.3"
 imbl.workspace = true
 keyring-core = "1.0.0"
+livekit.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
+reqwest.workspace = true
 ruma.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -24,10 +27,7 @@ sha2.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
-livekit.workspace = true
-base64.workspace = true
 uuid.workspace = true
-reqwest.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1.0"
@@ -46,3 +46,13 @@ windows-native-keyring-store = "1.0"
 
 [features]
 desktop = ["gpui"]
+
+[lints.clippy]
+exit = "warn"
+panic_in_result_fn = "warn"
+string_slice = "warn"
+todo = "warn"
+unchecked_time_subtraction = "warn"
+unimplemented = "warn"
+unreachable = "warn"
+unwrap_used = "warn"

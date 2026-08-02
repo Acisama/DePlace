@@ -91,12 +91,20 @@ impl Header {
 }
 
 #[derive(Clone)]
+pub struct Chat {
+    pub icon_size: Pixels,
+    pub text_size: Pixels,
+    pub small_icon_size: Pixels,
+}
+
+#[derive(Clone)]
 pub struct Structure {
     pub server_column: ServerColumn,
     pub chat_sidebar_width: ChatSidebarWidth,
     pub divider_width: Pixels,
     pub sidebar: Sidebar,
     pub header: Header,
+    pub chat: Chat,
 }
 
 #[derive(Clone)]
@@ -158,6 +166,11 @@ impl AppTheme {
             colors: Colors::new(red, green, yellow, muted_color),
             accent,
             structure: Structure {
+                chat: Chat {
+                    icon_size: px(32.0),
+                    small_icon_size: px(18.0),
+                    text_size: px(16.0),
+                },
                 header: Header {
                     height: px(50.0),
                     icon_size: px(20.0),

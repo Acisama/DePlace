@@ -1,9 +1,12 @@
-use crate::{APP_NAME};
-use anyhow::{Result, Error};
+use crate::APP_NAME;
+use anyhow::{Error, Result};
 
 use keyring_core::Entry;
 
-use matrix_sdk::{reqwest::Url, ruma::{OwnedDeviceId, OwnedUserId}};
+use matrix_sdk::{
+    reqwest::Url,
+    ruma::{OwnedDeviceId, OwnedUserId},
+};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn_blocking;
 
@@ -93,12 +96,10 @@ pub fn save_session(session: &StoredSession) -> Result<()> {
 /// pointless (and slow) PBKDF2 stretch on every store open.
 pub async fn get_or_create_store_key(user_id: &str) -> Result<[u8; 32]> {
     let user_id = user_id.to_string();
-    spawn_blocking(move || get_or_create_store_key_blocking(&user_id))
-        .await
-        .expect("Keyring blocking task panicked")
+    spawn_blocking(move || get_or_create_store_key_blocking(&user_id)).await?
 }
 
-fn get_or_create_store_key_blocking(user_id: &str) -> Result<[u8; 32] > {
+fn get_or_create_store_key_blocking(user_id: &str) -> Result<[u8; 32]> {
     let entry = Entry::new(APP_NAME, &format!("passphrase:{}", user_id))?;
 
     let hex_key = match entry.get_password() {

@@ -1,5 +1,5 @@
-#![allow(unused)]
 // TODO: Remove this
+#![allow(unused)]
 
 use anyhow::{Context, anyhow};
 use base64::Engine;

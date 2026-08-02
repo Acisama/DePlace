@@ -131,15 +131,22 @@ pub fn save_session(client: &Client) {
     };
     let server_url = client.homeserver();
 
+    let (access_token, refresh_token) = match client.session() {
+        Some(s) => (
+            s.access_token().to_string(),
+            s.get_refresh_token().map(|t| t.to_string()),
+        ),
+        None => {
+            tracing::warn!("Failed to save session: no session available");
+            return;
+        }
+    };
+
     let session = StoredSession {
         user_id: user_id.to_owned(),
         device_id: device_id.to_owned(),
-        access_token: client.session().unwrap().access_token().to_string(),
-        refresh_token: client
-            .session()
-            .unwrap()
-            .get_refresh_token()
-            .map(|t| t.to_string()),
+        access_token,
+        refresh_token,
         homeserver_url: server_url,
     };
 
