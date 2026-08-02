@@ -17,6 +17,7 @@ mod keyring;
 pub mod colors;
 pub mod helpers;
 pub mod matrix_api;
+pub mod profile;
 pub mod state;
 
 pub const APP_HUMAN_NAME: &str = "DePlace";
