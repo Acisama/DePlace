@@ -50,29 +50,13 @@ impl CachedTimelineItem {
                 tailwind_div!(w_full, h_20, bg(red_600())).into_any()
             }
             CachedTimelineItemKind::Event(event) => {
-                let show_header = prev.is_some_and(|item| {
-                    !matches!(&item.kind, CachedTimelineItemKind::Event(_))
-                        || matches!(&item.kind,
-                        CachedTimelineItemKind::Event(prev_event)
-                        if prev_event.sent_time != event.sent_time
-                            || prev_event.sender != event.sender)
-                });
-
-                let pad_bottom = next.is_some_and(|item| {
-                    matches!(&item.kind,
-                        CachedTimelineItemKind::Event(next_event)
-                        if next_event.sent_time != event.sent_time
-                            || next_event.sender != event.sender)
-                });
-
                 event.render(
                     self.id(),
                     theme,
                     curent_room_id,
                     map,
                     avatar_cache,
-                    show_header,
-                    pad_bottom,
+                    prev,next
                 )
             }
         };
@@ -89,8 +73,8 @@ impl CachedTimelineEvent {
         current_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
-        show_header: bool,
-        pad_bottom: bool,
+        prev: Option<&CachedTimelineItem>,
+        next: Option<&CachedTimelineItem>,
     ) -> AnyElement {
         let colors = &theme.colors;
         let chat = &theme.structure.chat;
@@ -103,6 +87,9 @@ impl CachedTimelineEvent {
         let sender_avatar =
             move |size: Pixels| member.render_avatar(size, size / 2.0, avatar_cache);
         let sender_name = move |size: Pixels| member.render_name(size);
+
+        let mut show_header = false;
+        let mut pad_bottom = false;
 
         let content = match &self.content {
             CachedEventContent::FailedToParseMessageLike(text)
@@ -128,8 +115,23 @@ impl CachedTimelineEvent {
                     return div().into_any();
                 }
             }
-            CachedEventContent::UserMessage(msg) => tailwind_div!(line_height(relative(1.0)))
-                .child(msg.body.clone().unwrap_or_default()),
+            CachedEventContent::UserMessage(msg) => {
+                show_header = prev.is_some_and(|item| match &item.kind {
+                    CachedTimelineItemKind::Event(prev_event) if matches!(prev_event.content, CachedEventContent::UserMessage(_)) => {
+                        prev_event.timestamp.abs_diff(self.timestamp) > 300 || prev_event.sender != self.sender
+                    }
+                    _ => true,
+                });
+
+                pad_bottom = next.is_some_and(|item| {
+                    matches!(&item.kind,
+                        CachedTimelineItemKind::Event(next_event)
+                        if next_event.timestamp.abs_diff(self.timestamp) > 300  
+                            || next_event.sender != self.sender)
+                });
+                tailwind_div!(text_color(theme.text.normal), line_height(relative(1.0)))
+                    .child(msg.body.clone().unwrap_or_default())
+            }
         };
 
         let highlight_color = if show_highlight {
@@ -191,12 +193,12 @@ impl CachedTimelineEvent {
             flex,
             py(theme.small_gap),
             mt(if show_header {
-                theme.small_gap
+                theme.small_gap + Pixels::from(2.0)
             } else {
                 Pixels::ZERO
             }),
             mb(if pad_bottom {
-                theme.small_gap
+                theme.small_gap + Pixels::from(2.0)
             } else {
                 Pixels::ZERO
             }),
@@ -212,7 +214,7 @@ impl CachedTimelineEvent {
         .id(id)
         .when(!is_system_message, |el| {
             el.child(
-                tailwind_div!(w(col_width), px(theme.gap), py(theme.small_gap))
+                tailwind_div!(w(col_width), px(theme.gap))
                     .when(show_header, |el| el.child(sender_avatar(chat.icon_size))),
             )
         })

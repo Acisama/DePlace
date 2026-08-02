@@ -216,6 +216,7 @@ pub fn cached_from_timeline_item(value: &Arc<TimelineItem>, own_id: &UserId) -> 
                     contains_only_emojis: event.contains_only_emojis(),
                 },
                 sent_time: format_message_sent_time(date).into(),
+                timestamp: secs,
                 event_id: event.event_id().map(|id| Arc::new(id.to_owned())),
                 sender,
                 read_by,
