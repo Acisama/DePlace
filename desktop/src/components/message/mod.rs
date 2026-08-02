@@ -69,7 +69,9 @@ struct CachedTimelineEvent {
     state: Option<CachedSendState>,
     flags: EventFlags,
 
-    sent_time: SharedString,
+    short_time: SharedString,
+    long_time: SharedString,
+
     timestamp: i64,
     sender: Arc<OwnedUserId>,
     read_by: Vec<Arc<OwnedUserId>>,

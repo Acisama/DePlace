@@ -3,7 +3,7 @@ use gpui::{
     AnyElement, Element, ElementId, InteractiveElement, LinearColorStop, ParentElement, Pixels,
     Styled, div, linear_gradient, prelude::FluentBuilder, relative, transparent_black,
 };
-use gpui_component::{Colorize, red_600};
+use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
 use matrix_sdk::ruma::RoomId;
 
@@ -217,12 +217,10 @@ impl CachedTimelineEvent {
             mb(mb),
             flex_row,
             text_color(text_color),
+            text_size(chat.text_size),
         )
         .when(self.flags.contains_only_emojis, |el| {
             el.text_size(chat.text_size * 2.0)
-        })
-        .when(!self.flags.contains_only_emojis, |el| {
-            el.text_size(chat.text_size)
         })
         .id(id.clone())
         .child(
@@ -232,18 +230,30 @@ impl CachedTimelineEvent {
                     el.child(
                         tailwind_div!(
                             text_color(transparent_black()),
-                            text_size(chat.small_text_size)
+                            text_size(chat.small_text_size),
+                            font_semibold
                         )
                         .id(id)
                         .group_hover("message", |style| style.text_color(theme.text.muted))
-                        .child(self.sent_time.clone()),
+                        .child(self.short_time.clone()),
                     )
                 }),
         )
         .child(
             tailwind_div!(flex, size_full, flex_col, gap(theme.small_gap))
-                .when(show_header && !is_system_message, |el| {
-                    el.child(sender_name(chat.text_size))
+                .when(show_header, |el| {
+                    el.child(
+                        tailwind_div!(flex, flex_row, gap(theme.gap))
+                            .child(sender_name(chat.text_size))
+                            .child(
+                                tailwind_div!(
+                                    text_size(chat.small_text_size),
+                                    text_color(theme.text.muted),
+                                    font_semibold
+                                )
+                                .child(self.long_time.clone()),
+                            ),
+                    )
                 })
                 .child(content),
         )

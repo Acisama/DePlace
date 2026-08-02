@@ -3,7 +3,7 @@ use std::{sync::Arc, u64};
 use chrono::{DateTime, Local, TimeZone};
 use deplace_core::{
     get_change,
-    helpers::{format_date_divider, format_message_sent_time},
+    helpers::{format_date_divider, format_message_long_date, format_message_short_date},
     matrix_api::timeline::{DisplayString, get_current_and_prev},
 };
 use gpui::SharedString;
@@ -215,7 +215,8 @@ pub fn cached_from_timeline_item(value: &Arc<TimelineItem>, own_id: &UserId) -> 
                     can_be_replied_to: event.can_be_replied_to(),
                     contains_only_emojis: event.contains_only_emojis(),
                 },
-                sent_time: format_message_sent_time(date).into(),
+                short_time: format_message_short_date(date).into(),
+                long_time: format_message_long_date(date).into(),
                 timestamp: secs,
                 event_id: event.event_id().map(|id| Arc::new(id.to_owned())),
                 sender,

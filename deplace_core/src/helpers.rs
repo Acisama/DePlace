@@ -1,20 +1,6 @@
 use chrono::{DateTime, Local};
 
-pub fn format_message_date(date: DateTime<Local>) -> String {
-    // let timezone = settings.timezone.tracked();
-    // let date = date.with_timezone(&timezone);
-    // let now = Local::now().with_timezone(&timezone);
-
-    // let hour_str = match settings.hour_format.tracked() {
-    //     HourFormat::TwelveHour => "%I:%M %p",
-    //     HourFormat::TwentyFourHour => "%H:%M",
-    // };
-    // let date_str = match settings.date_format.tracked() {
-    //     DateFormat::DayMonthYear => "%d/%m/%Y",
-    //     DateFormat::MonthDayYear => "%m/%d/%Y",
-    //     DateFormat::YearMonthDay => "%Y/%m/%d",
-    // };
-
+pub fn format_message_long_date(date: DateTime<Local>) -> String {
     let hour_str = "%H:%M";
     let date_str = "%d/%m/%Y";
     let now = Local::now();
@@ -48,6 +34,6 @@ pub fn format_date_divider(date: DateTime<Local>) -> String {
     }
 }
 
-pub fn format_message_sent_time(date: DateTime<Local>) -> String {
+pub fn format_message_short_date(date: DateTime<Local>) -> String {
     date.format("%H:%M").to_string()
 }
