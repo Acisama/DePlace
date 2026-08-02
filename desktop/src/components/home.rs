@@ -22,7 +22,7 @@ use crate::{
         AvatarCache, MediaCache, chat::ChatView, dm_list::DmListView, floating_tile,
         header::HeaderView, quick_select, server_list::ServerListView, sidebar::SidebarView,
     },
-    theme::{ActiveAppTheme, Structure},
+    theme::{ActiveAppTheme, Structure, StructureExt},
     watch_bridge::notify_on_change,
 };
 
@@ -300,8 +300,7 @@ impl Focusable for HomeView {
 impl Render for HomeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.app_theme();
-        let padding = theme.gap;
-        let structure = &theme.structure;
+        let structure = cx.structure();
 
         div()
             .track_focus(&self.focus)
@@ -330,17 +329,17 @@ impl Render for HomeView {
             )
             .flex()
             .flex_row()
-            .paddings(padding)
-            .gap(padding)
+            .paddings(structure.gap)
+            .gap(structure.gap)
             .size_full()
             .child(
                 div()
                     .flex()
                     .flex_row()
-                    .gap(padding)
+                    .gap(structure.gap)
                     .child(
-                        floating_tile(theme)
-                            .w(theme.server_column_width())
+                        floating_tile(theme, structure)
+                            .w(structure.server_column_width())
                             .child(self.server_list.clone()),
                     )
                     .child(
@@ -348,23 +347,23 @@ impl Render for HomeView {
                             .flex()
                             .flex_col()
                             .w(structure.sidebar.width)
-                            .gap(padding)
+                            .gap(structure.gap)
                             .child(
-                                floating_tile(theme)
+                                floating_tile(theme, structure)
                                     .flex_grow_1()
                                     .child(self.sidebar.clone()),
                             )
-                            .child(floating_tile(theme).h(structure.header.height)),
+                            .child(floating_tile(theme, structure).h(structure.header.height)),
                     ),
             )
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap(padding)
+                    .gap(structure.gap)
                     .size_full()
                     .child(
-                        floating_tile(theme)
+                        floating_tile(theme, structure)
                             .h(structure.header.height)
                             .child(self.header.clone()),
                     )
@@ -372,17 +371,17 @@ impl Render for HomeView {
                         div()
                             .flex()
                             .flex_row()
-                            .gap(padding)
+                            .gap(structure.gap)
                             .size_full()
                             .child(
-                                floating_tile(theme)
+                                floating_tile(theme, structure)
                                     .flex_grow_1()
                                     .h_full()
                                     .child(self.chat.clone()),
                             )
                             .when_some(self.chat_sidebar.clone(), |el, sidebar| {
                                 el.child(
-                                    floating_tile(theme)
+                                    floating_tile(theme, structure)
                                         .w(sidebar.get_width(structure))
                                         .h_full(),
                                 )

@@ -15,6 +15,7 @@ use gpui_component::{
     StyledExt,
     input::{Input, InputState},
 };
+use macros::tailwind_div;
 use matrix_sdk::{
     Client, Room,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
@@ -23,7 +24,7 @@ use matrix_sdk::{
 };
 use tokio::{runtime::Runtime, sync::watch};
 
-use crate::theme::AppTheme;
+use crate::theme::{ActiveAppTheme, AppTheme, Structure, StructureExt};
 
 pub mod root;
 
@@ -37,23 +38,26 @@ mod message;
 mod quick_select;
 mod server_list;
 mod sidebar;
-mod timeline;
 
-pub fn floating_tile(theme: &AppTheme) -> Div {
-    div()
-        .flex()
-        .backdrop_blur(px(30.0))
-        .flex_shrink_0()
-        .bg(theme.tile.background)
-        .border(theme.tile.border_thickness)
-        .border_color(theme.tile.border)
-        .rounded(theme.tile.border_radius)
-        .gap(theme.gap)
-        .shadow_sm()
-        .overflow_y_hidden()
+pub fn floating_tile(theme: &AppTheme, structure: &Structure) -> Div {
+    tailwind_div!(
+        flex,
+        backdrop_blur(theme.blur),
+        flex_shrink_0,
+        bg(theme.tile.background),
+        border_1(),
+        border_color(theme.tile.border),
+        rounded(structure.outer_border_radius),
+        gap(structure.gap),
+        shadow_sm(),
+        overflow_y_hidden()
+    )
 }
 
-pub fn input(theme: &AppTheme, entity: &Entity<InputState>, window: &Window, cx: &App) -> Input {
+pub fn input(entity: &Entity<InputState>, window: &Window, cx: &App) -> Input {
+    let theme = cx.app_theme();
+    let structure = cx.structure();
+
     let focused = entity.read(cx).focus_handle(cx).is_focused(window);
     let (bg, border) = if focused {
         (theme.input.focus_background, theme.input.focused_border)
@@ -62,7 +66,7 @@ pub fn input(theme: &AppTheme, entity: &Entity<InputState>, window: &Window, cx:
     };
 
     Input::new(entity)
-        .paddings(theme.input.padding)
+        .paddings(structure.small_gap)
         .text_color(theme.text.normal)
         .bg(bg)
         .border_1()

@@ -27,7 +27,7 @@ use crate::{
         AvatarCache,
         message::{CachedTimelineItem, cached_from_timeline_item},
     },
-    theme::ActiveAppTheme,
+    theme::{ActiveAppTheme, StructureExt},
     watch_bridge::notify_on_change,
 };
 
@@ -299,7 +299,7 @@ fn apply_diff(
 
 impl Render for ChatView {
     fn render(&mut self, _window: &mut gpui::Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.app_theme();
+        let structure = cx.structure();
 
         let Some(room) = self.active_room.borrow().clone() else {
             return div().into_any_element();
@@ -310,10 +310,11 @@ impl Render for ChatView {
         let avatar_cache = self.avatar_cache.clone();
         let map = self.membership_map.borrow().clone();
 
-        tailwind_div!(size_full, paddings(theme.gap), pt_0, flex, flex_col)
+        tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
             .child(
                 list(self.list_state.clone(), move |ix, _window, cx| {
                     let theme = cx.app_theme();
+                    let structure = cx.structure();
 
                     let Some(current) = messages.get(ix) else {
                         return div().into_any_element();
@@ -321,7 +322,7 @@ impl Render for ChatView {
                     let prev = ix.checked_sub(1).and_then(|prev_ix| messages.get(prev_ix));
                     let next = messages.get(ix + 1);
 
-                    current.render(prev, next, theme, &room_id, &map, &avatar_cache)
+                    current.render(prev, next, theme, structure, &room_id, &map, &avatar_cache)
                 })
                 .h_full()
                 .w_full(),
@@ -330,8 +331,8 @@ impl Render for ChatView {
                 div()
                     .w_full()
                     .bg(red_600())
-                    .h(theme.structure.header.height)
-                    .rounded(theme.inner_border_radius),
+                    .h(structure.header.height)
+                    .rounded(structure.inner_border_radius),
             )
             .into_any_element()
     }

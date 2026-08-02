@@ -1,17 +1,14 @@
-use gpui::{App, Global, Hsla, Pixels, hsla, px, rgba, white};
+use gpui::{App, Global, Hsla, Pixels, hsla, px, white};
 use gpui_component::Colorize;
 
 #[derive(Clone)]
 pub struct TileTheme {
     pub background: Hsla,
     pub border: Hsla,
-    pub border_thickness: Pixels,
-    pub border_radius: Pixels,
 }
 
 #[derive(Clone)]
 pub struct Text {
-    pub font_size: Pixels,
     pub muted: Hsla,
     pub dim: Hsla,
     pub normal: Hsla,
@@ -22,7 +19,6 @@ pub struct InputTheme {
     pub background: Hsla,
     pub focus_background: Hsla,
     pub focused_border: Hsla,
-    pub padding: Pixels,
 }
 
 #[derive(Clone)]
@@ -106,21 +102,72 @@ pub struct Structure {
     pub sidebar: Sidebar,
     pub header: Header,
     pub chat: Chat,
+    pub outer_border_radius: Pixels,
+    pub inner_border_radius: Pixels,
+    pub font_size: Pixels,
+    pub gap: Pixels,
+    pub small_gap: Pixels,
+}
+
+impl Global for Structure {}
+
+impl Structure {
+    pub fn new() -> Self {
+        let outer_border_radius = px(12.0);
+        let gap = px(8.0);
+        let small_gap = px(4.0);
+        let inner_border_radius = outer_border_radius - small_gap;
+
+        Self {
+            gap,
+            small_gap,
+            inner_border_radius,
+            outer_border_radius,
+            font_size: px(16.0),
+            divider_width: px(2.0),
+
+            chat: Chat {
+                icon_size: px(32.0),
+                small_icon_size: px(18.0),
+                text_size: px(16.0),
+                small_text_size: px(12.0),
+            },
+            header: Header {
+                height: px(50.0),
+                icon_size: px(20.0),
+            },
+            sidebar: Sidebar {
+                width: px(300.0),
+                dm_icon_height: px(30.0),
+                channel_icon_height: px(20.0),
+            },
+            server_column: ServerColumn {
+                icon_width: px(40.0),
+            },
+            chat_sidebar_width: ChatSidebarWidth {
+                member: px(320.0),
+                search: px(480.0),
+                pinned: px(480.0),
+                members: px(240.0),
+            },
+        }
+    }
+
+    pub fn server_column_width(&self) -> Pixels {
+        self.server_column.icon_width + 3.0 * self.gap
+    }
 }
 
 #[derive(Clone)]
 pub struct AppTheme {
-    pub gap: Pixels,
-    pub small_gap: Pixels,
     pub accent: Hsla,
+    pub blur: Pixels,
     pub tile: TileTheme,
     pub text: Text,
     pub input: InputTheme,
     pub colors: Colors,
-    pub structure: Structure,
     pub pill_color: Hsla,
     pub soldid_hover_bg: Hsla,
-    pub inner_border_radius: Pixels,
 }
 
 impl Global for AppTheme {}
@@ -135,25 +182,15 @@ impl AppTheme {
         let green = hsla(0.3682, 0.5446, 0.6039, 1.0);
         let yellow = hsla(0.155, 0.786, 0.743, 1.0);
 
-        let tile_border_radius = px(12.0);
-        let gap = px(8.0);
-        let small_gap = px(4.0);
-        let inner_border_radius = tile_border_radius - small_gap;
-
         Self {
+            blur: px(30.0),
             soldid_hover_bg: hsla(0.667, 0.211, 0.149, 1.0),
-            gap,
-            small_gap,
             pill_color: white(),
-            inner_border_radius,
             tile: TileTheme {
                 background: hsla(0.66, 0.2, 0.1, 0.5),
                 border: hsla(0.0, 0.0, 1.0, 0.175),
-                border_thickness: px(1.0),
-                border_radius: tile_border_radius,
             },
             text: Text {
-                font_size: px(16.0),
                 muted: muted_color,
                 dim: hsla(0.66, 0.15, 0.55, 1.0),
                 normal: hsla(0.66, 0.15, 0.8, 1.0),
@@ -162,42 +199,10 @@ impl AppTheme {
                 background: hsla(0.0, 0.0, 0.0, 0.2),
                 focus_background: hsla(0.0, 0.0, 0.0, 0.4),
                 focused_border: accent.darken(0.4),
-                padding: px(8.0),
             },
             colors: Colors::new(red, green, yellow, muted_color),
             accent,
-            structure: Structure {
-                chat: Chat {
-                    icon_size: px(32.0),
-                    small_icon_size: px(18.0),
-                    text_size: px(16.0),
-                    small_text_size: px(12.0),
-                },
-                header: Header {
-                    height: px(50.0),
-                    icon_size: px(20.0),
-                },
-                sidebar: Sidebar {
-                    width: px(300.0),
-                    dm_icon_height: px(30.0),
-                    channel_icon_height: px(20.0),
-                },
-                server_column: ServerColumn {
-                    icon_width: px(40.0),
-                },
-                chat_sidebar_width: ChatSidebarWidth {
-                    member: px(320.0),
-                    search: px(480.0),
-                    pinned: px(480.0),
-                    members: px(240.0),
-                },
-                divider_width: px(2.0),
-            },
         }
-    }
-
-    pub fn server_column_width(&self) -> Pixels {
-        self.structure.server_column.icon_width + 3.0 * self.gap
     }
 }
 
@@ -208,5 +213,15 @@ pub trait ActiveAppTheme {
 impl ActiveAppTheme for App {
     fn app_theme(&self) -> &AppTheme {
         self.global::<AppTheme>()
+    }
+}
+
+pub trait StructureExt {
+    fn structure(&self) -> &Structure;
+}
+
+impl StructureExt for App {
+    fn structure(&self) -> &Structure {
+        self.global::<Structure>()
     }
 }

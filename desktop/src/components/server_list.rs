@@ -16,11 +16,8 @@ use matrix_sdk::{Room, ruma::OwnedRoomId};
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{
-        AvatarCache, avatar, gpui_format_from, home::ActiveServerChange, render_room_avatar,
-        render_room_no_dm,
-    },
-    theme::{ActiveAppTheme, AppTheme},
+    components::{AvatarCache, home::ActiveServerChange, render_room_no_dm},
+    theme::{ActiveAppTheme, AppTheme, Structure, StructureExt},
     watch_bridge::notify_on_change,
 };
 
@@ -77,11 +74,13 @@ impl ServerListView {
 
 impl Render for ServerListView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.app_theme().clone();
-        let icon_size = theme.structure.server_column.icon_width;
+        let theme = cx.app_theme();
+        let structure = cx.structure();
+
+        let icon_size = structure.server_column.icon_width;
         let rounding = icon_size / 4.0;
 
-        let pill_width = theme.gap / 2.5;
+        let pill_width = structure.gap / 2.5;
 
         let ordered_server_ids_vec = self.server_order.clone();
 
@@ -142,7 +141,8 @@ impl Render for ServerListView {
                 Some(&room_id) == active_server_id.as_ref(),
                 false,
                 pill_width,
-                &theme,
+                theme,
+                structure,
             )
             .child(
                 Button::new(format!("server-{}", room.room_id()))
@@ -192,16 +192,17 @@ impl Render for ServerListView {
             .flex_col()
             .w_full()
             .items_center()
-            .pt(1.5 * theme.gap)
+            .pt(1.5 * structure.gap)
             .content_center()
-            .gap(theme.gap)
+            .gap(structure.gap)
             .child(
                 pill(
                     self.hovered_server.clone() == Some(None),
                     active_server_id.is_none(),
                     false,
                     pill_width,
-                    &theme,
+                    theme,
+                    structure,
                 )
                 .child(
                     Button::new("home-icon")
@@ -243,10 +244,10 @@ impl Render for ServerListView {
             )
             .child(
                 div()
-                    .h(theme.structure.divider_width)
+                    .h(structure.divider_width)
                     .w(icon_size)
                     .border_color(transparent_black())
-                    .my(theme.small_gap)
+                    .my(structure.small_gap)
                     .when(active_server_id.is_none(), |el| {
                         el.border_color(theme.accent)
                     })
@@ -262,6 +263,7 @@ fn pill(
     has_messages: bool,
     pill_width: Pixels,
     theme: &AppTheme,
+    structure: &Structure,
 ) -> Div {
     let scale_factor = if active {
         1.0
@@ -273,7 +275,7 @@ fn pill(
         0.0
     };
 
-    let icon_size = theme.structure.server_column.icon_width;
+    let icon_size = structure.server_column.icon_width;
     let rounding = icon_size / 4.0;
     let height = icon_size * scale_factor;
 

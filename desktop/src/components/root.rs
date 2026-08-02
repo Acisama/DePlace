@@ -5,7 +5,6 @@ use gpui::{
     AppContext, Context, Entity, InteractiveElement, IntoElement, KeyContext, ObjectFit,
     ParentElement, Render, RenderImage, Styled, StyledImage, Window, blue, div, img,
 };
-use macros::tailwind_div;
 use matrix_sdk::Client;
 
 use crate::{

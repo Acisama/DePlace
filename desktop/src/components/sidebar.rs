@@ -15,7 +15,7 @@ use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
     components::{AvatarCache, home::ActiveRoomChange, render_room_icon},
-    theme::ActiveAppTheme,
+    theme::{ActiveAppTheme, StructureExt},
     watch_bridge::notify_on_change,
 };
 
@@ -71,7 +71,7 @@ impl Render for SidebarView {
         cx: &mut Context<Self>,
     ) -> impl gpui::IntoElement {
         let theme = cx.app_theme();
-        let sidebar = &theme.structure.sidebar;
+        let structure = cx.structure();
 
         let membership_map = self.membership_map.borrow().clone();
         let own_id = self.own_id.clone();
@@ -84,8 +84,8 @@ impl Render for SidebarView {
             .map(|room| room.get_name())
             .unwrap_or("Direct Messages".to_string());
 
-        let heading_font_size = theme.text.font_size * 1.1;
-        let heading_padding = (theme.structure.header.height - heading_font_size) / 2.0;
+        let heading_font_size = structure.font_size * 1.1;
+        let heading_padding = (structure.header.height - heading_font_size) / 2.0;
 
         let items = if let Some(server) = active_server {
             let mut children: Vec<(Room, Option<String>)> = self
@@ -109,8 +109,8 @@ impl Render for SidebarView {
             dms
         };
 
-        let dm_icon_size = sidebar.dm_icon_height;
-        let channel_icon_size = sidebar.channel_icon_height;
+        let dm_icon_size = structure.sidebar.dm_icon_height;
+        let channel_icon_size = structure.sidebar.channel_icon_height;
 
         let active_id = self
             .active_room
@@ -124,7 +124,7 @@ impl Render for SidebarView {
             } else {
                 channel_icon_size
             };
-            let height = icon_height + theme.gap * 2;
+            let height = icon_height + structure.gap * 2;
             (icon_height, height)
         };
 
@@ -139,14 +139,14 @@ impl Render for SidebarView {
             div()
                 .border_1()
                 .border_color(transparent_black())
-                .px(theme.gap)
+                .px(structure.gap)
                 .text_color(theme.text.dim)
                 .items_center()
                 .h(height)
                 .flex()
                 .flex_row()
-                .gap(theme.gap)
-                .rounded(theme.inner_border_radius)
+                .gap(structure.gap)
+                .rounded(structure.inner_border_radius)
                 .hover(|style| {
                     style
                         .border_color(theme.tile.border)
@@ -181,13 +181,13 @@ impl Render for SidebarView {
             .w_full()
             .child(
                 div()
-                    .h(theme.structure.header.height)
+                    .h(structure.header.height)
                     .flex()
                     .child(name)
                     .items_center()
                     .pl(heading_padding)
                     .font_bold()
-                    .text_size(theme.text.font_size * 1.1)
+                    .text_size(structure.font_size * 1.1)
                     .border_b_1()
                     .border_color(theme.tile.border)
                     .text_color(theme.text.normal),
@@ -196,9 +196,9 @@ impl Render for SidebarView {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(theme.small_gap)
-                    .px(theme.gap)
-                    .py(theme.small_gap)
+                    .gap(structure.small_gap)
+                    .px(structure.gap)
+                    .py(structure.small_gap)
                     .children(divs),
             )
     }

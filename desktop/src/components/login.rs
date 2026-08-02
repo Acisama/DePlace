@@ -15,7 +15,7 @@ use matrix_sdk::Client;
 use crate::{
     GenericState,
     components::{floating_tile, input},
-    theme::ActiveAppTheme,
+    theme::{ActiveAppTheme, StructureExt},
 };
 
 pub struct LoginView {
@@ -177,6 +177,8 @@ impl LoginView {
 impl Render for LoginView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.app_theme();
+        let structure = cx.structure();
+
         let disabled = self.state.is_disabled();
 
         let (message, color) = match &self.state {
@@ -194,28 +196,33 @@ impl Render for LoginView {
             .items_center()
             .justify_center()
             .child(
-                floating_tile(theme)
+                floating_tile(theme, structure)
+                    .paddings(structure.gap)
                     .flex_col()
-                    .gap(theme.gap * 2)
+                    .gap(structure.gap * 2)
                     .w(gpui::px(360.0))
                     .child(
                         div()
                             .relative()
                             .w_full()
                             .child(
-                                div().absolute().left(theme.gap).top(theme.gap).child(
-                                    h_flex()
-                                        .id("login-back")
-                                        .items_center()
-                                        .gap_1()
-                                        .cursor_pointer()
-                                        .text_color(theme.text.dim)
-                                        .text_xs()
-                                        .font_bold()
-                                        .hover(|style| style.text_decoration_1())
-                                        .child("⟵ back")
-                                        .on_click(cx.listener(Self::on_back_click)),
-                                ),
+                                div()
+                                    .absolute()
+                                    .left(structure.gap)
+                                    .top(structure.gap)
+                                    .child(
+                                        h_flex()
+                                            .id("login-back")
+                                            .items_center()
+                                            .gap_1()
+                                            .cursor_pointer()
+                                            .text_color(theme.text.dim)
+                                            .text_xs()
+                                            .font_bold()
+                                            .hover(|style| style.text_decoration_1())
+                                            .child("⟵ back")
+                                            .on_click(cx.listener(Self::on_back_click)),
+                                    ),
                             )
                             .child(
                                 div()
@@ -231,34 +238,34 @@ impl Render for LoginView {
                         div()
                             .flex_col()
                             .flex()
-                            .gap(theme.small_gap)
+                            .gap(structure.small_gap)
                             .child("Username")
                             .text_color(theme.text.dim)
-                            .child(input(theme, &self.username_input, window, cx)),
+                            .child(input(&self.username_input, window, cx)),
                     )
                     .child(
                         div()
                             .flex_col()
                             .flex()
-                            .gap(theme.small_gap)
+                            .gap(structure.small_gap)
                             .child("Password")
                             .text_color(theme.text.dim)
-                            .child(input(theme, &self.password_input, window, cx)),
+                            .child(input(&self.password_input, window, cx)),
                     )
                     .child(
                         div()
                             .flex_col()
                             .flex()
-                            .gap(theme.small_gap)
+                            .gap(structure.small_gap)
                             .child("Recovery Key")
                             .text_color(theme.text.dim)
-                            .child(input(theme, &self.recovery_key_input, window, cx)),
+                            .child(input(&self.recovery_key_input, window, cx)),
                     )
                     .child(
                         div()
                             .flex_col()
                             .flex()
-                            .gap(theme.small_gap)
+                            .gap(structure.small_gap)
                             .child(div().child(message).text_color(color))
                             .child({
                                 let bg = if disabled {

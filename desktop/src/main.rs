@@ -20,6 +20,8 @@ use components::root::RootView;
 use keybinds::load_keymap_from_json;
 use theme::AppTheme;
 
+use crate::theme::Structure;
+
 const SOCKET_NAME: &str = "deplace.sock";
 
 pub(crate) mod assets;
@@ -129,16 +131,20 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
         .with_assets(AppAssets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
+            let structure = Structure::new();
+
             let app_theme = AppTheme::new();
-            cx.set_global(app_theme.clone());
 
             let theme = gpui_component::Theme::global_mut(cx);
             theme.muted_foreground = app_theme.text.muted;
             theme.caret = app_theme.text.normal;
-            theme.font_size = app_theme.text.font_size;
+            theme.font_size = structure.font_size;
             theme.primary = app_theme.accent;
             theme.border = app_theme.tile.border;
             theme.font_family = "Noto Sans".into();
+
+            cx.set_global(structure);
+            cx.set_global(app_theme.clone());
 
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Maximized(Bounds::maximized(None, cx))),

@@ -15,7 +15,7 @@ use crate::{
             CachedTimelineItemKind,
         },
     },
-    theme::AppTheme,
+    theme::{AppTheme, Structure},
 };
 
 impl CachedTimelineItem {
@@ -24,11 +24,12 @@ impl CachedTimelineItem {
         prev: Option<&Self>,
         next: Option<&Self>,
         theme: &AppTheme,
+        structure: &Structure,
         curent_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
     ) -> AnyElement {
-        let divider_width = theme.structure.divider_width;
+        let divider_width = structure.divider_width;
 
         let content = match &self.kind {
             // TODO: Merge with read marker if adjacent
@@ -37,7 +38,7 @@ impl CachedTimelineItem {
             //         .is_some_and(|v| matches!(v, VirtualTimelineItem::ReadMarker))
             // }
             CachedTimelineItemKind::DateDivider(date) => {
-                tailwind_div!(w_full, flex, items_center, gap(theme.gap))
+                tailwind_div!(w_full, flex, items_center, gap(structure.gap))
                     .child(tailwind_div!(h(divider_width), flex_1 bg(theme.tile.border)))
                     .child(tailwind_div!(text_color(theme.text.muted)).child(date.clone()))
                     .child(tailwind_div!(h(divider_width) flex_1 bg(theme.tile.border)))
@@ -52,6 +53,7 @@ impl CachedTimelineItem {
             CachedTimelineItemKind::Event(event) => event.render(
                 self.id(),
                 theme,
+                structure,
                 curent_room_id,
                 map,
                 avatar_cache,
@@ -70,6 +72,7 @@ impl CachedTimelineEvent {
         &self,
         id: ElementId,
         theme: &AppTheme,
+        structure: &Structure,
         current_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
@@ -77,10 +80,8 @@ impl CachedTimelineEvent {
         next: Option<&CachedTimelineItem>,
     ) -> AnyElement {
         let colors = &theme.colors;
-        let chat = &theme.structure.chat;
 
         let show_highlight = self.flags.is_highlighted;
-        let mut is_system_message = false;
 
         let member = map.get(current_room_id).and_then(|m| m.get(&*self.sender));
 
@@ -98,7 +99,6 @@ impl CachedTimelineEvent {
             }
             CachedEventContent::SystemMessage(msg) => {
                 if let Some(text) = msg.text() {
-                    is_system_message = true;
                     tailwind_div!(
                         text_color(theme.text.dim),
                         items_center,
@@ -106,9 +106,9 @@ impl CachedTimelineEvent {
                         flex_1,
                         justify_center
                     )
-                    .child(sender_avatar(chat.small_icon_size))
+                    .child(sender_avatar(structure.chat.small_icon_size))
                     .child(" ")
-                    .child(sender_name(chat.text_size))
+                    .child(sender_name(structure.chat.text_size))
                     .child(" ")
                     .child(text)
                 } else {
@@ -180,8 +180,8 @@ impl CachedTimelineEvent {
             (transparent_black().into(), theme.tile.background.into())
         };
 
-        let icon_size = theme.structure.chat.icon_size;
-        let col_width = icon_size + 2.0 * theme.gap;
+        let icon_size = structure.chat.icon_size;
+        let col_width = icon_size + 2.0 * structure.gap;
 
         let text_color = self
             .state
@@ -194,12 +194,12 @@ impl CachedTimelineEvent {
             .unwrap_or(theme.text.normal);
 
         let mt = if show_header {
-            theme.small_gap + Pixels::from(2.0)
+            structure.small_gap + Pixels::from(2.0)
         } else {
             Pixels::ZERO
         };
         let mb = if pad_bottom {
-            theme.small_gap + Pixels::from(2.0)
+            structure.small_gap + Pixels::from(2.0)
         } else {
             Pixels::ZERO
         };
@@ -207,30 +207,32 @@ impl CachedTimelineEvent {
         tailwind_div!(
             w_full,
             border_transparent,
-            rounded(theme.small_gap),
+            rounded(structure.small_gap),
             group("message"),
             bg(bg),
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
-            py(theme.small_gap),
+            py(structure.small_gap),
             mt(mt),
             mb(mb),
             flex_row,
             text_color(text_color),
-            text_size(chat.text_size),
+            text_size(structure.chat.text_size),
         )
         .when(self.flags.contains_only_emojis, |el| {
-            el.text_size(chat.text_size * 2.0)
+            el.text_size(structure.chat.text_size * 2.0)
         })
         .id(id.clone())
         .child(
-            tailwind_div!(w(col_width), px(theme.gap))
-                .when(show_header, |el| el.child(sender_avatar(chat.icon_size)))
+            tailwind_div!(w(col_width), px(structure.gap))
+                .when(show_header, |el| {
+                    el.child(sender_avatar(structure.chat.icon_size))
+                })
                 .when(!show_header, |el| {
                     el.child(
                         tailwind_div!(
                             text_color(transparent_black()),
-                            text_size(chat.small_text_size),
+                            text_size(structure.chat.small_text_size),
                             font_semibold
                         )
                         .id(id)
@@ -240,14 +242,14 @@ impl CachedTimelineEvent {
                 }),
         )
         .child(
-            tailwind_div!(flex, size_full, flex_col, gap(theme.small_gap))
+            tailwind_div!(flex, size_full, flex_col, gap(structure.small_gap))
                 .when(show_header, |el| {
                     el.child(
-                        tailwind_div!(flex, flex_row, gap(theme.gap))
-                            .child(sender_name(chat.text_size))
+                        tailwind_div!(flex, flex_row, gap(structure.gap))
+                            .child(sender_name(structure.chat.text_size))
                             .child(
                                 tailwind_div!(
-                                    text_size(chat.small_text_size),
+                                    text_size(structure.chat.small_text_size),
                                     text_color(theme.text.muted),
                                     font_semibold
                                 )

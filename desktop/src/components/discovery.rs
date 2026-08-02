@@ -15,7 +15,7 @@ use matrix_sdk::{Client, reqwest::Url};
 use crate::{
     GenericState,
     components::{floating_tile, input},
-    theme::ActiveAppTheme,
+    theme::{ActiveAppTheme, StructureExt},
 };
 
 pub struct DiscoveryView {
@@ -142,6 +142,7 @@ impl Render for DiscoveryView {
         let disabled = self.state.is_disabled();
 
         let theme = cx.app_theme();
+        let structure = cx.structure();
 
         let (message, color) = match &self.state {
             GenericState::Default => ("Ready to discover".to_string(), theme.colors.muted),
@@ -158,7 +159,8 @@ impl Render for DiscoveryView {
             .items_center()
             .justify_center()
             .child(
-                floating_tile(theme)
+                floating_tile(theme, structure)
+                    .paddings(structure.gap)
                     .flex_col()
                     .w(gpui::px(320.))
                     .child(
@@ -174,16 +176,16 @@ impl Render for DiscoveryView {
                         div()
                             .flex_col()
                             .flex()
-                            .gap(theme.small_gap)
+                            .gap(structure.small_gap)
                             .child("Homeserver")
                             .text_color(theme.text.dim)
-                            .child(input(theme, &self.server_input, window, cx)),
+                            .child(input(&self.server_input, window, cx)),
                     )
                     .child(
                         div()
                             .flex_col()
                             .flex()
-                            .gap(theme.small_gap)
+                            .gap(structure.small_gap)
                             .child(div().child(message).text_color(color))
                             .child({
                                 let bg = if disabled {

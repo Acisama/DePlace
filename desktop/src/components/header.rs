@@ -11,7 +11,7 @@ use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
     components::{AvatarCache, MemberRenderer, render_icon, render_room_icon},
-    theme::ActiveAppTheme,
+    theme::{ActiveAppTheme, StructureExt},
     watch_bridge::notify_on_change,
 };
 
@@ -55,7 +55,9 @@ impl Render for HeaderView {
         let room = self.active_room.borrow().clone();
 
         let theme = cx.app_theme();
-        let header = &theme.structure.header;
+        let structure = cx.structure();
+
+        let icon_size = structure.header.icon_size;
 
         let name = room
             .as_ref()
@@ -68,11 +70,11 @@ impl Render for HeaderView {
         div()
             .size_full()
             .text_color(theme.text.normal)
-            .paddings(theme.gap)
+            .paddings(structure.gap)
             .flex()
             .items_center()
             .flex_row()
-            .gap(theme.gap)
+            .gap(structure.gap)
             .child(
                 div()
                     .child(if let Some(room) = &room {
@@ -81,13 +83,13 @@ impl Render for HeaderView {
                             &map,
                             &self.own_id,
                             &self.cache,
-                            header.icon_size,
-                            header.icon_size / 2.0,
+                            icon_size,
+                            icon_size / 2.0,
                         )
                     } else {
-                        render_icon(phosphor_svgs::icon::aperture::BOLD, header.icon_size)
+                        render_icon(phosphor_svgs::icon::aperture::BOLD, icon_size)
                     })
-                    .pl(header.icon_padding() - theme.gap)
+                    .pl(structure.header.icon_padding() - structure.gap)
                     .text_color(theme.text.dim),
             )
             .child(
