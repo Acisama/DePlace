@@ -1,12 +1,21 @@
 use std::sync::Arc;
 
-use deplace_core::{matrix_api::account_data::set_account_data, state::AppState};
+use deplace_core::{
+    get_other_member,
+    matrix_api::account_data::set_account_data,
+    state::{AppState, MembershipMap},
+};
 use gpui::{
     AppContext, Context, Empty, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     ParentElement, Pixels, Render, Styled, Window, div, prelude::FluentBuilder,
 };
 use gpui_component::StyledExt;
-use matrix_sdk::{Room, ruma::OwnedUserId};
+use matrix_sdk::{
+    Room,
+    room::RoomMember,
+    ruma::{OwnedUserId, UserId},
+};
+use tokio::sync::watch::Receiver;
 
 use crate::{
     components::{
@@ -14,6 +23,7 @@ use crate::{
         header::HeaderView, quick_select, server_list::ServerListView, sidebar::SidebarView,
     },
     theme::{ActiveAppTheme, Structure},
+    watch_bridge::notify_on_change,
 };
 
 pub struct HomeView {
@@ -28,6 +38,10 @@ pub struct HomeView {
     sidebar: Entity<SidebarView>,
     chat: Entity<ChatView>,
 
+    active_room: Receiver<Option<Room>>,
+    membership_map: Receiver<MembershipMap>,
+    own_id: OwnedUserId,
+
     overlay: Overlay,
 }
 
@@ -40,10 +54,36 @@ enum Overlay {
 
 #[derive(Clone)]
 enum ChatSidebar {
-    Members,
+    Members(Room),
     Search,
     Pinned,
-    Member(OwnedUserId),
+    Member(RoomMember),
+}
+
+impl PartialEq for ChatSidebar {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ChatSidebar::Members(_), ChatSidebar::Members(_)) => true,
+            (ChatSidebar::Search, ChatSidebar::Search) => true,
+            (ChatSidebar::Pinned, ChatSidebar::Pinned) => true,
+            (ChatSidebar::Member(_), ChatSidebar::Member(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+impl ChatSidebar {
+    fn from_active_room(room: Option<Room>, own_id: &UserId, map: MembershipMap) -> Option<Self> {
+        let room = room?;
+
+        if room.is_dm()
+            && let Some(member) = get_other_member(own_id, &map, room.room_id())
+        {
+            Some(ChatSidebar::Member(member))
+        } else {
+            Some(ChatSidebar::Members(room.clone()))
+        }
+    }
 }
 
 pub struct ActiveServerChange(Option<Room>);
@@ -74,7 +114,7 @@ impl ChatSidebar {
     pub fn get_width(&self, structure: &Structure) -> Pixels {
         match self {
             ChatSidebar::Member(_) => structure.chat_sidebar_width.member,
-            ChatSidebar::Members => structure.chat_sidebar_width.members,
+            ChatSidebar::Members(_) => structure.chat_sidebar_width.members,
             ChatSidebar::Search => structure.chat_sidebar_width.search,
             ChatSidebar::Pinned => structure.chat_sidebar_width.pinned,
         }
@@ -101,10 +141,21 @@ impl HomeView {
             cx.new(|cx| SidebarView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
         let chat = cx.new(|cx| ChatView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
 
+        let active_room = state.active_room();
+        let membership_map = state.membership_map();
+        let own_id = state.user_device.user_id.clone();
+
+        notify_on_change(active_room.clone(), cx);
+        notify_on_change(membership_map.clone(), cx);
+
         cx.subscribe_in(
             &server_list,
             window,
-            move |this: &mut HomeView, _child, event: &ActiveServerChange, &mut _, &mut _| {
+            move |this: &mut HomeView,
+                  _child,
+                  event: &ActiveServerChange,
+                  &mut _,
+                  cx: &mut Context<Self>| {
                 let room = event.room();
                 let server_id = room.as_ref().map(|r| r.room_id());
 
@@ -168,6 +219,8 @@ impl HomeView {
                 this.tokio_rt.spawn(async move {
                     set_account_data(&client, breadcrumbs).await;
                 });
+
+                this.update_chat_sidebar(cx);
             },
         )
         .detach();
@@ -175,7 +228,7 @@ impl HomeView {
         cx.subscribe_in(
             &sidebar,
             window,
-            move |this: &mut HomeView, _child, event: &ActiveRoomChange, _, _| {
+            move |this: &mut HomeView, _child, event: &ActiveRoomChange, _, cx| {
                 let room = event.room();
                 this.state.set_active_room(room.clone());
 
@@ -194,6 +247,8 @@ impl HomeView {
                     this.tokio_rt
                         .spawn(async move { set_account_data(&client, breadcrumbs).await });
                 }
+
+                this.update_chat_sidebar(cx);
             },
         )
         .detach();
@@ -202,13 +257,36 @@ impl HomeView {
             server_list,
             dm_list,
             tokio_rt,
-            state,
             header,
             sidebar,
             chat,
-            chat_sidebar: Some(ChatSidebar::Members),
+
+            chat_sidebar: ChatSidebar::from_active_room(
+                state.active_room().borrow().clone(),
+                &own_id,
+                state.membership_map().borrow().clone(),
+            ),
+
+            state,
+            active_room,
+            membership_map,
+            own_id,
+
             focus: focus_handle,
             overlay: Overlay::None,
+        }
+    }
+
+    fn update_chat_sidebar(&mut self, cx: &mut Context<Self>) {
+        let chat_sidebar = ChatSidebar::from_active_room(
+            self.active_room.borrow().clone(),
+            &self.own_id,
+            self.membership_map.borrow().clone(),
+        );
+
+        if chat_sidebar != self.chat_sidebar {
+            self.chat_sidebar = chat_sidebar;
+            cx.notify();
         }
     }
 }

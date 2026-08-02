@@ -35,7 +35,6 @@ tracing-subscriber.workspace = true
 
 [lints.clippy]
 exit = "warn"
-expect_used = "warn"
 panic = "warn"
 panic_in_result_fn = "warn"
 string_slice = "warn"
