@@ -10,7 +10,7 @@ pub struct TileTheme {
 }
 
 #[derive(Clone)]
-pub struct TextTheme {
+pub struct Text {
     pub font_size: Pixels,
     pub muted: Hsla,
     pub dim: Hsla,
@@ -95,6 +95,7 @@ pub struct Chat {
     pub icon_size: Pixels,
     pub text_size: Pixels,
     pub small_icon_size: Pixels,
+    pub small_text_size: Pixels,
 }
 
 #[derive(Clone)]
@@ -113,7 +114,7 @@ pub struct AppTheme {
     pub small_gap: Pixels,
     pub accent: Hsla,
     pub tile: TileTheme,
-    pub text: TextTheme,
+    pub text: Text,
     pub input: InputTheme,
     pub colors: Colors,
     pub structure: Structure,
@@ -128,7 +129,7 @@ impl AppTheme {
     pub fn new() -> Self {
         let accent = hsla(0.53, 0.52, 0.52, 1.0);
 
-        let muted_color = hsla(0.66, 0.15, 0.25, 1.0);
+        let muted_color = hsla(0.66, 0.15, 0.28, 1.0);
 
         let red = hsla(0.9462, 0.5569, 0.6725, 1.0);
         let green = hsla(0.3682, 0.5446, 0.6039, 1.0);
@@ -151,7 +152,7 @@ impl AppTheme {
                 border_thickness: px(1.0),
                 border_radius: tile_border_radius,
             },
-            text: TextTheme {
+            text: Text {
                 font_size: px(16.0),
                 muted: muted_color,
                 dim: hsla(0.66, 0.15, 0.55, 1.0),
@@ -170,6 +171,7 @@ impl AppTheme {
                     icon_size: px(32.0),
                     small_icon_size: px(18.0),
                     text_size: px(16.0),
+                    small_text_size: px(12.0),
                 },
                 header: Header {
                     height: px(50.0),

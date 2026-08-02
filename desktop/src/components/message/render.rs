@@ -117,19 +117,21 @@ impl CachedTimelineEvent {
             }
             CachedEventContent::UserMessage(msg) => {
                 show_header = msg.in_reply_to.is_some()
-                    || prev.is_some_and(|item| {
-                        if let CachedTimelineItemKind::Event(CachedTimelineEvent {
-                            content: CachedEventContent::UserMessage(_),
-                            sender,
-                            timestamp,
-                            ..
-                        }) = &item.kind
-                        {
-                            timestamp.abs_diff(self.timestamp) > 300 || sender != &self.sender
-                        } else {
-                            true
-                        }
-                    });
+                    || prev
+                        .map(|item| {
+                            if let CachedTimelineItemKind::Event(CachedTimelineEvent {
+                                content: CachedEventContent::UserMessage(_),
+                                sender,
+                                timestamp,
+                                ..
+                            }) = &item.kind
+                            {
+                                timestamp.abs_diff(self.timestamp) > 300 || sender != &self.sender
+                            } else {
+                                true
+                            }
+                        })
+                        .unwrap_or(true);
 
                 pad_bottom = next.is_some_and(|item| {
                     matches!(&item.kind,
@@ -191,6 +193,17 @@ impl CachedTimelineEvent {
             })
             .unwrap_or(theme.text.normal);
 
+        let mt = if show_header {
+            theme.small_gap + Pixels::from(2.0)
+        } else {
+            Pixels::ZERO
+        };
+        let mb = if pad_bottom {
+            theme.small_gap + Pixels::from(2.0)
+        } else {
+            Pixels::ZERO
+        };
+
         tailwind_div!(
             w_full,
             border_transparent,
@@ -200,16 +213,8 @@ impl CachedTimelineEvent {
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
             py(theme.small_gap),
-            mt(if show_header {
-                theme.small_gap + Pixels::from(2.0)
-            } else {
-                Pixels::ZERO
-            }),
-            mb(if pad_bottom {
-                theme.small_gap + Pixels::from(2.0)
-            } else {
-                Pixels::ZERO
-            }),
+            mt(mt),
+            mb(mb),
             flex_row,
             text_color(text_color),
         )
@@ -219,13 +224,22 @@ impl CachedTimelineEvent {
         .when(!self.flags.contains_only_emojis, |el| {
             el.text_size(chat.text_size)
         })
-        .id(id)
-        .when(!is_system_message, |el| {
-            el.child(
-                tailwind_div!(w(col_width), px(theme.gap))
-                    .when(show_header, |el| el.child(sender_avatar(chat.icon_size))),
-            )
-        })
+        .id(id.clone())
+        .child(
+            tailwind_div!(w(col_width), px(theme.gap))
+                .when(show_header, |el| el.child(sender_avatar(chat.icon_size)))
+                .when(!show_header, |el| {
+                    el.child(
+                        tailwind_div!(
+                            text_color(transparent_black()),
+                            text_size(chat.small_text_size)
+                        )
+                        .id(id)
+                        .group_hover("message", |style| style.text_color(theme.text.muted))
+                        .child(self.sent_time.clone()),
+                    )
+                }),
+        )
         .child(
             tailwind_div!(flex, size_full, flex_col, gap(theme.small_gap))
                 .when(show_header && !is_system_message, |el| {
