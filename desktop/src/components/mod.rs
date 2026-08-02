@@ -9,7 +9,7 @@ use deplace_core::{
 };
 use gpui::{
     AnyElement, App, BoxShadow, Div, Entity, Focusable, Length, ObjectFit, Pixels, Window, div,
-    img, prelude::*, px, svg, transparent_black,
+    img, prelude::*, px, relative, svg, transparent_black,
 };
 use gpui_component::{
     StyledExt,
@@ -306,6 +306,7 @@ fn render_name(name: String, color: Color, size: Pixels) -> Div {
         .text_color(color.to_gpui())
         .font_bold()
         .text_size(size)
+        .line_height(relative(1.0))
         .child(name)
 }
 

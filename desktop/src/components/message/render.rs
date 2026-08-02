@@ -1,14 +1,15 @@
 use deplace_core::state::MembershipMap;
 use gpui::{
-    AnyElement, Div, Element, InteractiveElement, ParentElement, Styled, div, transparent_black,
+    AnyElement, Element, ElementId, InteractiveElement, LinearColorStop, ParentElement, Pixels,
+    Styled, div, linear_gradient, prelude::FluentBuilder, relative, transparent_black,
 };
-use gpui_component::red_600;
+use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
 use matrix_sdk::ruma::RoomId;
 
 use crate::{
     components::{
-        AvatarCache, CustomStyles,
+        AvatarCache, CustomStyles, MemberRenderer,
         message::{
             CachedEventContent, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
         },
@@ -25,14 +26,8 @@ impl CachedTimelineItem {
         curent_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
-    ) -> Option<AnyElement> {
+    ) -> AnyElement {
         let divider_width = theme.structure.divider_width;
-
-        let (hover_bg, hover_border) = if self.has_hover_effect() {
-            (theme.tile.background, theme.tile.border)
-        } else {
-            (transparent_black(), transparent_black())
-        };
 
         let content = match &self.kind {
             // TODO: Merge with read marker if adjacent
@@ -40,47 +35,50 @@ impl CachedTimelineItem {
             //     item.and_then(|i| i.as_virtual().cloned())
             //         .is_some_and(|v| matches!(v, VirtualTimelineItem::ReadMarker))
             // }
-            CachedTimelineItemKind::DateDivider(date) => Some(
+            CachedTimelineItemKind::DateDivider(date) => {
                 tailwind_div!(w_full, flex, items_center, gap(theme.gap))
                     .child(tailwind_div!(h(divider_width), flex_1 bg(theme.tile.border)))
                     .child(tailwind_div!(text_color(theme.text.muted)).child(date.clone()))
-                    .child(tailwind_div!(h(divider_width) flex_1 bg(theme.tile.border))),
-            ),
-            CachedTimelineItemKind::ReadMarker => Some(
-                tailwind_div!(w_full, items_center, flex, h_1)
-                    .child(tailwind_div!(h(divider_width), flex_1 bg(theme.accent))),
-            ),
+                    .child(tailwind_div!(h(divider_width) flex_1 bg(theme.tile.border)))
+                    .into_any()
+            }
+            CachedTimelineItemKind::ReadMarker => tailwind_div!(w_full, items_center, flex, h_1)
+                .child(tailwind_div!(h(divider_width), flex_1 bg(theme.accent)))
+                .into_any(),
             CachedTimelineItemKind::TimelineStart => {
-                Some(tailwind_div!(w_full, h_20, bg(red_600())))
+                tailwind_div!(w_full, h_20, bg(red_600())).into_any()
             }
             CachedTimelineItemKind::Event(event) => {
-                event.render(theme, curent_room_id, map, avatar_cache)
+                event.render(self.id(), theme, curent_room_id, map, avatar_cache)
             }
-        }?;
+        };
 
-        Some(
-            tailwind_div!(
-                border_transparent,
-                rounded(theme.inner_border_radius),
-                hover(border_color(hover_border), bg(hover_bg))
-            )
-            .id(self.id.clone())
-            .w_full()
+        tailwind_div!(w_full, text_size(theme.structure.chat.text_size))
             .child(content)
-            .into_any(),
-        )
+            .into_any()
     }
 }
 
 impl CachedTimelineEvent {
     fn render(
         &self,
+        id: ElementId,
         theme: &AppTheme,
         current_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
-    ) -> Option<Div> {
+    ) -> AnyElement {
         let colors = &theme.colors;
+        let chat = &theme.structure.chat;
+
+        let show_highlight = self.flags.is_highlighted;
+        let mut is_system_message = false;
+
+        let member = map.get(current_room_id).and_then(|m| m.get(&*self.sender));
+
+        let sender_avatar =
+            move |size: Pixels| member.render_avatar(size, size / 2.0, avatar_cache);
+        let sender_name = move |size: Pixels| member.render_name(size);
 
         let content = match &self.content {
             CachedEventContent::FailedToParseMessageLike(text)
@@ -89,17 +87,93 @@ impl CachedTimelineEvent {
             }
             CachedEventContent::SystemMessage(msg) => {
                 if let Some(text) = msg.text() {
-                    tailwind_div!(text_color(theme.text.dim), items_center, flex).child(text)
+                    is_system_message = true;
+                    tailwind_div!(
+                        text_color(theme.text.dim),
+                        items_center,
+                        flex,
+                        flex_1,
+                        justify_center
+                    )
+                    .child(sender_avatar(chat.small_icon_size))
+                    .child(" ")
+                    .child(sender_name(chat.text_size))
+                    .child(" ")
+                    .child(text)
                 } else {
-                    return None;
+                    return div().into_any();
                 }
             }
             CachedEventContent::UserMessage(msg) => {
-                tailwind_div!().child(msg.body.clone().unwrap_or_default())
+                tailwind_div!(text_color(theme.text.normal), line_height(relative(1.0)))
+                    .child(msg.body.clone().unwrap_or_default())
             }
-            _ => tailwind_div!(),
         };
 
-        Some(tailwind_div!().child(content))
+        let highlight_color = if show_highlight {
+            Some(theme.accent)
+        } else {
+            None
+        };
+
+        let (bg, hover_bg) = if let Some(color) = highlight_color {
+            let color = color.alpha(0.4);
+            (
+                linear_gradient(
+                    90.0,
+                    LinearColorStop {
+                        color,
+                        percentage: 0.0,
+                    },
+                    LinearColorStop {
+                        color: transparent_black(),
+                        percentage: 1.0,
+                    },
+                ),
+                linear_gradient(
+                    90.0,
+                    LinearColorStop {
+                        color: color.darken(0.4),
+                        percentage: 0.0,
+                    },
+                    LinearColorStop {
+                        color: transparent_black(),
+                        percentage: 1.0,
+                    },
+                ),
+            )
+        } else {
+            (transparent_black().into(), theme.tile.background.into())
+        };
+
+        let icon_size = theme.structure.chat.icon_size;
+        let col_width = icon_size + 2.0 * theme.gap;
+
+        let show_header = true;
+
+        tailwind_div!(
+            w_full,
+            border_transparent,
+            rounded(theme.small_gap),
+            bg(bg),
+            hover(border_color(theme.tile.border), bg(hover_bg)),
+            flex,
+            flex_row,
+        )
+        .id(id)
+        .when(!is_system_message, |el| {
+            el.child(
+                tailwind_div!(w(col_width), px(theme.gap), py(theme.small_gap))
+                    .when(show_header, |el| el.child(sender_avatar(chat.icon_size))),
+            )
+        })
+        .child(
+            tailwind_div!(flex, size_full, flex_col, gap(theme.small_gap))
+                .when(show_header && !is_system_message, |el| {
+                    el.child(sender_name(chat.text_size))
+                })
+                .child(content),
+        )
+        .into_any()
     }
 }

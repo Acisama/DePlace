@@ -10,6 +10,7 @@ use gpui::{
     Render, Styled, Task, div, list, px,
 };
 use gpui_component::{StyledExt, red_600};
+use macros::tailwind_div;
 use matrix_sdk::{
     Room,
     ruma::{OwnedUserId, UserId},
@@ -309,12 +310,7 @@ impl Render for ChatView {
         let avatar_cache = self.avatar_cache.clone();
         let map = self.membership_map.borrow().clone();
 
-        div()
-            .size_full()
-            .paddings(theme.gap)
-            .gap(theme.gap)
-            .flex()
-            .flex_col()
+        tailwind_div!(size_full, paddings(theme.gap), pt_0, flex, flex_col)
             .child(
                 list(self.list_state.clone(), move |ix, _window, cx| {
                     let theme = cx.app_theme();
@@ -325,9 +321,7 @@ impl Render for ChatView {
                     let prev = ix.checked_sub(1).and_then(|prev_ix| messages.get(prev_ix));
                     let next = messages.get(ix + 1);
 
-                    current
-                        .render(prev, next, theme, &room_id, &map, &avatar_cache)
-                        .unwrap_or(div().into_any_element())
+                    current.render(prev, next, theme, &room_id, &map, &avatar_cache)
                 })
                 .h_full()
                 .w_full(),

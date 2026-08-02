@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use gpui::SharedString;
+use gpui::{ElementId, SharedString};
 use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
 
 mod convert;
@@ -17,6 +17,10 @@ pub struct CachedTimelineItem {
 impl CachedTimelineItem {
     pub fn has_hover_effect(&self) -> bool {
         matches!(self.kind, CachedTimelineItemKind::Event(_))
+    }
+
+    pub fn id(&self) -> ElementId {
+        ElementId::Name(self.id.clone())
     }
 }
 

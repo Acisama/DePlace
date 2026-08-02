@@ -323,7 +323,7 @@ impl Render for HomeView {
                     .child(match overlay {
                         Overlay::QuickSelect(ent) => ent.clone().into_any_element(),
                         Overlay::Settings => div().into_any_element(),
-                        Overlay::None => unreachable!(),
+                        Overlay::None => div().into_any_element(),
                     })
                     .into_any_element(),
             })
