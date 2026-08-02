@@ -49,22 +49,22 @@ impl CachedTimelineItem {
             CachedTimelineItemKind::TimelineStart => {
                 tailwind_div!(w_full, h_20, bg(red_600())).into_any()
             }
-            CachedTimelineItemKind::Event(event) => {
-                event.render(
-                    self.id(),
-                    theme,
-                    curent_room_id,
-                    map,
-                    avatar_cache,
-                    prev,next
-                )
-            }
+            CachedTimelineItemKind::Event(event) => event.render(
+                self.id(),
+                theme,
+                curent_room_id,
+                map,
+                avatar_cache,
+                prev,
+                next,
+            ),
         };
 
         tailwind_div!(w_full).child(content).into_any()
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 impl CachedTimelineEvent {
     fn render(
         &self,
@@ -116,17 +116,25 @@ impl CachedTimelineEvent {
                 }
             }
             CachedEventContent::UserMessage(msg) => {
-                show_header = prev.is_some_and(|item| match &item.kind {
-                    CachedTimelineItemKind::Event(prev_event) if matches!(prev_event.content, CachedEventContent::UserMessage(_)) => {
-                        prev_event.timestamp.abs_diff(self.timestamp) > 300 || prev_event.sender != self.sender
-                    }
-                    _ => true,
-                });
+                show_header = msg.in_reply_to.is_some()
+                    || prev.is_some_and(|item| {
+                        if let CachedTimelineItemKind::Event(CachedTimelineEvent {
+                            content: CachedEventContent::UserMessage(_),
+                            sender,
+                            timestamp,
+                            ..
+                        }) = &item.kind
+                        {
+                            timestamp.abs_diff(self.timestamp) > 300 || sender != &self.sender
+                        } else {
+                            true
+                        }
+                    });
 
                 pad_bottom = next.is_some_and(|item| {
                     matches!(&item.kind,
                         CachedTimelineItemKind::Event(next_event)
-                        if next_event.timestamp.abs_diff(self.timestamp) > 300  
+                        if next_event.timestamp.abs_diff(self.timestamp) > 300
                             || next_event.sender != self.sender)
                 });
                 tailwind_div!(text_color(theme.text.normal), line_height(relative(1.0)))
