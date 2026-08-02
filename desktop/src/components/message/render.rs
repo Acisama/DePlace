@@ -3,7 +3,7 @@ use gpui::{
     AnyElement, Element, ElementId, InteractiveElement, LinearColorStop, ParentElement, Pixels,
     Styled, div, linear_gradient, prelude::FluentBuilder, relative, transparent_black,
 };
-use gpui_component::{Colorize, StyledExt, red_600};
+use gpui_component::{Colorize, red_600};
 use macros::tailwind_div;
 use matrix_sdk::ruma::RoomId;
 
@@ -49,7 +49,29 @@ impl CachedTimelineItem {
                 tailwind_div!(w_full, h_20, bg(red_600())).into_any()
             }
             CachedTimelineItemKind::Event(event) => {
-                event.render(self.id(), theme, curent_room_id, map, avatar_cache)
+                let show_header = prev.is_some_and(|item| {
+                    matches!(&item.kind,
+                        CachedTimelineItemKind::Event(prev_event)
+                        if prev_event.sent_time != event.sent_time
+                            || prev_event.sender != event.sender)
+                });
+
+                let pad_bottom = next.is_some_and(|item| {
+                    matches!(&item.kind,
+                        CachedTimelineItemKind::Event(next_event)
+                        if next_event.sent_time != event.sent_time
+                            || next_event.sender != event.sender)
+                });
+
+                event.render(
+                    self.id(),
+                    theme,
+                    curent_room_id,
+                    map,
+                    avatar_cache,
+                    show_header,
+                    pad_bottom,
+                )
             }
         };
 
@@ -67,6 +89,8 @@ impl CachedTimelineEvent {
         current_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
+        show_header: bool,
+        pad_bottom: bool,
     ) -> AnyElement {
         let colors = &theme.colors;
         let chat = &theme.structure.chat;
@@ -149,8 +173,6 @@ impl CachedTimelineEvent {
         let icon_size = theme.structure.chat.icon_size;
         let col_width = icon_size + 2.0 * theme.gap;
 
-        let show_header = true;
-
         tailwind_div!(
             w_full,
             border_transparent,
@@ -159,7 +181,16 @@ impl CachedTimelineEvent {
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
             py(theme.small_gap),
-            my(theme.small_gap),
+            mt(if show_header {
+                theme.small_gap
+            } else {
+                Pixels::ZERO
+            }),
+            mb(if pad_bottom {
+                theme.small_gap
+            } else {
+                Pixels::ZERO
+            }),
             flex_row,
         )
         .id(id)
