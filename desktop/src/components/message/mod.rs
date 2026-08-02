@@ -10,15 +10,11 @@ pub use convert::cached_from_timeline_item;
 
 #[derive(Clone)]
 pub struct CachedTimelineItem {
-    pub kind: CachedTimelineItemKind,
-    pub id: SharedString,
+    kind: CachedTimelineItemKind,
+    id: SharedString,
 }
 
 impl CachedTimelineItem {
-    pub fn has_hover_effect(&self) -> bool {
-        matches!(self.kind, CachedTimelineItemKind::Event(_))
-    }
-
     pub fn id(&self) -> ElementId {
         ElementId::Name(self.id.clone())
     }

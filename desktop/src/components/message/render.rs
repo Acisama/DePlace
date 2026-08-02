@@ -158,6 +158,8 @@ impl CachedTimelineEvent {
             bg(bg),
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
+            py(theme.small_gap),
+            my(theme.small_gap),
             flex_row,
         )
         .id(id)
