@@ -9,7 +9,7 @@ use matrix_sdk::{
 };
 
 pub mod account_data;
-mod matrixrtc;
+// mod matrixrtc;
 mod members;
 pub mod sync;
 pub mod timeline;
