@@ -29,11 +29,11 @@ matrix-sdk = {
   version = "0.18.0",
   features = [
     "anyhow",
+    "bundled-sqlite",
     "e2e-encryption",
     "experimental-element-recent-emojis",
     "experimental-search",
     "experimental-send-custom-to-device",
-    "sqlite",
   ]
 }
 matrix-sdk-ui = "0.18.0"
