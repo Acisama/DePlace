@@ -16,6 +16,7 @@ gpui = { workspace = true, optional = true }
 hex = "0.4.3"
 imbl.workspace = true
 keyring-core = "1.0.0"
+macros.workspace = true
 # livekit.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true

@@ -67,5 +67,9 @@ gpui_windows = { git = "https://github.com/acisama/zed", branch = "main" }
 http_client = { git = "https://github.com/acisama/zed", branch = "main" }
 media = { git = "https://github.com/acisama/zed", branch = "main" }
 # gpui = { path = "/home/eriko/zed/crates/gpui" }
+# gpui_linux = { path = "/home/eriko/zed/crates/gpui_linux" }
+# gpui_macos = { path = "/home/eriko/zed/crates/gpui_macos" }
 # gpui_macros = { path = "/home/eriko/zed/crates/gpui_macros" }
+# gpui_web = { path = "/home/eriko/zed/crates/gpui_web" }
 # gpui_wgpu = { path = "/home/eriko/zed/crates/gpui_wgpu" }
+# gpui_windows = { path = "/home/eriko/zed/crates/gpui_windows" }

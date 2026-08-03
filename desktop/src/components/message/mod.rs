@@ -8,6 +8,8 @@ mod render;
 
 pub use convert::cached_from_timeline_item;
 
+use crate::components::ByteSize;
+
 #[derive(Clone)]
 pub struct CachedTimelineItem {
     kind: CachedTimelineItemKind,
@@ -25,7 +27,7 @@ enum CachedTimelineItemKind {
     DateDivider(SharedString),
     ReadMarker,
     TimelineStart,
-    Event(CachedTimelineEvent),
+    Event(Box<CachedTimelineEvent>),
 }
 
 #[derive(Clone)]
@@ -90,13 +92,13 @@ impl CachedTimelineEvent {
                     CachedMessageType::Text
                         | CachedMessageType::Emote
                         | CachedMessageType::Notice
-                        | CachedMessageType::Poll { .. }
+                        | CachedMessageType::Poll
                         | CachedMessageType::Audio { .. }
                         | CachedMessageType::File { .. }
                         | CachedMessageType::Image { .. }
                         | CachedMessageType::LiveLocation { .. }
                         | CachedMessageType::Location(_)
-                        | CachedMessageType::Sticker { .. }
+                        | CachedMessageType::Sticker
                         | CachedMessageType::Video { .. }
                         | CachedMessageType::UnableToDecrypt
                 ),
@@ -202,14 +204,14 @@ enum CachedMessageType {
         source: Arc<MediaSource>,
         filename: SharedString,
         mime_type: Option<SharedString>,
-        size: Option<u64>,
+        size: Option<ByteSize>,
     },
     Image {
         filename: SharedString,
         source: Arc<MediaSource>,
         width: Option<u64>,
         height: Option<u64>,
-        size: Option<u64>,
+        size: Option<ByteSize>,
         mime_type: Option<SharedString>,
         blurhash: Option<SharedString>,
     },

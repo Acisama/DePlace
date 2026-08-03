@@ -19,7 +19,7 @@ use tokio::sync::watch::Receiver;
 
 use crate::{
     components::{
-        AvatarCache, MediaCache, chat::ChatView, dm_list::DmListView, floating_tile,
+        AvatarCache, cache::MediaCache, chat::ChatView, dm_list::DmListView, floating_tile,
         header::HeaderView, quick_select, server_list::ServerListView, sidebar::SidebarView,
     },
     theme::{ActiveAppTheme, Structure, StructureExt},
@@ -34,7 +34,6 @@ pub struct HomeView {
     chat_sidebar: Option<ChatSidebar>,
     server_list: Entity<ServerListView>,
     header: Entity<HeaderView>,
-    dm_list: Entity<DmListView>,
     sidebar: Entity<SidebarView>,
     chat: Entity<ChatView>,
 
@@ -62,13 +61,13 @@ enum ChatSidebar {
 
 impl PartialEq for ChatSidebar {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (ChatSidebar::Members(_), ChatSidebar::Members(_)) => true,
-            (ChatSidebar::Search, ChatSidebar::Search) => true,
-            (ChatSidebar::Pinned, ChatSidebar::Pinned) => true,
-            (ChatSidebar::Member(_), ChatSidebar::Member(_)) => true,
-            _ => false,
-        }
+        matches!(
+            (self, other),
+            (ChatSidebar::Members(_), ChatSidebar::Members(_))
+                | (ChatSidebar::Search, ChatSidebar::Search)
+                | (ChatSidebar::Pinned, ChatSidebar::Pinned)
+                | (ChatSidebar::Member(_), ChatSidebar::Member(_))
+        )
     }
 }
 
@@ -134,7 +133,6 @@ impl HomeView {
 
         let server_list =
             cx.new(|cx| ServerListView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
-        let dm_list = cx.new(|cx| DmListView::new(&state, cx));
         let header =
             cx.new(|cx| HeaderView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
         let sidebar =
@@ -255,7 +253,6 @@ impl HomeView {
 
         Self {
             server_list,
-            dm_list,
             tokio_rt,
             header,
             sidebar,

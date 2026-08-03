@@ -15,9 +15,11 @@ use const_format::formatcp;
 mod keyring;
 
 pub mod colors;
+pub mod formatting;
 pub mod helpers;
 pub mod matrix_api;
 pub mod profile;
+pub mod settings;
 pub mod state;
 
 pub const APP_HUMAN_NAME: &str = "DePlace";

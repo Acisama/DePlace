@@ -167,7 +167,8 @@ pub struct AppTheme {
     pub input: InputTheme,
     pub colors: Colors,
     pub pill_color: Hsla,
-    pub soldid_hover_bg: Hsla,
+    pub solid_hover_bg: Hsla,
+    pub solid_bg: Hsla,
 }
 
 impl Global for AppTheme {}
@@ -182,9 +183,13 @@ impl AppTheme {
         let green = hsla(0.3682, 0.5446, 0.6039, 1.0);
         let yellow = hsla(0.155, 0.786, 0.743, 1.0);
 
+        let solid_bg = hsla(0.667, 0.211, 0.1, 1.0);
+        let solid_hover_bg = solid_bg.lighten(0.8);
+
         Self {
             blur: px(30.0),
-            soldid_hover_bg: hsla(0.667, 0.211, 0.149, 1.0),
+            solid_bg,
+            solid_hover_bg,
             pill_color: white(),
             tile: TileTheme {
                 background: hsla(0.66, 0.2, 0.1, 0.5),

@@ -16,10 +16,13 @@ use matrix_sdk_ui::timeline::{
     OtherState, TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 
-use crate::components::message::{
-    CachedBeaconInfo, CachedEventContent, CachedMediaUploadProgress, CachedMessageType,
-    CachedProgress, CachedSendState, CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem,
-    CachedTimelineItemKind, CachedUserMessage, EventFlags, ReactionInfo,
+use crate::components::{
+    ByteSize,
+    message::{
+        CachedBeaconInfo, CachedEventContent, CachedMediaUploadProgress, CachedMessageType,
+        CachedProgress, CachedSendState, CachedSystemMessage, CachedTimelineEvent,
+        CachedTimelineItem, CachedTimelineItemKind, CachedUserMessage, EventFlags, ReactionInfo,
+    },
 };
 
 impl From<&EventSendState> for CachedSendState {
@@ -226,7 +229,7 @@ pub fn cached_from_timeline_item(value: &Arc<TimelineItem>, own_id: &UserId) -> 
 
             cached_event.calculate_flags(event.is_own(), event_content.is_redacted());
 
-            CachedTimelineItemKind::Event(cached_event)
+            CachedTimelineItemKind::Event(Box::new(cached_event))
         }
     };
 
@@ -316,12 +319,7 @@ fn cached_from_timeline_item_content(
 
             let (mut body, mut msg_type) = match &msg_like.kind {
                 MsgLikeKind::LiveLocation(loc) => (
-                    Some(
-                        loc.latest_location()
-                            .map(|l| l.description().unwrap_or("a location update"))
-                            .unwrap_or("Live location")
-                            .into(),
-                    ),
+                    None,
                     CachedMessageType::LiveLocation {
                         locations: loc.locations().iter().map(|l| l.into()).collect(),
                     },
@@ -353,7 +351,7 @@ fn cached_from_timeline_item_content(
                                     source: content.source.clone().into(),
                                     filename: content.filename().into(),
                                     mime_type: info.mimetype.map(|m| m.into()),
-                                    size: info.size.map(|s| s.into()),
+                                    size: info.size.map(|s| ByteSize::new(s.into())),
                                 },
                             )
                         }
@@ -368,7 +366,7 @@ fn cached_from_timeline_item_content(
                                     source: content.source.into(),
                                     width: info.width.map(|w| w.into()),
                                     height: info.height.map(|h| h.into()),
-                                    size: info.size.map(|s| s.into()),
+                                    size: info.size.map(|s| ByteSize::new(s.into())),
                                     mime_type: info.mimetype.map(|m| m.into()),
                                     blurhash: info.blurhash.map(|h| h.into()),
                                 },

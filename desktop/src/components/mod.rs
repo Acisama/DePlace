@@ -1,31 +1,29 @@
-use std::{hash::Hash, sync::Arc};
+use std::sync::Arc;
 
-use dashmap::DashMap;
 use deplace_core::{
     NameExt,
     colors::{Color, ColorExt},
+    formatting::{DataSizeUnit, format_bytes},
     get_other_member,
     state::MembershipMap,
 };
 use gpui::{
-    AnyElement, App, BoxShadow, Div, Entity, Focusable, Length, ObjectFit, Pixels, Window, div,
-    img, prelude::*, px, relative, svg, transparent_black,
+    AnyElement, App, BoxShadow, Div, Entity, Focusable, Length, ObjectFit, Pixels, SharedString,
+    Window, div, img, prelude::*, px, relative, svg, transparent_black,
 };
 use gpui_component::{
     StyledExt,
     input::{Input, InputState},
 };
 use macros::tailwind_div;
-use matrix_sdk::{
-    Client, Room,
-    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
-    room::RoomMember,
-    ruma::{MxcUri, OwnedMxcUri, UInt, UserId, events::room::MediaSource},
+use matrix_sdk::{Room, room::RoomMember, ruma::UserId};
+
+use crate::{
+    components::cache::AvatarCache,
+    theme::{ActiveAppTheme, AppTheme, Structure, StructureExt},
 };
-use tokio::{runtime::Runtime, sync::watch};
 
-use crate::theme::{ActiveAppTheme, AppTheme, Structure, StructureExt};
-
+pub mod cache;
 pub mod root;
 
 mod chat;
@@ -72,104 +70,6 @@ pub fn input(entity: &Entity<InputState>, window: &Window, cx: &App) -> Input {
         .border_1()
         .cleanable(true)
         .border_color(border)
-}
-
-pub type AvatarCache = MediaCache<OwnedMxcUri, gpui::Image>;
-
-#[derive(Clone)]
-enum MediaState<C> {
-    Loading,
-    Loaded(Arc<C>),
-    Failed,
-}
-
-#[derive(Clone)]
-pub struct MediaCache<T: Hash + Eq, C> {
-    client: Client,
-    tokio_rt: Arc<Runtime>,
-    cache: Arc<DashMap<T, MediaState<C>>>,
-    changed: watch::Sender<()>,
-}
-
-impl<T: Hash + Eq, C> MediaCache<T, C> {
-    pub fn new(client: Client, tokio_rt: Arc<Runtime>) -> Self {
-        let (changed, _) = watch::channel(());
-        Self {
-            client,
-            tokio_rt,
-            cache: Arc::new(DashMap::new()),
-            changed,
-        }
-    }
-
-    pub fn subscribe(&self) -> watch::Receiver<()> {
-        self.changed.subscribe()
-    }
-}
-
-impl MediaCache<OwnedMxcUri, gpui::Image> {
-    pub fn get(&self, uri: &MxcUri) -> Option<Arc<gpui::Image>> {
-        if let Some(state) = self.cache.get(uri) {
-            return match &*state {
-                MediaState::Loaded(img) => Some(img.clone()),
-                _ => None, // Loading or Failed
-            };
-        }
-
-        self.cache.insert(uri.to_owned(), MediaState::Loading);
-
-        let store = self.clone();
-        let source = MediaSource::Plain(uri.to_owned());
-        let tokio_rt = self.tokio_rt.clone();
-        let uri = uri.to_owned();
-        tokio_rt.spawn(async move {
-            let request = MediaRequestParameters {
-                source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    UInt::new_saturating(100),
-                    UInt::new_saturating(100),
-                )),
-            };
-
-            let res = store
-                .client
-                .media()
-                .get_media_content(&request, true)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to fetch media: {e}");
-                })
-                .ok();
-
-            let state = res
-                .and_then(|bytes| {
-                    let format = match image::guess_format(&bytes) {
-                        Ok(format) => format,
-                        Err(e) => {
-                            tracing::error!("Failed to guess image format: {:?}", e);
-                            return None;
-                        }
-                    };
-                    let image = gpui::Image::from_bytes(gpui_format_from(format), bytes.to_vec());
-                    Some(MediaState::Loaded(Arc::new(image)))
-                })
-                .unwrap_or(MediaState::Failed);
-
-            store.cache.insert(uri, state);
-            let _ = store.changed.send(());
-        });
-
-        None
-    }
-}
-
-fn gpui_format_from(format: image::ImageFormat) -> gpui::ImageFormat {
-    match format {
-        image::ImageFormat::Png => gpui::ImageFormat::Png,
-        image::ImageFormat::Jpeg => gpui::ImageFormat::Jpeg,
-        image::ImageFormat::Gif => gpui::ImageFormat::Gif,
-        _ => gpui::ImageFormat::Png,
-    }
 }
 
 pub fn text_circle(initial: char, color: Color, size: Pixels, rounding: Pixels) -> AnyElement {
@@ -355,3 +255,22 @@ pub trait CustomStyles: Styled + Sized {
 }
 
 impl<T: gpui::Styled> CustomStyles for T {}
+
+#[derive(Clone)]
+pub struct ByteSize {
+    bytes: u64,
+    bytes_str: SharedString,
+    bits_str: SharedString,
+    mibi_bytes_str: SharedString,
+}
+
+impl ByteSize {
+    pub fn new(bytes: u64) -> Self {
+        Self {
+            bytes,
+            bits_str: format_bytes(bytes, DataSizeUnit::Bits).into(),
+            bytes_str: format_bytes(bytes, DataSizeUnit::Bytes).into(),
+            mibi_bytes_str: format_bytes(bytes, DataSizeUnit::MibiBytes).into(),
+        }
+    }
+}

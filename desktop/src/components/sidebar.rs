@@ -154,7 +154,7 @@ impl Render for SidebarView {
                 })
                 .cursor_pointer()
                 .when(is_active, |el| {
-                    el.bg(theme.soldid_hover_bg)
+                    el.bg(theme.solid_hover_bg)
                         .text_color(theme.text.normal)
                         .border_color(theme.tile.border)
                         .cursor_default()

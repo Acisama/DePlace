@@ -1,8 +1,8 @@
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{DeriveInput, Expr, ExprLit, Fields, Ident, ItemStruct, Lit, Token, parenthesized};
+use syn::{Expr, ExprLit, Fields, Ident, ItemStruct, Lit, Token, parenthesized};
 
 struct StyleCall {
     name: Ident,
@@ -23,12 +23,6 @@ impl Parse for StyleCall {
 
         Ok(StyleCall { name, args })
     }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum Modifier {
-    None,
-    Hover,
 }
 
 struct StyleList {
@@ -147,7 +141,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     {
                         let mut human_readable: Option<String> = None;
                         let mut description: Option<String> = None;
-                        let mut uses_cloud = false;
+                        let mut uses_cloud = None;
                         let mut section_expr: Option<Expr> = None;
                         let mut default_expr = quote! { Default::default() };
 
@@ -190,14 +184,27 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                                     description = Some(lit_str.value());
                                 }
                                 "uses_cloud" => {
-                                    let Expr::Lit(ExprLit {
-                                        lit: Lit::Bool(lit_bool),
-                                        ..
-                                    }) = value
-                                    else {
-                                        panic!("`uses_cloud` must be a bool literal");
+                                    uses_cloud = match value {
+                                        Expr::Path(path) if path.path.is_ident("None") => None,
+                                        Expr::Call(call)
+                                            if matches!(
+                                                call.func.as_ref(),
+                                                Expr::Path(path) if path.path.is_ident("Some")
+                                            ) =>
+                                        {
+                                            let Some(Expr::Lit(ExprLit {
+                                                lit: Lit::Bool(lit_bool),
+                                                ..
+                                            })) = call.args.first()
+                                            else {
+                                                panic!(
+                                                    "`uses_cloud` must be `None` or `Some(bool)`"
+                                                );
+                                            };
+                                            Some(lit_bool.value)
+                                        }
+                                        _ => panic!("`uses_cloud` must be `None` or `Some(bool)`"),
                                     };
-                                    uses_cloud = lit_bool.value;
                                 }
                                 "section" => {
                                     section_expr = Some(value.clone());
@@ -234,22 +241,26 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
             if let Some((human_readable, description, uses_cloud, section_expr, default_expr)) =
                 setting_meta
             {
-                let type_name_str = format!("{}.{}", deplace_core::APP_MATRIX_NAME, field_name);
-
                 field.ty = syn::parse2(quote! { MatrixSettingField<#original_type> }).unwrap();
+
+                let cloud_name = if uses_cloud.is_some() {
+                    quote! { Some(format!("{}.{}", APP_MATRIX_NAME, #human_readable)) }
+                } else {
+                    quote! { None }
+                };
 
                 default_field_initializers.push(quote! {
                     #field_name : MatrixSettingField {
                         val: #default_expr,
-                        type_name: #type_name_str,
                         human_readable: #human_readable,
+                        local_name: #field_name,
+                        cloud_name: #cloud_name,
                         uses_cloud: #uses_cloud,
                         description: #description,
                         section: #section_expr,
                     }
                 });
                 type_name_string_collector.push((
-                    type_name_str.clone(),
                     field_name,
                     uses_cloud,
                     human_readable,
@@ -265,99 +276,36 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
         panic!("Only applicable to structs with named fields")
     }
 
-    let signal_bindings = type_name_string_collector
-        .iter()
-        .map(|(_, field_name, _, _, _)| {
-            quote! {
-                let #field_name = self.#field_name.val;
-            }
-        });
-
-    // File event: update signal; for cloud fields also push the new value up.
-    let match_arms_file: Vec<_> = type_name_string_collector
-        .iter()
-        .map(|(type_name, field_name, uses_cloud, _, _)| {
-            let upload = if *uses_cloud {
-                quote! {
-                    // Don't re-upload to cloud when the backend already handled it
-                    // (skip_cloud_upload=true) or when the event itself came from the cloud.
-                    // Only upload for genuine local-file changes detected by the watcher.
-                    if new.value != "null" && !new.skip_cloud_upload && !new.cloud {
-                        let key_c = new.key.clone();
-                        let val_c = new.value.clone();
-                        ::leptos::task::spawn_local(async move {
-                            let args = ::serde_wasm_bindgen::to_value(
-                                &::serde_json::json!({ "key": key_c, "value": val_c })
-                            ).expect("Failed to serialize cloud-upload args");
-                            if let Err(e) = call_tauri("set_setting_cloud", args).await {
-                                ::log::error!("Failed to upload '{}' to cloud: {:?}", key_c, e);
-                            }
-                        });
-                    }
-                }
-            } else {
-                quote! {}
-            };
-            quote! {
-                #type_name => {
-                    match ::serde_json::from_str(&new.value) {
-                        Ok(parsed) => {
-                            if #field_name.get_untracked() != parsed {
-                                #field_name.set(parsed);
-                            }
-                        }
-                        Err(e) => ::log::warn!("Failed to deserialize field '{}' (value: {:?}): {:?}", stringify!(#field_name), new.value, e)
-                    }
-                    #upload
-                }
-            }
-        })
-        .collect();
-
-    // Cloud event: just update the signal (value already came from the cloud).
-    let match_arms_cloud: Vec<_> = type_name_string_collector
-        .iter()
-        .map(|(type_name, field_name, _, _, _)| {
-            quote! {
-                #type_name => match ::serde_json::from_str(&new.value) {
-                    Ok(parsed) => {
-                        if #field_name.get_untracked() != parsed {
-                            #field_name.set(parsed);
-                        }
-                    }
-                    Err(e) => ::log::warn!("Failed to deserialize field '{}' (value: {:?}): {:?}", stringify!(#field_name), new.value, e)
-                }
-            }
-        })
-        .collect();
-
     let get_all_calls = type_name_string_collector
         .iter()
-        .map(|(_, field_name, _, _, _)| {
+        .map(|(field_name, _, _, _)| {
             quote! { self.#field_name.fetch().await?; }
         });
 
-    let search_pushes = type_name_string_collector.iter().map(
-        |(type_name, field_name, _, human_readable, description)| {
-            quote! {
-                if #human_readable.to_lowercase().contains(&query)
-                    || #description.to_lowercase().contains(&query)
-                    || self.#field_name.section.id().contains(&query)
-                {
-                    results.push((
-                        self.#field_name.section,
-                        Setting {
-                            type_name: #type_name,
-                            human_readable: #human_readable,
-                            description: #description,
-                        },
-                    ));
+    let search_pushes =
+        type_name_string_collector
+            .iter()
+            .map(|(field_name, _, human_readable, description)| {
+                quote! {
+                    if #human_readable.to_lowercase().contains(&query)
+                        || #description.to_lowercase().contains(&query)
+                        || self.#field_name.section.id().contains(&query)
+                    {
+                        results.push((
+                            self.#field_name.section,
+                            Setting {
+                                field_name: #field_name,
+                                human_readable: #human_readable,
+                                description: #description,
+                            },
+                        ));
+                    }
                 }
-            }
-        },
-    );
+            });
 
     let expanded = quote! {
+        use crate::APP_MATRIX_NAME;
+
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub enum SettingsSection {
             Profile,
@@ -406,9 +354,18 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
             last_changed: i64,
         }
 
-        impl<T: 'static> Copy for MatrixSettingField<T> {}
-        impl<T: 'static> Clone for MatrixSettingField<T> {
-            fn clone(&self) -> Self { *self }
+        impl<T: Clone + 'static> Clone for MatrixSettingField<T> {
+            fn clone(&self) -> Self {
+                MatrixSettingField {
+                    val: self.val.clone(),
+                    type_name: self.type_name,
+                    human_readable: self.human_readable,
+                    uses_cloud: self.uses_cloud,
+                    last_changed: self.last_changed,
+                    description: self.description,
+                    section: self.section,
+                }
+            }
         }
 
         impl<T> MatrixSettingField<T>
@@ -417,60 +374,29 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
         {
             /// Updates the signal and persists the new value to the backend
             /// (and cloud, if `uses_cloud`).
-            pub fn set(&self, val: T) {
+            pub fn set(&mut self, val: T) {
                 let serialized = match ::serde_json::to_string(&val) {
                     Ok(s) => s,
                     Err(e) => {
-                        ::log::error!("Failed to serialize {}: {:?}", self.type_name, e);
+                        ::tracing::error!("Failed to serialize {}: {:?}", self.type_name, e);
                         return;
                     }
                 };
-                self.val.set(val);
+                self.val = val;
                 let type_name = self.type_name;
                 let uses_cloud = self.uses_cloud;
-                ::leptos::task::spawn_local(async move {
-                    let args = ::serde_wasm_bindgen::to_value(
-                        &::serde_json::json!({ "key": type_name, "value": serialized, "to_cloud": uses_cloud })
-                    ).expect("Failed to serialize args");
-                    if let Err(e) = call_tauri("set_setting", args).await {
-                        ::log::error!("Failed to save setting {}: {:?}", type_name, e);
-                    }
-                });
-            }
-
-            /// Fetches the value from the backend (or cloud, if `uses_cloud`)
-            /// and updates the signal, persisting the current default if unset.
-            pub async fn fetch(&self) -> Result<(), String> {
-                let signal = self.val;
-                let type_name = self.type_name;
-                let uses_cloud = self.uses_cloud;
-                let args = ::serde_wasm_bindgen::to_value(
-                    &::serde_json::json!({ "key": type_name, "from_cloud": uses_cloud })
-                ).map_err(|e| format!("Failed to serialize args: {:?}", e))?;
-                let res = call_tauri("get_setting", args)
-                    .await
-                    .map_err(|e| format!("Tauri call failed: {:?}", e))?;
-                let json_str: Option<String> = ::serde_wasm_bindgen::from_value(res)
-                    .map_err(|e| format!("Failed to deserialize response: {:?}", e))?;
-                if let Some(s) = json_str {
-                    let val: T = ::serde_json::from_str(&s)
-                        .map_err(|e| format!("Failed to parse value: {:?}", e))?;
-                    signal.set(val);
-                } else {
-                    let serialized = ::serde_json::to_string(&signal.get_untracked())
-                        .map_err(|e| format!("Failed to serialize default: {:?}", e))?;
-                    let set_args = ::serde_wasm_bindgen::to_value(
-                        &::serde_json::json!({ "key": type_name, "value": serialized, "to_cloud": uses_cloud })
-                    ).map_err(|e| format!("Failed to serialize set args: {:?}", e))?;
-                    if let Err(e) = call_tauri("set_setting", set_args).await {
-                        ::log::warn!("Failed to persist default for {}: {:?}", type_name, e);
-                    }
-                }
-                Ok(())
+                // ::leptos::task::spawn_local(async move {
+                //     let args = ::serde_wasm_bindgen::to_value(
+                //         &::serde_json::json!({ "key": type_name, "value": serialized, "to_cloud": uses_cloud })
+                //     ).expect("Failed to serialize args");
+                //     if let Err(e) = call_tauri("set_setting", args).await {
+                //         ::tracing::error!("Failed to save setting {}: {:?}", type_name, e);
+                //     }
+                // });
             }
         }
 
-        #[derive(Clone, Copy)]
+        #[derive(Clone)]
         #item
 
         impl Default for #struct_name {

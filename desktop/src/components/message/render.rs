@@ -1,7 +1,8 @@
 use deplace_core::state::MembershipMap;
 use gpui::{
-    AnyElement, Element, ElementId, InteractiveElement, LinearColorStop, ParentElement, Pixels,
-    Styled, div, linear_gradient, prelude::FluentBuilder, relative, transparent_black,
+    AnyElement, Div, Element, ElementId, InteractiveElement, LinearColorStop, ParentElement,
+    Pixels, Styled, div, linear_gradient, percentage, prelude::FluentBuilder, relative,
+    transparent_black,
 };
 use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
@@ -11,13 +12,15 @@ use crate::{
     components::{
         AvatarCache, CustomStyles, MemberRenderer,
         message::{
-            CachedEventContent, CachedSendState, CachedTimelineEvent, CachedTimelineItem,
-            CachedTimelineItemKind,
+            CachedEventContent, CachedMessageType, CachedSendState, CachedTimelineEvent,
+            CachedTimelineItem, CachedTimelineItemKind, CachedUserMessage,
         },
+        render_icon,
     },
     theme::{AppTheme, Structure},
 };
 
+#[allow(clippy::too_many_arguments)]
 impl CachedTimelineItem {
     pub fn render(
         &self,
@@ -119,14 +122,13 @@ impl CachedTimelineEvent {
                 show_header = msg.in_reply_to.is_some()
                     || prev
                         .map(|item| {
-                            if let CachedTimelineItemKind::Event(CachedTimelineEvent {
-                                content: CachedEventContent::UserMessage(_),
-                                sender,
-                                timestamp,
-                                ..
-                            }) = &item.kind
-                            {
-                                timestamp.abs_diff(self.timestamp) > 300 || sender != &self.sender
+                            if let CachedTimelineItemKind::Event(boxed_event) = &item.kind {
+                                if let CachedEventContent::UserMessage(_) = &boxed_event.content {
+                                    boxed_event.timestamp.abs_diff(self.timestamp) > 300
+                                        || boxed_event.sender != self.sender
+                                } else {
+                                    true
+                                }
                             } else {
                                 true
                             }
@@ -139,8 +141,7 @@ impl CachedTimelineEvent {
                         if next_event.timestamp.abs_diff(self.timestamp) > 300
                             || next_event.sender != self.sender)
                 });
-                tailwind_div!(text_color(theme.text.normal), line_height(relative(1.0)))
-                    .child(msg.body.clone().unwrap_or_default())
+                msg.render(structure, theme)
             }
         };
 
@@ -260,5 +261,64 @@ impl CachedTimelineEvent {
                 .child(content),
         )
         .into_any()
+    }
+}
+
+impl CachedUserMessage {
+    pub fn render(&self, structure: &Structure, theme: &AppTheme) -> Div {
+        let warning = theme.colors.warning;
+        let chat = &structure.chat;
+
+        let content = match &self.msg_type {
+            CachedMessageType::Empty => tailwind_div!(text_color(theme.text.dim), italic)
+                .child("Empty message")
+                .into_any(),
+            CachedMessageType::Redacted => tailwind_div!(text_color(theme.text.dim), italic)
+                .child("Message redacted")
+                .into_any(),
+            CachedMessageType::Emote => tailwind_div!(text_color(theme.text.normal))
+                .child("Emote")
+                .into_any(),
+            // TODO: Audio messages are not supported yet
+            CachedMessageType::Audio { .. } => tailwind_div!(text_color(warning))
+                .child("Audio messages are not supported yet")
+                .into_any(),
+            // TODO: Emit notification if user clicks on file
+            CachedMessageType::File { filename, size, .. } => tailwind_div!(
+                bg(theme.solid_bg),
+                flex,
+                flex_row,
+                items_start,
+                w(relative(0.3))
+                gap(structure.small_gap),
+                paddings(structure.gap),
+                rounded(structure.inner_border_radius),
+                border_1,
+                border_color(theme.tile.border)
+            )
+            .child(render_icon(phosphor_svgs::icon::file::FILL, chat.icon_size))
+            .child(
+                tailwind_div!(flex, flex_col, gap(structure.small_gap), items_start)
+                    .child(
+                        tailwind_div!(text_color(theme.accent), hover(underline))
+                            .child(filename.clone()),
+                    )
+                    .child(
+                        tailwind_div!(
+                            text_color(theme.text.muted),
+                            text_size(chat.small_text_size)
+                        )
+                        .child(
+                            size.as_ref()
+                                .map(|s| s.bytes_str.clone())
+                                .unwrap_or("File".into()),
+                        ),
+                    ),
+            )
+            .into_any(),
+            _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
+        };
+
+        tailwind_div!(line_height(relative(1.0))).child(content)
     }
 }
