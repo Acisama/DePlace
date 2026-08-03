@@ -8,7 +8,10 @@ use gpui::{
 };
 use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
-use matrix_sdk::{media::UniqueKey, ruma::RoomId};
+use matrix_sdk::{
+    media::UniqueKey,
+    ruma::{RoomId, UserId},
+};
 
 use crate::{
     components::{
@@ -101,6 +104,13 @@ impl CachedTimelineEvent {
             move |size: Pixels| member.render_avatar(size, size / 2.0, avatar_cache);
         let sender_name = move |size: Pixels| member.render_name(size);
 
+        let small_icon_size = structure.chat.small_icon_size;
+
+        let member_avatar = move |id: &UserId| {
+            let member = map.get(current_room_id).and_then(|m| m.get(id));
+            member.render_avatar(small_icon_size, small_icon_size / 2.0, avatar_cache)
+        };
+
         let mut show_header = false;
         let mut pad_bottom = false;
 
@@ -110,7 +120,16 @@ impl CachedTimelineEvent {
                 tailwind_div!(text_color(colors.error)).child(text.clone())
             }
             CachedEventContent::SystemMessage(msg) => {
-                msg.render(structure, theme, sender_avatar, sender_name)
+                if let Some(div) = msg.render(
+                    theme,
+                    || sender_avatar(small_icon_size),
+                    || sender_name(structure.chat.text_size),
+                    member_avatar,
+                ) {
+                    div
+                } else {
+                    return div().into_any();
+                }
             }
             CachedEventContent::UserMessage(msg) => {
                 show_header = msg.in_reply_to.is_some()
@@ -264,26 +283,37 @@ impl CachedTimelineEvent {
 impl CachedSystemMessage {
     fn render(
         &self,
-        structure: &Structure,
         theme: &AppTheme,
-        sender_avatar: impl Fn(Pixels) -> AnyElement,
-        sender_name: impl Fn(Pixels) -> AnyElement,
-    ) -> Div {
-        if let Some(text) = self.text() {
-            tailwind_div!(
-                text_color(theme.text.dim),
-                items_center,
-                flex,
-                flex_1,
-                justify_center
-            )
-            .child(sender_avatar(structure.chat.small_icon_size))
-            .child(" ")
-            .child(sender_name(structure.chat.text_size))
-            .child(" ")
-            .child(text)
-        } else {
-            div()
+        sender_avatar: impl Fn() -> AnyElement,
+        sender_name: impl Fn() -> AnyElement,
+        member_avatar: impl Fn(&UserId) -> AnyElement,
+    ) -> Option<Div> {
+        let parent = tailwind_div!(
+            text_color(theme.text.dim),
+            items_center,
+            flex,
+            flex_1,
+            justify_center
+        );
+        match self {
+            CachedSystemMessage::RtcNotification { text, declined_by } => {
+                let declined_by_avatars = declined_by.iter().map(|id| member_avatar(id));
+
+                Some(
+                    parent
+                        .child(sender_avatar())
+                        .child(text.clone())
+                        .children(declined_by_avatars),
+                )
+            }
+            _ => self.text().map(|text| {
+                parent
+                    .child(sender_avatar())
+                    .child(" ")
+                    .child(sender_name())
+                    .child(" ")
+                    .child(text)
+            }),
         }
     }
 }
@@ -339,19 +369,21 @@ impl CachedUserMessage {
                 paddings(structure.gap),
                 rounded(structure.inner_border_radius),
                 border_1,
-                border_color(theme.tile.border)
+                border_color(theme.tile.border),
             )
             .child(render_icon(phosphor_svgs::icon::file::FILL, chat.icon_size))
             .child(
                 tailwind_div!(flex, flex_col, gap(structure.small_gap), items_start)
                     .child(
-                        tailwind_div!(text_color(theme.accent), hover(underline))
+                        tailwind_div!(text_color(theme.accent), hover(underline), cursor_pointer)
+                            .id(filename.clone())
                             .child(filename.clone()),
                     )
                     .child(
                         tailwind_div!(
                             text_color(theme.text.muted),
-                            text_size(chat.small_text_size)
+                            text_size(chat.small_text_size),
+                            group_hover(filename, |style| style.underline())
                         )
                         .child(
                             size.as_ref()
@@ -563,6 +595,13 @@ impl CachedUserMessage {
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
 
-        tailwind_div!(line_height(relative(1.0))).child(content)
+        tailwind_div!(line_height(relative(1.0)), flex, flex_col)
+            .when_some(self.in_reply_to.clone(), |el, reply| {
+                match reply {
+                    _ => {}
+                };
+                el
+            })
+            .child(content)
     }
 }
