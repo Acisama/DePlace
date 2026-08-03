@@ -44,22 +44,28 @@ pub struct MediaCache<T: Hash + Eq, C> {
     client: Client,
     tokio_rt: Arc<Runtime>,
     cache: Arc<DashMap<T, MediaState<C>>>,
+    loaded_at: Arc<DashMap<T, Instant>>,
     changed: watch::Sender<()>,
 }
 
-impl<T: Hash + Eq, C> MediaCache<T, C> {
+impl<T: Hash + Eq + Clone, C> MediaCache<T, C> {
     pub fn new(client: Client, tokio_rt: Arc<Runtime>) -> Self {
         let (changed, _) = watch::channel(());
         Self {
             client,
             tokio_rt,
             cache: Arc::new(DashMap::new()),
+            loaded_at: Arc::new(DashMap::new()),
             changed,
         }
     }
 
     pub fn subscribe(&self) -> watch::Receiver<()> {
         self.changed.subscribe()
+    }
+
+    pub fn loaded_elapsed(&self, key: &T) -> Option<Duration> {
+        self.loaded_at.get(key).map(|at| at.elapsed())
     }
 }
 
@@ -197,6 +203,10 @@ impl ThumbnailCache {
                     Some(MediaState::Loaded(Arc::new(image)))
                 })
                 .unwrap_or_default();
+
+            if matches!(state, MediaState::Loaded(_)) {
+                store.loaded_at.insert(key.clone(), Instant::now());
+            }
 
             store.cache.insert(key, state);
             if let Err(e) = store.changed.send(()) {

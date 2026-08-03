@@ -368,9 +368,7 @@ fn cached_from_timeline_item_content(
                                     height: info.height.map(|h| u64::from(h) as f32),
                                     size: info.size.map(|s| ByteSize::new(s.into())),
                                     mime_type: info.mimetype.map(|m| m.into()),
-                                    blurhash_image: info
-                                        .blurhash
-                                        .map(|h| blurhash_to_image(&h, filename)),
+                                    blurhash_image: info.blurhash.map(|h| blurhash_to_image(&h)),
                                 },
                             )
                         }

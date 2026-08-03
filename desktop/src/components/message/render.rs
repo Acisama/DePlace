@@ -370,7 +370,8 @@ impl CachedUserMessage {
                     max_height,
                 );
 
-                let image = media_cache.get(source, w as u64, h as u64);
+                let media_key = (source.unique_key(), w as u64, h as u64);
+                let image = media_cache.get(source, media_key.1, media_key.2);
 
                 let w = Pixels::from(w);
                 let h = Pixels::from(h);
@@ -410,18 +411,38 @@ impl CachedUserMessage {
                         .child("dawdwdwadwa")
                         .into_any(),
                     },
-                    MediaState::Loaded(image) => img(image)
-                        .size_full()
-                        .rounded(rounding)
-                        .border_1()
-                        .border_color(theme.tile.border)
-                        .with_fallback(error_fallback)
-                        .with_animation(
-                            ElementId::Name(filename.into()),
-                            Animation::new(Duration::from_millis(400)),
-                            |img, delta| img.opacity(delta),
-                        )
-                        .into_any(),
+                    MediaState::Loaded(image) => {
+                        const FADE_DURATION: Duration = Duration::from_millis(400);
+
+                        let el = img(image)
+                            .size_full()
+                            .rounded(rounding)
+                            .border_1()
+                            .border_color(theme.tile.border)
+                            .with_fallback(error_fallback);
+
+                        // Only animate a fade-in for loads that actually happened while
+                        // this view was mounted; media that was already cached before
+                        // (e.g. switching back to a room, or scrolling past history) should
+                        // just appear immediately instead of replaying the animation.
+                        match media_cache.loaded_elapsed(&media_key) {
+                            Some(elapsed) if elapsed < FADE_DURATION => {
+                                let start_opacity =
+                                    elapsed.as_secs_f32() / FADE_DURATION.as_secs_f32();
+                                el.with_animation(
+                                    ElementId::Name(media_key.0.clone().into()),
+                                    Animation::new(
+                                        FADE_DURATION.checked_sub(elapsed).unwrap_or_default(),
+                                    ),
+                                    move |img, delta| {
+                                        img.opacity(start_opacity + (1.0 - start_opacity) * delta)
+                                    },
+                                )
+                                .into_any()
+                            }
+                            _ => el.into_any(),
+                        }
+                    }
                     MediaState::Failed => error_fallback().into_any(),
                 };
 
