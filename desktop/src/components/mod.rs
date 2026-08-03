@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+use blurhash::decode;
 use deplace_core::{
     NameExt,
     colors::{Color, ColorExt},
@@ -7,19 +6,23 @@ use deplace_core::{
     get_other_member,
     state::MembershipMap,
 };
+use gpui::RenderImage;
 use gpui::{
-    AnyElement, App, BoxShadow, Div, Entity, Focusable, Length, ObjectFit, Pixels, SharedString,
-    Window, div, img, prelude::*, px, relative, svg, transparent_black,
+    AnyElement, App, BoxShadow, Div, Entity, Focusable, Hsla, Length, ObjectFit, Pixels,
+    SharedString, Window, div, img, prelude::*, px, relative, svg, transparent_black,
 };
 use gpui_component::{
     StyledExt,
     input::{Input, InputState},
 };
+use image::{Frame, ImageBuffer, Rgba};
 use macros::tailwind_div;
 use matrix_sdk::{Room, room::RoomMember, ruma::UserId};
+use smallvec::SmallVec;
+use std::sync::Arc;
 
 use crate::{
-    components::cache::AvatarCache,
+    components::cache::{AvatarCache, MediaState},
     theme::{ActiveAppTheme, AppTheme, Structure, StructureExt},
 };
 
@@ -77,34 +80,23 @@ pub fn text_circle(initial: char, color: Color, size: Pixels, rounding: Pixels) 
 
     let bg_color = color.set_lightness(0.1);
 
-    div()
-        .bg(bg_color.to_gpui())
-        .relative()
-        .rounded(rounding)
-        .size(size)
-        .flex()
-        .font_bold()
-        .text_size(font_size)
-        .text_color(color.to_gpui())
-        .items_center()
-        .justify_center()
-        .text_center()
-        .cursor_pointer()
-        .child(initial.to_string())
-        .child(
-            div()
-                .absolute()
-                .rounded(rounding)
-                .inset_0()
-                .shadow(vec![BoxShadow {
-                    color: color.to_gpui(),
-                    blur_radius: px(2.0),
-                    inset: true,
-                    offset: Default::default(),
-                    spread_radius: px(2.0),
-                }]),
-        )
-        .into_any()
+    tailwind_div!(
+        bg(bg_color.to_gpui()),
+        relative,
+        rounded(rounding),
+        size(size),
+        flex,
+        font_bold,
+        text_size(font_size),
+        text_color(color.to_gpui()),
+        items_center,
+        justify_center,
+        text_center,
+        cursor_pointer,
+        outer_gradient(color.to_gpui())
+    )
+    .child(initial.to_string())
+    .into_any()
 }
 
 fn avatar(
@@ -112,10 +104,10 @@ fn avatar(
     color: Color,
     size: Pixels,
     rounding: Pixels,
-    image: Option<Arc<gpui::Image>>,
+    image: Option<MediaState<gpui::Image>>,
 ) -> AnyElement {
-    if let Some(image) = image {
-        img(image)
+    match image {
+        Some(MediaState::Loaded(image)) => img(image)
             .object_fit(ObjectFit::Cover)
             .rounded(rounding)
             .size(size)
@@ -123,14 +115,21 @@ fn avatar(
             .justify_center()
             .overflow_hidden()
             .cursor_pointer()
-            .into_any()
-    } else {
-        text_circle(initial, color, size, rounding)
+            .into_any(),
+        Some(MediaState::Failed) => text_circle('!', color, size, rounding),
+        Some(MediaState::Loading) => text_circle(initial, color, size, rounding),
+        None => text_circle(initial, color, size, rounding),
     }
 }
 
 fn unknown_avatar(size: Pixels, rounding: Pixels) -> AnyElement {
-    avatar('?', Color::UNKNOWN, size, rounding, None)
+    avatar(
+        '?',
+        Color::UNKNOWN,
+        size,
+        rounding,
+        Some(MediaState::Failed),
+    )
 }
 
 pub fn render_icon(svg_content: &'static str, size: impl Clone + Into<Length>) -> AnyElement {
@@ -180,7 +179,7 @@ fn render_room_no_dm(
     }
 
     let url = room.avatar_url().map(|u| u.to_owned());
-    let image = url.and_then(|url| cache.get(&url));
+    let image = url.map(|url| cache.get(&url));
 
     avatar(room.initial(), room.color(), size, rounding, image)
 }
@@ -220,7 +219,7 @@ fn render_unknown_name(size: Pixels) -> Div {
 
 impl MemberRenderer for RoomMember {
     fn render_avatar(&self, size: Pixels, rounding: Pixels, cache: &AvatarCache) -> AnyElement {
-        let image = self.avatar_url().and_then(|url| cache.get(url));
+        let image = self.avatar_url().map(|url| cache.get(url));
         avatar(self.initial(), self.color(), size, rounding, image)
     }
 
@@ -252,9 +251,19 @@ pub trait CustomStyles: Styled + Sized {
     fn border_transparent(self) -> Self {
         self.border_1().border_color(transparent_black())
     }
+
+    fn outer_gradient(self, color: Hsla) -> Self {
+        self.shadow(vec![BoxShadow {
+            color,
+            blur_radius: px(2.0),
+            inset: true,
+            offset: Default::default(),
+            spread_radius: px(2.0),
+        }])
+    }
 }
 
-impl<T: gpui::Styled> CustomStyles for T {}
+impl<T: Styled> CustomStyles for T {}
 
 #[derive(Clone)]
 pub struct ByteSize {
@@ -273,4 +282,19 @@ impl ByteSize {
             mibi_bytes_str: format_bytes(bytes, DataSizeUnit::MibiBytes).into(),
         }
     }
+}
+
+pub fn blurhash_to_image(hash: &str) -> Arc<RenderImage> {
+    let width = 32;
+    let height = 32;
+    let mut pixels = decode(hash, width, height, 1.0).expect("Failed to decode blurhash");
+
+    for chunk in pixels.chunks_exact_mut(4) {
+        chunk.swap(0, 2);
+    }
+
+    let buf = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels)
+        .expect("Failed to construct ImageBuffer");
+
+    Arc::new(RenderImage::new(SmallVec::from_elem(Frame::new(buf), 1)))
 }

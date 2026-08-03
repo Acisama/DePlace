@@ -25,6 +25,7 @@ use uuid::Uuid;
 use crate::{
     components::{
         AvatarCache,
+        cache::ThumbnailCache,
         message::{CachedTimelineItem, cached_from_timeline_item},
     },
     theme::{ActiveAppTheme, StructureExt},
@@ -36,7 +37,10 @@ pub struct ChatView {
     active_room: Receiver<Option<Room>>,
     timeline_manager: TimelineManager,
     timeline_id: Option<Uuid>,
+
     avatar_cache: AvatarCache,
+    image_cache: ThumbnailCache,
+
     membership_map: Receiver<MembershipMap>,
     tokio_rt: Arc<Runtime>,
     current_fetch: Option<AbortHandle>,
@@ -52,6 +56,7 @@ impl ChatView {
         cx: &mut Context<Self>,
         tokio_rt: Arc<Runtime>,
         avatar_cache: AvatarCache,
+        image_cache: ThumbnailCache,
     ) -> Self {
         let list_state = ListState::new(0, ListAlignment::Bottom, px(500.));
         list_state.set_follow_mode(FollowMode::Tail);
@@ -62,12 +67,15 @@ impl ChatView {
         let membership_map = state.membership_map();
 
         notify_on_change(membership_map.clone(), cx);
+        notify_on_change(avatar_cache.subscribe(), cx);
+        notify_on_change(image_cache.subscribe(), cx);
 
         let mut view = Self {
             timeline_manager: state.timeline_manager.clone(),
             user_id: state.user_device.user_id.clone(),
             messages: Vec::new(),
             avatar_cache,
+            image_cache,
             membership_map,
             tokio_rt,
             timeline_id: None,
@@ -308,6 +316,8 @@ impl Render for ChatView {
 
         let messages = self.messages.clone();
         let avatar_cache = self.avatar_cache.clone();
+        let image_cache = self.image_cache.clone();
+
         let map = self.membership_map.borrow().clone();
 
         tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
@@ -322,7 +332,16 @@ impl Render for ChatView {
                     let prev = ix.checked_sub(1).and_then(|prev_ix| messages.get(prev_ix));
                     let next = messages.get(ix + 1);
 
-                    current.render(prev, next, theme, structure, &room_id, &map, &avatar_cache)
+                    current.render(
+                        prev,
+                        next,
+                        theme,
+                        structure,
+                        &room_id,
+                        &map,
+                        &avatar_cache,
+                        &image_cache,
+                    )
                 })
                 .h_full()
                 .w_full(),

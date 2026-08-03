@@ -19,8 +19,8 @@ use tokio::sync::watch::Receiver;
 
 use crate::{
     components::{
-        AvatarCache, cache::MediaCache, chat::ChatView, dm_list::DmListView, floating_tile,
-        header::HeaderView, quick_select, server_list::ServerListView, sidebar::SidebarView,
+        AvatarCache, cache::ThumbnailCache, chat::ChatView, floating_tile, header::HeaderView,
+        quick_select, server_list::ServerListView, sidebar::SidebarView,
     },
     theme::{ActiveAppTheme, Structure, StructureExt},
     watch_bridge::notify_on_change,
@@ -129,7 +129,9 @@ impl HomeView {
     ) -> Self {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle, cx);
-        let avatar_cache: AvatarCache = MediaCache::new(state.client.clone(), tokio_rt.clone());
+        let avatar_cache: AvatarCache = AvatarCache::new(state.client.clone(), tokio_rt.clone());
+        let image_cache: ThumbnailCache =
+            ThumbnailCache::new(state.client.clone(), tokio_rt.clone());
 
         let server_list =
             cx.new(|cx| ServerListView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
@@ -137,7 +139,15 @@ impl HomeView {
             cx.new(|cx| HeaderView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
         let sidebar =
             cx.new(|cx| SidebarView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
-        let chat = cx.new(|cx| ChatView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
+        let chat = cx.new(|cx| {
+            ChatView::new(
+                &state,
+                cx,
+                tokio_rt.clone(),
+                avatar_cache.clone(),
+                image_cache.clone(),
+            )
+        });
 
         let active_room = state.active_room();
         let membership_map = state.membership_map();

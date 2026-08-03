@@ -28,3 +28,11 @@ pub fn format_bytes(bytes: u64, unit: DataSizeUnit) -> String {
         format!("{:.2} {}", size, units[unit_index])
     }
 }
+
+pub fn fit_dimensions(w: f32, h: f32, max_w: f32, max_h: f32) -> (f32, f32) {
+    if w == 0.0 || h == 0.0 {
+        return (max_w, max_h);
+    }
+    let scale = (max_w / w).min(max_h / h).min(1.0);
+    ((w * scale), (h * scale))
+}

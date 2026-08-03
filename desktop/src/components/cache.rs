@@ -10,13 +10,29 @@ use tokio::{runtime::Runtime, sync::watch};
 
 pub type AvatarCache = MediaCache<OwnedMxcUri, gpui::Image>;
 pub type FileCache = MediaCache<String, Vec<u8>>;
-pub type ImageCache = MediaCache<String, gpui::Image>;
+pub type ThumbnailCache = MediaCache<(String, u64, u64), gpui::Image>;
 
-#[derive(Clone)]
-enum MediaState<C> {
+#[derive(Clone, Default)]
+pub enum MediaState<C> {
     Loading,
     Loaded(Arc<C>),
+    #[default]
     Failed,
+}
+
+impl<C> MediaState<C> {
+    pub fn to_option(&self) -> Option<Arc<C>> {
+        match self {
+            MediaState::Loaded(arc) => Some(Arc::clone(arc)),
+            _ => None,
+        }
+    }
+}
+
+impl<C> From<MediaState<C>> for Option<Arc<C>> {
+    fn from(val: MediaState<C>) -> Self {
+        val.to_option()
+    }
 }
 
 #[derive(Clone)]
@@ -44,12 +60,9 @@ impl<T: Hash + Eq, C> MediaCache<T, C> {
 }
 
 impl AvatarCache {
-    pub fn get(&self, uri: &MxcUri) -> Option<Arc<gpui::Image>> {
+    pub fn get(&self, uri: &MxcUri) -> MediaState<gpui::Image> {
         if let Some(state) = self.cache.get(uri) {
-            return match &*state {
-                MediaState::Loaded(img) => Some(img.clone()),
-                _ => None, // Loading or Failed
-            };
+            return state.clone();
         }
 
         self.cache.insert(uri.to_owned(), MediaState::Loading);
@@ -89,7 +102,7 @@ impl AvatarCache {
                     let image = gpui::Image::from_bytes(gpui_format_from(format), bytes.to_vec());
                     Some(MediaState::Loaded(Arc::new(image)))
                 })
-                .unwrap_or(MediaState::Failed);
+                .unwrap_or_default();
 
             store.cache.insert(uri, state);
             if let Err(e) = store.changed.send(()) {
@@ -97,19 +110,16 @@ impl AvatarCache {
             }
         });
 
-        None
+        MediaState::Loading
     }
 }
 
 impl FileCache {
-    pub fn get(&self, request: &MediaRequestParameters) -> Option<Arc<Vec<u8>>> {
+    pub fn get(&self, request: &MediaRequestParameters) -> MediaState<Vec<u8>> {
         let key = request.unique_key();
 
         if let Some(state) = self.cache.get(&key) {
-            return match &*state {
-                MediaState::Loaded(bytes) => Some(bytes.clone()),
-                _ => None, // Loading or Failed
-            };
+            return state.clone();
         }
 
         self.cache.insert(key.clone(), MediaState::Loading);
@@ -133,19 +143,16 @@ impl FileCache {
             }
         });
 
-        None
+        MediaState::Loading
     }
 }
 
-impl ImageCache {
-    pub fn get(&self, request: &MediaRequestParameters) -> Option<Arc<gpui::Image>> {
-        let key = request.unique_key();
+impl ThumbnailCache {
+    pub fn get(&self, source: &MediaSource, width: u64, height: u64) -> MediaState<gpui::Image> {
+        let key = (source.unique_key(), width, height);
 
         if let Some(state) = self.cache.get(&key) {
-            return match &*state {
-                MediaState::Loaded(bytes) => Some(bytes.clone()),
-                _ => None, // Loading or Failed
-            };
+            return state.clone();
         }
 
         self.cache.insert(key.clone(), MediaState::Loading);
@@ -153,7 +160,15 @@ impl ImageCache {
         let store = self.clone();
         let tokio_rt = self.tokio_rt.clone();
         let key = key.clone();
-        let request = request.clone();
+        let request = MediaRequestParameters {
+            source: source.clone(),
+            format: MediaFormat::Thumbnail(MediaThumbnailSettings {
+                method: matrix_sdk::ruma::media::Method::Scale,
+                width: UInt::new_saturating(width),
+                height: UInt::new_saturating(height),
+                animated: true,
+            }),
+        };
         tokio_rt.spawn(async move {
             let res = store
                 .client
@@ -177,7 +192,7 @@ impl ImageCache {
                     let image = gpui::Image::from_bytes(gpui_format_from(format), bytes.to_vec());
                     Some(MediaState::Loaded(Arc::new(image)))
                 })
-                .unwrap_or(MediaState::Failed);
+                .unwrap_or_default();
 
             store.cache.insert(key, state);
             if let Err(e) = store.changed.send(()) {
@@ -185,7 +200,7 @@ impl ImageCache {
             }
         });
 
-        None
+        MediaState::Loading
     }
 }
 

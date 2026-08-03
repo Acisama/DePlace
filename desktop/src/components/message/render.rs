@@ -1,8 +1,8 @@
-use deplace_core::state::MembershipMap;
+use deplace_core::{formatting::fit_dimensions, state::MembershipMap};
 use gpui::{
     AnyElement, Div, Element, ElementId, InteractiveElement, LinearColorStop, ParentElement,
-    Pixels, Styled, div, linear_gradient, percentage, prelude::FluentBuilder, relative,
-    transparent_black,
+    Pixels, Styled, StyledImage, div, img, linear_gradient, percentage, prelude::FluentBuilder,
+    relative, transparent_black,
 };
 use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
@@ -11,6 +11,7 @@ use matrix_sdk::ruma::RoomId;
 use crate::{
     components::{
         AvatarCache, CustomStyles, MemberRenderer,
+        cache::{MediaState, ThumbnailCache},
         message::{
             CachedEventContent, CachedMessageType, CachedSendState, CachedTimelineEvent,
             CachedTimelineItem, CachedTimelineItemKind, CachedUserMessage,
@@ -31,6 +32,7 @@ impl CachedTimelineItem {
         curent_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
+        image_cache: &ThumbnailCache,
     ) -> AnyElement {
         let divider_width = structure.divider_width;
 
@@ -60,6 +62,7 @@ impl CachedTimelineItem {
                 curent_room_id,
                 map,
                 avatar_cache,
+                image_cache,
                 prev,
                 next,
             ),
@@ -79,6 +82,7 @@ impl CachedTimelineEvent {
         current_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
+        image_cache: &ThumbnailCache,
         prev: Option<&CachedTimelineItem>,
         next: Option<&CachedTimelineItem>,
     ) -> AnyElement {
@@ -141,7 +145,7 @@ impl CachedTimelineEvent {
                         if next_event.timestamp.abs_diff(self.timestamp) > 300
                             || next_event.sender != self.sender)
                 });
-                msg.render(structure, theme)
+                msg.render(structure, theme, image_cache)
             }
         };
 
@@ -265,8 +269,15 @@ impl CachedTimelineEvent {
 }
 
 impl CachedUserMessage {
-    pub fn render(&self, structure: &Structure, theme: &AppTheme) -> Div {
+    pub fn render(
+        &self,
+        structure: &Structure,
+        theme: &AppTheme,
+        media_cache: &ThumbnailCache,
+    ) -> Div {
         let warning = theme.colors.warning;
+        let error = theme.colors.error;
+
         let chat = &structure.chat;
 
         let content = match &self.msg_type {
@@ -316,6 +327,116 @@ impl CachedUserMessage {
                     ),
             )
             .into_any(),
+            CachedMessageType::Image {
+                filename,
+                source,
+                width,
+                height,
+                size,
+                mime_type,
+                blurhash_image,
+            } => {
+                let max_width = chat.max_media_width.as_f32();
+                let max_height = chat.max_media_height.as_f32();
+
+                let (w, h) = fit_dimensions(
+                    width.unwrap_or(max_width),
+                    height.unwrap_or(max_height),
+                    max_width,
+                    max_height,
+                );
+
+                let image = media_cache.get(source, w as u64, h as u64);
+
+                let w = Pixels::from(w);
+                let h = Pixels::from(h);
+
+                let rounding = structure.inner_border_radius;
+
+                let error_bg = theme.solid_bg.blend(error.alpha(0.05));
+                let error_text_size = chat.text_size * 1.5;
+                let error_fallback = move || {
+                    tailwind_div!(
+                        size_full,
+                        bg(error_bg),
+                        text_color(error)
+                        outer_gradient(error),
+                        flex,
+                        items_center,
+                        justify_center,
+                        text_size(error_text_size),
+                        text_center,
+                        rounded(rounding)
+                    )
+                    .child("Failed to load")
+                    .into_any()
+                };
+
+                let content = match image {
+                    MediaState::Loading => match blurhash_image {
+                        Some(image) => img(image.clone())
+                            .border_1()
+                            .border_color(theme.tile.border)
+                            .size_full()
+                            .rounded(rounding)
+                            .into_any(),
+                        None => tailwind_div!(
+                            size_full,
+                            border_1,
+                            bg(error),
+                            border_color(theme.tile.border)
+                        )
+                        .child("dawdwdwadwa")
+                        .into_any(),
+                    },
+                    MediaState::Loaded(image) => img(image)
+                        .size_full()
+                        .rounded(rounding)
+                        .border_1()
+                        .border_color(theme.tile.border)
+                        .with_fallback(error_fallback)
+                        .into_any(),
+                    MediaState::Failed => error_fallback().into_any(),
+                };
+
+                tailwind_div!(flex, flex_col, gap(structure.small_gap))
+                    .when_some(self.body.as_ref(), |el, text| {
+                        el.child(div().text_color(theme.text.normal))
+                            .child(text.clone())
+                    })
+                    .child(
+                        tailwind_div!(
+                            w(w),
+                            h(h),
+                            bg(theme.solid_bg),
+                            rounded(structure.inner_border_radius)
+                        )
+                        .group(filename)
+                        .relative()
+                        .child(content)
+                        .child(
+                            tailwind_div!(
+                                absolute,
+                                bottom(structure.small_gap),
+                                left(structure.small_gap),
+                                paddings(structure.small_gap),
+                                bg(theme.solid_bg),
+                                rounded(structure.smaller_border_radius)
+                                border_1,
+                                border_color(theme.tile.border),
+                                opacity(0.0),
+                                flex,
+                                items_center,
+                            )
+                            .group_hover(filename, |style| style.opacity(1.0))
+                            .child(filename.clone())
+                            .when_some(size.clone(), |el, size| {
+                                el.child(" (").child(size.bytes_str).child(")")
+                            }),
+                        ),
+                    )
+                    .into_any()
+            }
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
 

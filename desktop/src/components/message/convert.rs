@@ -17,7 +17,7 @@ use matrix_sdk_ui::timeline::{
 };
 
 use crate::components::{
-    ByteSize,
+    ByteSize, blurhash_to_image,
     message::{
         CachedBeaconInfo, CachedEventContent, CachedMediaUploadProgress, CachedMessageType,
         CachedProgress, CachedSendState, CachedSystemMessage, CachedTimelineEvent,
@@ -360,15 +360,15 @@ fn cached_from_timeline_item_content(
                             let filename = content.filename();
 
                             (
-                                (filename == content.body).then_some(content.body.as_str().into()),
+                                (filename != content.body).then_some(content.body.as_str().into()),
                                 CachedMessageType::Image {
                                     filename: filename.into(),
-                                    source: content.source.into(),
-                                    width: info.width.map(|w| w.into()),
-                                    height: info.height.map(|h| h.into()),
+                                    source: Arc::new(content.source.clone()),
+                                    width: info.width.map(|w| u64::from(w) as f32),
+                                    height: info.height.map(|h| u64::from(h) as f32),
                                     size: info.size.map(|s| ByteSize::new(s.into())),
                                     mime_type: info.mimetype.map(|m| m.into()),
-                                    blurhash: info.blurhash.map(|h| h.into()),
+                                    blurhash_image: info.blurhash.map(|h| blurhash_to_image(&h)),
                                 },
                             )
                         }

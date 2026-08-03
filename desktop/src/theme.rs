@@ -92,6 +92,8 @@ pub struct Chat {
     pub text_size: Pixels,
     pub small_icon_size: Pixels,
     pub small_text_size: Pixels,
+    pub max_media_height: Pixels,
+    pub max_media_width: Pixels,
 }
 
 #[derive(Clone)]
@@ -104,6 +106,7 @@ pub struct Structure {
     pub chat: Chat,
     pub outer_border_radius: Pixels,
     pub inner_border_radius: Pixels,
+    pub smaller_border_radius: Pixels,
     pub font_size: Pixels,
     pub gap: Pixels,
     pub small_gap: Pixels,
@@ -117,12 +120,14 @@ impl Structure {
         let gap = px(8.0);
         let small_gap = px(4.0);
         let inner_border_radius = outer_border_radius - small_gap;
+        let smaller_border_radius = inner_border_radius - small_gap;
 
         Self {
             gap,
             small_gap,
             inner_border_radius,
             outer_border_radius,
+            smaller_border_radius,
             font_size: px(16.0),
             divider_width: px(2.0),
 
@@ -131,6 +136,8 @@ impl Structure {
                 small_icon_size: px(18.0),
                 text_size: px(16.0),
                 small_text_size: px(12.0),
+                max_media_height: px(500.0),
+                max_media_width: px(500.0),
             },
             header: Header {
                 height: px(50.0),

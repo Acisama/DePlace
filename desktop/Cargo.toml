@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
+blurhash.workspace = true
 chrono.workspace = true
 dashmap.workspace = true
 deplace_core = { workspace = true, features = ["desktop"] }
@@ -23,15 +24,15 @@ interprocess.workspace = true
 macros.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
-uuid.workspace = true
-
 phosphor-svgs = "0.3.0"
 rust-embed.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+smallvec.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
 
 [lints.clippy]
 exit = "warn"

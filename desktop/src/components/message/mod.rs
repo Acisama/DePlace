@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use gpui::{ElementId, SharedString};
-use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
+use matrix_sdk::{
+    media::MediaRequestParameters,
+    ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource},
+};
 
 mod convert;
 mod render;
@@ -209,11 +212,11 @@ enum CachedMessageType {
     Image {
         filename: SharedString,
         source: Arc<MediaSource>,
-        width: Option<u64>,
-        height: Option<u64>,
+        width: Option<f32>,
+        height: Option<f32>,
         size: Option<ByteSize>,
         mime_type: Option<SharedString>,
-        blurhash: Option<SharedString>,
+        blurhash_image: Option<Arc<gpui::RenderImage>>,
     },
     Location(CachedBeaconInfo),
     Notice,
