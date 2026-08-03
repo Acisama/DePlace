@@ -184,7 +184,7 @@ impl AppTheme {
     pub fn new() -> Self {
         let accent = hsla(0.53, 0.52, 0.52, 1.0);
 
-        let muted_color = hsla(0.66, 0.15, 0.28, 1.0);
+        let muted_color = hsla(0.66, 0.15, 0.3, 1.0);
 
         let red = hsla(0.9462, 0.5569, 0.6725, 1.0);
         let green = hsla(0.3682, 0.5446, 0.6039, 1.0);

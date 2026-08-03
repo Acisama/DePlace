@@ -31,7 +31,6 @@ pub mod root;
 
 mod chat;
 mod discovery;
-mod dm_list;
 mod header;
 mod home;
 mod login;
@@ -284,14 +283,49 @@ impl ByteSize {
     }
 }
 
-pub fn blurhash_to_image(hash: &str) -> Arc<RenderImage> {
+pub fn blurhash_to_image(hash: &str, filename: &str) -> Arc<RenderImage> {
     let width = 32;
     let height = 32;
-    let mut pixels = decode(hash, width, height, 1.0).expect("Failed to decode blurhash");
+    let mut pixels = decode(hash, width, height, 1.2).expect("Failed to decode blurhash");
 
     for chunk in pixels.chunks_exact_mut(4) {
         chunk.swap(0, 2);
     }
+
+    let r_range = pixels.iter().step_by(4).max().cloned().unwrap_or_default()
+        - pixels.iter().step_by(4).min().cloned().unwrap_or_default();
+    let g_range = pixels
+        .iter()
+        .skip(1)
+        .step_by(4)
+        .max()
+        .cloned()
+        .unwrap_or_default()
+        - pixels
+            .iter()
+            .skip(1)
+            .step_by(4)
+            .min()
+            .cloned()
+            .unwrap_or_default();
+    let b_range = pixels
+        .iter()
+        .skip(2)
+        .step_by(4)
+        .max()
+        .cloned()
+        .unwrap_or_default()
+        - pixels
+            .iter()
+            .skip(2)
+            .step_by(4)
+            .min()
+            .cloned()
+            .unwrap_or_default();
+    tracing::warn!(
+        "blurhash for {filename:?} {hash:?} -> r_range={r_range} g_range={g_range} b_range={b_range} first_pixel={:?}",
+        &pixels[..4]
+    );
 
     let buf = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels)
         .expect("Failed to construct ImageBuffer");

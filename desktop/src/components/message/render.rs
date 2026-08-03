@@ -1,8 +1,8 @@
 use deplace_core::{formatting::fit_dimensions, state::MembershipMap};
 use gpui::{
-    AnyElement, Div, Element, ElementId, InteractiveElement, LinearColorStop, ParentElement,
-    Pixels, Styled, StyledImage, div, img, linear_gradient, percentage, prelude::FluentBuilder,
-    relative, transparent_black,
+    AnyElement, Div, Element, ElementId, InteractiveElement, LinearColorStop, ObjectFit,
+    ParentElement, Pixels, Styled, StyledImage, div, img, linear_gradient, percentage,
+    prelude::FluentBuilder, relative, transparent_black,
 };
 use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
@@ -284,6 +284,21 @@ impl CachedUserMessage {
 
         let chat = &structure.chat;
 
+        let render_body = move |text| {
+            tailwind_div!(text_color(theme.text.normal), flex, items_baseline)
+                .child(text)
+                .when(self.is_edited, |el| {
+                    el.child(
+                        tailwind_div!(
+                            text_size(chat.small_text_size),
+                            text_color(theme.text.muted)
+                        )
+                        .child(" (edited)"),
+                    )
+                })
+                .into_any()
+        };
+
         let content = match &self.msg_type {
             CachedMessageType::Empty => tailwind_div!(text_color(theme.text.dim), italic)
                 .child("Empty message")
@@ -331,13 +346,14 @@ impl CachedUserMessage {
                     ),
             )
             .into_any(),
+            // TODO: Implement text based files
             CachedMessageType::Image {
                 filename,
                 source,
                 width,
                 height,
                 size,
-                mime_type,
+                mime_type: _mime_type,
                 blurhash_image,
             } => {
                 let max_width = chat.max_media_width.as_f32();
@@ -378,12 +394,9 @@ impl CachedUserMessage {
 
                 let content = match image {
                     MediaState::Loading => match blurhash_image {
-                        Some(image) => img(image.clone())
-                            .border_1()
-                            .border_color(theme.tile.border)
-                            .size_full()
-                            .rounded(rounding)
-                            .into_any(),
+                        // The blurhash is already painted as a persistent background layer
+                        // below, so there's nothing to layer on top while loading.
+                        Some(_) => div().size_full().into_any(),
                         None => tailwind_div!(
                             size_full,
                             border_1,
@@ -405,8 +418,7 @@ impl CachedUserMessage {
 
                 tailwind_div!(flex, flex_col, gap(structure.small_gap))
                     .when_some(self.body.as_ref(), |el, text| {
-                        el.child(div().text_color(theme.text.normal))
-                            .child(text.clone())
+                        el.child(render_body(text.clone()))
                     })
                     .child(
                         tailwind_div!(
@@ -417,6 +429,16 @@ impl CachedUserMessage {
                         )
                         .group(filename)
                         .relative()
+                        .when_some(blurhash_image.clone(), |el, blurhash| {
+                            el.child(
+                                img(blurhash)
+                                    .absolute()
+                                    .inset_0()
+                                    .size_full()
+                                    .object_fit(ObjectFit::Cover)
+                                    .rounded(rounding),
+                            )
+                        })
                         .child(content)
                         .child(
                             tailwind_div!(
@@ -473,9 +495,15 @@ impl CachedUserMessage {
             CachedMessageType::Sticker => tailwind_div!(text_color(theme.text.normal))
                 .child("Stickers are not supported yet")
                 .into_any(),
-            CachedMessageType::Text => tailwind_div!(text_color(theme.text.normal))
-                .child(self.body.clone().unwrap_or_default())
-                .into_any(),
+            CachedMessageType::Text => {
+                if let Some(text) = self.body.clone() {
+                    render_body(text)
+                } else {
+                    tailwind_div!(text_color(theme.text.dim), italic)
+                        .child("Empty message")
+                        .into_any()
+                }
+            }
             CachedMessageType::UnableToDecrypt => tailwind_div!(text_color(error))
                 .child("Unable to decrypt message")
                 .into_any(),

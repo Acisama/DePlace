@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use gpui::{ElementId, SharedString};
-use matrix_sdk::{
-    media::MediaRequestParameters,
-    ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource},
-};
+use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
 
 mod convert;
 mod render;
@@ -172,7 +169,7 @@ struct CachedReplyInfo {
 #[derive(Clone)]
 enum CachedEventContent {
     SystemMessage(CachedSystemMessage),
-    UserMessage(CachedUserMessage),
+    UserMessage(Box<CachedUserMessage>),
     FailedToParseMessageLike(SharedString),
     FailedToParseState(SharedString),
 }

@@ -1,4 +1,4 @@
-use std::{sync::Arc, u64};
+use std::sync::Arc;
 
 use chrono::{DateTime, Local, TimeZone};
 use deplace_core::{
@@ -368,7 +368,9 @@ fn cached_from_timeline_item_content(
                                     height: info.height.map(|h| u64::from(h) as f32),
                                     size: info.size.map(|s| ByteSize::new(s.into())),
                                     mime_type: info.mimetype.map(|m| m.into()),
-                                    blurhash_image: info.blurhash.map(|h| blurhash_to_image(&h)),
+                                    blurhash_image: info
+                                        .blurhash
+                                        .map(|h| blurhash_to_image(&h, filename)),
                                 },
                             )
                         }
@@ -475,13 +477,13 @@ fn cached_from_timeline_item_content(
                 })
                 .unwrap_or_default();
 
-            CachedEventContent::UserMessage(CachedUserMessage {
+            CachedEventContent::UserMessage(Box::new(CachedUserMessage {
                 reactions,
                 in_reply_to: None,
                 is_edited,
                 body,
                 msg_type,
-            })
+            }))
         }
     }
 }
