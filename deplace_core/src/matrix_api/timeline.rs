@@ -32,6 +32,7 @@ struct PaginationState {
     reached_end: bool,
 }
 
+#[derive(Clone, Copy)]
 pub enum ScrollDirection {
     Up,
     Down,

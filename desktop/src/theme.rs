@@ -220,6 +220,10 @@ impl AppTheme {
             accent,
         }
     }
+
+    pub fn accent_bg(&self) -> Hsla {
+        self.solid_bg.blend(self.accent.alpha(0.1))
+    }
 }
 
 pub trait ActiveAppTheme {

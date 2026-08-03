@@ -454,37 +454,40 @@ fn cached_from_timeline_item_content(
                 }
             }
 
-            let reactions = value
-                .reactions()
-                .map(|reactions| {
-                    reactions
-                        .iter()
-                        .map(|(reaction, senders)| {
-                            let mut timestamp = u64::MAX;
-                            let mut has_own = false;
-                            let mut reactors = Vec::new();
+            let reactions = value.reactions().map(|reactions| {
+                let mut reactions: Vec<ReactionInfo> = reactions
+                    .iter()
+                    .map(|(reaction, senders)| {
+                        let mut timestamp = u64::MAX;
+                        let mut has_own = false;
+                        let mut reactors = Vec::new();
 
-                            for (id, info) in senders {
-                                let ts = info.timestamp.as_secs().into();
-                                if ts < timestamp {
-                                    timestamp = ts;
-                                }
-                                if id == own_id {
-                                    has_own = true;
-                                }
-                                reactors.push((Arc::new(id.clone()), ts));
+                        for (id, info) in senders {
+                            let ts = info.timestamp.as_secs().into();
+                            if ts < timestamp {
+                                timestamp = ts;
                             }
+                            if id == own_id {
+                                has_own = true;
+                            }
+                            reactors.push((Arc::new(id.clone()), ts));
+                        }
 
-                            ReactionInfo {
-                                reactors,
-                                emoji: reaction.into(),
-                                timestamp,
-                                has_own,
-                            }
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
+                        reactors.sort_by_key(|(_, ts)| *ts);
+
+                        ReactionInfo {
+                            reactors_count: reactors.len().to_string().into(),
+                            reactors: reactors.into_iter().map(|(id, _)| id).collect(),
+                            emoji: reaction.into(),
+                            timestamp,
+                            has_own,
+                        }
+                    })
+                    .collect();
+
+                reactions.sort_by_key(|info| info.timestamp);
+                reactions
+            });
 
             let in_reply_to = value.in_reply_to().map(|details| details.into());
 

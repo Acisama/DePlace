@@ -92,7 +92,7 @@ pub struct CachedTimelineEvent {
 
     event_id: Option<Arc<OwnedEventId>>,
 
-    pub content: CachedEventContent,
+    content: CachedEventContent,
 }
 
 impl CachedTimelineEvent {
@@ -132,7 +132,7 @@ impl CachedTimelineEvent {
                     CachedMessageType::Text
                         | CachedMessageType::Emote
                         | CachedMessageType::Notice
-                        | CachedMessageType::Poll { .. }
+                        | CachedMessageType::Poll
                 ),
                 _ => false,
             };
@@ -143,13 +143,13 @@ impl CachedTimelineEvent {
                 CachedMessageType::Text
                     | CachedMessageType::Emote
                     | CachedMessageType::Notice
-                    | CachedMessageType::Poll { .. }
+                    | CachedMessageType::Poll
                     | CachedMessageType::Audio { .. }
                     | CachedMessageType::File { .. }
                     | CachedMessageType::Image { .. }
                     | CachedMessageType::LiveLocation { .. }
                     | CachedMessageType::Location(_)
-                    | CachedMessageType::Sticker { .. }
+                    | CachedMessageType::Sticker
                     | CachedMessageType::Video { .. }
             ),
             _ => false,
@@ -251,7 +251,12 @@ impl CachedReplyPreviewBody {
                 Some("Click to see profile change".into()),
                 StyleRefinement::default().text_color(theme.text.dim),
             ),
-            CachedReplyPreviewBody::RtcNotification(_) | CachedReplyPreviewBody::CallInvite => (
+            CachedReplyPreviewBody::RtcNotification(text) => (
+                None,
+                Some(text.clone()),
+                StyleRefinement::default().text_color(theme.text.dim),
+            ),
+            CachedReplyPreviewBody::CallInvite => (
                 Some(phosphor_svgs::icon::phone::BOLD),
                 Some("Click to see call".into()),
                 StyleRefinement::default().text_color(theme.text.dim),
@@ -289,7 +294,8 @@ impl CachedEventContent {
 
 #[derive(Clone)]
 struct ReactionInfo {
-    reactors: Vec<(Arc<OwnedUserId>, u64)>,
+    reactors: Vec<Arc<OwnedUserId>>,
+    reactors_count: SharedString,
     emoji: SharedString,
     timestamp: u64,
     has_own: bool,
@@ -297,7 +303,7 @@ struct ReactionInfo {
 
 #[derive(Clone)]
 struct CachedUserMessage {
-    reactions: Vec<ReactionInfo>,
+    reactions: Option<Vec<ReactionInfo>>,
     in_reply_to: Option<CachedReplyInfo>,
 
     is_edited: bool,

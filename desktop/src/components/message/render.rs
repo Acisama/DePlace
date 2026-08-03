@@ -17,7 +17,7 @@ use crate::{
         message::{
             CachedEventContent, CachedMessageType, CachedReplyInfo, CachedSendState,
             CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
-            CachedUserMessage, DetailState,
+            CachedUserMessage, DetailState, ReactionInfo,
         },
         render_icon,
     },
@@ -159,7 +159,7 @@ impl CachedTimelineEvent {
                         true
                     }
                 });
-                msg.render(structure, theme, image_cache)
+                msg.render(structure, theme, image_cache, member_avatar)
             }
         };
 
@@ -323,7 +323,13 @@ impl CachedSystemMessage {
 }
 
 impl CachedUserMessage {
-    fn render(&self, structure: &Structure, theme: &AppTheme, media_cache: &ThumbnailCache) -> Div {
+    fn render(
+        &self,
+        structure: &Structure,
+        theme: &AppTheme,
+        media_cache: &ThumbnailCache,
+        member_avatar: impl Fn(&UserId) -> AnyElement,
+    ) -> Div {
         let warning = theme.colors.warning;
         let error = theme.colors.error;
 
@@ -610,8 +616,52 @@ impl CachedUserMessage {
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
 
-        tailwind_div!(line_height(relative(1.0)), flex, flex_col).child(content)
+        tailwind_div!(line_height(relative(1.0)), flex, flex_col)
+            .child(content)
+            .when_some(self.reactions.clone(), |el, reactions| {
+                el.child(render_reactions(reactions, theme, structure, member_avatar))
+            })
     }
+}
+
+fn render_reactions(
+    reactions: Vec<ReactionInfo>,
+    theme: &AppTheme,
+    structure: &Structure,
+    member_avatar: impl Fn(&UserId) -> AnyElement,
+) -> Div {
+    let children = reactions.into_iter().map(|info| {
+        let reactors = info.reactors;
+
+        tailwind_div!(
+            flex,
+            flex_row,
+            gap(structure.small_gap),
+            paddings(structure.small_gap),
+            border(structure.divider_width),
+            border_color(theme.solid_hover_bg),
+            items_center,
+            bg(theme.solid_bg),
+            rounded(structure.inner_border_radius)
+        )
+        .when(info.has_own, |el| {
+            el.border_color(theme.accent).bg(theme.accent_bg())
+        })
+        .child(info.emoji)
+        .child(info.reactors_count)
+        .child(
+            tailwind_div!(flex, flex_row_reverse, gap(-structure.gap))
+                .children(reactors.iter().map(|id| member_avatar(id))),
+        )
+    });
+
+    tailwind_div!(
+        flex,
+        flex_row,
+        gap(structure.small_gap),
+        mt(structure.small_gap)
+    )
+    .children(children)
 }
 
 impl CachedReplyInfo {

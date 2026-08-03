@@ -45,7 +45,8 @@ pub struct ChatView {
     membership_map: Receiver<MembershipMap>,
     tokio_rt: Arc<Runtime>,
     current_fetch: Option<AbortHandle>,
-    current_scroll: Option<AbortHandle>,
+    current_scroll_up: Option<AbortHandle>,
+    current_scroll_down: Option<AbortHandle>,
     user_id: OwnedUserId,
     current_updates: Option<Task<()>>,
     list_state: ListState,
@@ -84,7 +85,8 @@ impl ChatView {
             timeline_id: None,
             active_room: state.active_room(),
             current_fetch: None,
-            current_scroll: None,
+            current_scroll_up: None,
+            current_scroll_down: None,
             current_updates: None,
             list_state,
             focus_handle: cx.focus_handle(),
@@ -120,7 +122,10 @@ impl ChatView {
         if let Some(handle) = self.current_fetch.take() {
             handle.abort();
         }
-        if let Some(handle) = self.current_scroll.take() {
+        if let Some(handle) = self.current_scroll_up.take() {
+            handle.abort();
+        }
+        if let Some(handle) = self.current_scroll_down.take() {
             handle.abort();
         }
 
@@ -216,7 +221,11 @@ impl ChatView {
     }
 
     fn scroll(&mut self, cx: &mut Context<Self>, direction: ScrollDirection) {
-        if self.current_scroll.is_some() {
+        let current_scroll = match direction {
+            ScrollDirection::Up => &mut self.current_scroll_up,
+            ScrollDirection::Down => &mut self.current_scroll_down,
+        };
+        if current_scroll.is_some() {
             return;
         }
 
@@ -228,12 +237,16 @@ impl ChatView {
                 timeline_manager.scroll_timeline(id, direction).await;
             }
         });
-        self.current_scroll = Some(task.abort_handle());
+        *current_scroll = Some(task.abort_handle());
 
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |view, _cx| {
-                view.current_scroll = None;
+                let current_scroll = match direction {
+                    ScrollDirection::Up => &mut view.current_scroll_up,
+                    ScrollDirection::Down => &mut view.current_scroll_down,
+                };
+                *current_scroll = None;
             });
             if let Err(e) = result {
                 tracing::error!("Failed to scroll timeline: {}", e);
