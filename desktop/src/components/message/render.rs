@@ -304,9 +304,13 @@ impl CachedUserMessage {
         };
 
         let content = match &self.msg_type {
-            CachedMessageType::Empty => tailwind_div!(text_color(theme.text.dim), italic)
-                .child("Empty message")
-                .into_any(),
+            CachedMessageType::Empty => tailwind_div!(
+                text_color(theme.text.muted),
+                italic,
+                text_size(chat.text_size)
+            )
+            .child("Empty message")
+            .into_any(),
             CachedMessageType::Redacted => tailwind_div!(text_color(theme.text.dim), italic)
                 .child("Message redacted")
                 .into_any(),
@@ -374,8 +378,8 @@ impl CachedUserMessage {
                 let image = media_cache.get(source, source_key, width as u64, height as u64);
 
                 const FADE_DURATION: Duration = Duration::from_millis(400);
-                let loaded_elapsed = media_cache
-                    .loaded_elapsed(&(source_key.clone(), width as u64, height as u64));
+                let loaded_elapsed =
+                    media_cache.loaded_elapsed(&(source_key.clone(), width as u64, height as u64));
 
                 let w = Pixels::from(width);
                 let h = Pixels::from(height);
@@ -463,9 +467,7 @@ impl CachedUserMessage {
                                 1.0 - elapsed.as_secs_f32() / FADE_DURATION.as_secs_f32();
                             Some(
                                 el.with_animation(
-                                    ElementId::Name(
-                                        format!("{filename}-blurhash-fade-out").into(),
-                                    ),
+                                    ElementId::Name(format!("{filename}-blurhash-fade-out").into()),
                                     Animation::new(
                                         FADE_DURATION.checked_sub(elapsed).unwrap_or_default(),
                                     ),
