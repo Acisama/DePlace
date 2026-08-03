@@ -1,12 +1,14 @@
+use std::time::Duration;
+
 use deplace_core::{formatting::fit_dimensions, state::MembershipMap};
 use gpui::{
-    AnyElement, Div, Element, ElementId, InteractiveElement, LinearColorStop, ObjectFit,
-    ParentElement, Pixels, Styled, StyledImage, div, img, linear_gradient, percentage,
-    prelude::FluentBuilder, relative, transparent_black,
+    Animation, AnimationExt, AnyElement, Div, Element, ElementId, InteractiveElement,
+    LinearColorStop, ObjectFit, ParentElement, Pixels, Styled, StyledImage, div, img,
+    linear_gradient, percentage, prelude::FluentBuilder, px, relative, transparent_black,
 };
 use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
-use matrix_sdk::ruma::RoomId;
+use matrix_sdk::{media::UniqueKey, ruma::RoomId};
 
 use crate::{
     components::{
@@ -380,7 +382,7 @@ impl CachedUserMessage {
                         size_full,
                         bg(error_bg),
                         text_color(error)
-                        outer_gradient(error),
+                        outer_gradient(error, px(2.0)),
                         flex,
                         items_center,
                         justify_center,
@@ -412,6 +414,11 @@ impl CachedUserMessage {
                         .border_1()
                         .border_color(theme.tile.border)
                         .with_fallback(error_fallback)
+                        .with_animation(
+                            ElementId::Name(filename.into()),
+                            Animation::new(Duration::from_millis(400)),
+                            |img, delta| img.opacity(delta),
+                        )
                         .into_any(),
                     MediaState::Failed => error_fallback().into_any(),
                 };

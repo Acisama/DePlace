@@ -92,7 +92,7 @@ pub fn text_circle(initial: char, color: Color, size: Pixels, rounding: Pixels) 
         justify_center,
         text_center,
         cursor_pointer,
-        outer_gradient(color.to_gpui())
+        outer_gradient(color.to_gpui(), size / 17.0)
     )
     .child(initial.to_string())
     .into_any()
@@ -251,13 +251,13 @@ pub trait CustomStyles: Styled + Sized {
         self.border_1().border_color(transparent_black())
     }
 
-    fn outer_gradient(self, color: Hsla) -> Self {
+    fn outer_gradient(self, color: Hsla, size: Pixels) -> Self {
         self.shadow(vec![BoxShadow {
             color,
-            blur_radius: px(2.0),
+            blur_radius: size,
             inset: true,
             offset: Default::default(),
-            spread_radius: px(2.0),
+            spread_radius: size,
         }])
     }
 }
