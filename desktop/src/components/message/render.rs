@@ -4,22 +4,20 @@ use deplace_core::{formatting::fit_dimensions, state::MembershipMap};
 use gpui::{
     Animation, AnimationExt, AnyElement, Div, Element, ElementId, InteractiveElement,
     LinearColorStop, ObjectFit, ParentElement, Pixels, Styled, StyledImage, div, img,
-    linear_gradient, percentage, prelude::FluentBuilder, px, relative, transparent_black,
+    linear_gradient, prelude::FluentBuilder, px, relative, transparent_black,
 };
 use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
-use matrix_sdk::{
-    media::UniqueKey,
-    ruma::{RoomId, UserId},
-};
+use matrix_sdk::ruma::{RoomId, UserId};
 
 use crate::{
     components::{
         AvatarCache, CustomStyles, MemberRenderer,
         cache::{MediaState, ThumbnailCache},
         message::{
-            CachedEventContent, CachedMessageType, CachedSendState, CachedSystemMessage,
-            CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind, CachedUserMessage,
+            CachedEventContent, CachedMessageType, CachedReplyInfo, CachedSendState,
+            CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
+            CachedUserMessage, DetailState,
         },
         render_icon,
     },
@@ -111,6 +109,11 @@ impl CachedTimelineEvent {
             member.render_avatar(small_icon_size, small_icon_size / 2.0, avatar_cache)
         };
 
+        let member_name = move |id: &UserId| {
+            let member = map.get(current_room_id).and_then(|m| m.get(id));
+            member.render_name(structure.chat.small_text_size)
+        };
+
         let mut show_header = false;
         let mut pad_bottom = false;
 
@@ -196,9 +199,6 @@ impl CachedTimelineEvent {
             (transparent_black().into(), theme.tile.background.into())
         };
 
-        let icon_size = structure.chat.icon_size;
-        let col_width = icon_size + 2.0 * structure.gap;
-
         let text_color = self
             .state
             .as_ref()
@@ -228,10 +228,10 @@ impl CachedTimelineEvent {
             bg(bg),
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
+            flex_col,
             py(structure.small_gap),
             mt(mt),
             mb(mb),
-            flex_row,
             text_color(text_color),
             text_size(structure.chat.text_size),
         )
@@ -240,41 +240,45 @@ impl CachedTimelineEvent {
             el.text_size(structure.chat.text_size * 2.0)
         })
         .id(id.clone())
+        .when_some(self.in_reply_to(), |el, reply| {
+            el.child(reply.render(theme, structure, member_avatar, member_name))
+        })
         .child(
-            tailwind_div!(w(col_width), px(structure.gap))
-                .when(show_header, |el| {
-                    el.child(sender_avatar(structure.chat.icon_size))
-                })
-                .when(!show_header, |el| {
-                    el.child(
-                        tailwind_div!(
-                            text_color(transparent_black()),
-                            text_size(structure.chat.small_text_size),
-                            font_semibold
-                        )
-                        .id(id)
-                        .group_hover("message", |style| style.text_color(theme.text.muted))
-                        .child(self.short_time.clone()),
-                    )
-                }),
-        )
-        .child(
-            tailwind_div!(flex, size_full, flex_col, gap(structure.small_gap))
-                .when(show_header, |el| {
-                    el.child(
-                        tailwind_div!(flex, flex_row, gap(structure.gap))
-                            .child(sender_name(structure.chat.text_size))
-                            .child(
+            tailwind_div!(flex, flex_row)
+                .child(
+                    tailwind_div!(w(structure.chat_col_width()), px(structure.gap))
+                        .when(show_header, |el| {
+                            el.child(sender_avatar(structure.chat.icon_size))
+                        })
+                        .when(!show_header, |el| {
+                            el.child(
                                 tailwind_div!(
+                                    text_color(transparent_black()),
                                     text_size(structure.chat.small_text_size),
-                                    text_color(theme.text.muted),
-                                    font_semibold
                                 )
-                                .child(self.long_time.clone()),
-                            ),
-                    )
-                })
-                .child(content),
+                                .id(id)
+                                .group_hover("message", |style| style.text_color(theme.text.muted))
+                                .child(self.short_time.clone()),
+                            )
+                        }),
+                )
+                .child(
+                    tailwind_div!(flex, size_full, flex_col, gap(structure.small_gap))
+                        .when(show_header, |el| {
+                            el.child(
+                                tailwind_div!(flex, flex_row, gap(structure.gap))
+                                    .child(sender_name(structure.chat.text_size))
+                                    .child(
+                                        tailwind_div!(
+                                            text_size(structure.chat.small_text_size),
+                                            text_color(theme.text.muted),
+                                        )
+                                        .child(self.long_time.clone()),
+                                    ),
+                            )
+                        })
+                        .child(content),
+                ),
         )
         .into_any()
     }
@@ -351,9 +355,19 @@ impl CachedUserMessage {
             CachedMessageType::Redacted => tailwind_div!(text_color(theme.text.dim), italic)
                 .child("Message redacted")
                 .into_any(),
-            CachedMessageType::Emote => tailwind_div!(text_color(theme.text.normal))
-                .child("Emote")
-                .into_any(),
+            CachedMessageType::Emote => {
+                if let Some(text) = self.body.clone() {
+                    render_body(text)
+                } else {
+                    tailwind_div!(
+                        text_color(theme.text.dim),
+                        text_size(chat.text_size * 1.5),
+                        italic
+                    )
+                    .child("Empty message")
+                    .into_any()
+                }
+            }
             // TODO: Audio messages are not supported yet
             CachedMessageType::Audio { .. } => tailwind_div!(text_color(warning))
                 .child("Audio messages are not supported yet")
@@ -536,7 +550,7 @@ impl CachedUserMessage {
                                     border_1,
                                     border_color(theme.tile.border),
                                     opacity(0.0),
-            _ => div(),
+                                    bg(theme.solid_bg),
                                     flex,
                                     items_center,
                                 )
@@ -596,13 +610,68 @@ impl CachedUserMessage {
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
 
-        tailwind_div!(line_height(relative(1.0)), flex, flex_col)
-            .when_some(self.in_reply_to.clone(), |el, reply| {
-                match reply {
-                    _ => {}
-                };
-                el
-            })
+        tailwind_div!(line_height(relative(1.0)), flex, flex_col).child(content)
+    }
+}
+
+impl CachedReplyInfo {
+    fn render(
+        &self,
+        theme: &AppTheme,
+        structure: &Structure,
+        sender_avatar: impl Fn(&UserId) -> AnyElement,
+        sender_name: impl Fn(&UserId) -> AnyElement,
+    ) -> Div {
+        let content = match &self.body {
+            DetailState::Pending => {
+                tailwind_div!(italic, text_color(theme.text.dim)).child("Loading")
+            }
+            DetailState::Error(error) => {
+                tailwind_div!(text_color(theme.colors.error)).child(error.clone())
+            }
+            DetailState::Unavailable => {
+                tailwind_div!(text_color(theme.colors.warning)).child("Unavailable")
+            }
+            DetailState::Ready(content) => {
+                let (icon, text, style) = content.body.render_things(theme, structure);
+
+                tailwind_div!(flex, flex_row, items_center)
+                    .child(sender_avatar(&content.sender_id))
+                    .child(sender_name(&content.sender_id))
+                    .when_some(icon, |el, icon| {
+                        el.child(render_icon(icon, structure.chat.small_text_size))
+                    })
+                    .when_some(text, |el, text| {
+                        el.child(
+                            tailwind_div!(
+                                text_color(theme.text.normal),
+                                text_size(structure.chat.small_text_size)
+                            )
+                            .child(text)
+                            .refine_style(&style),
+                        )
+                    })
+            }
+        };
+
+        let col_width = structure.chat_col_width();
+
+        tailwind_div!(flex, flex_row, cursor_pointer, pb(structure.gap))
+            .child(
+                tailwind_div!(w(col_width), mb(structure.small_gap), relative).child(
+                    tailwind_div!(
+                        absolute,
+                        left(col_width / 2.0),
+                        bottom(-structure.gap),
+                        w(col_width / 2.0 - structure.small_gap),
+                        h((structure.chat.small_icon_size + structure.gap) / 2.0),
+                        rounded_tl(structure.outer_border_radius),
+                        border_l(structure.divider_width),
+                        border_t(structure.divider_width),
+                        border_color(theme.tile.border)
+                    ),
+                ),
+            )
             .child(content)
     }
 }

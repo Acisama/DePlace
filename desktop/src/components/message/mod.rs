@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use gpui::{ElementId, ImageFormat, SharedString};
+use gpui::{ElementId, ImageFormat, SharedString, StyleRefinement, Styled};
 use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
 
 mod convert;
@@ -8,7 +8,10 @@ mod render;
 
 pub use convert::cached_from_timeline_item;
 
-use crate::components::ByteSize;
+use crate::{
+    components::ByteSize,
+    theme::{AppTheme, Structure},
+};
 
 #[derive(Clone)]
 pub struct CachedTimelineItem {
@@ -93,6 +96,13 @@ pub struct CachedTimelineEvent {
 }
 
 impl CachedTimelineEvent {
+    pub fn in_reply_to(&self) -> Option<CachedReplyInfo> {
+        match &self.content {
+            CachedEventContent::UserMessage(content) => content.in_reply_to.clone(),
+            _ => None,
+        }
+    }
+
     pub fn calculate_flags(&mut self, is_own: bool, is_redacted: bool) {
         let can_be_replied_to = self.flags.can_be_replied_to
             && match &self.content {
@@ -161,9 +171,105 @@ pub enum DetailState<T> {
 }
 
 #[derive(Clone)]
-struct CachedReplyInfo {
-    event_id: Arc<OwnedEventId>,
-    body: DetailState<SharedString>,
+pub enum CachedReplyPreviewBody {
+    Audio,
+    Text(SharedString),
+    System(SharedString),
+    Error(SharedString),
+    Emote(SharedString),
+    Media,
+    Location,
+    Poll,
+    Redacted,
+    Sticker,
+    ProfileChange,
+    RtcNotification(SharedString),
+    CallInvite,
+}
+
+impl CachedReplyPreviewBody {
+    pub fn render_things(
+        &self,
+        theme: &AppTheme,
+        structure: &Structure,
+    ) -> (Option<&'static str>, Option<SharedString>, StyleRefinement) {
+        match self {
+            CachedReplyPreviewBody::Audio => (
+                Some(phosphor_svgs::icon::music_note::BOLD),
+                Some("Audio message".into()),
+                StyleRefinement::default(),
+            ),
+            CachedReplyPreviewBody::Emote(text) => (
+                None,
+                Some(text.clone()),
+                StyleRefinement::default().text_size(structure.chat.text_size * 1.5),
+            ),
+            CachedReplyPreviewBody::Text(text) => {
+                (None, Some(text.clone()), StyleRefinement::default())
+            }
+            CachedReplyPreviewBody::System(text) => (
+                None,
+                Some(text.clone()),
+                StyleRefinement::default()
+                    .text_color(theme.text.dim)
+                    .italic(),
+            ),
+            CachedReplyPreviewBody::Redacted => (
+                Some(phosphor_svgs::icon::trash::BOLD),
+                Some("Redacted".into()),
+                StyleRefinement::default()
+                    .text_color(theme.text.dim)
+                    .italic(),
+            ),
+            CachedReplyPreviewBody::Error(text) => (
+                Some(phosphor_svgs::icon::warning::BOLD),
+                Some(text.clone()),
+                StyleRefinement::default().text_color(theme.colors.error),
+            ),
+            CachedReplyPreviewBody::Media => (
+                Some(phosphor_svgs::icon::image::BOLD),
+                Some("Click to see media".into()),
+                StyleRefinement::default().italic(),
+            ),
+            CachedReplyPreviewBody::Location => (
+                Some(phosphor_svgs::icon::map_pin::BOLD),
+                Some("Click to see location".into()),
+                StyleRefinement::default().italic(),
+            ),
+            CachedReplyPreviewBody::Poll => (
+                Some(phosphor_svgs::icon::clipboard_text::BOLD),
+                Some("Click to see poll".into()),
+                StyleRefinement::default().italic(),
+            ),
+            CachedReplyPreviewBody::Sticker => (
+                Some(phosphor_svgs::icon::sticker::BOLD),
+                Some("Click to see sticker".into()),
+                StyleRefinement::default().italic(),
+            ),
+            CachedReplyPreviewBody::ProfileChange => (
+                Some(phosphor_svgs::icon::user::BOLD),
+                Some("Click to see profile change".into()),
+                StyleRefinement::default().text_color(theme.text.dim),
+            ),
+            CachedReplyPreviewBody::RtcNotification(_) | CachedReplyPreviewBody::CallInvite => (
+                Some(phosphor_svgs::icon::phone::BOLD),
+                Some("Click to see call".into()),
+                StyleRefinement::default().text_color(theme.text.dim),
+            ),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct CachedReplyPreview {
+    pub sender_id: Arc<OwnedUserId>,
+    pub body: CachedReplyPreviewBody,
+}
+
+#[derive(Clone)]
+pub struct CachedReplyInfo {
+    pub event_id: Arc<OwnedEventId>,
+    pub body: DetailState<CachedReplyPreview>,
 }
 
 #[derive(Clone)]

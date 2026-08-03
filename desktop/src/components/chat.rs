@@ -96,11 +96,17 @@ impl ChatView {
             let mut active_room = view.active_room.clone();
             async move |this, cx| {
                 while active_room.changed().await.is_ok() {
-                    if this
-                        .update(cx, |view, cx| view.load_active_room(cx))
-                        .is_err()
-                    {
-                        break;
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        this.update(cx, |view, cx| view.load_active_room(cx))
+                    })) {
+                        Ok(Ok(())) => {}
+                        Ok(Err(_)) => break,
+                        Err(e) => {
+                            tracing::error!(
+                                "Panic while loading active room, will keep listening for room changes: {:?}",
+                                e
+                            );
+                        }
                     }
                 }
             }
@@ -114,12 +120,16 @@ impl ChatView {
         if let Some(handle) = self.current_fetch.take() {
             handle.abort();
         }
+        if let Some(handle) = self.current_scroll.take() {
+            handle.abort();
+        }
 
         self.current_updates = None;
 
         self.list_state.splice(0..self.messages.len(), 0);
         self.messages = Vec::new();
         self.timeline_id = None;
+        self.focused_message = None;
         cx.notify();
 
         let Some(room) = self.active_room.borrow_and_update().clone() else {
@@ -284,18 +294,50 @@ fn apply_diff(
             }
         }
         VectorDiff::Insert { index, value } => {
+            if index > messages.len() {
+                tracing::error!(
+                    "Ignoring out-of-range timeline Insert at {} (len {})",
+                    index,
+                    messages.len()
+                );
+                return;
+            }
             messages.insert(index, cached_from_timeline_item(&value, own_id));
             list_state.splice(index..index, 1);
         }
         VectorDiff::Set { index, value } => {
+            if index >= messages.len() {
+                tracing::error!(
+                    "Ignoring out-of-range timeline Set at {} (len {})",
+                    index,
+                    messages.len()
+                );
+                return;
+            }
             messages[index] = cached_from_timeline_item(&value, own_id);
             list_state.splice(index..index + 1, 1);
         }
         VectorDiff::Remove { index } => {
+            if index >= messages.len() {
+                tracing::error!(
+                    "Ignoring out-of-range timeline Remove at {} (len {})",
+                    index,
+                    messages.len()
+                );
+                return;
+            }
             messages.remove(index);
             list_state.splice(index..index + 1, 0);
         }
         VectorDiff::Truncate { length } => {
+            if length > messages.len() {
+                tracing::error!(
+                    "Ignoring out-of-range timeline Truncate to {} (len {})",
+                    length,
+                    messages.len()
+                );
+                return;
+            }
             list_state.splice(length..messages.len(), 0);
             messages.truncate(length);
         }
@@ -377,7 +419,7 @@ impl Render for ChatView {
             }))
             .track_focus(&self.focus_handle)
             .child({
-                let focused_message = self.focused_message.clone();
+                let focused_message = self.focused_message;
                 list(self.list_state.clone(), move |ix, _window, cx| {
                     let theme = cx.app_theme();
                     let structure = cx.structure();

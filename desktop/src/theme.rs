@@ -132,8 +132,8 @@ impl Structure {
             divider_width: px(2.0),
 
             chat: Chat {
-                icon_size: px(32.0),
-                small_icon_size: px(18.0),
+                icon_size: px(40.0),
+                small_icon_size: px(22.0),
                 text_size: px(16.0),
                 small_text_size: px(12.0),
                 max_media_height: px(500.0),
@@ -158,6 +158,10 @@ impl Structure {
                 members: px(240.0),
             },
         }
+    }
+
+    pub fn chat_col_width(&self) -> Pixels {
+        self.chat.icon_size + 2.0 * self.gap
     }
 
     pub fn server_column_width(&self) -> Pixels {

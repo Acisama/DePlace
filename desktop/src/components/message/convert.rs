@@ -17,16 +17,18 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::timeline::{
-    AnyOtherStateEventContentChange, BeaconInfo, EventSendState, MembershipChange, MsgLikeKind,
-    OtherState, TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    AnyOtherStateEventContentChange, BeaconInfo, EmbeddedEvent, EventSendState, InReplyToDetails,
+    MembershipChange, MsgLikeKind, OtherState, TimelineDetails, TimelineItem, TimelineItemContent,
+    TimelineItemKind, VirtualTimelineItem,
 };
 
 use crate::components::{
     ByteSize, blurhash_to_image,
     message::{
         CachedBeaconInfo, CachedEventContent, CachedMediaUploadProgress, CachedMessageType,
-        CachedProgress, CachedSendState, CachedSystemMessage, CachedTimelineEvent,
-        CachedTimelineItem, CachedTimelineItemKind, CachedUserMessage, EventFlags, ReactionInfo,
+        CachedProgress, CachedReplyInfo, CachedReplyPreview, CachedReplyPreviewBody,
+        CachedSendState, CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem,
+        CachedTimelineItemKind, CachedUserMessage, DetailState, EventFlags, ReactionInfo,
     },
 };
 
@@ -364,10 +366,8 @@ fn cached_from_timeline_item_content(
                             let info = content.info.clone().unwrap_or_default();
                             let filename = content.filename();
 
-                            let format = info
-                                .mimetype
-                                .map(|m| ImageFormat::from_mime_type(&m))
-                                .flatten();
+                            let format =
+                                info.mimetype.and_then(|m| ImageFormat::from_mime_type(&m));
 
                             (
                                 (filename != content.body).then_some(content.body.as_str().into()),
@@ -486,13 +486,99 @@ fn cached_from_timeline_item_content(
                 })
                 .unwrap_or_default();
 
+            let in_reply_to = value.in_reply_to().map(|details| details.into());
+
             CachedEventContent::UserMessage(Box::new(CachedUserMessage {
                 reactions,
-                in_reply_to: None,
+                in_reply_to,
                 is_edited,
                 body,
                 msg_type,
             }))
+        }
+    }
+}
+
+impl From<InReplyToDetails> for CachedReplyInfo {
+    fn from(details: InReplyToDetails) -> Self {
+        let body = match details.event {
+            TimelineDetails::Error(error) => DetailState::Error(error.to_string().into()),
+            TimelineDetails::Pending => DetailState::Pending,
+            TimelineDetails::Unavailable => DetailState::Unavailable,
+            TimelineDetails::Ready(ev) => DetailState::Ready(ev.into()),
+        };
+
+        CachedReplyInfo {
+            event_id: Arc::new(details.event_id),
+            body,
+        }
+    }
+}
+
+impl From<Box<EmbeddedEvent>> for CachedReplyPreview {
+    fn from(event: Box<EmbeddedEvent>) -> Self {
+        let body = match event.content {
+            TimelineItemContent::CallInvite => CachedReplyPreviewBody::CallInvite,
+            TimelineItemContent::FailedToParseMessageLike { .. } => {
+                CachedReplyPreviewBody::Error("Failed to parse message".into())
+            }
+            TimelineItemContent::FailedToParseState { .. } => {
+                CachedReplyPreviewBody::Error("Failed to parse state".into())
+            }
+            TimelineItemContent::MembershipChange(_) => {
+                CachedReplyPreviewBody::System("Membership change".into())
+            }
+            TimelineItemContent::MsgLike(msglike) => match msglike.kind {
+                MsgLikeKind::LiveLocation(_) => CachedReplyPreviewBody::Location,
+                MsgLikeKind::Poll(_) => CachedReplyPreviewBody::Poll,
+                MsgLikeKind::Message(msg) => match msg.msgtype() {
+                    MessageType::Audio(_) => CachedReplyPreviewBody::Audio,
+                    MessageType::Emote(content) => {
+                        CachedReplyPreviewBody::Emote(content.body.as_str().into())
+                    }
+                    MessageType::File(_) | MessageType::Video(_) | MessageType::Image(_) => {
+                        CachedReplyPreviewBody::Media
+                    }
+                    MessageType::Location(_) => CachedReplyPreviewBody::Location,
+                    MessageType::Notice(content) => {
+                        CachedReplyPreviewBody::Text(content.body.as_str().into())
+                    }
+                    MessageType::ServerNotice(content) => {
+                        CachedReplyPreviewBody::Text(content.body.as_str().into())
+                    }
+                    MessageType::Text(content) => {
+                        CachedReplyPreviewBody::Text(content.body.as_str().into())
+                    }
+                    MessageType::VerificationRequest(_) => {
+                        CachedReplyPreviewBody::Text("Verification request".into())
+                    }
+                    _ => CachedReplyPreviewBody::Error("Unknown message type".into()),
+                },
+                MsgLikeKind::Redacted => CachedReplyPreviewBody::Redacted,
+                MsgLikeKind::Sticker(_) => CachedReplyPreviewBody::Sticker,
+                MsgLikeKind::UnableToDecrypt(_) => {
+                    CachedReplyPreviewBody::Error("Unable to decrypt".into())
+                }
+                MsgLikeKind::Other(other) => {
+                    CachedReplyPreviewBody::System(other.event_type().to_string().into())
+                }
+            },
+            TimelineItemContent::OtherState(other) => {
+                CachedReplyPreviewBody::System(other.state_key().to_string().into())
+            }
+            TimelineItemContent::ProfileChange(_) => CachedReplyPreviewBody::ProfileChange,
+            TimelineItemContent::RtcNotification { call_intent, .. } => {
+                CachedReplyPreviewBody::RtcNotification(if let Some(intent) = call_intent {
+                    format!("{} call", intent).into()
+                } else {
+                    "Call".into()
+                })
+            }
+        };
+
+        Self {
+            sender_id: Arc::new(event.sender),
+            body,
         }
     }
 }

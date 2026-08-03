@@ -12,7 +12,7 @@ use gpui::{
     SharedString, Window, div, img, prelude::*, px, relative, svg, transparent_black,
 };
 use gpui_component::{
-    StyledExt,
+    StyledExt, gray_200,
     input::{Input, InputState},
 };
 use image::{Frame, ImageBuffer, Rgba};
