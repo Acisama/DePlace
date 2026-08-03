@@ -6,10 +6,15 @@ use deplace_core::{
     helpers::{format_date_divider, format_message_long_date, format_message_short_date},
     matrix_api::timeline::{DisplayString, get_current_and_prev},
 };
-use gpui::SharedString;
-use matrix_sdk::ruma::{
-    MilliSecondsSinceUnixEpoch, UserId,
-    events::{receipt::ReceiptThread, room::message::MessageType, rtc::notification::CallIntent},
+use gpui::{ImageFormat, SharedString};
+use matrix_sdk::{
+    media::UniqueKey,
+    ruma::{
+        MilliSecondsSinceUnixEpoch, UserId,
+        events::{
+            receipt::ReceiptThread, room::message::MessageType, rtc::notification::CallIntent,
+        },
+    },
 };
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, BeaconInfo, EventSendState, MembershipChange, MsgLikeKind,
@@ -359,15 +364,21 @@ fn cached_from_timeline_item_content(
                             let info = content.info.clone().unwrap_or_default();
                             let filename = content.filename();
 
+                            let format = info
+                                .mimetype
+                                .map(|m| ImageFormat::from_mime_type(&m))
+                                .flatten();
+
                             (
                                 (filename != content.body).then_some(content.body.as_str().into()),
                                 CachedMessageType::Image {
                                     filename: filename.into(),
                                     source: Arc::new(content.source.clone()),
+                                    source_key: content.source.unique_key().into(),
                                     width: info.width.map(|w| u64::from(w) as f32),
                                     height: info.height.map(|h| u64::from(h) as f32),
                                     size: info.size.map(|s| ByteSize::new(s.into())),
-                                    mime_type: info.mimetype.map(|m| m.into()),
+                                    format,
                                     blurhash_image: info.blurhash.map(|h| blurhash_to_image(&h)),
                                 },
                             )

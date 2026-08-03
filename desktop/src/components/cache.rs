@@ -14,7 +14,7 @@ use tokio::{runtime::Runtime, sync::watch};
 
 pub type AvatarCache = MediaCache<OwnedMxcUri, gpui::Image>;
 pub type FileCache = MediaCache<String, Vec<u8>>;
-pub type ThumbnailCache = MediaCache<(String, u64, u64), gpui::Image>;
+pub type ThumbnailCache = MediaCache<(gpui::SharedString, u64, u64), gpui::Image>;
 
 #[derive(Clone, Default)]
 pub enum MediaState<C> {
@@ -102,14 +102,8 @@ impl AvatarCache {
 
             let state = res
                 .and_then(|bytes| {
-                    let format = match image::guess_format(&bytes) {
-                        Ok(format) => format,
-                        Err(e) => {
-                            tracing::error!("Failed to guess image format: {:?}", e);
-                            return None;
-                        }
-                    };
-                    let image = gpui::Image::from_bytes(gpui_format_from(format), bytes.to_vec());
+                    let format = guess_image_format(&bytes)?;
+                    let image = gpui::Image::from_bytes(format, bytes.to_vec());
                     Some(MediaState::Loaded(Arc::new(image)))
                 })
                 .unwrap_or_default();
@@ -125,19 +119,21 @@ impl AvatarCache {
 }
 
 impl FileCache {
-    pub fn get(&self, request: &MediaRequestParameters) -> MediaState<Vec<u8>> {
-        let key = request.unique_key();
-
-        if let Some(state) = self.cache.get(&key) {
+    pub fn get(&self, source: &MediaSource, source_key: &str) -> MediaState<Vec<u8>> {
+        if let Some(state) = self.cache.get(source_key) {
             return state.clone();
         }
 
-        self.cache.insert(key.clone(), MediaState::Loading);
+        self.cache
+            .insert(source_key.to_string(), MediaState::Loading);
 
         let store = self.clone();
         let tokio_rt = self.tokio_rt.clone();
-        let key = key.clone();
-        let request = request.clone();
+        let key = source_key.to_string();
+        let request = MediaRequestParameters {
+            source: source.clone(),
+            format: MediaFormat::File,
+        };
         tokio_rt.spawn(async move {
             let state = match store.client.media().get_media_content(&request, true).await {
                 Ok(bytes) => MediaState::Loaded(Arc::new(bytes)),
@@ -158,8 +154,14 @@ impl FileCache {
 }
 
 impl ThumbnailCache {
-    pub fn get(&self, source: &MediaSource, width: u64, height: u64) -> MediaState<gpui::Image> {
-        let key = (source.unique_key(), width, height);
+    pub fn get(
+        &self,
+        source: &MediaSource,
+        source_key: &gpui::SharedString,
+        width: u64,
+        height: u64,
+    ) -> MediaState<gpui::Image> {
+        let key = (source_key.clone(), width, height);
 
         if let Some(state) = self.cache.get(&key) {
             return state.clone();
@@ -192,14 +194,8 @@ impl ThumbnailCache {
 
             let state = res
                 .and_then(|bytes| {
-                    let format = match image::guess_format(&bytes) {
-                        Ok(format) => format,
-                        Err(e) => {
-                            tracing::error!("Failed to guess image format: {:?}", e);
-                            return None;
-                        }
-                    };
-                    let image = gpui::Image::from_bytes(gpui_format_from(format), bytes.to_vec());
+                    let format = guess_image_format(&bytes)?;
+                    let image = gpui::Image::from_bytes(format, bytes.to_vec());
                     Some(MediaState::Loaded(Arc::new(image)))
                 })
                 .unwrap_or_default();
@@ -216,6 +212,25 @@ impl ThumbnailCache {
 
         MediaState::Loading
     }
+}
+
+fn guess_image_format(bytes: &[u8]) -> Option<gpui::ImageFormat> {
+    if is_svg(bytes) {
+        return Some(gpui::ImageFormat::Svg);
+    }
+
+    match image::guess_format(bytes) {
+        Ok(format) => Some(gpui_format_from(format)),
+        Err(e) => {
+            tracing::error!("Failed to guess image format: {:?}", e);
+            None
+        }
+    }
+}
+
+fn is_svg(bytes: &[u8]) -> bool {
+    let sample = &bytes[..bytes.len().min(512)];
+    String::from_utf8_lossy(sample).contains("<svg")
 }
 
 fn gpui_format_from(format: image::ImageFormat) -> gpui::ImageFormat {

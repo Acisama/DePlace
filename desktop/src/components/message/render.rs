@@ -354,27 +354,31 @@ impl CachedUserMessage {
             CachedMessageType::Image {
                 filename,
                 source,
+                source_key,
                 width,
                 height,
                 size,
-                mime_type: _mime_type,
+                format: _mime_type,
                 blurhash_image,
             } => {
                 let max_width = chat.max_media_width.as_f32();
                 let max_height = chat.max_media_height.as_f32();
 
-                let (w, h) = fit_dimensions(
+                let (width, height) = fit_dimensions(
                     width.unwrap_or(max_width),
                     height.unwrap_or(max_height),
                     max_width,
                     max_height,
                 );
 
-                let media_key = (source.unique_key(), w as u64, h as u64);
-                let image = media_cache.get(source, media_key.1, media_key.2);
+                let image = media_cache.get(source, source_key, width as u64, height as u64);
 
-                let w = Pixels::from(w);
-                let h = Pixels::from(h);
+                const FADE_DURATION: Duration = Duration::from_millis(400);
+                let loaded_elapsed = media_cache
+                    .loaded_elapsed(&(source_key.clone(), width as u64, height as u64));
+
+                let w = Pixels::from(width);
+                let h = Pixels::from(height);
 
                 let rounding = structure.inner_border_radius;
 
@@ -398,22 +402,21 @@ impl CachedUserMessage {
                 };
 
                 let content = match image {
-                    MediaState::Loading => match blurhash_image {
-                        // The blurhash is already painted as a persistent background layer
-                        // below, so there's nothing to layer on top while loading.
-                        Some(_) => div().size_full().into_any(),
-                        None => tailwind_div!(
-                            size_full,
-                            border_1,
-                            bg(error),
-                            border_color(theme.tile.border)
-                        )
-                        .child("dawdwdwadwa")
-                        .into_any(),
-                    },
+                    MediaState::Loading => {
+                        if blurhash_image.is_some() {
+                            div().size_full().into_any()
+                        } else {
+                            tailwind_div!(
+                                size_full,
+                                border_1,
+                                bg(error),
+                                border_color(theme.tile.border)
+                            )
+                            .child("dawdwdwadwa")
+                            .into_any()
+                        }
+                    }
                     MediaState::Loaded(image) => {
-                        const FADE_DURATION: Duration = Duration::from_millis(400);
-
                         let el = img(image)
                             .size_full()
                             .rounded(rounding)
@@ -421,16 +424,12 @@ impl CachedUserMessage {
                             .border_color(theme.tile.border)
                             .with_fallback(error_fallback);
 
-                        // Only animate a fade-in for loads that actually happened while
-                        // this view was mounted; media that was already cached before
-                        // (e.g. switching back to a room, or scrolling past history) should
-                        // just appear immediately instead of replaying the animation.
-                        match media_cache.loaded_elapsed(&media_key) {
+                        match loaded_elapsed {
                             Some(elapsed) if elapsed < FADE_DURATION => {
                                 let start_opacity =
                                     elapsed.as_secs_f32() / FADE_DURATION.as_secs_f32();
                                 el.with_animation(
-                                    ElementId::Name(media_key.0.clone().into()),
+                                    ElementId::Name(filename.clone()),
                                     Animation::new(
                                         FADE_DURATION.checked_sub(elapsed).unwrap_or_default(),
                                     ),
@@ -446,6 +445,39 @@ impl CachedUserMessage {
                     MediaState::Failed => error_fallback().into_any(),
                 };
 
+                // Only keep the blurhash around while loading, or fading it out right after
+                // the real image lands. Otherwise it would stay visible forever behind
+                // transparent content (e.g. SVGs or PNGs with alpha).
+                let blurhash_overlay = blurhash_image.clone().and_then(|blurhash| {
+                    let el = img(blurhash)
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .object_fit(ObjectFit::Cover)
+                        .rounded(rounding);
+
+                    match loaded_elapsed {
+                        None => Some(el.into_any()),
+                        Some(elapsed) if elapsed < FADE_DURATION => {
+                            let start_opacity =
+                                1.0 - elapsed.as_secs_f32() / FADE_DURATION.as_secs_f32();
+                            Some(
+                                el.with_animation(
+                                    ElementId::Name(
+                                        format!("{filename}-blurhash-fade-out").into(),
+                                    ),
+                                    Animation::new(
+                                        FADE_DURATION.checked_sub(elapsed).unwrap_or_default(),
+                                    ),
+                                    move |el, delta| el.opacity(start_opacity * (1.0 - delta)),
+                                )
+                                .into_any(),
+                            )
+                        }
+                        Some(_) => None,
+                    }
+                });
+
                 tailwind_div!(flex, flex_col, gap(structure.small_gap))
                     .when_some(self.body.as_ref(), |el, text| {
                         el.child(render_body(text.clone()))
@@ -459,16 +491,7 @@ impl CachedUserMessage {
                         )
                         .group(filename)
                         .relative()
-                        .when_some(blurhash_image.clone(), |el, blurhash| {
-                            el.child(
-                                img(blurhash)
-                                    .absolute()
-                                    .inset_0()
-                                    .size_full()
-                                    .object_fit(ObjectFit::Cover)
-                                    .rounded(rounding),
-                            )
-                        })
+                        .when_some(blurhash_overlay, |el, overlay| el.child(overlay))
                         .child(content)
                         .child(
                             tailwind_div!(
