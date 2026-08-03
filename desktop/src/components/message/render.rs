@@ -145,10 +145,12 @@ impl CachedTimelineEvent {
                         .unwrap_or(true);
 
                 pad_bottom = next.is_some_and(|item| {
-                    matches!(&item.kind,
-                        CachedTimelineItemKind::Event(next_event)
-                        if next_event.timestamp.abs_diff(self.timestamp) > 300
-                            || next_event.sender != self.sender)
+                    if let CachedTimelineItemKind::Event(boxed_event) = &item.kind {
+                        boxed_event.timestamp.abs_diff(self.timestamp) > 300
+                            || boxed_event.sender != self.sender
+                    } else {
+                        true
+                    }
                 });
                 msg.render(structure, theme, image_cache)
             }
