@@ -536,6 +536,7 @@ impl CachedUserMessage {
                                     border_1,
                                     border_color(theme.tile.border),
                                     opacity(0.0),
+            _ => div(),
                                     flex,
                                     items_center,
                                 )
