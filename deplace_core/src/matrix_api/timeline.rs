@@ -26,9 +26,6 @@ type TimelineFocusMap = HashMap<(OwnedRoomId, Option<OwnedEventId>), (Arc<Timeli
 type TimelineMap = HashMap<Uuid, (Arc<Timeline>, PaginationState)>;
 pub type Messages = imbl::Vector<Arc<TimelineItem>>;
 
-/// Tracked separately per direction: reaching the live end (trivially true for a live
-/// timeline, since there's nothing to paginate forward into) must not also block
-/// backwards pagination for older history.
 #[derive(Default, Clone, Copy)]
 struct PaginationState {
     reached_start: bool,
@@ -135,7 +132,6 @@ impl TimelineManager {
     }
 
     pub async fn scroll_timeline(&self, id: Uuid, direction: ScrollDirection) {
-        tracing::debug!("Scrolling timeline {} {}", id, direction);
         let Some((timeline, state)) = self.get_timeline_by_id(id).await else {
             tracing::error!("Timeline not found: {}", id);
             return;
@@ -146,10 +142,10 @@ impl TimelineManager {
             ScrollDirection::Down => state.reached_end,
         };
         if already_reached {
-            tracing::debug!("Timeline {} already reached the {} edge", id, direction);
             return;
         }
 
+        tracing::debug!("Scrolling timeline {} {}", id, direction);
         let res = match direction {
             ScrollDirection::Up => timeline.paginate_backwards(30).await,
             ScrollDirection::Down => timeline.paginate_forwards(30).await,

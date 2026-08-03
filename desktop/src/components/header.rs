@@ -4,7 +4,7 @@ use deplace_core::{
     NameExt, get_other_member,
     state::{AppState, MembershipMap},
 };
-use gpui::{Context, ParentElement, Render, Styled, div, px};
+use gpui::{Context, Element, ParentElement, Render, Styled, div, px};
 use gpui_component::StyledExt;
 use matrix_sdk::{Room, ruma::OwnedUserId};
 use tokio::{runtime::Runtime, sync::watch};
@@ -65,7 +65,7 @@ impl Render for HeaderView {
             .unwrap_or("No room selected".to_string());
 
         let map = self.membership_map.borrow().clone();
-        let name_div = div().child(name);
+        let name_div = div().child(name).into_any();
 
         div()
             .size_full()

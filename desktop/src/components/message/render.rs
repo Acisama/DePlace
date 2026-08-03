@@ -15,8 +15,8 @@ use crate::{
         AvatarCache, CustomStyles, MemberRenderer,
         cache::{MediaState, ThumbnailCache},
         message::{
-            CachedEventContent, CachedMessageType, CachedSendState, CachedTimelineEvent,
-            CachedTimelineItem, CachedTimelineItemKind, CachedUserMessage,
+            CachedEventContent, CachedMessageType, CachedSendState, CachedSystemMessage,
+            CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind, CachedUserMessage,
         },
         render_icon,
     },
@@ -110,22 +110,7 @@ impl CachedTimelineEvent {
                 tailwind_div!(text_color(colors.error)).child(text.clone())
             }
             CachedEventContent::SystemMessage(msg) => {
-                if let Some(text) = msg.text() {
-                    tailwind_div!(
-                        text_color(theme.text.dim),
-                        items_center,
-                        flex,
-                        flex_1,
-                        justify_center
-                    )
-                    .child(sender_avatar(structure.chat.small_icon_size))
-                    .child(" ")
-                    .child(sender_name(structure.chat.text_size))
-                    .child(" ")
-                    .child(text)
-                } else {
-                    return div().into_any();
-                }
+                msg.render(structure, theme, sender_avatar, sender_name)
             }
             CachedEventContent::UserMessage(msg) => {
                 show_header = msg.in_reply_to.is_some()
@@ -276,13 +261,35 @@ impl CachedTimelineEvent {
     }
 }
 
-impl CachedUserMessage {
-    pub fn render(
+impl CachedSystemMessage {
+    fn render(
         &self,
         structure: &Structure,
         theme: &AppTheme,
-        media_cache: &ThumbnailCache,
+        sender_avatar: impl Fn(Pixels) -> AnyElement,
+        sender_name: impl Fn(Pixels) -> AnyElement,
     ) -> Div {
+        if let Some(text) = self.text() {
+            tailwind_div!(
+                text_color(theme.text.dim),
+                items_center,
+                flex,
+                flex_1,
+                justify_center
+            )
+            .child(sender_avatar(structure.chat.small_icon_size))
+            .child(" ")
+            .child(sender_name(structure.chat.text_size))
+            .child(" ")
+            .child(text)
+        } else {
+            div()
+        }
+    }
+}
+
+impl CachedUserMessage {
+    fn render(&self, structure: &Structure, theme: &AppTheme, media_cache: &ThumbnailCache) -> Div {
         let warning = theme.colors.warning;
         let error = theme.colors.error;
 
@@ -449,9 +456,6 @@ impl CachedUserMessage {
                     MediaState::Failed => error_fallback().into_any(),
                 };
 
-                // Only keep the blurhash around while loading, or fading it out right after
-                // the real image lands. Otherwise it would stay visible forever behind
-                // transparent content (e.g. SVGs or PNGs with alpha).
                 let blurhash_overlay = blurhash_image.clone().and_then(|blurhash| {
                     let el = img(blurhash)
                         .absolute()
@@ -485,36 +489,30 @@ impl CachedUserMessage {
                         el.child(render_body(text.clone()))
                     })
                     .child(
-                        tailwind_div!(
-                            w(w),
-                            h(h),
-                            bg(theme.solid_bg),
-                            rounded(structure.inner_border_radius)
-                        )
-                        .group(filename)
-                        .relative()
-                        .when_some(blurhash_overlay, |el, overlay| el.child(overlay))
-                        .child(content)
-                        .child(
-                            tailwind_div!(
-                                absolute,
-                                bottom(structure.small_gap),
-                                left(structure.small_gap),
-                                paddings(structure.small_gap),
-                                bg(theme.solid_bg),
-                                rounded(structure.smaller_border_radius)
-                                border_1,
-                                border_color(theme.tile.border),
-                                opacity(0.0),
-                                flex,
-                                items_center,
-                            )
-                            .group_hover(filename, |style| style.opacity(1.0))
-                            .child(filename.clone())
-                            .when_some(size.clone(), |el, size| {
-                                el.child(" (").child(size.bytes_str).child(")")
-                            }),
-                        ),
+                        tailwind_div!(w(w), h(h), rounded(structure.inner_border_radius))
+                            .group(filename)
+                            .relative()
+                            .when_some(blurhash_overlay, |el, overlay| el.child(overlay))
+                            .child(content)
+                            .child(
+                                tailwind_div!(
+                                    absolute,
+                                    bottom(structure.small_gap),
+                                    left(structure.small_gap),
+                                    paddings(structure.small_gap),
+                                    rounded(structure.smaller_border_radius)
+                                    border_1,
+                                    border_color(theme.tile.border),
+                                    opacity(0.0),
+                                    flex,
+                                    items_center,
+                                )
+                                .group_hover(filename, |style| style.opacity(1.0))
+                                .child(filename.clone())
+                                .when_some(size.clone(), |el, size| {
+                                    el.child(" (").child(size.bytes_str).child(")")
+                                }),
+                            ),
                     )
                     .into_any()
             }
@@ -562,11 +560,6 @@ impl CachedUserMessage {
             CachedMessageType::UnableToDecrypt => tailwind_div!(text_color(error))
                 .child("Unable to decrypt message")
                 .into_any(),
-            CachedMessageType::VerificationRequest => {
-                tailwind_div!(text_color(theme.colors.success))
-                    .child("Verification request")
-                    .into_any()
-            }
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
 

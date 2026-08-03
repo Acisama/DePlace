@@ -238,7 +238,6 @@ enum CachedMessageType {
         admin_contact: Option<SharedString>,
     },
     Text,
-    VerificationRequest,
     Video {
         source: Arc<MediaSource>,
         filename: SharedString,

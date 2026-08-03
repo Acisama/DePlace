@@ -200,7 +200,7 @@ fn render_room_icon(
 
 pub trait MemberRenderer {
     fn render_avatar(&self, size: Pixels, rounding: Pixels, cache: &AvatarCache) -> AnyElement;
-    fn render_name(&self, size: Pixels) -> Div;
+    fn render_name(&self, size: Pixels) -> AnyElement;
 }
 
 fn render_name(name: String, color: Color, size: Pixels) -> Div {
@@ -222,9 +222,9 @@ impl MemberRenderer for RoomMember {
         avatar(self.initial(), self.color(), size, rounding, image)
     }
 
-    fn render_name(&self, size: Pixels) -> Div {
+    fn render_name(&self, size: Pixels) -> AnyElement {
         let color: Color = self.color();
-        render_name(self.get_name(), color, size)
+        render_name(self.get_name(), color, size).into_any()
     }
 }
 
@@ -237,11 +237,11 @@ impl MemberRenderer for Option<&RoomMember> {
         }
     }
 
-    fn render_name(&self, size: Pixels) -> Div {
+    fn render_name(&self, size: Pixels) -> AnyElement {
         if let Some(member) = self {
-            member.render_name(size)
+            member.render_name(size).into_any()
         } else {
-            render_unknown_name(size)
+            render_unknown_name(size).into_any()
         }
     }
 }
