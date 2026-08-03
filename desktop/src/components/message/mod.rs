@@ -242,7 +242,9 @@ enum CachedMessageType {
     UnableToDecrypt,
     Redacted,
     Sticker,
-    Other(SharedString),
+    Other {
+        msg_type: SharedString,
+    },
 }
 
 #[derive(Clone)]

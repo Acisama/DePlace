@@ -437,6 +437,49 @@ impl CachedUserMessage {
                     )
                     .into_any()
             }
+            // TODO: Live locations are not supported yet
+            CachedMessageType::LiveLocation { .. } => tailwind_div!(text_color(warning))
+                .child("Live locations are not supported yet")
+                .into_any(),
+            // TODO: Locations are not supported yet
+            CachedMessageType::Location(_) => tailwind_div!(text_color(warning))
+                .child("Locations are not supported yet")
+                .into_any(),
+            // TODO: Notices are not supported yet
+            CachedMessageType::Notice => tailwind_div!(text_color(warning))
+                .child("Notices are not supported yet")
+                .into_any(),
+            CachedMessageType::Other { msg_type } => tailwind_div!(text_color(warning))
+                .child("Unsupported message type: ")
+                .child(msg_type.clone())
+                .into_any(),
+            // TODO: Polls are not supported yet
+            CachedMessageType::Poll => tailwind_div!(text_color(warning))
+                .child("Polls are not supported yet")
+                .into_any(),
+            CachedMessageType::ServerNotice { admin_contact } => {
+                tailwind_div!(text_color(theme.text.normal))
+                    .child("Server notice")
+                    .when_some(admin_contact.clone(), |el, text| {
+                        el.child(", contact: ").child(text.clone())
+                    })
+                    .into_any()
+            }
+            // TODO: Stickers are not supported yet
+            CachedMessageType::Sticker => tailwind_div!(text_color(theme.text.normal))
+                .child("Stickers are not supported yet")
+                .into_any(),
+            CachedMessageType::Text => tailwind_div!(text_color(theme.text.normal))
+                .child(self.body.clone().unwrap_or_default())
+                .into_any(),
+            CachedMessageType::UnableToDecrypt => tailwind_div!(text_color(error))
+                .child("Unable to decrypt message")
+                .into_any(),
+            CachedMessageType::VerificationRequest => {
+                tailwind_div!(text_color(theme.colors.success))
+                    .child("Verification request")
+                    .into_any()
+            }
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
 

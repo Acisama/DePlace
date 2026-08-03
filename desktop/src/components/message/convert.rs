@@ -423,9 +423,9 @@ fn cached_from_timeline_item_content(
                 }
                 MsgLikeKind::Other(other) => (
                     None,
-                    CachedMessageType::Other(
-                        format!("Unknown message type: {}", other.event_type()).into(),
-                    ),
+                    CachedMessageType::Other {
+                        msg_type: other.event_type().to_string().into(),
+                    },
                 ),
                 MsgLikeKind::Poll(_) => (None, CachedMessageType::Poll),
                 MsgLikeKind::Redacted => (None, CachedMessageType::Redacted),
