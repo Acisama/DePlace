@@ -33,6 +33,7 @@ impl CachedTimelineItem {
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
+        focused: bool,
     ) -> AnyElement {
         let divider_width = structure.divider_width;
 
@@ -65,6 +66,7 @@ impl CachedTimelineItem {
                 image_cache,
                 prev,
                 next,
+                focused,
             ),
         };
 
@@ -85,6 +87,7 @@ impl CachedTimelineEvent {
         image_cache: &ThumbnailCache,
         prev: Option<&CachedTimelineItem>,
         next: Option<&CachedTimelineItem>,
+        focused: bool,
     ) -> AnyElement {
         let colors = &theme.colors;
 
@@ -224,6 +227,7 @@ impl CachedTimelineEvent {
             text_color(text_color),
             text_size(structure.chat.text_size),
         )
+        .when(focused, |el| el.border_color(colors.error))
         .when(self.flags.contains_only_emojis, |el| {
             el.text_size(structure.chat.text_size * 2.0)
         })

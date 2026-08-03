@@ -15,8 +15,17 @@ use crate::components::ByteSize;
 
 #[derive(Clone)]
 pub struct CachedTimelineItem {
-    kind: CachedTimelineItemKind,
+    pub kind: CachedTimelineItemKind,
     id: SharedString,
+}
+
+impl CachedTimelineItem {
+    pub fn is_user_message(&self) -> bool {
+        match &self.kind {
+            CachedTimelineItemKind::Event(event) => event.content.is_user_message(),
+            _ => false,
+        }
+    }
 }
 
 impl CachedTimelineItem {
@@ -26,7 +35,7 @@ impl CachedTimelineItem {
 }
 
 #[derive(Clone)]
-enum CachedTimelineItemKind {
+pub enum CachedTimelineItemKind {
     DateDivider(SharedString),
     ReadMarker,
     TimelineStart,
@@ -70,7 +79,7 @@ struct EventFlags {
 }
 
 #[derive(Clone)]
-struct CachedTimelineEvent {
+pub struct CachedTimelineEvent {
     state: Option<CachedSendState>,
     flags: EventFlags,
 
@@ -83,7 +92,7 @@ struct CachedTimelineEvent {
 
     event_id: Option<Arc<OwnedEventId>>,
 
-    content: CachedEventContent,
+    pub content: CachedEventContent,
 }
 
 impl CachedTimelineEvent {
@@ -166,6 +175,13 @@ enum CachedEventContent {
     UserMessage(CachedUserMessage),
     FailedToParseMessageLike(SharedString),
     FailedToParseState(SharedString),
+}
+
+impl CachedEventContent {
+    #[inline]
+    pub fn is_user_message(&self) -> bool {
+        matches!(self, CachedEventContent::UserMessage(_))
+    }
 }
 
 #[derive(Clone)]

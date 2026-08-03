@@ -10,5 +10,12 @@
     "bindings": {
       "ctrl-k": "quick_select::Close"
     }
+  },
+  {
+    "context": "Chat",
+    "bindings": {
+      "j": "chat::FocusNext",
+      "k": "chat::FocusPrevious"
+    }
   }
 ]
