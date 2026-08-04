@@ -250,6 +250,18 @@ impl HomeView {
                         breadcrumbs.recent_rooms.truncate(10);
                     }
 
+                    let room_id = room.room_id().to_owned();
+
+                    let active_server = this.state.active_server().borrow().clone();
+                    if let Some(active_server) = active_server {
+                        breadcrumbs
+                            .last_space_ids
+                            .insert(active_server.room_id().to_owned(), room_id);
+                    } else {
+                        breadcrumbs.last_dm_id = Some(room_id);
+                        breadcrumbs.dms_last = true;
+                    }
+
                     this.state.breadcrumbs = breadcrumbs.clone();
                     let client = this.state.client.clone();
                     this.tokio_rt
