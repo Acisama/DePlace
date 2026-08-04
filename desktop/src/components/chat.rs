@@ -557,6 +557,7 @@ impl Render for ChatView {
                 })
                 .h_full()
                 .w_full()
+                .pb(structure.gap * 5.0)
             })
             .child(
                 tailwind_div!(

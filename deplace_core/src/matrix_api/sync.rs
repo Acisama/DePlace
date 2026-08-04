@@ -10,15 +10,20 @@ use ruma::{OwnedRoomId, events::space::child::SpaceChildEventContent};
 
 use crate::{
     RoomMap,
-    matrix_api::{members::run_membership_map_update, save_session},
+    matrix_api::{
+        members::run_membership_map_update,
+        presence::{get_presences, handle_presences},
+        save_session,
+    },
     state::AppState,
 };
 
 pub fn spawn_room_sync(client: &Client, state: &AppState) {
-    tokio::spawn(run_sync_stream(client.clone()));
+    tokio::spawn(run_sync_stream(client.clone(), state.clone()));
     tokio::spawn(run_keystore_save_stream(client.clone()));
     tokio::spawn(run_room_classification(client.clone(), state.clone()));
     tokio::spawn(run_membership_map_update(client.clone(), state.clone()));
+    tokio::spawn(get_presences(client.clone(), state.clone()));
 
     client.add_event_handler_context(state.clone());
 }
@@ -32,7 +37,7 @@ async fn run_keystore_save_stream(client: Client) {
     }
 }
 
-async fn run_sync_stream(client: Client) {
+async fn run_sync_stream(client: Client, state: AppState) {
     let sync_settings = SyncSettings::default()
         .ignore_timeout_on_first_sync(true)
         .set_presence(PresenceState::Online)
@@ -42,9 +47,15 @@ async fn run_sync_stream(client: Client) {
     let mut sync_stream = pin!(sync_stream);
 
     while let Some(result) = sync_stream.next().await {
-        if let Err(e) = result {
-            tracing::error!("Sync loop returned an error: {e:?}");
-        }
+        let result = match result {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!("Sync loop returned an error: {e:?}");
+                continue;
+            }
+        };
+
+        handle_presences(&result.presence, &state);
     }
 
     tracing::warn!("Sync stream ended");

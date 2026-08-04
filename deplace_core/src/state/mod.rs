@@ -5,6 +5,7 @@ use matrix_sdk::{
     room::RoomMember,
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
 };
+use ruma::events::presence::PresenceEventContent;
 use tokio::sync::watch::{self, Sender};
 
 use crate::matrix_api::{
@@ -21,6 +22,7 @@ pub struct UserDevice {
 
 pub type RoomMap = HashMap<OwnedRoomId, Room>;
 pub type MembershipMap = HashMap<OwnedRoomId, HashMap<OwnedUserId, RoomMember>>;
+pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -32,7 +34,10 @@ pub struct AppState {
     parent_to_children: Sender<ParentToChildren>,
     active_room: Sender<Option<Room>>,
     active_server: Sender<Option<Room>>,
+
     membership_map: Sender<MembershipMap>,
+    presence_map: Sender<PresenceMap>,
+
     pub server_order: Vec<OwnedRoomId>,
     pub breadcrumbs: BreadcrumbsContent,
 
@@ -73,7 +78,9 @@ impl AppState {
         let (parent_to_children, _) = watch::channel(response.parent_to_children);
         let (active_room, _) = watch::channel(last_room_id.and_then(|id| client.get_room(&id)));
         let (active_server, _) = watch::channel(last_server.and_then(|id| client.get_room(&id)));
+
         let (membership_map, _) = watch::channel(MembershipMap::default());
+        let (presence_map, _) = watch::channel(PresenceMap::default());
 
         let server_order = get_account_data::<ServerOrderContent>(&client).await;
 
@@ -86,7 +93,10 @@ impl AppState {
             parent_to_children,
             active_room,
             active_server,
+
             membership_map,
+            presence_map,
+
             server_order: server_order.servers,
             breadcrumbs,
 
@@ -122,6 +132,10 @@ impl AppState {
         self.membership_map.subscribe()
     }
 
+    pub fn presence_map(&self) -> watch::Receiver<PresenceMap> {
+        self.presence_map.subscribe()
+    }
+
     pub(crate) fn set_dm_rooms(&self, rooms: RoomMap) {
         Self::send_if_keys_changed(&self.dm_rooms, rooms);
     }
@@ -146,6 +160,13 @@ impl AppState {
             cur.entry(room_id)
                 .or_default()
                 .insert(member.user_id().to_owned(), member);
+            true
+        });
+    }
+
+    pub(crate) fn add_presences(&self, presences: PresenceMap) {
+        self.presence_map.send_if_modified(|cur| {
+            cur.extend(presences);
             true
         });
     }
