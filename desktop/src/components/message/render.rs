@@ -237,6 +237,8 @@ impl CachedTimelineEvent {
             Pixels::ZERO
         };
 
+        let pre_col_space = structure.gap * 1.5;
+
         tailwind_div!(
             w_full,
             border_transparent,
@@ -263,7 +265,7 @@ impl CachedTimelineEvent {
         .child(
             tailwind_div!(flex, flex_row)
                 .child(
-                    tailwind_div!(w(structure.chat_col_width()), px(structure.gap))
+                    tailwind_div!(w(structure.chat_col_width()), px(pre_col_space), relative)
                         .when(show_header, |el| {
                             el.child(sender_avatar(structure.chat.icon_size))
                         })
@@ -277,6 +279,18 @@ impl CachedTimelineEvent {
                                 .group_hover("message", |style| style.text_color(theme.text.muted))
                                 .child(self.short_time.clone()),
                             )
+                        })
+                        .when(self.flags.is_highlighted, |el| {
+                            el.child(tailwind_div!(
+                                bg(theme.accent),
+                                absolute,
+                                left(pre_col_space / 4.0),
+                                w(pre_col_space / 3.0),
+                                h_full,
+                                top_0,
+                                py(pre_col_space / 4.0),
+                                rounded(pre_col_space / 6.0)
+                            ))
                         }),
                 )
                 .child(

@@ -161,7 +161,7 @@ impl Structure {
     }
 
     pub fn chat_col_width(&self) -> Pixels {
-        self.chat.icon_size + 2.0 * self.gap
+        self.chat.icon_size + 3.0 * self.gap
     }
 
     pub fn server_column_width(&self) -> Pixels {
