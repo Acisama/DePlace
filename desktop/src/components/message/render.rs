@@ -3,9 +3,9 @@ use std::{sync::Arc, time::Duration};
 use deplace_core::{formatting::fit_dimensions, state::MembershipMap};
 use gpui::{
     Animation, AnimationExt, AnyElement, Div, Element, ElementId, InteractiveElement,
-    LinearColorStop, ObjectFit, ParentElement, Pixels, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage, div, img, linear_gradient,
-    prelude::FluentBuilder, px, relative, transparent_black,
+    LinearColorStop, ObjectFit, ParentElement, Pixels, SharedString, StatefulInteractiveElement,
+    Styled, StyledImage, div, img, linear_gradient, prelude::FluentBuilder, px, relative,
+    transparent_black,
 };
 use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
@@ -170,7 +170,13 @@ impl CachedTimelineEvent {
                         true
                     }
                 });
-                msg.render(structure, theme, image_cache, member_avatar, toggle_reaction)
+                msg.render(
+                    structure,
+                    theme,
+                    image_cache,
+                    member_avatar,
+                    toggle_reaction,
+                )
             }
         };
 
@@ -317,7 +323,11 @@ impl CachedSystemMessage {
                 Some(
                     parent
                         .child(sender_avatar())
+                        .child(" ")
+                        .child(sender_name())
+                        .child(" ")
                         .child(text.clone())
+                        .child(" ")
                         .children(declined_by_avatars),
                 )
             }

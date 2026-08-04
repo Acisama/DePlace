@@ -1,5 +1,10 @@
 use gpui::*;
 
+use crate::{
+    components::floating_tile,
+    theme::{ActiveAppTheme, StructureExt},
+};
+
 actions!(quick_select, [Open, Close]);
 
 pub struct QuickSelect {
@@ -29,7 +34,10 @@ impl Render for QuickSelect {
         _window: &mut gpui::Window,
         cx: &mut gpui::prelude::Context<Self>,
     ) -> impl gpui::prelude::IntoElement {
-        div()
+        let theme = cx.app_theme();
+        let structure = cx.structure();
+
+        floating_tile(theme, structure)
             .track_focus(&self.focus)
             .id("quick-select")
             .key_context("QuickSelect")
@@ -42,9 +50,7 @@ impl Render for QuickSelect {
             .w_1_2()
             .max_w(px(600.0))
             .h(px(400.0))
-            .rounded_xl()
             .overflow_hidden()
-            .bg(rgb(0x1e1e2e)) // Solid background color (replace with your theme color)
             // // --- Elevation & Borders ---
             // .border_1()
             // .border_color(rgb(0x313244))

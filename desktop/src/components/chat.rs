@@ -1,5 +1,6 @@
 use std::{ops::Range, sync::Arc};
 
+use dashmap::DashMap;
 use deplace_core::{
     matrix_api::timeline::{ScrollDirection, TimelineManager},
     state::{AppState, MembershipMap},
@@ -7,7 +8,8 @@ use deplace_core::{
 use futures_util::StreamExt;
 use gpui::{
     Context, Empty, FocusHandle, FollowMode, InteractiveElement, IntoElement, ListAlignment,
-    ListScrollEvent, ListState, ParentElement, Render, Styled, Task, actions, div, list, px,
+    ListScrollEvent, ListState, ParentElement, Render, SharedString, Styled, Task, actions, div,
+    list, px,
 };
 use gpui_component::{StyledExt, red_600};
 use macros::tailwind_div;
@@ -47,6 +49,7 @@ pub struct ChatView {
     current_fetch: Option<AbortHandle>,
     current_scroll_up: Option<AbortHandle>,
     current_scroll_down: Option<AbortHandle>,
+    reactions_in_flight: Arc<DashMap<(Arc<OwnedEventId>, SharedString), ()>>,
     user_id: OwnedUserId,
     current_updates: Option<Task<()>>,
     list_state: ListState,
@@ -87,6 +90,7 @@ impl ChatView {
             current_fetch: None,
             current_scroll_up: None,
             current_scroll_down: None,
+            reactions_in_flight: Arc::new(DashMap::new()),
             current_updates: None,
             list_state,
             focus_handle: cx.focus_handle(),
@@ -255,6 +259,33 @@ impl ChatView {
         .detach();
     }
 
+    fn toggle_reaction(&self) -> impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static {
+        let tokio_rt = self.tokio_rt.clone();
+        let timeline_manager = self.timeline_manager.clone();
+        let timeline_id = self.timeline_id;
+        let in_flight = self.reactions_in_flight.clone();
+
+        move |event_id: Arc<OwnedEventId>, reaction: SharedString| {
+            let Some(timeline_id) = timeline_id else {
+                return;
+            };
+
+            let key = (event_id.clone(), reaction.clone());
+            if in_flight.insert(key.clone(), ()).is_some() {
+                return;
+            }
+
+            let timeline_manager = timeline_manager.clone();
+            let in_flight = in_flight.clone();
+            tokio_rt.spawn(async move {
+                timeline_manager
+                    .toggle_reaction(timeline_id, (*event_id).clone(), &reaction)
+                    .await;
+                in_flight.remove(&key);
+            });
+        }
+    }
+
     fn check_pagination(&mut self, range: Range<usize>, len: usize, cx: &mut Context<Self>) {
         const EDGE_THRESHOLD: usize = 10;
 
@@ -379,21 +410,7 @@ impl Render for ChatView {
 
         let map = self.membership_map.borrow().clone();
 
-        let tokio_rt = self.tokio_rt.clone();
-        let timeline_manager = self.timeline_manager.clone();
-        let timeline_id = self.timeline_id;
-        let on_toggle_reaction =
-            move |event_id: Arc<OwnedEventId>, reaction: gpui::SharedString| {
-                let Some(timeline_id) = timeline_id else {
-                    return;
-                };
-                let timeline_manager = timeline_manager.clone();
-                tokio_rt.spawn(async move {
-                    timeline_manager
-                        .toggle_reaction(timeline_id, (*event_id).clone(), &reaction)
-                        .await;
-                });
-            };
+        let on_toggle_reaction = self.toggle_reaction();
 
         tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
             .key_context("Chat")
