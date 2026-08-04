@@ -6,13 +6,13 @@ use deplace_core::{
     get_other_member,
     state::MembershipMap,
 };
-use gpui::RenderImage;
 use gpui::{
     AnyElement, App, BoxShadow, Div, Entity, Focusable, Hsla, Length, ObjectFit, Pixels,
-    SharedString, Window, div, img, prelude::*, px, relative, svg, transparent_black,
+    SharedString, Window, div, img, prelude::*, relative, svg, transparent_black,
 };
+use gpui::{RenderImage, Role};
 use gpui_component::{
-    StyledExt, gray_200,
+    Sizable, StyledExt,
     input::{Input, InputState},
 };
 use image::{Frame, ImageBuffer, Rgba};
@@ -54,7 +54,7 @@ pub fn floating_tile(theme: &AppTheme, structure: &Structure) -> Div {
     )
 }
 
-pub fn input(entity: &Entity<InputState>, window: &Window, cx: &App) -> Input {
+pub fn input(entity: &Entity<InputState>, window: &Window, cx: &App, role: Role) -> Input {
     let theme = cx.app_theme();
     let structure = cx.structure();
 
@@ -66,6 +66,7 @@ pub fn input(entity: &Entity<InputState>, window: &Window, cx: &App) -> Input {
     };
 
     Input::new(entity)
+        .role(role)
         .paddings(structure.small_gap)
         .text_color(theme.text.normal)
         .bg(bg)
@@ -249,6 +250,10 @@ impl MemberRenderer for Option<&RoomMember> {
 pub trait CustomStyles: Styled + Sized {
     fn border_transparent(self) -> Self {
         self.border_1().border_color(transparent_black())
+    }
+
+    fn bg_transparent(self) -> Self {
+        self.bg(transparent_black())
     }
 
     fn outer_gradient(self, color: Hsla, size: Pixels) -> Self {

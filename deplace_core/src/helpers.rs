@@ -1,4 +1,7 @@
 use chrono::{DateTime, Local};
+use matrix_sdk::Room;
+
+use crate::{NameExt, get_other_member, state::MembershipMap};
 
 pub fn format_message_long_date(date: DateTime<Local>) -> String {
     let hour_str = "%H:%M";
@@ -36,4 +39,30 @@ pub fn format_date_divider(date: DateTime<Local>) -> String {
 
 pub fn format_message_short_date(date: DateTime<Local>) -> String {
     date.format("%H:%M").to_string()
+}
+
+pub trait RoomPlaceholderExt {
+    fn get_input_placeholder(&self, map: &MembershipMap) -> String;
+}
+
+impl RoomPlaceholderExt for Room {
+    fn get_input_placeholder(&self, map: &MembershipMap) -> String {
+        if self.is_dm()
+            && let Some(member) = get_other_member(self.own_user_id(), map, self.room_id())
+        {
+            format!("Message @{}", member.get_name())
+        } else {
+            format!("Message #{}", self.get_name())
+        }
+    }
+}
+
+impl RoomPlaceholderExt for Option<Room> {
+    fn get_input_placeholder(&self, map: &MembershipMap) -> String {
+        if let Some(room) = self {
+            room.get_input_placeholder(map)
+        } else {
+            "Type a message...".to_string()
+        }
+    }
 }

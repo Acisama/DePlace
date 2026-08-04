@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use deplace_core::matrix_api::{LoginResult, login};
 use gpui::{
-    ClickEvent, Context, Entity, EventEmitter, Render, Subscription, Window, div, prelude::*,
+    ClickEvent, Context, Entity, EventEmitter, Render, Role, Subscription, Window, div, prelude::*,
+    px,
 };
 use gpui_component::{
     Disableable, StyledExt,
@@ -241,7 +242,7 @@ impl Render for LoginView {
                             .gap(structure.small_gap)
                             .child("Username")
                             .text_color(theme.text.dim)
-                            .child(input(&self.username_input, window, cx)),
+                            .child(input(&self.username_input, window, cx, Role::TextInput)),
                     )
                     .child(
                         div()
@@ -250,7 +251,7 @@ impl Render for LoginView {
                             .gap(structure.small_gap)
                             .child("Password")
                             .text_color(theme.text.dim)
-                            .child(input(&self.password_input, window, cx)),
+                            .child(input(&self.password_input, window, cx, Role::TextInput)),
                     )
                     .child(
                         div()
@@ -259,7 +260,7 @@ impl Render for LoginView {
                             .gap(structure.small_gap)
                             .child("Recovery Key")
                             .text_color(theme.text.dim)
-                            .child(input(&self.recovery_key_input, window, cx)),
+                            .child(input(&self.recovery_key_input, window, cx, Role::TextInput)),
                     )
                     .child(
                         div()

@@ -2,16 +2,21 @@ use std::{ops::Range, sync::Arc};
 
 use dashmap::DashMap;
 use deplace_core::{
+    helpers::RoomPlaceholderExt,
     matrix_api::timeline::{ScrollDirection, TimelineManager},
     state::{AppState, MembershipMap},
 };
 use futures_util::StreamExt;
 use gpui::{
-    Context, Empty, FocusHandle, FollowMode, InteractiveElement, IntoElement, ListAlignment,
-    ListScrollEvent, ListState, ParentElement, Render, SharedString, Styled, Task, actions, div,
-    list, px,
+    AppContext, Context, Empty, Entity, FocusHandle, Focusable, FollowMode, InteractiveElement,
+    IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement, Render, Role,
+    SharedString, Styled, Task, Window, actions, div, list, px,
 };
-use gpui_component::{StyledExt, red_600};
+use gpui_component::{
+    StyledExt,
+    input::{Input, InputState},
+    red_600,
+};
 use macros::tailwind_div;
 use matrix_sdk::{
     Room,
@@ -26,8 +31,9 @@ use uuid::Uuid;
 
 use crate::{
     components::{
-        AvatarCache,
+        AvatarCache, CustomStyles,
         cache::ThumbnailCache,
+        input,
         message::{CachedTimelineItem, cached_from_timeline_item},
     },
     theme::{ActiveAppTheme, StructureExt},
@@ -54,12 +60,15 @@ pub struct ChatView {
     current_updates: Option<Task<()>>,
     list_state: ListState,
     focus_handle: FocusHandle,
+
+    chat_input: Entity<InputState>,
 }
 
 impl ChatView {
     pub fn new(
         state: &AppState,
         cx: &mut Context<Self>,
+        window: &mut Window,
         tokio_rt: Arc<Runtime>,
         avatar_cache: AvatarCache,
         image_cache: ThumbnailCache,
@@ -69,9 +78,23 @@ impl ChatView {
         list_state.set_scroll_handler(cx.listener(|this, event: &ListScrollEvent, _window, cx| {
             this.check_pagination(event.visible_range.clone(), event.count, cx);
         }));
+        let active_room = state.active_room();
 
         let membership_map = state.membership_map();
 
+        let chat_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .auto_grow(1, 10)
+                .placeholder(
+                    active_room
+                        .borrow()
+                        .clone()
+                        .get_input_placeholder(&membership_map.borrow()),
+                )
+        });
+
+        notify_on_change(active_room.clone(), cx);
         notify_on_change(membership_map.clone(), cx);
         notify_on_change(avatar_cache.subscribe(), cx);
         notify_on_change(image_cache.subscribe(), cx);
@@ -86,7 +109,7 @@ impl ChatView {
             membership_map,
             tokio_rt,
             timeline_id: None,
-            active_room: state.active_room(),
+            active_room,
             current_fetch: None,
             current_scroll_up: None,
             current_scroll_down: None,
@@ -94,16 +117,39 @@ impl ChatView {
             current_updates: None,
             list_state,
             focus_handle: cx.focus_handle(),
+
+            chat_input,
         };
 
-        view.load_active_room(cx);
+        view.load_active_room(cx, window);
 
         cx.spawn({
             let mut active_room = view.active_room.clone();
             async move |this, cx| {
                 while active_room.changed().await.is_ok() {
                     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        this.update(cx, |view, cx| view.load_active_room(cx))
+                        this.update_in(cx, |view, window, cx| view.load_active_room(cx, window))
+                    })) {
+                        Ok(Ok(())) => {}
+                        Ok(Err(_)) => break,
+                        Err(e) => {
+                            tracing::error!(
+                                "Panic while loading active room, will keep listening for room changes: {:?}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        })
+        .detach();
+
+        cx.spawn({
+            let mut map = view.membership_map.clone();
+            async move |this, cx| {
+                while map.changed().await.is_ok() {
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        this.update_in(cx, |view, window, cx| view.update_placeholder(cx, window))
                     })) {
                         Ok(Ok(())) => {}
                         Ok(Err(_)) => break,
@@ -122,7 +168,16 @@ impl ChatView {
         view
     }
 
-    fn load_active_room(&mut self, cx: &mut Context<Self>) {
+    fn update_placeholder(&self, cx: &mut Context<Self>, window: &mut Window) {
+        let active_room = self.active_room.borrow().clone();
+        let map = self.membership_map.borrow().clone();
+
+        self.chat_input.update(cx, |input, cx| {
+            input.set_placeholder(active_room.get_input_placeholder(&map), window, cx)
+        });
+    }
+
+    fn load_active_room(&mut self, cx: &mut Context<Self>, window: &mut Window) {
         if let Some(handle) = self.current_fetch.take() {
             handle.abort();
         }
@@ -140,6 +195,8 @@ impl ChatView {
         self.timeline_id = None;
         self.focused_message = None;
         cx.notify();
+
+        self.update_placeholder(cx, window);
 
         let Some(room) = self.active_room.borrow_and_update().clone() else {
             return;
@@ -396,7 +453,8 @@ fn apply_diff(
 }
 
 impl Render for ChatView {
-    fn render(&mut self, _window: &mut gpui::Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.app_theme();
         let structure = cx.structure();
 
         let Some(room) = self.active_room.borrow().clone() else {
@@ -411,6 +469,13 @@ impl Render for ChatView {
         let map = self.membership_map.borrow().clone();
 
         let on_toggle_reaction = self.toggle_reaction();
+
+        let input_focused = self.chat_input.read(cx).focus_handle(cx).is_focused(window);
+        let (input_bg, input_border) = if input_focused {
+            (theme.input.focus_background, theme.input.focused_border)
+        } else {
+            (theme.input.background, theme.tile.border)
+        };
 
         tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
             .key_context("Chat")
@@ -494,11 +559,24 @@ impl Render for ChatView {
                 .w_full()
             })
             .child(
-                div()
-                    .w_full()
-                    .bg(red_600())
-                    .h(structure.header.height)
-                    .rounded(structure.inner_border_radius),
+                tailwind_div!(
+                    min_h(structure.header.height),
+                    flex,
+                    flex_row,
+                    items_center,
+                    w_full,
+                    rounded(structure.inner_border_radius),
+                    text_size(structure.chat.text_size)
+                    border_1,
+                    border_color(input_border),
+                    bg(input_bg)
+                )
+                .child(
+                    Input::new(&self.chat_input)
+                        .bg_transparent()
+                        .border_transparent()
+                        .text_color(theme.text.normal),
+                ),
             )
             .into_any_element()
     }

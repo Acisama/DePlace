@@ -143,6 +143,7 @@ impl HomeView {
             ChatView::new(
                 &state,
                 cx,
+                window,
                 tokio_rt.clone(),
                 avatar_cache.clone(),
                 image_cache.clone(),

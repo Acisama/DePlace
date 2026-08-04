@@ -2,8 +2,8 @@ use std::{str::FromStr, sync::Arc};
 
 use deplace_core::matrix_api::test_server;
 use gpui::{
-    AppContext, ClickEvent, Context, Entity, EventEmitter, IntoElement, Render, Subscription,
-    Window, div, prelude::*,
+    AppContext, ClickEvent, Context, Entity, EventEmitter, IntoElement, Render, Role, Subscription,
+    Window, div, prelude::*, px,
 };
 use gpui_component::{
     Disableable, StyledExt,
@@ -179,7 +179,7 @@ impl Render for DiscoveryView {
                             .gap(structure.small_gap)
                             .child("Homeserver")
                             .text_color(theme.text.dim)
-                            .child(input(&self.server_input, window, cx)),
+                            .child(input(&self.server_input, window, cx, Role::TextInput)),
                     )
                     .child(
                         div()
