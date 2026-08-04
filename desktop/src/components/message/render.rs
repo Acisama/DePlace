@@ -1,14 +1,15 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use deplace_core::{formatting::fit_dimensions, state::MembershipMap};
 use gpui::{
     Animation, AnimationExt, AnyElement, Div, Element, ElementId, InteractiveElement,
-    LinearColorStop, ObjectFit, ParentElement, Pixels, Styled, StyledImage, div, img,
-    linear_gradient, prelude::FluentBuilder, px, relative, transparent_black,
+    LinearColorStop, ObjectFit, ParentElement, Pixels, SharedString,
+    StatefulInteractiveElement, Styled, StyledImage, div, img, linear_gradient,
+    prelude::FluentBuilder, px, relative, transparent_black,
 };
 use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
-use matrix_sdk::ruma::{RoomId, UserId};
+use matrix_sdk::ruma::{OwnedEventId, RoomId, UserId};
 
 use crate::{
     components::{
@@ -37,6 +38,7 @@ impl CachedTimelineItem {
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
         focused: bool,
+        on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
     ) -> AnyElement {
         let divider_width = structure.divider_width;
 
@@ -70,6 +72,7 @@ impl CachedTimelineItem {
                 prev,
                 next,
                 focused,
+                on_toggle_reaction,
             ),
         };
 
@@ -91,8 +94,16 @@ impl CachedTimelineEvent {
         prev: Option<&CachedTimelineItem>,
         next: Option<&CachedTimelineItem>,
         focused: bool,
+        on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
     ) -> AnyElement {
         let colors = &theme.colors;
+
+        let event_id = self.event_id.clone();
+        let toggle_reaction = move |reaction: SharedString| {
+            if let Some(event_id) = event_id.clone() {
+                on_toggle_reaction(event_id, reaction);
+            }
+        };
 
         let show_highlight = self.flags.is_highlighted;
 
@@ -159,7 +170,7 @@ impl CachedTimelineEvent {
                         true
                     }
                 });
-                msg.render(structure, theme, image_cache, member_avatar)
+                msg.render(structure, theme, image_cache, member_avatar, toggle_reaction)
             }
         };
 
@@ -329,6 +340,7 @@ impl CachedUserMessage {
         theme: &AppTheme,
         media_cache: &ThumbnailCache,
         member_avatar: impl Fn(&UserId) -> AnyElement,
+        on_toggle_reaction: impl Fn(SharedString) + Clone + 'static,
     ) -> Div {
         let warning = theme.colors.warning;
         let error = theme.colors.error;
@@ -619,7 +631,13 @@ impl CachedUserMessage {
         tailwind_div!(line_height(relative(1.0)), flex, flex_col)
             .child(content)
             .when_some(self.reactions.clone(), |el, reactions| {
-                el.child(render_reactions(reactions, theme, structure, member_avatar))
+                el.child(render_reactions(
+                    reactions,
+                    theme,
+                    structure,
+                    member_avatar,
+                    on_toggle_reaction,
+                ))
             })
     }
 }
@@ -629,9 +647,12 @@ fn render_reactions(
     theme: &AppTheme,
     structure: &Structure,
     member_avatar: impl Fn(&UserId) -> AnyElement,
+    on_toggle_reaction: impl Fn(SharedString) + Clone + 'static,
 ) -> Div {
     let children = reactions.into_iter().map(|info| {
         let reactors = info.reactors;
+        let emoji = info.emoji.clone();
+        let on_toggle_reaction = on_toggle_reaction.clone();
 
         tailwind_div!(
             flex,
@@ -642,8 +663,11 @@ fn render_reactions(
             border_color(theme.solid_hover_bg),
             items_center,
             bg(theme.solid_bg),
-            rounded(structure.inner_border_radius)
+            rounded(structure.inner_border_radius),
+            cursor_pointer
         )
+        .id(info.emoji.clone())
+        .on_click(move |_, _, _| on_toggle_reaction(emoji.clone()))
         .when(info.has_own, |el| {
             el.border_color(theme.accent).bg(theme.accent_bg())
         })

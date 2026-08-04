@@ -13,7 +13,7 @@ use gpui_component::{StyledExt, red_600};
 use macros::tailwind_div;
 use matrix_sdk::{
     Room,
-    ruma::{OwnedUserId, UserId},
+    ruma::{OwnedEventId, OwnedUserId, UserId},
 };
 use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
@@ -379,6 +379,22 @@ impl Render for ChatView {
 
         let map = self.membership_map.borrow().clone();
 
+        let tokio_rt = self.tokio_rt.clone();
+        let timeline_manager = self.timeline_manager.clone();
+        let timeline_id = self.timeline_id;
+        let on_toggle_reaction =
+            move |event_id: Arc<OwnedEventId>, reaction: gpui::SharedString| {
+                let Some(timeline_id) = timeline_id else {
+                    return;
+                };
+                let timeline_manager = timeline_manager.clone();
+                tokio_rt.spawn(async move {
+                    timeline_manager
+                        .toggle_reaction(timeline_id, (*event_id).clone(), &reaction)
+                        .await;
+                });
+            };
+
         tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
             .key_context("Chat")
             .on_action(cx.listener(|this, FocusNext, _, cx| {
@@ -454,6 +470,7 @@ impl Render for ChatView {
                         &avatar_cache,
                         &image_cache,
                         focused,
+                        on_toggle_reaction.clone(),
                     )
                 })
                 .h_full()

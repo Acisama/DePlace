@@ -1,17 +1,14 @@
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    sync::{Arc, Mutex},
-};
+use std::{fmt::Display, sync::Arc};
 
 use anyhow::Result;
+use dashmap::DashMap;
 use futures_util::Stream;
 use matrix_sdk::Room;
 use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
     timeline::{
-        DateDividerMode, MemberProfileChange, Timeline, TimelineBuilder, TimelineFocus,
-        TimelineItem, TimelineReadReceiptTracking,
+        DateDividerMode, MemberProfileChange, Timeline, TimelineBuilder, TimelineEventItemId,
+        TimelineFocus, TimelineItem, TimelineReadReceiptTracking,
     },
 };
 use ruma::{
@@ -22,8 +19,8 @@ use ruma::{
 };
 use uuid::Uuid;
 
-type TimelineFocusMap = HashMap<(OwnedRoomId, Option<OwnedEventId>), (Arc<Timeline>, Uuid)>;
-type TimelineMap = HashMap<Uuid, (Arc<Timeline>, PaginationState)>;
+type TimelineFocusMap = DashMap<(OwnedRoomId, Option<OwnedEventId>), (Arc<Timeline>, Uuid)>;
+type TimelineMap = DashMap<Uuid, (Arc<Timeline>, PaginationState)>;
 pub type Messages = imbl::Vector<Arc<TimelineItem>>;
 
 #[derive(Default, Clone, Copy)]
@@ -49,8 +46,8 @@ impl std::fmt::Display for ScrollDirection {
 
 #[derive(Default, Clone)]
 pub struct TimelineManager {
-    timelines: Arc<Mutex<TimelineFocusMap>>,
-    timelines_by_id: Arc<Mutex<TimelineMap>>,
+    timelines: Arc<TimelineFocusMap>,
+    timelines_by_id: Arc<TimelineMap>,
 }
 
 impl TimelineManager {
@@ -66,13 +63,8 @@ impl TimelineManager {
         };
         let index = (room.room_id().to_owned(), event_id.clone());
 
-        if let Some((timeline, id)) = self
-            .timelines
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .get(&index)
-        {
-            return Ok((timeline.clone(), *id));
+        if let Some((timeline, id)) = self.timelines.get(&index).map(|t| t.clone()) {
+            return Ok((timeline, id));
         }
 
         let timeline = TimelineBuilder::new(room)
@@ -92,24 +84,15 @@ impl TimelineManager {
         let timeline = Arc::new(timeline);
         let id = Uuid::new_v4();
 
-        self.timelines
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .insert(index, (timeline.clone(), id));
+        self.timelines.insert(index, (timeline.clone(), id));
         self.timelines_by_id
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
             .insert(id, (timeline.clone(), PaginationState::default()));
 
         Ok((timeline, id))
     }
 
     async fn get_timeline_by_id(&self, id: Uuid) -> Option<(Arc<Timeline>, PaginationState)> {
-        self.timelines_by_id
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .get(&id)
-            .cloned()
+        self.timelines_by_id.get(&id).map(|t| t.clone())
     }
 
     pub async fn get_messages(
@@ -171,10 +154,20 @@ impl TimelineManager {
             }
         }
 
-        self.timelines_by_id
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .insert(id, (timeline, state));
+        self.timelines_by_id.insert(id, (timeline, state));
+    }
+
+    pub async fn toggle_reaction(&self, timeline_id: Uuid, event_id: OwnedEventId, reaction: &str) {
+        let Some((timeline, _)) = self.timelines_by_id.get(&timeline_id).map(|t| t.clone()) else {
+            tracing::warn!("Timeline for reaction not found: {}", timeline_id);
+            return;
+        };
+        if let Err(e) = timeline
+            .toggle_reaction(&TimelineEventItemId::EventId(event_id), reaction)
+            .await
+        {
+            tracing::error!("Failed to toggle reaction: {}", e);
+        }
     }
 }
 

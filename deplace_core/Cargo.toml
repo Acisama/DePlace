@@ -9,6 +9,7 @@ base64.workspace = true
 chrono.workspace = true
 const_format = "0.2.36"
 csscolorparser.workspace = true
+dashmap.workspace = true
 dirs.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
