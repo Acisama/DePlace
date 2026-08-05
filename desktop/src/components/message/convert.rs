@@ -231,6 +231,8 @@ pub fn cached_from_timeline_item(value: &Arc<TimelineItem>, own_id: &UserId) -> 
                 event_id: event.event_id().map(|id| Arc::new(id.to_owned())),
                 sender,
                 read_by,
+                show_header: true,
+                pad_bottom: false,
                 content: cached_from_timeline_item_content(event_content, own_id),
             };
 

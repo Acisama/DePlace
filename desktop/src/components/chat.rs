@@ -9,13 +9,12 @@ use deplace_core::{
 use futures_util::StreamExt;
 use gpui::{
     AppContext, Context, Empty, Entity, FocusHandle, Focusable, FollowMode, InteractiveElement,
-    IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement, Render, Role,
-    SharedString, Styled, Task, Window, actions, div, list, px,
+    IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement, Render, SharedString,
+    Styled, Task, Window, actions, div, list, px,
 };
 use gpui_component::{
     StyledExt,
     input::{Input, InputState},
-    red_600,
 };
 use macros::tailwind_div;
 use matrix_sdk::{
@@ -33,7 +32,6 @@ use crate::{
     components::{
         AvatarCache, CustomStyles,
         cache::ThumbnailCache,
-        input,
         message::{CachedTimelineItem, cached_from_timeline_item},
     },
     theme::{ActiveAppTheme, StructureExt},
@@ -41,7 +39,7 @@ use crate::{
 };
 
 pub struct ChatView {
-    messages: Vec<CachedTimelineItem>,
+    messages: Arc<Vec<CachedTimelineItem>>,
     focused_message: Option<usize>,
     active_room: Receiver<Option<Room>>,
     timeline_manager: TimelineManager,
@@ -102,7 +100,7 @@ impl ChatView {
         let mut view = Self {
             timeline_manager: state.timeline_manager.clone(),
             user_id: state.user_device.user_id.clone(),
-            messages: Vec::new(),
+            messages: Arc::new(Vec::new()),
             focused_message: None,
             avatar_cache,
             image_cache,
@@ -191,7 +189,7 @@ impl ChatView {
         self.current_updates = None;
 
         self.list_state.splice(0..self.messages.len(), 0);
-        self.messages = Vec::new();
+        self.messages = Arc::new(Vec::new());
         self.timeline_id = None;
         self.focused_message = None;
         cx.notify();
@@ -239,10 +237,14 @@ impl ChatView {
                             expected_room_id,
                             initial_messages.len()
                         );
-                        view.messages = initial_messages
-                            .iter()
-                            .map(|item| cached_from_timeline_item(item, &view.user_id))
-                            .collect();
+                        view.messages = Arc::new(
+                            initial_messages
+                                .iter()
+                                .map(|item| cached_from_timeline_item(item, &view.user_id))
+                                .collect(),
+                        );
+                        let len = view.messages.len();
+                        recompute_grouping_range(&mut view.messages, 0..len);
                         view.list_state.splice(0..0, view.messages.len());
                         view.timeline_id = Some(id);
                         view.list_state.set_follow_mode(FollowMode::Tail);
@@ -355,8 +357,31 @@ impl ChatView {
     }
 }
 
+fn recompute_show_header_at(messages: &mut Arc<Vec<CachedTimelineItem>>, index: usize) {
+    if index >= messages.len() {
+        return;
+    }
+    let prev = index.checked_sub(1).and_then(|i| messages.get(i)).cloned();
+    Arc::make_mut(messages)[index].recompute_show_header(prev.as_ref());
+}
+
+fn recompute_pad_bottom_at(messages: &mut Arc<Vec<CachedTimelineItem>>, index: usize) {
+    if index >= messages.len() {
+        return;
+    }
+    let next = messages.get(index + 1).cloned();
+    Arc::make_mut(messages)[index].recompute_pad_bottom(next.as_ref());
+}
+
+fn recompute_grouping_range(messages: &mut Arc<Vec<CachedTimelineItem>>, range: Range<usize>) {
+    for index in range {
+        recompute_show_header_at(messages, index);
+        recompute_pad_bottom_at(messages, index);
+    }
+}
+
 fn apply_diff(
-    messages: &mut Vec<CachedTimelineItem>,
+    messages: &mut Arc<Vec<CachedTimelineItem>>,
     list_state: &ListState,
     diff: VectorDiff<Arc<TimelineItem>>,
     own_id: &UserId,
@@ -364,34 +389,56 @@ fn apply_diff(
     match diff {
         VectorDiff::Append { values } => {
             let start = messages.len();
-            messages.extend(
+            Arc::make_mut(messages).extend(
                 values
                     .iter()
                     .map(|item| cached_from_timeline_item(item, own_id)),
             );
             list_state.splice(start..start, messages.len() - start);
+
+            if start > 0 {
+                recompute_pad_bottom_at(messages, start - 1);
+            }
+            recompute_grouping_range(messages, start..messages.len());
         }
         VectorDiff::Clear => {
             list_state.splice(0..messages.len(), 0);
-            messages.clear();
+            Arc::make_mut(messages).clear();
         }
         VectorDiff::PushFront { value } => {
-            messages.insert(0, cached_from_timeline_item(&value, own_id));
+            Arc::make_mut(messages).insert(0, cached_from_timeline_item(&value, own_id));
             list_state.splice(0..0, 1);
+
+            recompute_show_header_at(messages, 0);
+            recompute_pad_bottom_at(messages, 0);
+            recompute_show_header_at(messages, 1);
         }
         VectorDiff::PushBack { value } => {
-            messages.push(cached_from_timeline_item(&value, own_id));
+            Arc::make_mut(messages).push(cached_from_timeline_item(&value, own_id));
             list_state.splice(messages.len() - 1..messages.len() - 1, 1);
+
+            let new_index = messages.len() - 1;
+            recompute_show_header_at(messages, new_index);
+            recompute_pad_bottom_at(messages, new_index);
+            if new_index > 0 {
+                recompute_pad_bottom_at(messages, new_index - 1);
+            }
         }
         VectorDiff::PopFront => {
             if !messages.is_empty() {
-                messages.remove(0);
+                Arc::make_mut(messages).remove(0);
                 list_state.splice(0..1, 0);
+
+                recompute_show_header_at(messages, 0);
             }
         }
         VectorDiff::PopBack => {
-            if messages.pop().is_some() {
+            if Arc::make_mut(messages).pop().is_some() {
                 list_state.splice(messages.len()..messages.len() + 1, 0);
+
+                if !messages.is_empty() {
+                    recompute_pad_bottom_at(messages, messages.len() - 1);
+                }
             }
         }
         VectorDiff::Insert { index, value } => {
@@ -403,8 +450,15 @@ fn apply_diff(
                 );
                 return;
             }
-            messages.insert(index, cached_from_timeline_item(&value, own_id));
+            Arc::make_mut(messages).insert(index, cached_from_timeline_item(&value, own_id));
             list_state.splice(index..index, 1);
+
+            if index > 0 {
+                recompute_pad_bottom_at(messages, index - 1);
+            }
+            recompute_show_header_at(messages, index);
+            recompute_pad_bottom_at(messages, index);
+            recompute_show_header_at(messages, index + 1);
         }
         VectorDiff::Set { index, value } => {
             if index >= messages.len() {
@@ -415,8 +469,15 @@ fn apply_diff(
                 );
                 return;
             }
-            messages[index] = cached_from_timeline_item(&value, own_id);
+            Arc::make_mut(messages)[index] = cached_from_timeline_item(&value, own_id);
             list_state.splice(index..index + 1, 1);
+
+            if index > 0 {
+                recompute_pad_bottom_at(messages, index - 1);
+            }
+            recompute_show_header_at(messages, index);
+            recompute_pad_bottom_at(messages, index);
+            recompute_show_header_at(messages, index + 1);
         }
         VectorDiff::Remove { index } => {
             if index >= messages.len() {
@@ -427,8 +488,13 @@ fn apply_diff(
                 );
                 return;
             }
-            messages.remove(index);
+            Arc::make_mut(messages).remove(index);
             list_state.splice(index..index + 1, 0);
+
+            if index > 0 {
+                recompute_pad_bottom_at(messages, index - 1);
+            }
+            recompute_show_header_at(messages, index);
         }
         VectorDiff::Truncate { length } => {
             if length > messages.len() {
@@ -440,14 +506,23 @@ fn apply_diff(
                 return;
             }
             list_state.splice(length..messages.len(), 0);
-            messages.truncate(length);
+            Arc::make_mut(messages).truncate(length);
+
+            if length > 0 {
+                recompute_pad_bottom_at(messages, length - 1);
+            }
         }
         VectorDiff::Reset { values } => {
             list_state.splice(0..messages.len(), values.len());
-            *messages = values
-                .iter()
-                .map(|item| cached_from_timeline_item(item, own_id))
-                .collect();
+            *messages = Arc::new(
+                values
+                    .iter()
+                    .map(|item| cached_from_timeline_item(item, own_id))
+                    .collect(),
+            );
+
+            let len = messages.len();
+            recompute_grouping_range(messages, 0..len);
         }
     }
 }
@@ -538,13 +613,9 @@ impl Render for ChatView {
                     let Some(current) = messages.get(ix) else {
                         return Empty.into_any_element();
                     };
-                    let prev = ix.checked_sub(1).and_then(|prev_ix| messages.get(prev_ix));
-                    let next = messages.get(ix + 1);
                     let focused = focused_message.is_some_and(|f| f == ix);
 
                     current.render(
-                        prev,
-                        next,
                         theme,
                         structure,
                         &room_id,

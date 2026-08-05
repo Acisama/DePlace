@@ -34,6 +34,56 @@ impl CachedTimelineItem {
     }
 }
 
+impl CachedTimelineItem {
+    /// Recomputes whether this item should show its own header (avatar/name/time),
+    /// based on the identity of the item immediately before it.
+    pub fn recompute_show_header(&mut self, prev: Option<&CachedTimelineItem>) {
+        let CachedTimelineItemKind::Event(event) = &self.kind else {
+            return;
+        };
+
+        let show_header = event.in_reply_to().is_some()
+            || prev
+                .map(|item| {
+                    if let CachedTimelineItemKind::Event(prev_event) = &item.kind {
+                        prev_event.timestamp.abs_diff(event.timestamp) > 300
+                            || prev_event.sender != event.sender
+                    } else {
+                        true
+                    }
+                })
+                .unwrap_or(true);
+
+        let CachedTimelineItemKind::Event(event) = &mut self.kind else {
+            return;
+        };
+        event.show_header = show_header;
+    }
+
+    /// Recomputes whether this item should pad its bottom margin (i.e. the next
+    /// item starts a new visual group), based on the identity of the item
+    /// immediately after it.
+    pub fn recompute_pad_bottom(&mut self, next: Option<&CachedTimelineItem>) {
+        let CachedTimelineItemKind::Event(event) = &self.kind else {
+            return;
+        };
+
+        let pad_bottom = next.is_some_and(|item| {
+            if let CachedTimelineItemKind::Event(next_event) = &item.kind {
+                next_event.timestamp.abs_diff(event.timestamp) > 300
+                    || next_event.sender != event.sender
+            } else {
+                true
+            }
+        });
+
+        let CachedTimelineItemKind::Event(event) = &mut self.kind else {
+            return;
+        };
+        event.pad_bottom = pad_bottom;
+    }
+}
+
 #[derive(Clone)]
 pub enum CachedTimelineItemKind {
     DateDivider(SharedString),
@@ -89,6 +139,9 @@ pub struct CachedTimelineEvent {
     timestamp: i64,
     sender: Arc<OwnedUserId>,
     read_by: Vec<Arc<OwnedUserId>>,
+
+    show_header: bool,
+    pad_bottom: bool,
 
     event_id: Option<Arc<OwnedEventId>>,
 

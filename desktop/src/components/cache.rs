@@ -7,7 +7,7 @@ use std::{
 use dashmap::DashMap;
 use matrix_sdk::{
     Client,
-    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings, UniqueKey},
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     ruma::{MxcUri, OwnedMxcUri, UInt, events::room::MediaSource},
 };
 use tokio::{runtime::Runtime, sync::watch};

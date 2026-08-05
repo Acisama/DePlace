@@ -3,7 +3,7 @@ use std::{str::FromStr, sync::Arc};
 use deplace_core::matrix_api::test_server;
 use gpui::{
     AppContext, ClickEvent, Context, Entity, EventEmitter, IntoElement, Render, Role, Subscription,
-    Window, div, prelude::*, px,
+    Window, div, prelude::*,
 };
 use gpui_component::{
     Disableable, StyledExt,

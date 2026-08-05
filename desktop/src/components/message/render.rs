@@ -29,8 +29,6 @@ use crate::{
 impl CachedTimelineItem {
     pub fn render(
         &self,
-        prev: Option<&Self>,
-        next: Option<&Self>,
         theme: &AppTheme,
         structure: &Structure,
         curent_room_id: &RoomId,
@@ -42,7 +40,7 @@ impl CachedTimelineItem {
     ) -> AnyElement {
         let divider_width = structure.divider_width;
 
-        let content = match &self.kind {
+        match &self.kind {
             // TODO: Merge with read marker if adjacent
             // fn is_read_marker(item: Option<Arc<TimelineItem>>) -> bool {
             //     item.and_then(|i| i.as_virtual().cloned())
@@ -69,14 +67,10 @@ impl CachedTimelineItem {
                 map,
                 avatar_cache,
                 image_cache,
-                prev,
-                next,
                 focused,
                 on_toggle_reaction,
             ),
-        };
-
-        tailwind_div!(w_full).child(content).into_any()
+        }
     }
 }
 
@@ -91,8 +85,6 @@ impl CachedTimelineEvent {
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
-        prev: Option<&CachedTimelineItem>,
-        next: Option<&CachedTimelineItem>,
         focused: bool,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
     ) -> AnyElement {
@@ -120,13 +112,19 @@ impl CachedTimelineEvent {
             member.render_avatar(small_icon_size, small_icon_size / 2.0, avatar_cache)
         };
 
+        let smaller_member_avatar = move |id: &UserId| {
+            let member = map.get(current_room_id).and_then(|m| m.get(id));
+            member.render_avatar(
+                structure.chat.small_text_size * 1.2,
+                structure.chat.small_text_size * 1.2 / 2.0,
+                avatar_cache,
+            )
+        };
+
         let member_name = move |id: &UserId| {
             let member = map.get(current_room_id).and_then(|m| m.get(id));
             member.render_name(structure.chat.small_text_size)
         };
-
-        let mut show_header = false;
-        let mut pad_bottom = false;
 
         let content = match &self.content {
             CachedEventContent::FailedToParseMessageLike(text)
@@ -145,39 +143,13 @@ impl CachedTimelineEvent {
                     return div().into_any();
                 }
             }
-            CachedEventContent::UserMessage(msg) => {
-                show_header = msg.in_reply_to.is_some()
-                    || prev
-                        .map(|item| {
-                            if let CachedTimelineItemKind::Event(boxed_event) = &item.kind {
-                                if let CachedEventContent::UserMessage(_) = &boxed_event.content {
-                                    boxed_event.timestamp.abs_diff(self.timestamp) > 300
-                                        || boxed_event.sender != self.sender
-                                } else {
-                                    true
-                                }
-                            } else {
-                                true
-                            }
-                        })
-                        .unwrap_or(true);
-
-                pad_bottom = next.is_some_and(|item| {
-                    if let CachedTimelineItemKind::Event(boxed_event) = &item.kind {
-                        boxed_event.timestamp.abs_diff(self.timestamp) > 300
-                            || boxed_event.sender != self.sender
-                    } else {
-                        true
-                    }
-                });
-                msg.render(
-                    structure,
-                    theme,
-                    image_cache,
-                    member_avatar,
-                    toggle_reaction,
-                )
-            }
+            CachedEventContent::UserMessage(msg) => msg.render(
+                structure,
+                theme,
+                image_cache,
+                member_avatar,
+                toggle_reaction,
+            ),
         };
 
         let highlight_color = if show_highlight {
@@ -226,12 +198,12 @@ impl CachedTimelineEvent {
             })
             .unwrap_or(theme.text.normal);
 
-        let mt = if show_header {
+        let mt = if self.show_header {
             structure.small_gap + Pixels::from(2.0)
         } else {
             Pixels::ZERO
         };
-        let mb = if pad_bottom {
+        let mb = if self.pad_bottom {
             structure.small_gap + Pixels::from(2.0)
         } else {
             Pixels::ZERO
@@ -239,7 +211,12 @@ impl CachedTimelineEvent {
 
         let pre_col_space = structure.gap * 1.5;
 
-        tailwind_div!(
+        // System messages render their own avatar/name inline (see
+        // CachedSystemMessage::render) and don't need the two-column
+        // avatar/content layout that user messages use for grouping.
+        let is_system_message = matches!(self.content, CachedEventContent::SystemMessage(_));
+
+        let outer = tailwind_div!(
             w_full,
             border_transparent,
             rounded(structure.small_gap),
@@ -260,58 +237,70 @@ impl CachedTimelineEvent {
         })
         .id(id.clone())
         .when_some(self.in_reply_to(), |el, reply| {
-            el.child(reply.render(theme, structure, member_avatar, member_name))
-        })
-        .child(
-            tailwind_div!(flex, flex_row)
+            el.child(reply.render(theme, structure, smaller_member_avatar, member_name))
+        });
+
+        if is_system_message {
+            outer.child(content).into_any()
+        } else {
+            outer
                 .child(
-                    tailwind_div!(w(structure.chat_col_width()), px(pre_col_space), relative)
-                        .when(show_header, |el| {
-                            el.child(sender_avatar(structure.chat.icon_size))
-                        })
-                        .when(!show_header, |el| {
-                            el.child(
-                                tailwind_div!(
-                                    text_color(transparent_black()),
-                                    text_size(structure.chat.small_text_size),
+                    tailwind_div!(flex, flex_row)
+                        .child(
+                            tailwind_div!(
+                                w(structure.chat_col_width()),
+                                px(pre_col_space),
+                                relative
+                            )
+                            .when(self.show_header, |el| {
+                                el.child(sender_avatar(structure.chat.icon_size))
+                            })
+                            .when(!self.show_header, |el| {
+                                el.child(
+                                    tailwind_div!(
+                                        text_color(transparent_black()),
+                                        text_size(structure.chat.small_text_size),
+                                    )
+                                    .id(id)
+                                    .group_hover("message", |style| {
+                                        style.text_color(theme.text.muted)
+                                    })
+                                    .child(self.short_time.clone()),
                                 )
-                                .id(id)
-                                .group_hover("message", |style| style.text_color(theme.text.muted))
-                                .child(self.short_time.clone()),
-                            )
-                        })
-                        .when(self.flags.is_highlighted, |el| {
-                            el.child(tailwind_div!(
-                                bg(theme.accent),
-                                absolute,
-                                left(pre_col_space / 4.0),
-                                w(pre_col_space / 3.0),
-                                h_full,
-                                top_0,
-                                py(pre_col_space / 4.0),
-                                rounded(pre_col_space / 6.0)
-                            ))
-                        }),
+                            })
+                            .when(self.flags.is_highlighted, |el| {
+                                el.child(tailwind_div!(
+                                    bg(theme.accent),
+                                    absolute,
+                                    left(pre_col_space / 4.0),
+                                    w(pre_col_space / 3.0),
+                                    h_full,
+                                    top_0,
+                                    py(pre_col_space / 4.0),
+                                    rounded(pre_col_space / 6.0)
+                                ))
+                            }),
+                        )
+                        .child(
+                            tailwind_div!(flex, size_full, flex_col, gap(structure.small_gap))
+                                .when(self.show_header, |el| {
+                                    el.child(
+                                        tailwind_div!(flex, flex_row, gap(structure.gap))
+                                            .child(sender_name(structure.chat.text_size))
+                                            .child(
+                                                tailwind_div!(
+                                                    text_size(structure.chat.small_text_size),
+                                                    text_color(theme.text.muted),
+                                                )
+                                                .child(self.long_time.clone()),
+                                            ),
+                                    )
+                                })
+                                .child(content),
+                        ),
                 )
-                .child(
-                    tailwind_div!(flex, size_full, flex_col, gap(structure.small_gap))
-                        .when(show_header, |el| {
-                            el.child(
-                                tailwind_div!(flex, flex_row, gap(structure.gap))
-                                    .child(sender_name(structure.chat.text_size))
-                                    .child(
-                                        tailwind_div!(
-                                            text_size(structure.chat.small_text_size),
-                                            text_color(theme.text.muted),
-                                        )
-                                        .child(self.long_time.clone()),
-                                    ),
-                            )
-                        })
-                        .child(content),
-                ),
-        )
-        .into_any()
+                .into_any()
+        }
     }
 }
 
@@ -735,10 +724,13 @@ impl CachedReplyInfo {
 
                 tailwind_div!(flex, flex_row, items_center)
                     .child(sender_avatar(&content.sender_id))
+                    .child(" ")
                     .child(sender_name(&content.sender_id))
+                    .child(" ")
                     .when_some(icon, |el, icon| {
                         el.child(render_icon(icon, structure.chat.small_text_size))
                     })
+                    .child(" ")
                     .when_some(text, |el, text| {
                         el.child(
                             tailwind_div!(

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use deplace_core::matrix_api::{LoginResult, login};
 use gpui::{
     ClickEvent, Context, Entity, EventEmitter, Render, Role, Subscription, Window, div, prelude::*,
-    px,
 };
 use gpui_component::{
     Disableable, StyledExt,

@@ -12,7 +12,7 @@ use gpui::{
 };
 use gpui::{RenderImage, Role};
 use gpui_component::{
-    Sizable, StyledExt,
+    StyledExt,
     input::{Input, InputState},
 };
 use image::{Frame, ImageBuffer, Rgba};
