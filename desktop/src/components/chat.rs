@@ -163,6 +163,9 @@ impl ChatView {
         })
         .detach();
 
+        window.focus(&view.focus_handle, cx);
+        window.focus(&view.chat_input.focus_handle(cx), cx);
+
         view
     }
 
