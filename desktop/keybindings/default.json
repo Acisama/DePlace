@@ -12,7 +12,7 @@
     }
   },
   {
-    "context": "Chat",
+    "context": "!Input",
     "bindings": {
       "j": "chat::FocusNext",
       "k": "chat::FocusPrevious"
