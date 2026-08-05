@@ -25,6 +25,7 @@ use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
     timeline::{TimelineFocus, TimelineItem},
 };
+use serde::Deserialize;
 use tokio::{runtime::Runtime, sync::watch::Receiver, task::AbortHandle};
 use uuid::Uuid;
 
@@ -557,6 +558,21 @@ impl Render for ChatView {
 
         tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
             .key_context("Chat")
+            .on_action(cx.listener(|this, _: &FocusInput, window, cx| {
+                tracing::debug!("Focusing chat input");
+                window.focus(&this.chat_input.focus_handle(cx), cx);
+            }))
+            .on_action(cx.listener(|this, action: &FocusInputWithKey, window, cx| {
+                tracing::debug!("Focusing chat input");
+                this.chat_input.update(cx, |input, cx| {
+                    input.insert(&action.key, window, cx);
+                });
+                window.focus(&this.chat_input.focus_handle(cx), cx);
+            }))
+            .on_action(cx.listener(|this, _: &UnfocusInput, window, cx| {
+                tracing::debug!("Restoring focus to Chat");
+                window.focus(&this.focus_handle, cx);
+            }))
             .on_action(cx.listener(|this, FocusNext, _, cx| {
                 tracing::debug!("Focusing next message");
                 let mut new_focus = match this.focused_message {
@@ -657,4 +673,10 @@ impl Render for ChatView {
     }
 }
 
-actions!(chat, [FocusNext, FocusPrevious]);
+actions!(chat, [FocusNext, FocusPrevious, UnfocusInput, FocusInput]);
+
+#[derive(Clone, PartialEq, Deserialize, gpui::Action, schemars::JsonSchema)]
+#[action(namespace = chat)]
+struct FocusInputWithKey {
+    pub key: String,
+}

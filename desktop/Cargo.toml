@@ -26,6 +26,7 @@ matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
 phosphor-svgs = "0.3.0"
 rust-embed.workspace = true
+schemars = "1.2.2"
 serde.workspace = true
 serde_json.workspace = true
 smallvec.workspace = true

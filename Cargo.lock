@@ -2028,6 +2028,7 @@ dependencies = [
  "matrix-sdk-ui",
  "phosphor-svgs",
  "rust-embed",
+ "schemars",
  "serde",
  "serde_json",
  "smallvec",

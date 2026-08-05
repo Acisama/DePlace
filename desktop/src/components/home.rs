@@ -7,7 +7,8 @@ use deplace_core::{
 };
 use gpui::{
     AppContext, Context, Empty, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, Styled, Window, div, prelude::FluentBuilder,
+    KeyContext, ParentElement, Pixels, Render, Styled, Window, actions, div,
+    prelude::FluentBuilder,
 };
 use gpui_component::StyledExt;
 use matrix_sdk::{
@@ -42,7 +43,11 @@ pub struct HomeView {
     own_id: OwnedUserId,
 
     overlay: Overlay,
+
+    vim_mode: bool,
 }
+
+actions!(home, [ToggleVimMode]);
 
 #[derive(Debug)]
 enum Overlay {
@@ -294,6 +299,8 @@ impl HomeView {
 
             focus: focus_handle,
             overlay: Overlay::None,
+
+            vim_mode: false,
         }
     }
 
@@ -321,11 +328,18 @@ impl Render for HomeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.app_theme();
         let structure = cx.structure();
+        let key_context = KeyContext::parse(if self.vim_mode { "Home Vim" } else { "Home" })
+            .expect("Could not parse key context");
 
         div()
             .track_focus(&self.focus)
             .id("home-view")
-            .key_context("Home")
+            .key_context(key_context)
+            .on_action(cx.listener(|this, _: &ToggleVimMode, _window, cx| {
+                this.vim_mode = !this.vim_mode;
+                tracing::debug!("Toggled vim mode: {}", this.vim_mode);
+                cx.notify(); // re-render so that key context gest updated
+            }))
             .on_action(
                 cx.listener(|this, _action: &quick_select::Open, window, cx| {
                     tracing::debug!("Opening quick select");
