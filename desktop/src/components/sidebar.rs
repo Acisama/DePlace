@@ -3,7 +3,7 @@ use std::sync::Arc;
 use deplace_core::{
     NameExt, RoomMap,
     matrix_api::sync::ParentToChildren,
-    state::{AppState, MembershipMap},
+    state::{AppState, MembershipMap, PresenceMap},
 };
 use gpui::{
     Context, EventEmitter, InteractiveElement, ParentElement, Render, StatefulInteractiveElement,
@@ -14,7 +14,7 @@ use matrix_sdk::{Room, ruma::OwnedUserId};
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{AvatarCache, home::ActiveRoomChange, render_room_icon},
+    components::{AvatarCache, home::ActiveRoomChange, profiles::render_room_icon},
     theme::{ActiveAppTheme, StructureExt},
     watch_bridge::notify_on_change,
 };
@@ -26,6 +26,7 @@ pub struct SidebarView {
     dm_rooms: watch::Receiver<RoomMap>,
     tokio_rt: Arc<Runtime>,
     membership_map: watch::Receiver<MembershipMap>,
+    presence_map: watch::Receiver<PresenceMap>,
     own_id: OwnedUserId,
     cache: AvatarCache,
 }
@@ -44,12 +45,14 @@ impl SidebarView {
         let parent_to_children = state.parent_to_children();
         let dm_rooms = state.dm_rooms();
         let membership_map = state.membership_map();
+        let presence_map = state.presence_map();
 
         notify_on_change(active_server.clone(), cx);
         notify_on_change(active_room.clone(), cx);
         notify_on_change(parent_to_children.clone(), cx);
         notify_on_change(dm_rooms.clone(), cx);
         notify_on_change(membership_map.clone(), cx);
+        notify_on_change(presence_map.clone(), cx);
 
         Self {
             active_server,
@@ -58,6 +61,7 @@ impl SidebarView {
             dm_rooms,
             tokio_rt,
             membership_map,
+            presence_map,
             own_id: state.user_device.user_id.clone(),
             cache,
         }
@@ -74,6 +78,7 @@ impl Render for SidebarView {
         let structure = cx.structure();
 
         let membership_map = self.membership_map.borrow().clone();
+        let presence_map = self.presence_map.borrow().clone();
         let own_id = self.own_id.clone();
         let cache = self.cache.clone();
 
@@ -163,10 +168,12 @@ impl Render for SidebarView {
                 .child(render_room_icon(
                     &room,
                     &membership_map,
+                    &presence_map,
                     &own_id,
                     &cache,
                     icon_height,
                     icon_height / 2.0,
+                    theme,
                 ))
                 .on_click(cx.listener({
                     move |_, _, _, cx| {

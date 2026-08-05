@@ -6,9 +6,6 @@ use sha2::{Digest, Sha256};
 pub struct Color(CssColor);
 
 impl Color {
-    pub const UNKNOWN: Self = Self(CssColor::from_hsla(0.0, 1.0, 0.7, 1.0));
-    pub const DEFAULT: Self = Self(CssColor::from_hsla(0.0, 0.0, 0.7, 1.0));
-
     pub fn get(&self) -> CssColor {
         self.0.clone()
     }

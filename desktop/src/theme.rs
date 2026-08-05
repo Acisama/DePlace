@@ -34,10 +34,11 @@ pub struct Colors {
     pub offline: Hsla,
     pub busy: Hsla,
     pub muted: Hsla,
+    pub unknown: Hsla,
 }
 
 impl Colors {
-    fn new(red: Hsla, green: Hsla, yellow: Hsla, muted: Hsla) -> Self {
+    fn new(red: Hsla, green: Hsla, yellow: Hsla, muted: Hsla, unknown: Hsla) -> Self {
         Self {
             red,
             green,
@@ -50,6 +51,7 @@ impl Colors {
             offline: muted,
             busy: red,
             muted,
+            unknown,
         }
     }
 }
@@ -216,7 +218,18 @@ impl AppTheme {
                 focus_background: hsla(0.0, 0.0, 0.0, 0.4),
                 focused_border: accent.darken(0.4),
             },
-            colors: Colors::new(red, green, yellow, muted_color),
+            colors: Colors::new(
+                red,
+                green,
+                yellow,
+                muted_color,
+                Hsla {
+                    h: 0.0,
+                    s: 1.0,
+                    l: 0.7,
+                    a: 1.0,
+                },
+            ),
             accent,
         }
     }

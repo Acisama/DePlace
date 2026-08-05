@@ -46,7 +46,8 @@ impl CachedTimelineItem {
             || prev
                 .map(|item| {
                     if let CachedTimelineItemKind::Event(prev_event) = &item.kind {
-                        prev_event.timestamp.abs_diff(event.timestamp) > 300
+                        !matches!(prev_event.content, CachedEventContent::UserMessage(_))
+                            || prev_event.timestamp.abs_diff(event.timestamp) > 300
                             || prev_event.sender != event.sender
                     } else {
                         true

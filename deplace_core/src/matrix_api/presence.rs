@@ -1,7 +1,12 @@
 use std::collections::HashSet;
 
 use matrix_sdk::{Client, RoomMemberships};
-use ruma::{OwnedUserId, events::presence::PresenceEvent, serde::Raw};
+use ruma::{
+    OwnedUserId,
+    events::presence::{PresenceEvent, PresenceEventContent},
+    presence::PresenceState,
+    serde::Raw,
+};
 
 use crate::state::{AppState, PresenceMap};
 
@@ -45,4 +50,44 @@ pub async fn get_presences(client: Client, state: AppState) {
     };
 
     handle_presences(&presences, &state);
+}
+
+pub trait SvgExt {
+    fn svg_path(&self) -> &str;
+}
+
+#[derive(Default, Clone, Copy)]
+pub enum PresenceIcon {
+    Online,
+    Idle,
+    #[default]
+    Offline,
+    Busy,
+}
+
+impl PresenceIcon {
+    pub fn icon_path(&self) -> &str {
+        match self {
+            PresenceIcon::Online => "indicators/online.svg",
+            PresenceIcon::Idle => "indicators/idle.svg",
+            PresenceIcon::Offline => "indicators/offline.svg",
+            PresenceIcon::Busy => "indicators/busy.svg",
+        }
+    }
+}
+
+impl From<&PresenceEventContent> for PresenceIcon {
+    fn from(presence: &PresenceEventContent) -> Self {
+        match presence.presence {
+            PresenceState::Online => PresenceIcon::Online,
+            PresenceState::Unavailable => PresenceIcon::Idle,
+            PresenceState::Offline | _ => PresenceIcon::Offline,
+        }
+    }
+}
+
+impl From<Option<&PresenceEventContent>> for PresenceIcon {
+    fn from(presence: Option<&PresenceEventContent>) -> Self {
+        presence.map(|p| p.into()).unwrap_or_default()
+    }
 }

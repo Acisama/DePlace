@@ -13,14 +13,14 @@ use matrix_sdk::ruma::{OwnedEventId, RoomId, UserId};
 
 use crate::{
     components::{
-        AvatarCache, CustomStyles, MemberRenderer,
+        AvatarCache, CustomStyles,
         cache::{MediaState, ThumbnailCache},
         message::{
             CachedEventContent, CachedMessageType, CachedReplyInfo, CachedSendState,
             CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
             CachedUserMessage, DetailState, ReactionInfo,
         },
-        render_icon,
+        profiles::{MemberRenderer, render_icon},
     },
     theme::{AppTheme, Structure},
 };
@@ -102,14 +102,20 @@ impl CachedTimelineEvent {
         let member = map.get(current_room_id).and_then(|m| m.get(&*self.sender));
 
         let sender_avatar =
-            move |size: Pixels| member.render_avatar(size, size / 2.0, avatar_cache);
-        let sender_name = move |size: Pixels| member.render_name(size);
+            move |size: Pixels| member.render_avatar(size, size / 2.0, theme, avatar_cache, None);
+        let sender_name = move |size: Pixels| member.render_name(size, &theme.colors);
 
         let small_icon_size = structure.chat.small_icon_size;
 
         let member_avatar = move |id: &UserId| {
             let member = map.get(current_room_id).and_then(|m| m.get(id));
-            member.render_avatar(small_icon_size, small_icon_size / 2.0, avatar_cache)
+            member.render_avatar(
+                small_icon_size,
+                small_icon_size / 2.0,
+                theme,
+                avatar_cache,
+                None,
+            )
         };
 
         let smaller_member_avatar = move |id: &UserId| {
@@ -117,13 +123,15 @@ impl CachedTimelineEvent {
             member.render_avatar(
                 structure.chat.small_text_size * 1.2,
                 structure.chat.small_text_size * 1.2 / 2.0,
+                theme,
                 avatar_cache,
+                None,
             )
         };
 
         let member_name = move |id: &UserId| {
             let member = map.get(current_room_id).and_then(|m| m.get(id));
-            member.render_name(structure.chat.small_text_size)
+            member.render_name(structure.chat.small_text_size, colors)
         };
 
         let content = match &self.content {
