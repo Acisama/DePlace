@@ -237,9 +237,6 @@ impl CachedTimelineEvent {
 
         let pre_col_space = structure.gap * 1.5;
 
-        // System messages render their own avatar/name inline (see
-        // CachedSystemMessage::render) and don't need the two-column
-        // avatar/content layout that user messages use for grouping.
         let is_system_message = matches!(self.content, CachedEventContent::SystemMessage(_));
 
         let outer = tailwind_div!(
@@ -264,6 +261,18 @@ impl CachedTimelineEvent {
         .id(id.clone())
         .when_some(self.in_reply_to(), |el, reply| {
             el.child(reply.render(theme, structure, smaller_member_avatar, member_name))
+        })
+        .when(show_highlight, |el| {
+            el.child(tailwind_div!(
+                bg(theme.accent),
+                absolute,
+                left(pre_col_space / 4.0),
+                w(pre_col_space / 3.0),
+                flex,
+                top(pre_col_space / 4.0),
+                bottom(pre_col_space / 4.0),
+                rounded(pre_col_space / 6.0)
+            ))
         });
 
         if is_system_message {
@@ -293,18 +302,6 @@ impl CachedTimelineEvent {
                                     })
                                     .child(self.short_time.clone()),
                                 )
-                            })
-                            .when(self.flags.is_highlighted, |el| {
-                                el.child(tailwind_div!(
-                                    bg(theme.accent),
-                                    absolute,
-                                    left(pre_col_space / 4.0),
-                                    w(pre_col_space / 3.0),
-                                    h_full,
-                                    top_0,
-                                    py(pre_col_space / 4.0),
-                                    rounded(pre_col_space / 6.0)
-                                ))
                             }),
                         )
                         .child(

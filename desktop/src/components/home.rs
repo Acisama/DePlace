@@ -8,7 +8,7 @@ use deplace_core::{
 };
 use gpui::{
     AppContext, Context, Empty, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyContext, ParentElement, Pixels, Render, Styled, Window, actions, div,
+    KeyContext, ParentElement, Pixels, Render, StyleRefinement, Styled, Window, actions, div,
     prelude::FluentBuilder,
 };
 use gpui_component::{
@@ -25,8 +25,14 @@ use tokio::sync::watch::Receiver;
 
 use crate::{
     components::{
-        AvatarCache, CustomStyles, cache::ThumbnailCache, chat::ChatView, floating_tile,
-        header::HeaderView, quick_select, server_list::ServerListView, sidebar::SidebarView,
+        AvatarCache, CustomStyles,
+        cache::ThumbnailCache,
+        chat::{ChatView, FocusInput, FocusInputWithKey, UnfocusInput},
+        floating_tile,
+        header::HeaderView,
+        quick_select,
+        server_list::ServerListView,
+        sidebar::SidebarView,
     },
     theme::{ActiveAppTheme, Structure, StructureExt},
     watch_bridge::notify_on_change,
@@ -212,6 +218,12 @@ impl ChatInputBar {
         self.chat_input.update(cx, |input, cx| {
             input.set_placeholder(active_room.get_input_placeholder(&map), window, cx)
         });
+    }
+}
+
+impl Focusable for ChatInputBar {
+    fn focus_handle(&self, cx: &gpui::App) -> FocusHandle {
+        self.chat_input.focus_handle(cx)
     }
 }
 
@@ -498,11 +510,13 @@ impl Render for HomeView {
                     .child(
                         floating_tile(theme, structure)
                             .w(structure.server_column_width())
-                            .child(self.server_list.clone().cached(
-                                StyleRefinement::default()
-                                    .w(structure.server_column_width())
-                                    .h_full(),
-                            )),
+                            .child(
+                                self.server_list.clone().cached(
+                                    StyleRefinement::default()
+                                        .w(structure.server_column_width())
+                                        .h_full(),
+                                ),
+                            ),
                     )
                     .child(
                         div()
@@ -548,6 +562,36 @@ impl Render for HomeView {
                                             .size_full()
                                             .paddings(structure.gap)
                                             .pt_0()
+                                            .key_context("Chat")
+                                            .on_action(cx.listener(
+                                                |this, _: &FocusInput, window, cx| {
+                                                    tracing::debug!("Focusing chat input");
+                                                    window.focus(
+                                                        &this.chat_input.focus_handle(cx),
+                                                        cx,
+                                                    );
+                                                },
+                                            ))
+                                            .on_action(cx.listener(
+                                                |this, action: &FocusInputWithKey, window, cx| {
+                                                    tracing::debug!("Focusing chat input");
+                                                    this.chat_input.update(cx, |bar, cx| {
+                                                        bar.chat_input.update(cx, |input, cx| {
+                                                            input.insert(&action.key, window, cx);
+                                                        });
+                                                    });
+                                                    window.focus(
+                                                        &this.chat_input.focus_handle(cx),
+                                                        cx,
+                                                    );
+                                                },
+                                            ))
+                                            .on_action(cx.listener(
+                                                |this, _: &UnfocusInput, window, cx| {
+                                                    tracing::debug!("Restoring focus to Chat");
+                                                    window.focus(&this.chat.focus_handle(cx), cx);
+                                                },
+                                            ))
                                             .child(
                                                 self.chat
                                                     .clone()

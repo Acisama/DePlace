@@ -7,9 +7,9 @@ use deplace_core::{
 };
 use futures_util::StreamExt;
 use gpui::{
-    AppContext, Context, Empty, FocusHandle, FollowMode, InteractiveElement, IntoElement,
-    ListAlignment, ListScrollEvent, ListState, ParentElement, Render, SharedString, Styled, Task,
-    Window, actions, div, list, px,
+    AppContext, Context, Empty, FocusHandle, Focusable, FollowMode, InteractiveElement,
+    IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement, Render, SharedString,
+    Styled, Task, Window, actions, div, list, px,
 };
 use gpui_component::StyledExt;
 use macros::tailwind_div;
@@ -121,9 +121,6 @@ impl ChatView {
             }
         })
         .detach();
-
-        window.focus(&view.focus_handle, cx);
-        window.focus(&view.chat_input.focus_handle(cx), cx);
 
         view
     }
@@ -478,6 +475,12 @@ fn apply_diff(
     }
 }
 
+impl Focusable for ChatView {
+    fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
 impl Render for ChatView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let structure = cx.structure();
@@ -497,21 +500,6 @@ impl Render for ChatView {
 
         tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
             .key_context("Chat")
-            .on_action(cx.listener(|this, _: &FocusInput, window, cx| {
-                tracing::debug!("Focusing chat input");
-                window.focus(&this.chat_input.focus_handle(cx), cx);
-            }))
-            .on_action(cx.listener(|this, action: &FocusInputWithKey, window, cx| {
-                tracing::debug!("Focusing chat input");
-                this.chat_input.update(cx, |input, cx| {
-                    input.insert(&action.key, window, cx);
-                });
-                window.focus(&this.chat_input.focus_handle(cx), cx);
-            }))
-            .on_action(cx.listener(|this, _: &UnfocusInput, window, cx| {
-                tracing::debug!("Restoring focus to Chat");
-                window.focus(&this.focus_handle, cx);
-            }))
             .on_action(cx.listener(|this, FocusNext, _, cx| {
                 tracing::debug!("Focusing next message");
                 let mut new_focus = match this.focused_message {
@@ -538,8 +526,8 @@ impl Render for ChatView {
             .on_action(cx.listener(|this, FocusPrevious, _, cx| {
                 tracing::debug!("Focusing previous message");
                 let mut new_focus = match this.focused_message {
-                    Some(focus) => focus - 1,
-                    None if !this.messages.is_empty() => this.messages.len() - 1,
+                    Some(focus) => focus.saturating_sub(1),
+                    None if !this.messages.is_empty() => this.messages.len().saturating_sub(1),
                     None => return,
                 };
 
@@ -597,6 +585,6 @@ actions!(chat, [FocusNext, FocusPrevious, UnfocusInput, FocusInput]);
 
 #[derive(Clone, PartialEq, Deserialize, gpui::Action, schemars::JsonSchema)]
 #[action(namespace = chat)]
-struct FocusInputWithKey {
+pub struct FocusInputWithKey {
     pub key: String,
 }
