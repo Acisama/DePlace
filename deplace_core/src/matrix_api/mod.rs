@@ -52,11 +52,21 @@ impl Default for LoginResult {
 }
 
 pub async fn login(
-    temp_client: &Client,
+    old_client: &Client,
     username: String,
     password: String,
     recovery_key: String,
 ) -> LoginResult {
+    let url = old_client.homeserver();
+
+    let temp_client = match Client::new(url.clone()).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("Failed to construct client: {e}");
+            return LoginResult::Error("Failed to construct client".to_string());
+        }
+    };
+
     if temp_client
         .matrix_auth()
         .login_username(&username, &password)
@@ -67,8 +77,6 @@ pub async fn login(
     {
         return LoginResult::InvalidCredentials;
     }
-
-    let url = temp_client.homeserver();
 
     tracing::debug!("Logged in with temporary client, fetching session info");
 

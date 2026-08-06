@@ -1,11 +1,12 @@
-use std::{sync::Arc, time::Duration};
+use std::{ops::Range, sync::Arc, time::Duration};
 
-use deplace_core::{formatting::fit_dimensions, state::MembershipMap};
+use deplace_core::{NameExt, colors::ColorExt, formatting::fit_dimensions, state::MembershipMap};
 use gpui::{
-    Animation, AnimationExt, AnyElement, Div, Element, ElementId, InteractiveElement,
-    LinearColorStop, ObjectFit, ParentElement, Pixels, SharedString, StatefulInteractiveElement,
-    Styled, StyledImage, div, img, linear_gradient, prelude::FluentBuilder, px, relative,
-    transparent_black,
+    Animation, AnimationExt, AnyElement, Div, Element, ElementId, FontStyle, FontWeight,
+    HighlightStyle, Hsla, InteractiveElement, InteractiveText, IntoElement, LinearColorStop,
+    ObjectFit, ParentElement, Pixels, SharedString, StatefulInteractiveElement, StrikethroughStyle,
+    Styled, StyledImage, StyledText, TextStyle, UnderlineStyle, Window, div, img, linear_gradient,
+    prelude::FluentBuilder, px, relative, transparent_black,
 };
 use gpui_component::{Colorize, StyledExt, red_600};
 use macros::tailwind_div;
@@ -19,6 +20,7 @@ use crate::{
             CachedEventContent, CachedMessageType, CachedReplyInfo, CachedSendState,
             CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
             CachedUserMessage, DetailState, ReactionInfo,
+            text::{CachedBlock, CachedLink, CachedPill, CachedRichText},
         },
         profiles::{MemberRenderer, render_icon},
     },
@@ -29,6 +31,7 @@ use crate::{
 impl CachedTimelineItem {
     pub fn render(
         &self,
+        window: &Window,
         theme: &AppTheme,
         structure: &Structure,
         curent_room_id: &RoomId,
@@ -61,6 +64,7 @@ impl CachedTimelineItem {
             }
             CachedTimelineItemKind::Event(event) => event.render(
                 self.id(),
+                window,
                 theme,
                 structure,
                 curent_room_id,
@@ -79,6 +83,7 @@ impl CachedTimelineEvent {
     fn render(
         &self,
         id: ElementId,
+        window: &Window,
         theme: &AppTheme,
         structure: &Structure,
         current_room_id: &RoomId,
@@ -134,6 +139,16 @@ impl CachedTimelineEvent {
             member.render_name(structure.chat.small_text_size, colors)
         };
 
+        // Same lookup as `member_avatar`/`member_name` above, but returning the plain
+        // name text + tint color instead of a built element - what mention pills inside
+        // a formatted message body need to build a `TextRun`.
+        let member_name_color = move |id: &UserId| -> (SharedString, gpui::Hsla) {
+            match map.get(current_room_id).and_then(|m| m.get(id)) {
+                Some(member) => (member.get_name().into(), member.color().into()),
+                None => ("Unknown".into(), colors.unknown),
+            }
+        };
+
         let content = match &self.content {
             CachedEventContent::FailedToParseMessageLike(text)
             | CachedEventContent::FailedToParseState(text) => {
@@ -152,10 +167,13 @@ impl CachedTimelineEvent {
                 }
             }
             CachedEventContent::UserMessage(msg) => msg.render(
+                &id,
+                window,
                 structure,
                 theme,
                 image_cache,
                 member_avatar,
+                member_name_color,
                 toggle_reaction,
             ),
         };
@@ -355,22 +373,35 @@ impl CachedSystemMessage {
 }
 
 impl CachedUserMessage {
+    #[allow(clippy::too_many_arguments)]
     fn render(
         &self,
+        id: &ElementId,
+        window: &Window,
         structure: &Structure,
         theme: &AppTheme,
         media_cache: &ThumbnailCache,
         member_avatar: impl Fn(&UserId) -> AnyElement,
+        member_name_color: impl Fn(&UserId) -> (SharedString, Hsla),
         on_toggle_reaction: impl Fn(SharedString) + Clone + 'static,
     ) -> Div {
         let warning = theme.colors.warning;
         let error = theme.colors.error;
 
         let chat = &structure.chat;
+        let id_prefix: SharedString = format!("{id:?}").into();
+        let base_text_style = window.text_style();
 
-        let render_body = move |text| {
+        let render_body = move |blocks: Arc<[CachedBlock]>| {
             tailwind_div!(text_color(theme.text.normal), flex, items_baseline)
-                .child(text)
+                .child(render_rich_body(
+                    &id_prefix,
+                    &blocks,
+                    &base_text_style,
+                    theme,
+                    structure,
+                    &member_name_color,
+                ))
                 .when(self.is_edited, |el| {
                     el.child(
                         tailwind_div!(
@@ -771,5 +802,265 @@ impl CachedReplyInfo {
                 ),
             )
             .child(content)
+    }
+}
+
+pub(crate) fn render_rich_body(
+    id: &SharedString,
+    blocks: &[CachedBlock],
+    base_text_style: &TextStyle,
+    theme: &AppTheme,
+    structure: &Structure,
+    member_name: &dyn Fn(&UserId) -> (SharedString, Hsla),
+) -> AnyElement {
+    let mut counter = 0;
+    render_blocks(
+        id,
+        blocks,
+        base_text_style,
+        theme,
+        structure,
+        member_name,
+        &mut counter,
+    )
+}
+
+fn render_blocks(
+    id: &SharedString,
+    blocks: &[CachedBlock],
+    base_text_style: &TextStyle,
+    theme: &AppTheme,
+    structure: &Structure,
+    member_name: &dyn Fn(&UserId) -> (SharedString, Hsla),
+    counter: &mut usize,
+) -> AnyElement {
+    tailwind_div!(flex, flex_col, gap(structure.small_gap))
+        .children(blocks.iter().map(|block| {
+            render_block(
+                id,
+                block,
+                base_text_style,
+                theme,
+                structure,
+                member_name,
+                counter,
+            )
+        }))
+        .into_any()
+}
+
+fn next_id(id: &SharedString, counter: &mut usize) -> ElementId {
+    *counter += 1;
+    ElementId::Name(format!("{id}-rich-{counter}").into())
+}
+
+fn render_block(
+    id: &SharedString,
+    block: &CachedBlock,
+    base_text_style: &TextStyle,
+    theme: &AppTheme,
+    structure: &Structure,
+    member_name: &dyn Fn(&UserId) -> (SharedString, Hsla),
+    counter: &mut usize,
+) -> AnyElement {
+    match block {
+        CachedBlock::Paragraph(text) => {
+            render_rich_text(id, text, base_text_style, theme, member_name, counter)
+        }
+        CachedBlock::Heading { level, text } => {
+            let scale = 1.6 - 0.1 * f32::from((*level).min(6));
+            tailwind_div!(font_bold, text_size(structure.chat.text_size * scale))
+                .child(render_rich_text(
+                    id,
+                    text,
+                    base_text_style,
+                    theme,
+                    member_name,
+                    counter,
+                ))
+                .into_any()
+        }
+        CachedBlock::List {
+            ordered,
+            start,
+            items,
+        } => {
+            let base = start.unwrap_or(1);
+            tailwind_div!(
+                flex,
+                flex_col,
+                gap(structure.small_gap),
+                pl(structure.small_gap)
+            )
+            .children(items.iter().enumerate().map(|(ix, item)| {
+                let marker: SharedString = if *ordered {
+                    format!("{}.", base + ix as i64).into()
+                } else {
+                    "•".into()
+                };
+                tailwind_div!(flex, flex_row, gap(structure.small_gap))
+                    .child(div().child(marker))
+                    .child(render_blocks(
+                        id,
+                        item,
+                        base_text_style,
+                        theme,
+                        structure,
+                        member_name,
+                        counter,
+                    ))
+                    .into_any()
+            }))
+            .into_any()
+        }
+        CachedBlock::CodeBlock { code, language: _ } => tailwind_div!(
+            bg(theme.solid_bg),
+            rounded(structure.inner_border_radius),
+            border_1,
+            border_color(theme.tile.border),
+            paddings(structure.gap),
+            font_family("monospace"),
+            text_size(structure.chat.small_text_size)
+        )
+        .child(code.clone())
+        .into_any(),
+        CachedBlock::Quote(children) => tailwind_div!(
+            flex,
+            pl(structure.gap),
+            border_l(structure.divider_width * 2.0),
+            border_color(theme.tile.border),
+            text_color(theme.text.muted)
+        )
+        .child(render_blocks(
+            id,
+            children,
+            base_text_style,
+            theme,
+            structure,
+            member_name,
+            counter,
+        ))
+        .into_any(),
+        CachedBlock::Rule => {
+            tailwind_div!(w_full, h(structure.divider_width), bg(theme.tile.border)).into_any()
+        }
+        CachedBlock::Image { .. } => tailwind_div!(text_color(theme.colors.warning))
+            .child("Inline images are not supported yet")
+            .into_any(),
+    }
+}
+
+fn render_rich_text(
+    id: &SharedString,
+    text: &CachedRichText,
+    base_text_style: &TextStyle,
+    theme: &AppTheme,
+    member_name: &dyn Fn(&UserId) -> (SharedString, Hsla),
+    counter: &mut usize,
+) -> AnyElement {
+    if text.runs.is_empty() {
+        return tailwind_div!(text_color(theme.text.normal))
+            .child(text.text.clone())
+            .into_any();
+    }
+
+    let mut rendered = String::new();
+    let mut runs = Vec::with_capacity(text.runs.len());
+    let mut click_ranges: Vec<Range<usize>> = Vec::new();
+    let mut click_targets: Vec<SharedString> = Vec::new();
+
+    let mut offset = 0;
+    for run in text.runs.iter() {
+        let slice = text
+            .text
+            .get(offset..offset + run.len)
+            .expect("CachedRun boundaries are byte lengths pushed by RunBuilder over this exact string, so they always land on char boundaries");
+        offset += run.len;
+
+        let mut highlight = HighlightStyle {
+            color: Some(theme.text.normal),
+            font_weight: run.style.bold.then_some(FontWeight::BOLD),
+            font_style: run.style.italic.then_some(FontStyle::Italic),
+            strikethrough: run.style.strikethrough.then(|| StrikethroughStyle {
+                thickness: px(1.0),
+                color: None,
+            }),
+            underline: run.style.underline.then(|| UnderlineStyle {
+                thickness: px(1.0),
+                color: None,
+                wavy: false,
+            }),
+            ..Default::default()
+        };
+
+        if run.style.code {
+            highlight.color = Some(theme.accent);
+        }
+
+        let run_text: SharedString =
+            if let Some(CachedLink::Pill(CachedPill::User(user_id))) = &run.style.link {
+                let (name, pill_color) = member_name(user_id);
+                highlight.color = Some(pill_color);
+                highlight.font_weight = Some(FontWeight::BOLD);
+                highlight.background_color = Some(pill_color.alpha(0.16));
+                format!("@{}", name.replace(' ', "\u{a0}")).into()
+            } else if run.style.spoiler.is_some() {
+                // TODO: Reveal on click
+                highlight.background_color = Some(theme.text.dim);
+                highlight.color = Some(theme.text.dim);
+                slice.into()
+            } else {
+                if run.style.link.is_some() {
+                    highlight.color = Some(theme.accent);
+                    highlight.underline = Some(UnderlineStyle {
+                        thickness: px(1.0),
+                        color: None,
+                        wavy: false,
+                    });
+                }
+                slice.into()
+            };
+
+        let start = rendered.len();
+        rendered.push_str(&run_text);
+        let end = rendered.len();
+
+        if let Some(href) = link_href(&run.style.link) {
+            click_ranges.push(start..end);
+            click_targets.push(href);
+        }
+
+        runs.push(
+            base_text_style
+                .clone()
+                .highlight(highlight)
+                .to_run(run_text.len()),
+        );
+    }
+
+    let styled = StyledText::new(rendered).with_runs(runs);
+
+    InteractiveText::new(next_id(id, counter), styled)
+        .on_click(click_ranges, move |ix, _window, cx| {
+            if let Some(href) = click_targets.get(ix) {
+                cx.open_url(href);
+            }
+        })
+        .into_any_element()
+}
+
+fn link_href(link: &Option<CachedLink>) -> Option<SharedString> {
+    match link {
+        Some(CachedLink::Url(href)) => Some(href.clone()),
+        Some(CachedLink::Pill(pill)) => Some(pill_href(pill)),
+        None => None,
+    }
+}
+
+fn pill_href(pill: &CachedPill) -> SharedString {
+    match pill {
+        CachedPill::User(id) => format!("https://matrix.to/#/{id}").into(),
+        CachedPill::Room(id) => format!("https://matrix.to/#/{id}").into(),
+        CachedPill::Event { room, event } => format!("https://matrix.to/#/{room}/{event}").into(),
     }
 }

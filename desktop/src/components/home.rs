@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use deplace_core::{
     get_other_member,
+    helpers::RoomPlaceholderExt,
     matrix_api::account_data::set_account_data,
     state::{AppState, MembershipMap},
 };
@@ -10,7 +11,11 @@ use gpui::{
     KeyContext, ParentElement, Pixels, Render, Styled, Window, actions, div,
     prelude::FluentBuilder,
 };
-use gpui_component::StyledExt;
+use gpui_component::{
+    StyledExt,
+    input::{Input, InputState},
+};
+use macros::tailwind_div;
 use matrix_sdk::{
     Room,
     room::RoomMember,
@@ -20,8 +25,8 @@ use tokio::sync::watch::Receiver;
 
 use crate::{
     components::{
-        AvatarCache, cache::ThumbnailCache, chat::ChatView, floating_tile, header::HeaderView,
-        quick_select, server_list::ServerListView, sidebar::SidebarView,
+        AvatarCache, CustomStyles, cache::ThumbnailCache, chat::ChatView, floating_tile,
+        header::HeaderView, quick_select, server_list::ServerListView, sidebar::SidebarView,
     },
     theme::{ActiveAppTheme, Structure, StructureExt},
     watch_bridge::notify_on_change,
@@ -37,6 +42,7 @@ pub struct HomeView {
     header: Entity<HeaderView>,
     sidebar: Entity<SidebarView>,
     chat: Entity<ChatView>,
+    chat_input: Entity<ChatInputBar>,
 
     active_room: Receiver<Option<Room>>,
     membership_map: Receiver<MembershipMap>,
@@ -125,6 +131,123 @@ impl ChatSidebar {
     }
 }
 
+pub struct ChatInputBar {
+    chat_input: Entity<InputState>,
+    active_room: Receiver<Option<Room>>,
+    membership_map: Receiver<MembershipMap>,
+}
+
+impl ChatInputBar {
+    pub fn new(state: &AppState, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let active_room = state.active_room();
+        let membership_map = state.membership_map();
+
+        let chat_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .auto_grow(1, 10)
+                .placeholder(
+                    active_room
+                        .borrow()
+                        .clone()
+                        .get_input_placeholder(&membership_map.borrow()),
+                )
+        });
+
+        let view = Self {
+            chat_input,
+            active_room: active_room.clone(),
+            membership_map: membership_map.clone(),
+        };
+
+        cx.spawn({
+            let mut active_room = active_room.clone();
+            async move |this, cx| {
+                while active_room.changed().await.is_ok() {
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        this.update_in(cx, |view, window, cx| view.update_placeholder(window, cx))
+                    })) {
+                        Ok(Ok(())) => {}
+                        Ok(Err(_)) => break,
+                        Err(e) => {
+                            tracing::error!(
+                                "Panic while updating chat input placeholder, will keep listening for room changes: {:?}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        })
+        .detach();
+
+        cx.spawn({
+            let mut map = membership_map.clone();
+            async move |this, cx| {
+                while map.changed().await.is_ok() {
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        this.update_in(cx, |view, window, cx| view.update_placeholder(window, cx))
+                    })) {
+                        Ok(Ok(())) => {}
+                        Ok(Err(_)) => break,
+                        Err(e) => {
+                            tracing::error!(
+                                "Panic while updating chat input placeholder, will keep listening for membership changes: {:?}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        })
+        .detach();
+
+        view
+    }
+
+    fn update_placeholder(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let active_room = self.active_room.borrow().clone();
+        let map = self.membership_map.borrow().clone();
+
+        self.chat_input.update(cx, |input, cx| {
+            input.set_placeholder(active_room.get_input_placeholder(&map), window, cx)
+        });
+    }
+}
+
+impl Render for ChatInputBar {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.app_theme();
+        let structure = cx.structure();
+
+        let input_focused = self.chat_input.read(cx).focus_handle(cx).is_focused(window);
+        let (input_bg, input_border) = if input_focused {
+            (theme.input.focus_background, theme.input.focused_border)
+        } else {
+            (theme.input.background, theme.tile.border)
+        };
+
+        tailwind_div!(
+            min_h(structure.header.height),
+            flex,
+            flex_row,
+            items_center,
+            w_full,
+            rounded(structure.inner_border_radius),
+            text_size(structure.chat.text_size)
+            border_1,
+            border_color(input_border),
+            bg(input_bg)
+        )
+        .child(
+            Input::new(&self.chat_input)
+                .bg_transparent()
+                .border_transparent()
+                .text_color(theme.text.normal),
+        )
+    }
+}
+
 impl HomeView {
     pub fn new(
         tokio_rt: Arc<tokio::runtime::Runtime>,
@@ -148,12 +271,12 @@ impl HomeView {
             ChatView::new(
                 &state,
                 cx,
-                window,
                 tokio_rt.clone(),
                 avatar_cache.clone(),
                 image_cache.clone(),
             )
         });
+        let chat_input = cx.new(|cx| ChatInputBar::new(&state, window, cx));
 
         let active_room = state.active_room();
         let membership_map = state.membership_map();
@@ -285,6 +408,7 @@ impl HomeView {
             header,
             sidebar,
             chat,
+            chat_input,
 
             chat_sidebar: ChatSidebar::from_active_room(
                 state.active_room().borrow().clone(),
@@ -374,7 +498,11 @@ impl Render for HomeView {
                     .child(
                         floating_tile(theme, structure)
                             .w(structure.server_column_width())
-                            .child(self.server_list.clone()),
+                            .child(self.server_list.clone().cached(
+                                StyleRefinement::default()
+                                    .w(structure.server_column_width())
+                                    .h_full(),
+                            )),
                     )
                     .child(
                         div()
@@ -383,9 +511,11 @@ impl Render for HomeView {
                             .w(structure.sidebar.width)
                             .gap(structure.gap)
                             .child(
-                                floating_tile(theme, structure)
-                                    .flex_grow_1()
-                                    .child(self.sidebar.clone()),
+                                floating_tile(theme, structure).flex_grow_1().child(
+                                    self.sidebar
+                                        .clone()
+                                        .cached(StyleRefinement::default().size_full()),
+                                ),
                             )
                             .child(floating_tile(theme, structure).h(structure.header.height)),
                     ),
@@ -411,7 +541,20 @@ impl Render for HomeView {
                                 floating_tile(theme, structure)
                                     .flex_grow_1()
                                     .h_full()
-                                    .child(self.chat.clone()),
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .size_full()
+                                            .paddings(structure.gap)
+                                            .pt_0()
+                                            .child(
+                                                self.chat
+                                                    .clone()
+                                                    .cached(StyleRefinement::default().size_full()),
+                                            )
+                                            .child(self.chat_input.clone()),
+                                    ),
                             )
                             .when_some(self.chat_sidebar.clone(), |el, sidebar| {
                                 el.child(

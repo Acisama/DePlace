@@ -185,8 +185,8 @@ impl MemberRenderer for RoomMember {
         let content = avatar(self.initial(), self.color().into(), size, rounding, image).into_any();
 
         if let Some(map) = presence_map {
-            let icon_size = size * 0.33;
-            let padding = icon_size * 0.3;
+            let icon_size = size * 0.3;
+            let padding = icon_size * 0.35;
 
             let icon: PresenceIcon = map.get(self.user_id()).into();
 

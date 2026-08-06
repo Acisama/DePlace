@@ -5,11 +5,12 @@ use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
 
 mod convert;
 mod render;
+mod text;
 
 pub use convert::cached_from_timeline_item;
 
 use crate::{
-    components::ByteSize,
+    components::{ByteSize, message::text::CachedBlock},
     theme::{AppTheme, Structure},
 };
 
@@ -361,7 +362,7 @@ struct CachedUserMessage {
     in_reply_to: Option<CachedReplyInfo>,
 
     is_edited: bool,
-    body: Option<SharedString>,
+    body: Option<Arc<[CachedBlock]>>,
 
     msg_type: CachedMessageType,
 }

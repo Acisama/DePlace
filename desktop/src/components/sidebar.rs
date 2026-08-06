@@ -53,6 +53,7 @@ impl SidebarView {
         notify_on_change(dm_rooms.clone(), cx);
         notify_on_change(membership_map.clone(), cx);
         notify_on_change(presence_map.clone(), cx);
+        notify_on_change(cache.subscribe(), cx);
 
         Self {
             active_server,

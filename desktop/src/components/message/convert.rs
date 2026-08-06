@@ -6,13 +6,15 @@ use deplace_core::{
     helpers::{format_date_divider, format_message_long_date, format_message_short_date},
     matrix_api::timeline::{DisplayString, get_current_and_prev},
 };
-use gpui::{ImageFormat, SharedString};
+use gpui::ImageFormat;
 use matrix_sdk::{
     media::UniqueKey,
     ruma::{
         MilliSecondsSinceUnixEpoch, UserId,
         events::{
-            receipt::ReceiptThread, room::message::MessageType, rtc::notification::CallIntent,
+            receipt::ReceiptThread,
+            room::message::{FormattedBody, MessageType},
+            rtc::notification::CallIntent,
         },
     },
 };
@@ -29,6 +31,7 @@ use crate::components::{
         CachedProgress, CachedReplyInfo, CachedReplyPreview, CachedReplyPreviewBody,
         CachedSendState, CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem,
         CachedTimelineItemKind, CachedUserMessage, DetailState, EventFlags, ReactionInfo,
+        text::{CachedBlock, convert_formatted_body},
     },
 };
 
@@ -248,6 +251,14 @@ pub fn cached_from_timeline_item(value: &Arc<TimelineItem>, own_id: &UserId) -> 
     }
 }
 
+fn convert_to_formatted(body: &str, formated: Option<&FormattedBody>) -> Arc<[CachedBlock]> {
+    if let Some(formatted) = formated {
+        convert_formatted_body(&formatted.body)
+    } else {
+        Arc::new([CachedBlock::new_plain(body)])
+    }
+}
+
 fn cached_from_timeline_item_content(
     value: &TimelineItemContent,
     own_id: &UserId,
@@ -338,7 +349,10 @@ fn cached_from_timeline_item_content(
 
                     match msg.msgtype().clone() {
                         MessageType::Audio(content) => (
-                            Some(content.body.as_str().into()),
+                            Some(convert_to_formatted(
+                                &content.body,
+                                content.formatted.as_ref(),
+                            )),
                             CachedMessageType::Audio {
                                 source: Arc::new(content.source.clone()),
                                 filename: content.filename().into(),
@@ -348,14 +362,22 @@ fn cached_from_timeline_item_content(
                                     .unwrap_or_default(),
                             },
                         ),
-                        MessageType::Emote(content) => {
-                            (Some(content.body.into()), CachedMessageType::Emote)
-                        }
+                        MessageType::Emote(content) => (
+                            Some(convert_to_formatted(
+                                &content.body,
+                                content.formatted.as_ref(),
+                            )),
+                            CachedMessageType::Emote,
+                        ),
                         MessageType::File(content) => {
                             let info = content.info.clone().unwrap_or_default();
+                            let filename = content.filename();
 
                             (
-                                Some(content.body.as_str().into()),
+                                (filename != content.body).then_some(convert_to_formatted(
+                                    &content.body,
+                                    content.formatted.as_ref(),
+                                )),
                                 CachedMessageType::File {
                                     source: content.source.clone().into(),
                                     filename: content.filename().into(),
@@ -372,7 +394,10 @@ fn cached_from_timeline_item_content(
                                 info.mimetype.and_then(|m| ImageFormat::from_mime_type(&m));
 
                             (
-                                (filename != content.body).then_some(content.body.as_str().into()),
+                                (filename != content.body).then_some(convert_to_formatted(
+                                    &content.body,
+                                    content.formatted.as_ref(),
+                                )),
                                 CachedMessageType::Image {
                                     filename: filename.into(),
                                     source: Arc::new(content.source.clone()),
@@ -386,7 +411,7 @@ fn cached_from_timeline_item_content(
                             )
                         }
                         MessageType::Location(content) => (
-                            Some(content.body.as_str().into()),
+                            Some(convert_to_formatted(&content.body, None)),
                             CachedMessageType::Location(CachedBeaconInfo {
                                 geo_uri: content.geo_uri.into(),
                                 description: content
@@ -399,26 +424,38 @@ fn cached_from_timeline_item_content(
                                     .into(),
                             }),
                         ),
-                        MessageType::Notice(content) => {
-                            (Some(content.body.into()), CachedMessageType::Notice)
-                        }
+                        MessageType::Notice(content) => (
+                            Some(convert_to_formatted(
+                                &content.body,
+                                content.formatted.as_ref(),
+                            )),
+                            CachedMessageType::Notice,
+                        ),
                         MessageType::ServerNotice(content) => (
-                            Some(content.body.into()),
+                            Some(convert_to_formatted(&content.body, None)),
                             CachedMessageType::ServerNotice {
                                 admin_contact: content.admin_contact.map(|c| c.into()),
                             },
                         ),
-                        MessageType::Text(content) => {
-                            (Some(content.body.into()), CachedMessageType::Text)
-                        }
+                        MessageType::Text(content) => (
+                            Some(convert_to_formatted(
+                                &content.body,
+                                content.formatted.as_ref(),
+                            )),
+                            CachedMessageType::Text,
+                        ),
                         MessageType::Video(content) => {
                             let info = content.info.clone().unwrap_or_default();
+                            let filename = content.filename();
 
                             (
-                                Some(content.body.as_str().into()),
+                                (filename != content.body).then_some(convert_to_formatted(
+                                    &content.body,
+                                    content.formatted.as_ref(),
+                                )),
                                 CachedMessageType::Video {
                                     source: content.source.clone().into(),
-                                    filename: content.filename().into(),
+                                    filename: filename.into(),
                                     width: info.width.map(|w| w.into()),
                                     height: info.height.map(|h| h.into()),
                                     duration: info.duration.map(|d| d.as_secs()),
@@ -429,7 +466,9 @@ fn cached_from_timeline_item_content(
                             )
                         }
                         _ => (
-                            value.as_message().map(|m| SharedString::new(m.body())),
+                            value
+                                .as_message()
+                                .map(|m| convert_to_formatted(m.body(), None)),
                             CachedMessageType::Text,
                         ),
                     }
