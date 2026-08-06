@@ -71,6 +71,12 @@ impl HoverState {
 #[derive(Clone)]
 pub(crate) struct SelectionState {
     current: Option<(TextCoord, TextCoord)>,
+    /// Whether the mouse button is *currently held* over a drag that started somewhere in the
+    /// chat - distinct from `current.is_some()`, which stays true after the button is released
+    /// so a finished selection keeps its highlight. Mouse-move only extends the selection while
+    /// this is true; without it, a stale-but-still-`Some` `current` would keep growing the
+    /// selection on every mouse move even after the drag ended.
+    dragging: bool,
     start: Rc<dyn Fn(TextCoord, &mut App)>,
     extend: Rc<dyn Fn(TextCoord, &mut App)>,
     finish: Rc<dyn Fn(&mut App)>,
@@ -79,12 +85,14 @@ pub(crate) struct SelectionState {
 impl SelectionState {
     pub(crate) fn new(
         current: Option<(TextCoord, TextCoord)>,
+        dragging: bool,
         start: impl Fn(TextCoord, &mut App) + 'static,
         extend: impl Fn(TextCoord, &mut App) + 'static,
         finish: impl Fn(&mut App) + 'static,
     ) -> Self {
         Self {
             current,
+            dragging,
             start: Rc::new(start),
             extend: Rc::new(extend),
             finish: Rc::new(finish),
@@ -493,6 +501,7 @@ impl CachedUserMessage {
                         .child(" (edited)"),
                     )
                 })
+                .cursor_text()
                 .into_any()
         };
 
@@ -503,9 +512,11 @@ impl CachedUserMessage {
                 text_size(chat.text_size)
             )
             .child("Empty message")
+            .cursor_text()
             .into_any(),
             CachedMessageType::Redacted => tailwind_div!(text_color(theme.text.dim), italic)
                 .child("Message redacted")
+                .cursor_text()
                 .into_any(),
             CachedMessageType::Emote => {
                 if let Some(text) = self.body.clone() {
@@ -516,6 +527,7 @@ impl CachedUserMessage {
                         text_size(chat.text_size * 1.5),
                         italic
                     )
+                    .cursor_text()
                     .child("Empty message")
                     .into_any()
                 }
@@ -523,6 +535,7 @@ impl CachedUserMessage {
             // TODO: Audio messages are not supported yet
             CachedMessageType::Audio { .. } => tailwind_div!(text_color(warning))
                 .child("Audio messages are not supported yet")
+                .cursor_text()
                 .into_any(),
             // TODO: Emit notification if user clicks on file
             CachedMessageType::File { filename, size, .. } => tailwind_div!(
@@ -718,26 +731,32 @@ impl CachedUserMessage {
             // TODO: Live locations are not supported yet
             CachedMessageType::LiveLocation { .. } => tailwind_div!(text_color(warning))
                 .child("Live locations are not supported yet")
+                .cursor_text()
                 .into_any(),
             // TODO: Locations are not supported yet
             CachedMessageType::Location(_) => tailwind_div!(text_color(warning))
                 .child("Locations are not supported yet")
+                .cursor_text()
                 .into_any(),
             // TODO: Notices are not supported yet
             CachedMessageType::Notice => tailwind_div!(text_color(warning))
                 .child("Notices are not supported yet")
+                .cursor_text()
                 .into_any(),
             CachedMessageType::Other { msg_type } => tailwind_div!(text_color(warning))
                 .child("Unsupported message type: ")
                 .child(msg_type.clone())
+                .cursor_text()
                 .into_any(),
             // TODO: Polls are not supported yet
             CachedMessageType::Poll => tailwind_div!(text_color(warning))
                 .child("Polls are not supported yet")
+                .cursor_text()
                 .into_any(),
             CachedMessageType::ServerNotice { admin_contact } => {
                 tailwind_div!(text_color(theme.text.normal))
                     .child("Server notice")
+                    .cursor_text()
                     .when_some(admin_contact.clone(), |el, text| {
                         el.child(", contact: ").child(text.clone())
                     })
@@ -746,6 +765,7 @@ impl CachedUserMessage {
             // TODO: Stickers are not supported yet
             CachedMessageType::Sticker => tailwind_div!(text_color(theme.text.normal))
                 .child("Stickers are not supported yet")
+                .cursor_text()
                 .into_any(),
             CachedMessageType::Text => {
                 if let Some(text) = self.body.clone() {
@@ -753,11 +773,13 @@ impl CachedUserMessage {
                 } else {
                     tailwind_div!(text_color(theme.text.dim), italic)
                         .child("Empty message")
+                        .cursor_text()
                         .into_any()
                 }
             }
             CachedMessageType::UnableToDecrypt => tailwind_div!(text_color(error))
                 .child("Unable to decrypt message")
+                .cursor_text()
                 .into_any(),
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
@@ -1183,6 +1205,7 @@ fn render_rich_text(
 
     let set_hover = hover.set.clone();
     let selection_current = selection.current;
+    let selection_dragging = selection.dragging;
     let selection_start = selection.start.clone();
     let selection_extend = selection.extend.clone();
     let selection_finish = selection.finish.clone();
@@ -1201,6 +1224,7 @@ fn render_rich_text(
     .on_hover(move |key, _window, cx| set_hover(key, cx))
     .on_selection(
         selection_current,
+        selection_dragging,
         move |coord, cx| selection_start(coord, cx),
         move |coord, cx| selection_extend(coord, cx),
         move |cx| selection_finish(cx),

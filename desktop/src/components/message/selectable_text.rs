@@ -1,3 +1,4 @@
+// TODO: Actually make this real and working
 //! A `StyledText` with click actions and drag-to-select text that can span multiple sibling
 //! elements (even across messages) as one continuous selection.
 //!
@@ -50,6 +51,7 @@ pub(crate) struct SelectableRichText {
     hover_keys: Vec<SharedString>,
     on_hover: Option<Rc<dyn Fn(Option<SharedString>, &mut Window, &mut App)>>,
     selection_current: Option<(TextCoord, TextCoord)>,
+    selection_dragging: bool,
     on_selection_start: Option<Rc<dyn Fn(TextCoord, &mut App)>>,
     on_selection_extend: Option<Rc<dyn Fn(TextCoord, &mut App)>>,
     on_selection_finish: Option<Rc<dyn Fn(&mut App)>>,
@@ -80,6 +82,7 @@ impl SelectableRichText {
             hover_keys,
             on_hover: None,
             selection_current: None,
+            selection_dragging: false,
             on_selection_start: None,
             on_selection_extend: None,
             on_selection_finish: None,
@@ -103,23 +106,17 @@ impl SelectableRichText {
     pub(crate) fn on_selection(
         mut self,
         current: Option<(TextCoord, TextCoord)>,
+        dragging: bool,
         start: impl Fn(TextCoord, &mut App) + 'static,
         extend: impl Fn(TextCoord, &mut App) + 'static,
         finish: impl Fn(&mut App) + 'static,
     ) -> Self {
         self.selection_current = current;
+        self.selection_dragging = dragging;
         self.on_selection_start = Some(Rc::new(start));
         self.on_selection_extend = Some(Rc::new(extend));
         self.on_selection_finish = Some(Rc::new(finish));
         self
-    }
-
-    fn coord(&self, byte_offset: usize) -> TextCoord {
-        TextCoord {
-            message_index: self.message_index,
-            element_index: self.element_index,
-            byte_offset,
-        }
     }
 
     /// This element's own highlight range: fully highlighted if it sits strictly between the
@@ -206,6 +203,7 @@ impl Element for SelectableRichText {
         let text_layout = self.text.layout().clone();
         let selection_color = self.selection_color;
         let selection_current = self.selection_current;
+        let selection_dragging = self.selection_dragging;
         // Plain values (not `&self`) so the mouse-event closures below, which must be
         // `'static`, can build a `TextCoord` without borrowing this element past `paint`.
         let message_index = self.message_index;
@@ -268,7 +266,7 @@ impl Element for SelectableRichText {
                             return;
                         }
 
-                        if selection_current.is_some() {
+                        if selection_dragging {
                             if hitbox.is_hovered(window)
                                 && let Some(on_extend) = &on_extend
                                 && let Ok(ix) = text_layout.index_for_position(event.position)
@@ -278,7 +276,8 @@ impl Element for SelectableRichText {
                             return;
                         }
 
-                        let hovered = hitbox.is_hovered(window)
+                        let hovered = hitbox
+                            .is_hovered(window)
                             .then(|| {
                                 text_layout
                                     .index_for_position(event.position)

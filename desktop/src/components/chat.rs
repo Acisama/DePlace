@@ -63,6 +63,10 @@ pub struct ChatView {
     hovered_link: Option<SharedString>,
     /// The current cross-element/cross-message text selection, if any - see `SelectionState`.
     selection: Option<(TextCoord, TextCoord)>,
+    /// Whether the mouse is currently held down dragging a selection - `selection` alone stays
+    /// `Some` after release (so the highlight persists), so this is what tells a mouse-move
+    /// whether to actually extend it.
+    dragging_selection: bool,
 }
 
 impl ChatView {
@@ -107,6 +111,7 @@ impl ChatView {
             focus_handle: cx.focus_handle(),
             hovered_link: None,
             selection: None,
+            dragging_selection: false,
         };
 
         view.load_active_room(cx);
@@ -528,21 +533,35 @@ impl Render for ChatView {
             let room_id = room_id.clone();
             Rc::new(move |cx: &mut App| {
                 self_entity.update(cx, |view, cx| {
-                    let Some((anchor, cursor)) = view.selection.take() else {
+                    // Mouse-up always ends the drag, whether or not there ends up being a
+                    // selection to keep - otherwise a stray extra `finish` call (e.g. the
+                    // top-level safety net firing alongside an element's own handler) would
+                    // leave `dragging_selection` stuck true.
+                    view.dragging_selection = false;
+
+                    let Some((anchor, cursor)) = view.selection else {
                         return;
                     };
-                    if anchor != cursor {
-                        let text = format_selection(&view.messages, anchor, cursor, &|id| {
-                            map.get(&room_id)
-                                .and_then(|m| m.get(id))
-                                .map(|member| member.get_name().into())
-                                .unwrap_or_else(|| "Unknown".into())
-                        });
-                        if !text.is_empty() {
-                            cx.write_to_clipboard(ClipboardItem::new_string(text));
-                        }
+
+                    // A zero-length "selection" was just a click - nothing to keep visible.
+                    // A real drag stays highlighted after release, like any normal text
+                    // selection; it's only replaced by starting a new drag elsewhere (`start`
+                    // already overwrites `view.selection` for that) or cleared explicitly.
+                    if anchor == cursor {
+                        view.selection = None;
+                        cx.notify();
+                        return;
                     }
-                    cx.notify();
+
+                    let text = format_selection(&view.messages, anchor, cursor, &|id| {
+                        map.get(&room_id)
+                            .and_then(|m| m.get(id))
+                            .map(|member| member.get_name().into())
+                            .unwrap_or_else(|| "Unknown".into())
+                    });
+                    if !text.is_empty() {
+                        cx.write_to_clipboard(ClipboardItem::new_string(text));
+                    }
                 });
             })
         };
@@ -552,6 +571,7 @@ impl Render for ChatView {
             let start = move |coord: TextCoord, cx: &mut App| {
                 self_entity.update(cx, |view, cx| {
                     view.selection = Some((coord, coord));
+                    view.dragging_selection = true;
                     cx.notify();
                 });
             };
@@ -571,7 +591,7 @@ impl Render for ChatView {
             let finish_selection = finish_selection.clone();
             let finish = move |cx: &mut App| finish_selection(cx);
 
-            SelectionState::new(self.selection, start, extend, finish)
+            SelectionState::new(self.selection, self.dragging_selection, start, extend, finish)
         };
 
         tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
