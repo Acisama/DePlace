@@ -1,15 +1,16 @@
-use std::{ops::Range, sync::Arc};
+use std::{ops::Range, rc::Rc, sync::Arc};
 
 use dashmap::DashMap;
 use deplace_core::{
+    NameExt,
     matrix_api::timeline::{ScrollDirection, TimelineManager},
     state::{AppState, MembershipMap},
 };
 use futures_util::StreamExt;
 use gpui::{
-    AppContext, Context, Empty, FocusHandle, Focusable, FollowMode, InteractiveElement,
-    IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement, Render, SharedString,
-    Styled, Task, Window, actions, div, list, px,
+    App, AppContext, ClipboardItem, Context, Empty, FocusHandle, Focusable, FollowMode,
+    InteractiveElement, IntoElement, ListAlignment, ListScrollEvent, ListState, MouseButton,
+    ParentElement, Render, SharedString, Styled, Task, Window, actions, div, list, px,
 };
 use gpui_component::StyledExt;
 use macros::tailwind_div;
@@ -29,7 +30,10 @@ use crate::{
     components::{
         AvatarCache, CustomStyles,
         cache::ThumbnailCache,
-        message::{CachedTimelineItem, cached_from_timeline_item},
+        message::{
+            CachedTimelineItem, HoverState, SelectionState, TextCoord, cached_from_timeline_item,
+            format_selection,
+        },
     },
     theme::{ActiveAppTheme, StructureExt},
     watch_bridge::notify_on_change,
@@ -55,6 +59,10 @@ pub struct ChatView {
     current_updates: Option<Task<()>>,
     list_state: ListState,
     focus_handle: FocusHandle,
+    /// Which rich-text run (link/mention) is currently hovered, if any - see `HoverState`.
+    hovered_link: Option<SharedString>,
+    /// The current cross-element/cross-message text selection, if any - see `SelectionState`.
+    selection: Option<(TextCoord, TextCoord)>,
 }
 
 impl ChatView {
@@ -97,6 +105,8 @@ impl ChatView {
             current_updates: None,
             list_state,
             focus_handle: cx.focus_handle(),
+            hovered_link: None,
+            selection: None,
         };
 
         view.load_active_room(cx);
@@ -498,8 +508,78 @@ impl Render for ChatView {
 
         let on_toggle_reaction = self.toggle_reaction();
 
+        let self_entity = cx.entity();
+        let hover = HoverState::new(self.hovered_link.clone(), move |key, cx| {
+            self_entity.update(cx, |view, cx| {
+                if view.hovered_link != key {
+                    view.hovered_link = key;
+                    cx.notify();
+                }
+            });
+        });
+
+        // `finish` is shared: `SelectionState` calls it from mouse-up on whichever text
+        // element the drag ended over, and the outer container below calls it too, as a
+        // safety net for a drag that's released outside any message's text bounds entirely
+        // (nothing would otherwise finalize/copy that selection).
+        let finish_selection: Rc<dyn Fn(&mut App)> = {
+            let self_entity = cx.entity();
+            let map = map.clone();
+            let room_id = room_id.clone();
+            Rc::new(move |cx: &mut App| {
+                self_entity.update(cx, |view, cx| {
+                    let Some((anchor, cursor)) = view.selection.take() else {
+                        return;
+                    };
+                    if anchor != cursor {
+                        let text = format_selection(&view.messages, anchor, cursor, &|id| {
+                            map.get(&room_id)
+                                .and_then(|m| m.get(id))
+                                .map(|member| member.get_name().into())
+                                .unwrap_or_else(|| "Unknown".into())
+                        });
+                        if !text.is_empty() {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text));
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+        };
+
+        let selection = {
+            let self_entity = cx.entity();
+            let start = move |coord: TextCoord, cx: &mut App| {
+                self_entity.update(cx, |view, cx| {
+                    view.selection = Some((coord, coord));
+                    cx.notify();
+                });
+            };
+
+            let self_entity = cx.entity();
+            let extend = move |coord: TextCoord, cx: &mut App| {
+                self_entity.update(cx, |view, cx| {
+                    let anchor = view.selection.map_or(coord, |(anchor, _)| anchor);
+                    let updated = Some((anchor, coord));
+                    if view.selection != updated {
+                        view.selection = updated;
+                        cx.notify();
+                    }
+                });
+            };
+
+            let finish_selection = finish_selection.clone();
+            let finish = move |cx: &mut App| finish_selection(cx);
+
+            SelectionState::new(self.selection, start, extend, finish)
+        };
+
         tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
             .key_context("Chat")
+            .on_mouse_up(MouseButton::Left, {
+                let finish_selection = finish_selection.clone();
+                move |_event, _window, cx| finish_selection(cx)
+            })
             .on_action(cx.listener(|this, FocusNext, _, cx| {
                 tracing::debug!("Focusing next message");
                 let mut new_focus = match this.focused_message {
@@ -562,6 +642,7 @@ impl Render for ChatView {
                     let focused = focused_message.is_some_and(|f| f == ix);
 
                     current.render(
+                        ix,
                         window,
                         theme,
                         structure,
@@ -570,6 +651,8 @@ impl Render for ChatView {
                         &avatar_cache,
                         &image_cache,
                         focused,
+                        &hover,
+                        &selection,
                         on_toggle_reaction.clone(),
                     )
                 })

@@ -1,11 +1,11 @@
-use std::{ops::Range, sync::Arc, time::Duration};
+use std::{ops::Range, rc::Rc, sync::Arc, time::Duration};
 
 use deplace_core::{NameExt, colors::ColorExt, formatting::fit_dimensions, state::MembershipMap};
 use gpui::{
-    Animation, AnimationExt, AnyElement, Div, Element, ElementId, FontStyle, FontWeight,
-    HighlightStyle, Hsla, InteractiveElement, InteractiveText, IntoElement, LinearColorStop,
-    ObjectFit, ParentElement, Pixels, SharedString, StatefulInteractiveElement, StrikethroughStyle,
-    Styled, StyledImage, StyledText, TextStyle, UnderlineStyle, Window, div, img, linear_gradient,
+    Animation, AnimationExt, AnyElement, App, Div, Element, ElementId, FontStyle, FontWeight,
+    HighlightStyle, Hsla, InteractiveElement, IntoElement, LinearColorStop, ObjectFit,
+    ParentElement, Pixels, SharedString, StatefulInteractiveElement, StrikethroughStyle, Styled,
+    StyledImage, TextStyle, UnderlineStyle, Window, div, img, linear_gradient,
     prelude::FluentBuilder, px, relative, transparent_black,
 };
 use gpui_component::{Colorize, StyledExt, red_600};
@@ -19,7 +19,8 @@ use crate::{
         message::{
             CachedEventContent, CachedMessageType, CachedReplyInfo, CachedSendState,
             CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
-            CachedUserMessage, DetailState, ReactionInfo,
+            CachedUserMessage, DetailState, ReactionInfo, TextCoord,
+            selectable_text::{RunAction, SelectableRichText},
             text::{CachedBlock, CachedLink, CachedPill, CachedRichText},
         },
         profiles::{MemberRenderer, render_icon},
@@ -27,10 +28,75 @@ use crate::{
     theme::{AppTheme, Structure},
 };
 
+/// The one piece of real state a hand-rolled `StyledText`/`InteractiveText` renderer needs
+/// for hover styling: unlike `Div::hover()` (computed live at paint time from the hitbox,
+/// no app state involved), `InteractiveText` only offers an `on_hover` callback fired when
+/// the hovered character index changes - the run list has to be rebuilt on the next render
+/// with different styling, so *something* has to remember which run was last hovered.
+///
+/// `current` is read to decide this render's styling; `set` is called from `on_hover` to
+/// record the new value for the next one. `InteractiveText::paint` already calls
+/// `cx.notify(current_view)` internally when the hovered index changes, so `set` doesn't need
+/// to trigger a re-render itself - just persist the value somewhere `current` can read it back.
+#[derive(Clone)]
+pub(crate) struct HoverState {
+    current: Option<SharedString>,
+    set: Rc<dyn Fn(Option<SharedString>, &mut App)>,
+}
+
+impl HoverState {
+    pub(crate) fn new(
+        current: Option<SharedString>,
+        set: impl Fn(Option<SharedString>, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            current,
+            set: Rc::new(set),
+        }
+    }
+}
+
+/// Shared, `ChatView`-backed selection state, so a drag can span from one `SelectableRichText`
+/// into another (even across messages) as one continuous selection instead of each element
+/// only knowing about itself. Lives on `ChatView` (an `Entity`, so it survives independently
+/// of any one message's element tree being rebuilt) rather than per-element `gpui` state,
+/// because there's no public way to construct a `GlobalElementId` shared between sibling
+/// elements - `gpui` only hands them out through its own tree-position-derived path.
+///
+/// `current` is `(anchor, cursor)` exactly as last set, not normalized - each element sorts
+/// them itself when deciding its own highlight range. `start`/`extend` update it and trigger
+/// a re-render (same "write via callback, read back next render" shape as `HoverState`);
+/// `finish` (called on mouse-up after a real drag) copies the selected text to the clipboard
+/// and clears it.
+#[derive(Clone)]
+pub(crate) struct SelectionState {
+    current: Option<(TextCoord, TextCoord)>,
+    start: Rc<dyn Fn(TextCoord, &mut App)>,
+    extend: Rc<dyn Fn(TextCoord, &mut App)>,
+    finish: Rc<dyn Fn(&mut App)>,
+}
+
+impl SelectionState {
+    pub(crate) fn new(
+        current: Option<(TextCoord, TextCoord)>,
+        start: impl Fn(TextCoord, &mut App) + 'static,
+        extend: impl Fn(TextCoord, &mut App) + 'static,
+        finish: impl Fn(&mut App) + 'static,
+    ) -> Self {
+        Self {
+            current,
+            start: Rc::new(start),
+            extend: Rc::new(extend),
+            finish: Rc::new(finish),
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 impl CachedTimelineItem {
     pub fn render(
         &self,
+        message_index: usize,
         window: &Window,
         theme: &AppTheme,
         structure: &Structure,
@@ -39,6 +105,8 @@ impl CachedTimelineItem {
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
         focused: bool,
+        hover: &HoverState,
+        selection: &SelectionState,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
     ) -> AnyElement {
         let divider_width = structure.divider_width;
@@ -64,6 +132,7 @@ impl CachedTimelineItem {
             }
             CachedTimelineItemKind::Event(event) => event.render(
                 self.id(),
+                message_index,
                 window,
                 theme,
                 structure,
@@ -72,6 +141,8 @@ impl CachedTimelineItem {
                 avatar_cache,
                 image_cache,
                 focused,
+                hover,
+                selection,
                 on_toggle_reaction,
             ),
         }
@@ -83,6 +154,7 @@ impl CachedTimelineEvent {
     fn render(
         &self,
         id: ElementId,
+        message_index: usize,
         window: &Window,
         theme: &AppTheme,
         structure: &Structure,
@@ -91,6 +163,8 @@ impl CachedTimelineEvent {
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
         focused: bool,
+        hover: &HoverState,
+        selection: &SelectionState,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
     ) -> AnyElement {
         let colors = &theme.colors;
@@ -168,12 +242,15 @@ impl CachedTimelineEvent {
             }
             CachedEventContent::UserMessage(msg) => msg.render(
                 &id,
+                message_index,
                 window,
                 structure,
                 theme,
                 image_cache,
                 member_avatar,
                 member_name_color,
+                hover,
+                selection,
                 toggle_reaction,
             ),
         };
@@ -374,12 +451,15 @@ impl CachedUserMessage {
     fn render(
         &self,
         id: &ElementId,
+        message_index: usize,
         window: &Window,
         structure: &Structure,
         theme: &AppTheme,
         media_cache: &ThumbnailCache,
         member_avatar: impl Fn(&UserId) -> AnyElement,
         member_name_color: impl Fn(&UserId) -> (SharedString, Hsla),
+        hover: &HoverState,
+        selection: &SelectionState,
         on_toggle_reaction: impl Fn(SharedString) + Clone + 'static,
     ) -> Div {
         let warning = theme.colors.warning;
@@ -388,16 +468,21 @@ impl CachedUserMessage {
         let chat = &structure.chat;
         let id_prefix: SharedString = format!("{id:?}").into();
         let base_text_style = window.text_style();
+        let hover = hover.clone();
+        let selection = selection.clone();
 
         let render_body = move |blocks: Arc<[CachedBlock]>| {
             tailwind_div!(text_color(theme.text.normal), flex, items_baseline)
                 .child(render_rich_body(
                     &id_prefix,
+                    message_index,
                     &blocks,
                     &base_text_style,
                     theme,
                     structure,
                     &member_name_color,
+                    &hover,
+                    &selection,
                 ))
                 .when(self.is_edited, |el| {
                     el.child(
@@ -802,77 +887,107 @@ impl CachedReplyInfo {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_rich_body(
     id: &SharedString,
+    message_index: usize,
     blocks: &[CachedBlock],
     base_text_style: &TextStyle,
     theme: &AppTheme,
     structure: &Structure,
     member_name: &dyn Fn(&UserId) -> (SharedString, Hsla),
+    hover: &HoverState,
+    selection: &SelectionState,
 ) -> AnyElement {
     let mut counter = 0;
     render_blocks(
         id,
+        message_index,
         blocks,
         base_text_style,
         theme,
         structure,
         member_name,
+        hover,
+        selection,
         &mut counter,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_blocks(
     id: &SharedString,
+    message_index: usize,
     blocks: &[CachedBlock],
     base_text_style: &TextStyle,
     theme: &AppTheme,
     structure: &Structure,
     member_name: &dyn Fn(&UserId) -> (SharedString, Hsla),
+    hover: &HoverState,
+    selection: &SelectionState,
     counter: &mut usize,
 ) -> AnyElement {
     tailwind_div!(flex, flex_col, gap(structure.small_gap))
         .children(blocks.iter().map(|block| {
             render_block(
                 id,
+                message_index,
                 block,
                 base_text_style,
                 theme,
                 structure,
                 member_name,
+                hover,
+                selection,
                 counter,
             )
         }))
         .into_any()
 }
 
-fn next_id(id: &SharedString, counter: &mut usize) -> ElementId {
+fn next_id(id: &SharedString, counter: &mut usize) -> SharedString {
     *counter += 1;
-    ElementId::Name(format!("{id}-rich-{counter}").into())
+    format!("{id}-rich-{counter}").into()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_block(
     id: &SharedString,
+    message_index: usize,
     block: &CachedBlock,
     base_text_style: &TextStyle,
     theme: &AppTheme,
     structure: &Structure,
     member_name: &dyn Fn(&UserId) -> (SharedString, Hsla),
+    hover: &HoverState,
+    selection: &SelectionState,
     counter: &mut usize,
 ) -> AnyElement {
     match block {
-        CachedBlock::Paragraph(text) => {
-            render_rich_text(id, text, base_text_style, theme, member_name, counter)
-        }
+        CachedBlock::Paragraph(text) => render_rich_text(
+            id,
+            message_index,
+            text,
+            base_text_style,
+            theme,
+            member_name,
+            hover,
+            selection,
+            counter,
+        ),
         CachedBlock::Heading { level, text } => {
             let scale = 1.6 - 0.1 * f32::from((*level).min(6));
             tailwind_div!(font_bold, text_size(structure.chat.text_size * scale))
                 .child(render_rich_text(
                     id,
+                    message_index,
                     text,
                     base_text_style,
                     theme,
                     member_name,
+                    hover,
+                    selection,
                     counter,
                 ))
                 .into_any()
@@ -899,11 +1014,14 @@ fn render_block(
                     .child(div().child(marker))
                     .child(render_blocks(
                         id,
+                        message_index,
                         item,
                         base_text_style,
                         theme,
                         structure,
                         member_name,
+                        hover,
+                        selection,
                         counter,
                     ))
                     .into_any()
@@ -930,11 +1048,14 @@ fn render_block(
         )
         .child(render_blocks(
             id,
+            message_index,
             children,
             base_text_style,
             theme,
             structure,
             member_name,
+            hover,
+            selection,
             counter,
         ))
         .into_any(),
@@ -947,12 +1068,16 @@ fn render_block(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_rich_text(
     id: &SharedString,
+    message_index: usize,
     text: &CachedRichText,
     base_text_style: &TextStyle,
     theme: &AppTheme,
     member_name: &dyn Fn(&UserId) -> (SharedString, Hsla),
+    hover: &HoverState,
+    selection: &SelectionState,
     counter: &mut usize,
 ) -> AnyElement {
     if text.runs.is_empty() {
@@ -961,10 +1086,16 @@ fn render_rich_text(
             .into_any();
     }
 
+    // Must match `text::selected_plain_text`'s counter exactly - it's how a `TextCoord` from a
+    // mouse event gets mapped back to a slice of a message's block tree for the clipboard.
+    let element_index = *counter;
+    let paragraph_key = next_id(id, counter);
+
     let mut rendered = String::new();
     let mut runs = Vec::with_capacity(text.runs.len());
     let mut click_ranges: Vec<Range<usize>> = Vec::new();
-    let mut click_targets: Vec<SharedString> = Vec::new();
+    let mut click_actions: Vec<RunAction> = Vec::new();
+    let mut hover_keys: Vec<SharedString> = Vec::new();
 
     let mut offset = 0;
     for run in text.runs.iter() {
@@ -973,6 +1104,12 @@ fn render_rich_text(
             .get(offset..offset + run.len)
             .expect("CachedRun boundaries are byte lengths pushed by RunBuilder over this exact string, so they always land on char boundaries");
         offset += run.len;
+
+        // Runs that are hover-sensitive (links, mention pills) get a stable key so we can
+        // check `hover.current` against it - the same key is handed to `SelectableRichText`
+        // so its `on_hover` callback can report exactly this run when the mouse enters it.
+        let run_key: SharedString = format!("{paragraph_key}:{offset}").into();
+        let is_hovered = hover.current.as_ref() == Some(&run_key);
 
         let mut highlight = HighlightStyle {
             color: Some(theme.text.normal),
@@ -997,7 +1134,11 @@ fn render_rich_text(
         let run_text: SharedString =
             if let Some(CachedLink::Pill(CachedPill::User(user_id))) = &run.style.link {
                 let (name, pill_color) = member_name(user_id);
-                highlight.color = Some(pill_color);
+                highlight.color = Some(if is_hovered {
+                    pill_color.lighten(0.15)
+                } else {
+                    pill_color
+                });
                 highlight.font_weight = Some(FontWeight::BOLD);
                 highlight.background_color = Some(pill_color.alpha(0.16));
                 format!("@{}", name.replace(' ', "\u{a0}")).into()
@@ -1009,11 +1150,15 @@ fn render_rich_text(
             } else {
                 if run.style.link.is_some() {
                     highlight.color = Some(theme.accent);
-                    highlight.underline = Some(UnderlineStyle {
-                        thickness: px(1.0),
-                        color: None,
-                        wavy: false,
-                    });
+                    // Underlined only on hover - matches the pill's hover-only color shift,
+                    // and avoids every plain link permanently looking underlined mid-paragraph.
+                    if is_hovered {
+                        highlight.underline = Some(UnderlineStyle {
+                            thickness: px(1.0),
+                            color: None,
+                            wavy: false,
+                        });
+                    }
                 }
                 slice.into()
             };
@@ -1022,9 +1167,10 @@ fn render_rich_text(
         rendered.push_str(&run_text);
         let end = rendered.len();
 
-        if let Some(href) = link_href(&run.style.link) {
+        if let Some(action) = link_action(&run.style.link) {
             click_ranges.push(start..end);
-            click_targets.push(href);
+            click_actions.push(action);
+            hover_keys.push(run_key);
         }
 
         runs.push(
@@ -1035,21 +1181,37 @@ fn render_rich_text(
         );
     }
 
-    let styled = StyledText::new(rendered).with_runs(runs);
+    let set_hover = hover.set.clone();
+    let selection_current = selection.current;
+    let selection_start = selection.start.clone();
+    let selection_extend = selection.extend.clone();
+    let selection_finish = selection.finish.clone();
 
-    InteractiveText::new(next_id(id, counter), styled)
-        .on_click(click_ranges, move |ix, _window, cx| {
-            if let Some(href) = click_targets.get(ix) {
-                cx.open_url(href);
-            }
-        })
-        .into_any_element()
+    SelectableRichText::new(
+        ElementId::Name(paragraph_key),
+        message_index,
+        element_index,
+        rendered.into(),
+        runs,
+        click_ranges,
+        click_actions,
+        hover_keys,
+        theme.accent.alpha(0.3),
+    )
+    .on_hover(move |key, _window, cx| set_hover(key, cx))
+    .on_selection(
+        selection_current,
+        move |coord, cx| selection_start(coord, cx),
+        move |coord, cx| selection_extend(coord, cx),
+        move |cx| selection_finish(cx),
+    )
+    .into_any_element()
 }
 
-fn link_href(link: &Option<CachedLink>) -> Option<SharedString> {
+fn link_action(link: &Option<CachedLink>) -> Option<RunAction> {
     match link {
-        Some(CachedLink::Url(href)) => Some(href.clone()),
-        Some(CachedLink::Pill(pill)) => Some(pill_href(pill)),
+        Some(CachedLink::Url(href)) => Some(RunAction::OpenUrl(href.clone())),
+        Some(CachedLink::Pill(pill)) => Some(RunAction::OpenUrl(pill_href(pill))),
         None => None,
     }
 }

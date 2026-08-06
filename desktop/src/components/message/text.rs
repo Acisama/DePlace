@@ -44,7 +44,7 @@ fn convert_blocks(children: impl Iterator<Item = NodeRef>, out: &mut Vec<CachedB
     for child in children {
         let Some(element) = matrix_element(&child) else {
             if let NodeData::Text(text) = child.data() {
-                pending.push(&text.borrow(), CachedRunStyle::default());
+                push_with_autolink(&mut pending, &text.borrow(), CachedRunStyle::default());
             }
             continue;
         };
@@ -193,7 +193,7 @@ fn convert_rich_text(node: &NodeRef) -> CachedRichText {
 
 fn convert_inline(node: &NodeRef, style: CachedRunStyle, out: &mut RunBuilder) {
     match node.data() {
-        NodeData::Text(text) => out.push(&text.borrow(), style),
+        NodeData::Text(text) => push_with_autolink(out, &text.borrow(), style),
         NodeData::Element(_) => {
             let Some(element) = matrix_element(node) else {
                 return;
@@ -327,10 +327,90 @@ impl RunBuilder {
     }
 }
 
-// This tree only ever lives behind the single `Arc<[CachedBlock]>` returned by
-// `convert_formatted_body` (stored once on the owning message). Nothing nested in here
-// needs its own `Arc`: cloning the message clones that one outer `Arc` (a refcount bump),
-// never an individual block/run/id out of the middle of the tree.
+const AUTOLINK_SCHEMES: [&str; 2] = ["https://", "http://"];
+
+fn push_with_autolink(out: &mut RunBuilder, text: &str, style: CachedRunStyle) {
+    if style.link.is_some() || style.code {
+        out.push(text, style);
+        return;
+    }
+
+    let mut pos = 0;
+    while pos < text.len() {
+        let Some(range) = find_url_at(text, pos) else {
+            push_slice(out, text, pos..text.len(), style);
+            return;
+        };
+
+        if range.start > pos {
+            push_slice(out, text, pos..range.start, style.clone());
+        }
+        push_slice(
+            out,
+            text,
+            range.clone(),
+            CachedRunStyle {
+                link: Some(CachedLink::Url(
+                    text.get(range.clone())
+                        .expect("`range` came from char-boundary-safe scanning below")
+                        .into(),
+                )),
+                ..style.clone()
+            },
+        );
+        pos = range.end;
+    }
+}
+
+fn push_slice(
+    out: &mut RunBuilder,
+    text: &str,
+    range: std::ops::Range<usize>,
+    style: CachedRunStyle,
+) {
+    let slice = text
+        .get(range)
+        .expect("`range` came from char-boundary-safe scanning in `find_url_at`");
+    out.push(slice, style);
+}
+
+fn find_url_at(text: &str, from: usize) -> Option<std::ops::Range<usize>> {
+    let search_start = text.get(from..)?;
+    let (scheme_offset, scheme) = AUTOLINK_SCHEMES
+        .iter()
+        .filter_map(|scheme| search_start.find(scheme).map(|ix| (ix, *scheme)))
+        .min_by_key(|(ix, _)| *ix)?;
+
+    let start = from + scheme_offset;
+    let mut end = start;
+    for (ix, c) in text
+        .get(start..)
+        .expect("`start` is a match offset from `find`, always char-boundary-safe")
+        .char_indices()
+    {
+        if c.is_whitespace() || matches!(c, '<' | '>' | '"' | '\'') {
+            break;
+        }
+        end = start + ix + c.len_utf8();
+    }
+
+    while end > start + scheme.len() {
+        let tail = text
+            .get(start..end)
+            .expect("`start`/`end` are char-boundary-safe by construction");
+        let Some(last) = tail.chars().next_back() else {
+            break;
+        };
+        if matches!(last, '.' | ',' | '!' | '?' | ')' | ']' | ';' | ':') {
+            end -= last.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    (end > start + scheme.len()).then_some(start..end)
+}
+
 #[derive(Debug)]
 pub(crate) enum CachedBlock {
     Paragraph(CachedRichText),
@@ -349,21 +429,100 @@ pub(crate) enum CachedBlock {
     },
     Quote(Vec<CachedBlock>),
     Rule,
+    // TODO: Decide what to do with this
     Image {
         src: OwnedMxcUri,
         alt: Option<SharedString>,
         width: Option<u32>,
         height: Option<u32>,
     },
-    // table / details / anything else -> "not supported yet" text.
 }
 
 impl CachedBlock {
     pub fn new_plain(text: &str) -> Self {
-        Self::Paragraph(CachedRichText {
-            text: text.into(),
-            runs: Box::new([]),
-        })
+        let mut builder = RunBuilder::default();
+        push_with_autolink(&mut builder, text, CachedRunStyle::default());
+        Self::Paragraph(builder.finish())
+    }
+}
+
+/// Collects the plain text of `blocks` between two `(element_index, byte_offset)` boundaries,
+/// for building the clipboard text of a cross-element (and, spanning multiple messages,
+/// cross-message) selection.
+///
+/// `element_index` here must use the exact same counter `render_block`/`render_rich_text`
+/// assign while rendering (bumped once per `Paragraph`/`Heading`, i.e. once per selectable
+/// `CachedRichText`, recursing into `List`/`Quote` without bumping for the container itself)
+/// - it's the only thing that lets a `(message_index, element_index, byte_offset)` coordinate
+/// picked up from a mouse event be mapped back to an exact slice of this tree's text.
+///
+/// `from`/`to` of `None` mean "from the very start" / "to the very end" respectively, so
+/// `selected_plain_text(blocks, None, None)` gives the whole message's plain text.
+pub(crate) fn selected_plain_text(
+    blocks: &[CachedBlock],
+    from: Option<(usize, usize)>,
+    to: Option<(usize, usize)>,
+) -> String {
+    let mut out = String::new();
+    let mut counter = 0;
+    collect_selected_text(blocks, from, to, &mut counter, &mut out);
+    out
+}
+
+fn collect_selected_text(
+    blocks: &[CachedBlock],
+    from: Option<(usize, usize)>,
+    to: Option<(usize, usize)>,
+    counter: &mut usize,
+    out: &mut String,
+) {
+    for block in blocks {
+        match block {
+            CachedBlock::Paragraph(text) | CachedBlock::Heading { text, .. } => {
+                let ix = *counter;
+                *counter += 1;
+
+                if to.is_some_and(|(to_ix, _)| ix > to_ix) {
+                    return;
+                }
+                if from.is_some_and(|(from_ix, _)| ix < from_ix) {
+                    continue;
+                }
+
+                let start = from
+                    .and_then(|(from_ix, offset)| (from_ix == ix).then_some(offset))
+                    .unwrap_or(0)
+                    .min(text.text.len());
+                let end = to
+                    .and_then(|(to_ix, offset)| (to_ix == ix).then_some(offset))
+                    .unwrap_or(text.text.len())
+                    .min(text.text.len());
+
+                if let Some(slice) = (start <= end).then(|| text.text.get(start..end)).flatten() {
+                    if !out.is_empty() {
+                        out.push('\n');
+                    }
+                    out.push_str(slice);
+                }
+            }
+            CachedBlock::List { items, .. } => {
+                for item in items {
+                    collect_selected_text(item, from, to, counter, out);
+                }
+            }
+            CachedBlock::Quote(children) => {
+                collect_selected_text(children, from, to, counter, out);
+            }
+            // Not individually selectable (no `CachedRichText`/counter bump of their own), so
+            // included wholesale whenever the surrounding range reaches them.
+            CachedBlock::CodeBlock { code, .. } => {
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(code);
+            }
+            CachedBlock::Rule | CachedBlock::Image { .. } => {}
+        }
     }
 }
 
