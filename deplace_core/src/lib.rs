@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 use crate::state::MembershipMap;
 use matrix_sdk::{
     Client, Room, SessionMeta, SessionTokens, authentication::matrix::MatrixSession,

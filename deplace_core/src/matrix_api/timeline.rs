@@ -51,7 +51,7 @@ pub struct TimelineManager {
 }
 
 impl TimelineManager {
-    async fn get_or_create_timeline(
+    pub async fn get_or_create_timeline(
         &self,
         room: &Room,
         focus: TimelineFocus,

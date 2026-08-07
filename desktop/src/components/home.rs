@@ -3,13 +3,13 @@ use std::sync::Arc;
 use deplace_core::{
     get_other_member,
     helpers::RoomPlaceholderExt,
-    matrix_api::account_data::set_account_data,
+    matrix_api::{account_data::set_account_data, messages::send_message},
     state::{AppState, MembershipMap},
 };
 use gpui::{
     AppContext, Context, Empty, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyContext, ParentElement, Pixels, Render, StyleRefinement, Styled, Window, actions, div,
-    prelude::FluentBuilder,
+    KeyContext, KeyDownEvent, Keystroke, ParentElement, Pixels, Render, StyleRefinement, Styled,
+    Window, actions, div, prelude::FluentBuilder,
 };
 use gpui_component::{
     StyledExt,
@@ -27,7 +27,7 @@ use crate::{
     components::{
         AvatarCache, CustomStyles,
         cache::ThumbnailCache,
-        chat::{ChatView, FocusInput, FocusInputWithKey, UnfocusInput},
+        chat::{ChatView, FocusInput, FocusInputWithKey, SendMessage, UnfocusInput},
         floating_tile,
         header::HeaderView,
         quick_select,
@@ -227,12 +227,20 @@ impl Focusable for ChatInputBar {
     }
 }
 
+pub struct SendMessageEvent {
+    pub text: String,
+}
+
+impl gpui::EventEmitter<SendMessageEvent> for ChatInputBar {}
+
 impl Render for ChatInputBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.app_theme();
         let structure = cx.structure();
 
-        let input_focused = self.chat_input.read(cx).focus_handle(cx).is_focused(window);
+        let input_focus_handle = self.chat_input.read(cx).focus_handle(cx);
+        let input_focused = input_focus_handle.is_focused(window);
+
         let (input_bg, input_border) = if input_focused {
             (theme.input.focus_background, theme.input.focused_border)
         } else {
@@ -246,11 +254,21 @@ impl Render for ChatInputBar {
             items_center,
             w_full,
             rounded(structure.inner_border_radius),
-            text_size(structure.chat.text_size)
+            text_size(structure.chat.text_size),
             border_1,
             border_color(input_border),
             bg(input_bg)
         )
+        .track_focus(&input_focus_handle)
+        .on_action(cx.listener(|this, _event: &SendMessage, _window, cx| {
+            let text = this.chat_input.read(cx).text().to_string();
+            if !text.trim().is_empty() {
+                cx.emit(SendMessageEvent { text });
+            }
+            this.chat_input.update(cx, |input, cx| {
+                input.set_value("", _window, cx);
+            })
+        }))
         .child(
             Input::new(&self.chat_input)
                 .bg_transparent()
@@ -410,6 +428,30 @@ impl HomeView {
                 }
 
                 this.update_chat_sidebar(cx);
+            },
+        )
+        .detach();
+
+        // Subscribe to SendMessage events to send them
+        cx.subscribe_in(
+            &chat_input,
+            window,
+            |this: &mut HomeView, _child, event: &SendMessageEvent, _window, _cx| {
+                let text = event.text.clone();
+                let active_room = this.active_room.borrow().clone();
+
+                if let Some(room) = active_room {
+                    let client = this.state.client.clone();
+                    let timeline = this.state.timeline_manager.clone();
+                    let room_id = room.room_id().to_owned();
+
+                    this.tokio_rt.spawn(async move {
+                        match send_message(text, client, timeline, room_id, None).await {
+                            Ok(()) => tracing::debug!("Successfully sent message"),
+                            Err(e) => tracing::error!("Did not send message: {e}"),
+                        }
+                    });
+                }
             },
         )
         .detach();

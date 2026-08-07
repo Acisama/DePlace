@@ -6,29 +6,36 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
+blurhash.workspace = true
 chrono.workspace = true
 const_format = "0.2.36"
 csscolorparser.workspace = true
 dashmap.workspace = true
 dirs.workspace = true
+ego-tree = "0.11.0"
+futures = "0.3.33"
 futures-util.workspace = true
 getrandom.workspace = true
 gpui = { workspace = true, optional = true }
 hex = "0.4.3"
+image.workspace = true
 imbl.workspace = true
 keyring-core = "1.0.0"
 macros.workspace = true
 # livekit.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
+mime = "0.3.17"
 reqwest.workspace = true
 ruma.workspace = true
+scraper = "0.27.0"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+url = "2.5.8"
 uuid.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]

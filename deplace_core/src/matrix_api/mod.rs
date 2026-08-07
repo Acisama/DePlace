@@ -11,6 +11,7 @@ use matrix_sdk::{
 pub mod account_data;
 // mod matrixrtc;
 mod members;
+pub mod messages;
 pub mod presence;
 pub mod sync;
 pub mod timeline;

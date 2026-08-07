@@ -591,7 +591,13 @@ impl Render for ChatView {
             let finish_selection = finish_selection.clone();
             let finish = move |cx: &mut App| finish_selection(cx);
 
-            SelectionState::new(self.selection, self.dragging_selection, start, extend, finish)
+            SelectionState::new(
+                self.selection,
+                self.dragging_selection,
+                start,
+                extend,
+                finish,
+            )
         };
 
         tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
@@ -684,7 +690,16 @@ impl Render for ChatView {
     }
 }
 
-actions!(chat, [FocusNext, FocusPrevious, UnfocusInput, FocusInput]);
+actions!(
+    chat,
+    [
+        FocusNext,
+        FocusPrevious,
+        UnfocusInput,
+        FocusInput,
+        SendMessage
+    ]
+);
 
 #[derive(Clone, PartialEq, Deserialize, gpui::Action, schemars::JsonSchema)]
 #[action(namespace = chat)]
