@@ -40,8 +40,8 @@ use crate::{
 };
 
 pub struct ChatView {
-    messages: Arc<Vec<CachedTimelineItem>>,
-    focused_message: Option<usize>,
+    pub messages: Arc<Vec<CachedTimelineItem>>,
+    pub focused_message: Option<usize>,
     active_room: Receiver<Option<Room>>,
     timeline_manager: TimelineManager,
     timeline_id: Option<Uuid>,
@@ -57,7 +57,7 @@ pub struct ChatView {
     reactions_in_flight: Arc<DashMap<(Arc<OwnedEventId>, SharedString), ()>>,
     user_id: OwnedUserId,
     current_updates: Option<Task<()>>,
-    list_state: ListState,
+    pub list_state: ListState,
     focus_handle: FocusHandle,
     /// Which rich-text run (link/mention) is currently hovered, if any - see `HoverState`.
     hovered_link: Option<SharedString>,

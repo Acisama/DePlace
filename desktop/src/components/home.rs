@@ -7,9 +7,9 @@ use deplace_core::{
     state::{AppState, MembershipMap},
 };
 use gpui::{
-    AppContext, Context, Empty, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyContext, KeyDownEvent, Keystroke, ParentElement, Pixels, Render, StyleRefinement, Styled,
-    Window, actions, div, prelude::FluentBuilder,
+    AppContext, Context, Empty, Entity, FocusHandle, Focusable, FollowMode, InteractiveElement,
+    IntoElement, KeyContext, KeyDownEvent, Keystroke, ParentElement, Pixels, Render,
+    StyleRefinement, Styled, Window, actions, div, prelude::FluentBuilder,
 };
 use gpui_component::{
     StyledExt,
@@ -27,7 +27,10 @@ use crate::{
     components::{
         AvatarCache, CustomStyles,
         cache::ThumbnailCache,
-        chat::{ChatView, FocusInput, FocusInputWithKey, SendMessage, UnfocusInput},
+        chat::{
+            ChatView, FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, SendMessage,
+            UnfocusInput,
+        },
         floating_tile,
         header::HeaderView,
         quick_select,
@@ -478,7 +481,7 @@ impl HomeView {
             focus: focus_handle,
             overlay: Overlay::None,
 
-            vim_mode: false,
+            vim_mode: true,
         }
     }
 
@@ -513,17 +516,16 @@ impl Render for HomeView {
             .track_focus(&self.focus)
             .id("home-view")
             .key_context(key_context)
+            // Global Home View Actions
             .on_action(cx.listener(|this, _: &ToggleVimMode, _window, cx| {
                 this.vim_mode = !this.vim_mode;
                 tracing::debug!("Toggled vim mode: {}", this.vim_mode);
-                cx.notify(); // re-render so that key context gest updated
+                cx.notify();
             }))
             .on_action(
                 cx.listener(|this, _action: &quick_select::Open, window, cx| {
                     tracing::debug!("Opening quick select");
-
                     let quick_select = cx.new(|cx| quick_select::QuickSelect::new(window, cx));
-
                     cx.subscribe_in(
                         &quick_select,
                         window,
@@ -539,6 +541,71 @@ impl Render for HomeView {
                     cx.notify();
                 }),
             )
+            // Focus & Chat Navigation Actions attached directly to root focus
+            .on_action(cx.listener(|this, _: &FocusNext, window, cx| {
+                tracing::debug!("Focusing next message");
+                this.chat.update(cx, |that, cx| {
+                    let mut new_focus = match that.focused_message {
+                        Some(focus) => focus + 1,
+                        None if !that.messages.is_empty() => that.messages.len() - 1,
+                        None => return,
+                    };
+
+                    while let Some(item) = that.messages.get(new_focus) {
+                        if item.is_user_message() {
+                            that.focused_message = Some(new_focus);
+                            that.list_state.set_follow_mode(FollowMode::Normal);
+                            that.list_state.scroll_to_reveal_item(new_focus);
+                            cx.notify();
+                            window.focus(&that.focus_handle(cx), cx);
+                            return;
+                        }
+                        new_focus += 1;
+                    }
+                });
+            }))
+            .on_action(cx.listener(|this, _: &FocusPrevious, window, cx| {
+                tracing::debug!("Focusing previous message");
+                this.chat.update(cx, |that, cx| {
+                    let mut new_focus = match that.focused_message {
+                        Some(focus) => focus.saturating_sub(1),
+                        None if !that.messages.is_empty() => that.messages.len().saturating_sub(1),
+                        None => return,
+                    };
+
+                    while let Some(item) = that.messages.get(new_focus) {
+                        if item.is_user_message() {
+                            that.focused_message = Some(new_focus);
+                            that.list_state.set_follow_mode(FollowMode::Normal);
+                            that.list_state.scroll_to_reveal_item(new_focus);
+                            cx.notify();
+                            window.focus(&that.focus_handle(cx), cx);
+                            return;
+                        }
+                        if new_focus == 0 {
+                            return;
+                        }
+                        new_focus -= 1;
+                    }
+                });
+            }))
+            .on_action(cx.listener(|this, _: &FocusInput, window, cx| {
+                tracing::debug!("Focusing chat input");
+                window.focus(&this.chat_input.focus_handle(cx), cx);
+            }))
+            .on_action(cx.listener(|this, action: &FocusInputWithKey, window, cx| {
+                tracing::debug!("Focusing chat input with key");
+                this.chat_input.update(cx, |bar, cx| {
+                    bar.chat_input.update(cx, |input, cx| {
+                        input.insert(&action.key, window, cx);
+                    });
+                });
+                window.focus(&this.chat_input.focus_handle(cx), cx);
+            }))
+            .on_action(cx.listener(|this, _: &UnfocusInput, window, cx| {
+                tracing::debug!("Restoring focus to Chat or Home View");
+                window.focus(&this.focus, cx);
+            }))
             .flex()
             .flex_row()
             .paddings(structure.gap)
@@ -604,36 +671,6 @@ impl Render for HomeView {
                                             .size_full()
                                             .paddings(structure.gap)
                                             .pt_0()
-                                            .key_context("Chat")
-                                            .on_action(cx.listener(
-                                                |this, _: &FocusInput, window, cx| {
-                                                    tracing::debug!("Focusing chat input");
-                                                    window.focus(
-                                                        &this.chat_input.focus_handle(cx),
-                                                        cx,
-                                                    );
-                                                },
-                                            ))
-                                            .on_action(cx.listener(
-                                                |this, action: &FocusInputWithKey, window, cx| {
-                                                    tracing::debug!("Focusing chat input");
-                                                    this.chat_input.update(cx, |bar, cx| {
-                                                        bar.chat_input.update(cx, |input, cx| {
-                                                            input.insert(&action.key, window, cx);
-                                                        });
-                                                    });
-                                                    window.focus(
-                                                        &this.chat_input.focus_handle(cx),
-                                                        cx,
-                                                    );
-                                                },
-                                            ))
-                                            .on_action(cx.listener(
-                                                |this, _: &UnfocusInput, window, cx| {
-                                                    tracing::debug!("Restoring focus to Chat");
-                                                    window.focus(&this.chat.focus_handle(cx), cx);
-                                                },
-                                            ))
                                             .child(
                                                 self.chat
                                                     .clone()

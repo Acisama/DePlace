@@ -12,7 +12,7 @@
     }
   },
   {
-    "context": "(Vim > Chat) && !Input",
+    "context": "Vim && !Input",
     "bindings": {
       "j": "chat::FocusNext",
       "k": "chat::FocusPrevious",
@@ -20,9 +20,10 @@
     }
   },
   {
-    "context": "Chat > Input",
+    "context": "Home > Input",
     "bindings": {
-      "escape": "chat::UnfocusInput"
+      "escape": "chat::UnfocusInput",
+      "enter": "chat::SendMessage"
     }
   },
   {
@@ -32,7 +33,7 @@
     }
   },
   {
-    "context": "Chat && !Input && !Vim",
+    "context": "!Vim && !Input",
     "bindings": {
       "a": ["chat::FocusInputWithKey", { "key": "a" }],
       "b": ["chat::FocusInputWithKey", { "key": "b" }],
