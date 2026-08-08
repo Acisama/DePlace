@@ -88,6 +88,7 @@ impl Render for Overlay {
             .flex()
             .items_center()
             .justify_center()
+            .occlude()
             .on_click(cx.listener(|_this, _event, _window, cx| {
                 cx.emit(Close);
             }))
