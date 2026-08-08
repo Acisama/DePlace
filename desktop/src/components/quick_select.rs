@@ -1,11 +1,11 @@
 use gpui::*;
 
 use crate::{
-    components::floating_tile,
+    components::{floating_tile, overlay::Close},
     theme::{ActiveAppTheme, StructureExt},
 };
 
-actions!(quick_select, [Open, Close]);
+actions!(quick_select, [Open]);
 
 pub struct QuickSelect {
     focus: FocusHandle,
@@ -51,11 +51,6 @@ impl Render for QuickSelect {
             .max_w(px(600.0))
             .h(px(400.0))
             .overflow_hidden()
-            // // --- Elevation & Borders ---
-            // .border_1()
-            // .border_color(rgb(0x313244))
-            // .shadow_lg()
-            // // Internal spacing
             .p_4()
     }
 }

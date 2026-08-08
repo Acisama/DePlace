@@ -29,6 +29,7 @@ mod header;
 mod home;
 mod login;
 mod message;
+mod overlay;
 mod quick_select;
 mod server_list;
 mod sidebar;

@@ -1,6 +1,6 @@
 [
   {
-    "context": "!QuickSelect",
+    "context": "!QuickSelect && !Overlay",
     "bindings": {
       "ctrl-k": "quick_select::Open"
     }
@@ -8,7 +8,13 @@
   {
     "context": "QuickSelect",
     "bindings": {
-      "ctrl-k": "quick_select::Close"
+      "ctrl-k": "overlay::Close"
+    }
+  },
+  {
+    "context": "Overlay || (Overlay > !Input)",
+    "bindings": {
+      "escape": "overlay::Close"
     }
   },
   {

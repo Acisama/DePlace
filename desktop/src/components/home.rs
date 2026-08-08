@@ -9,7 +9,7 @@ use deplace_core::{
 use gpui::{
     AppContext, Context, Empty, Entity, FocusHandle, Focusable, FollowMode, InteractiveElement,
     IntoElement, KeyContext, KeyDownEvent, Keystroke, ParentElement, Pixels, Render,
-    StyleRefinement, Styled, Window, actions, div, prelude::FluentBuilder,
+    StyleRefinement, Styled, Subscription, Window, actions, div, prelude::FluentBuilder,
 };
 use gpui_component::{
     StyledExt,
@@ -33,6 +33,7 @@ use crate::{
         },
         floating_tile,
         header::HeaderView,
+        overlay::{Close, Overlay, OverlayContent},
         quick_select,
         server_list::ServerListView,
         sidebar::SidebarView,
@@ -57,19 +58,13 @@ pub struct HomeView {
     membership_map: Receiver<MembershipMap>,
     own_id: OwnedUserId,
 
-    overlay: Overlay,
+    overlay: Entity<Overlay>,
+    overlay_subscription: Option<Subscription>, // keep subscription unique instead of detaching
 
     vim_mode: bool,
 }
 
 actions!(home, [ToggleVimMode]);
-
-#[derive(Debug)]
-enum Overlay {
-    None,
-    Settings,
-    QuickSelect(Entity<quick_select::QuickSelect>),
-}
 
 #[derive(Clone)]
 enum ChatSidebar {
@@ -318,6 +313,8 @@ impl HomeView {
         notify_on_change(active_room.clone(), cx);
         notify_on_change(membership_map.clone(), cx);
 
+        let overlay = cx.new(|cx| Overlay::new(window, cx));
+
         cx.subscribe_in(
             &server_list,
             window,
@@ -479,7 +476,8 @@ impl HomeView {
             own_id,
 
             focus: focus_handle,
-            overlay: Overlay::None,
+            overlay,
+            overlay_subscription: None,
 
             vim_mode: true,
         }
@@ -525,19 +523,22 @@ impl Render for HomeView {
             .on_action(
                 cx.listener(|this, _action: &quick_select::Open, window, cx| {
                     tracing::debug!("Opening quick select");
-                    let quick_select = cx.new(|cx| quick_select::QuickSelect::new(window, cx));
-                    cx.subscribe_in(
-                        &quick_select,
-                        window,
-                        |this: &mut HomeView, _child, _event: &quick_select::Close, window, cx| {
-                            this.overlay = Overlay::None;
-                            window.focus(&this.focus, cx);
-                            cx.notify()
-                        },
-                    )
-                    .detach();
 
-                    this.overlay = Overlay::QuickSelect(quick_select);
+                    // Subscribe to Close events
+                    this.overlay_subscription = Some(cx.subscribe_in(
+                        &this.overlay,
+                        window,
+                        |this: &mut HomeView, _child, _event: &Close, window, cx| {
+                            tracing::debug!("Closing quick select overlay");
+                            this.overlay
+                                .update(cx, |that, cx| that.close_overlay(window, cx));
+                            window.focus(&this.focus, cx);
+                            cx.notify();
+                        },
+                    ));
+
+                    this.overlay
+                        .update(cx, |overlay, cx| overlay.open_quick_select(window, cx));
                     cx.notify();
                 }),
             )
@@ -688,21 +689,6 @@ impl Render for HomeView {
                             }),
                     ),
             )
-            .child(match &self.overlay {
-                Overlay::None => Empty.into_any_element(),
-                overlay => div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(gpui::rgba(0x00000080))
-                    .child(match overlay {
-                        Overlay::QuickSelect(ent) => ent.clone().into_any_element(),
-                        Overlay::Settings => div().into_any_element(),
-                        Overlay::None => div().into_any_element(),
-                    })
-                    .into_any_element(),
-            })
+            .child(self.overlay.clone())
     }
 }
