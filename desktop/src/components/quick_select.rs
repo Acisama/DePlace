@@ -41,6 +41,9 @@ impl Render for QuickSelect {
             .track_focus(&self.focus)
             .id("quick-select")
             .key_context("QuickSelect")
+            .on_click(|_event, _window, cx| {
+                cx.stop_propagation();
+            })
             .on_action(cx.listener(|_, _: &Close, _, cx| {
                 tracing::debug!("Closing quick select");
                 cx.emit(Close);

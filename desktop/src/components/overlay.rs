@@ -91,18 +91,11 @@ impl Render for Overlay {
             .on_click(cx.listener(|_this, _event, _window, cx| {
                 cx.emit(Close);
             }))
-            .child(
-                div()
-                    .id("overlay-content")
-                    .on_click(|_event, _window, cx| {
-                        cx.stop_propagation();
-                    })
-                    .child(match &self.content {
-                        OverlayContent::None => div().into_any_element(),
-                        OverlayContent::Settings => div().into_any_element(),
-                        OverlayContent::QuickSelect(ent) => ent.clone().into_any_element(),
-                    }),
-            )
+            .child(match &self.content {
+                OverlayContent::None => div().into_any_element(),
+                OverlayContent::Settings => div().into_any_element(),
+                OverlayContent::QuickSelect(ent) => ent.clone().into_any_element(),
+            })
             .into_any_element()
     }
 }
