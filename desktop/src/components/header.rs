@@ -29,7 +29,7 @@ pub struct HeaderView {
 
 impl HeaderView {
     pub fn new(
-        state: &AppState,
+        state: AppState,
         cx: &mut Context<Self>,
         tokio_rt: Arc<Runtime>,
         cache: AvatarCache,
@@ -48,7 +48,7 @@ impl HeaderView {
             membership_map,
             presence_map,
             cache,
-            own_id: state.user_device.user_id.clone(),
+            own_id: state.user_device().user_id.clone(),
         }
     }
 }

@@ -26,7 +26,7 @@ pub struct ServerListView {
     tokio_rt: Arc<Runtime>,
     cache: AvatarCache,
     servers: watch::Receiver<HashMap<OwnedRoomId, Room>>,
-    server_order: Vec<OwnedRoomId>,
+    server_order: watch::Receiver<Vec<OwnedRoomId>>,
     active_server: watch::Receiver<Option<Room>>,
     hovered_server: Option<Option<OwnedRoomId>>,
 }
@@ -35,7 +35,7 @@ impl EventEmitter<ActiveServerChange> for ServerListView {}
 
 impl ServerListView {
     pub fn new(
-        state: &AppState,
+        state: AppState,
         cx: &mut Context<Self>,
         tokio_rt: Arc<Runtime>,
         cache: AvatarCache,
@@ -54,20 +54,26 @@ impl ServerListView {
             cache,
             active_server,
             hovered_server: None,
-            server_order: state.server_order.clone(),
+            server_order: state.server_order().clone(),
         }
     }
 
-    fn set_server_order(&mut self, servers: Vec<OwnedRoomId>) {
-        if servers.is_empty() {
+    fn set_server_order(&mut self, server_order: Vec<OwnedRoomId>) {
+        if server_order.is_empty() {
             return;
         }
 
-        self.server_order = servers.clone();
+        self.state.set_server_order(server_order.clone());
 
-        let client = self.state.client.clone();
+        let client = self.state.client();
         self.tokio_rt.spawn(async move {
-            set_account_data(&client, ServerOrderContent { servers }).await;
+            set_account_data(
+                &client,
+                ServerOrderContent {
+                    servers: server_order,
+                },
+            )
+            .await;
         });
     }
 }
@@ -85,7 +91,7 @@ impl Render for ServerListView {
         let ordered_server_ids_vec = self.server_order.clone();
 
         let ordered_server_ids: HashSet<OwnedRoomId> =
-            ordered_server_ids_vec.iter().cloned().collect();
+            ordered_server_ids_vec.borrow().iter().cloned().collect();
         let all_server_ids: HashSet<OwnedRoomId> = self.servers.borrow().keys().cloned().collect();
 
         let unsorted_server_ids: Vec<OwnedRoomId> = all_server_ids
@@ -102,6 +108,7 @@ impl Render for ServerListView {
         let rooms_map = self.servers.borrow().clone();
         let mut sorted_rooms: Vec<Room> = self
             .server_order
+            .borrow()
             .iter()
             .filter_map(|id| rooms_map.get(id).cloned())
             .collect();
@@ -117,7 +124,7 @@ impl Render for ServerListView {
             .iter()
             .map(|room| room.room_id().to_owned())
             .collect();
-        if new_server_order != ordered_server_ids_vec {
+        if new_server_order != *ordered_server_ids_vec.borrow() {
             self.set_server_order(new_server_order);
         }
 

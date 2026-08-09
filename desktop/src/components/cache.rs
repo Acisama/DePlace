@@ -12,6 +12,7 @@ use matrix_sdk::{
 };
 use tokio::{runtime::Runtime, sync::watch};
 
+/// Meant to be cloned and passed around
 pub type AvatarCache = MediaCache<OwnedMxcUri, gpui::Image>;
 pub type FileCache = MediaCache<String, Vec<u8>>;
 pub type ThumbnailCache = MediaCache<(gpui::SharedString, u64, u64), gpui::Image>;

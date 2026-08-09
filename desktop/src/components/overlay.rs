@@ -1,6 +1,7 @@
+use deplace_core::{matrix_api::account_data::BreadcrumbsContent, state::AppState};
 use gpui::*;
 
-use crate::components::quick_select::QuickSelect;
+use crate::components::{cache::AvatarCache, quick_select::QuickSelect};
 
 actions!(overlay, [Close]);
 
@@ -34,8 +35,14 @@ impl Overlay {
     }
 
     /// Open quickselect and focus the overlay and the quickselect menu
-    pub fn open_quick_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let quick_select = cx.new(|cx| QuickSelect::new(window, cx));
+    pub fn open_quick_select(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        state: AppState,
+        avatar_cache: AvatarCache,
+    ) {
+        let quick_select = cx.new(|cx| QuickSelect::new(window, cx, state, avatar_cache));
 
         // Subscribe to Close events emitted by QuickSelect
         cx.subscribe(&quick_select, |_this, _, _event: &Close, cx| {

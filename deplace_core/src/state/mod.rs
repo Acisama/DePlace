@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
 use matrix_sdk::{
     Client, Room,
@@ -24,8 +27,15 @@ pub type RoomMap = HashMap<OwnedRoomId, Room>;
 pub type MembershipMap = HashMap<OwnedRoomId, HashMap<OwnedUserId, RoomMember>>;
 pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
 
+/// Cheaply clonable AppState since the data is all
+/// wrapped in an `Arc`. Access only over functions,
+/// no direct field access.
 #[derive(Clone)]
 pub struct AppState {
+    inner: Arc<AppStateInner>,
+}
+
+struct AppStateInner {
     pub client: Client,
     pub user_device: UserDevice,
     dm_rooms: Sender<RoomMap>,
@@ -34,21 +44,25 @@ pub struct AppState {
     parent_to_children: Sender<ParentToChildren>,
     active_room: Sender<Option<Room>>,
     active_server: Sender<Option<Room>>,
-
     membership_map: Sender<MembershipMap>,
     presence_map: Sender<PresenceMap>,
 
-    pub server_order: Vec<OwnedRoomId>,
-    pub breadcrumbs: BreadcrumbsContent,
+    server_order: Sender<Vec<OwnedRoomId>>,
 
-    pub timeline_manager: TimelineManager,
+    /// Last accessed servers and rooms, since the data is only
+    /// needed as snapshots, it is held in a mutex
+    breadcrumbs: Mutex<BreadcrumbsContent>,
+
+    timeline_manager: TimelineManager,
 }
 
 impl AppState {
     pub async fn new(client: Client, user_device: UserDevice) -> Self {
-        let breadcrumbs = get_account_data::<BreadcrumbsContent>(&client).await;
+        let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
 
-        let last_room_id = breadcrumbs.recent_rooms.first().cloned();
+        let last_room_id = breadcrumbs_content.recent_rooms.first().cloned();
+
+        let breadcrumbs = Mutex::new(breadcrumbs_content);
 
         let response = reclassify_rooms(&client).await;
 
@@ -82,81 +96,119 @@ impl AppState {
         let (membership_map, _) = watch::channel(MembershipMap::default());
         let (presence_map, _) = watch::channel(PresenceMap::default());
 
-        let server_order = get_account_data::<ServerOrderContent>(&client).await;
+        let server_order_data = get_account_data::<ServerOrderContent>(&client).await;
+        let (server_order, _) = watch::channel(server_order_data.servers);
 
         Self {
-            client,
-            user_device,
-            dm_rooms,
-            single_rooms,
-            server_rooms,
-            parent_to_children,
-            active_room,
-            active_server,
+            inner: Arc::new(AppStateInner {
+                client,
+                user_device,
+                dm_rooms,
+                single_rooms,
+                server_rooms,
+                parent_to_children,
+                active_room,
+                active_server,
 
-            membership_map,
-            presence_map,
+                membership_map,
+                presence_map,
 
-            server_order: server_order.servers,
-            breadcrumbs,
+                server_order,
+                breadcrumbs,
 
-            timeline_manager: TimelineManager::default(),
+                timeline_manager: TimelineManager::default(),
+            }),
         }
     }
 
+    // Direct access where state is further arc'd
+
+    /// Retrieves the `matrix-sdk::Client` of the app
+    pub fn client(&self) -> Client {
+        self.inner.client.clone()
+    }
+
+    /// Retrieves the `TimelineManager` of the app
+    pub fn timeline_manager(&self) -> TimelineManager {
+        self.inner.timeline_manager.clone()
+    }
+
+    // Direct access to constant state
+
+    pub fn user_device(&self) -> &UserDevice {
+        &self.inner.user_device
+    }
+
+    // Getters
+
     pub fn dm_rooms(&self) -> watch::Receiver<RoomMap> {
-        self.dm_rooms.subscribe()
+        self.inner.dm_rooms.subscribe()
     }
 
     pub fn server_rooms(&self) -> watch::Receiver<RoomMap> {
-        self.server_rooms.subscribe()
+        self.inner.server_rooms.subscribe()
     }
 
     pub fn parent_to_children(&self) -> watch::Receiver<ParentToChildren> {
-        self.parent_to_children.subscribe()
+        self.inner.parent_to_children.subscribe()
     }
 
     pub fn single_rooms(&self) -> watch::Receiver<RoomMap> {
-        self.single_rooms.subscribe()
+        self.inner.single_rooms.subscribe()
     }
 
     pub fn active_room(&self) -> watch::Receiver<Option<Room>> {
-        self.active_room.subscribe()
+        self.inner.active_room.subscribe()
     }
 
     pub fn active_server(&self) -> watch::Receiver<Option<Room>> {
-        self.active_server.subscribe()
+        self.inner.active_server.subscribe()
     }
 
     pub fn membership_map(&self) -> watch::Receiver<MembershipMap> {
-        self.membership_map.subscribe()
+        self.inner.membership_map.subscribe()
     }
 
     pub fn presence_map(&self) -> watch::Receiver<PresenceMap> {
-        self.presence_map.subscribe()
+        self.inner.presence_map.subscribe()
     }
 
+    pub fn server_order(&self) -> watch::Receiver<Vec<OwnedRoomId>> {
+        self.inner.server_order.subscribe()
+    }
+
+    /// Returns a snapshot copy of the breadcrumbs
+    pub fn breadcrumbs(&self) -> BreadcrumbsContent {
+        self.inner
+            .breadcrumbs
+            .lock()
+            .expect("breadcrumbs mutex poisoned")
+            .clone()
+    }
+
+    // Mutators
+
     pub(crate) fn set_dm_rooms(&self, rooms: RoomMap) {
-        Self::send_if_keys_changed(&self.dm_rooms, rooms);
+        Self::send_if_keys_changed(&self.inner.dm_rooms, rooms);
     }
 
     pub(crate) fn set_server_rooms(&self, rooms: RoomMap) {
-        Self::send_if_keys_changed(&self.server_rooms, rooms);
+        Self::send_if_keys_changed(&self.inner.server_rooms, rooms);
     }
 
     pub(crate) fn set_single_rooms(&self, rooms: RoomMap) {
-        Self::send_if_keys_changed(&self.single_rooms, rooms);
+        Self::send_if_keys_changed(&self.inner.single_rooms, rooms);
     }
 
     pub(crate) fn set_membership_map(&self, membership_map: MembershipMap) {
-        self.membership_map.send_if_modified(|cur| {
+        self.inner.membership_map.send_if_modified(|cur| {
             *cur = membership_map;
             true
         });
     }
 
     pub(crate) fn add_membership(&self, room_id: OwnedRoomId, member: RoomMember) {
-        self.membership_map.send_if_modified(|cur| {
+        self.inner.membership_map.send_if_modified(|cur| {
             cur.entry(room_id)
                 .or_default()
                 .insert(member.user_id().to_owned(), member);
@@ -165,21 +217,34 @@ impl AppState {
     }
 
     pub(crate) fn add_presences(&self, presences: PresenceMap) {
-        self.presence_map.send_if_modified(|cur| {
+        self.inner.presence_map.send_if_modified(|cur| {
             cur.extend(presences);
             true
         });
     }
 
     pub(crate) fn set_parent_to_children(&self, parent_to_children: ParentToChildren) {
-        self.parent_to_children.send_if_modified(|cur| {
+        self.inner.parent_to_children.send_if_modified(|cur| {
             *cur = parent_to_children;
             true
         });
     }
 
+    /// Mutates the breadcrumbs in-place using a closure.
+    pub fn update_breadcrumbs<F>(&self, f: F)
+    where
+        F: FnOnce(&mut BreadcrumbsContent),
+    {
+        let mut guard = self
+            .inner
+            .breadcrumbs
+            .lock()
+            .expect("breadcrumbs mutex poisoned");
+        f(&mut guard);
+    }
+
     pub fn set_active_server(&self, server: Option<Room>) {
-        self.active_server.send_if_modified(|cur| {
+        self.inner.active_server.send_if_modified(|cur| {
             let changed = cur.as_ref().map(|r| r.room_id()) != server.as_ref().map(|r| r.room_id());
             if changed {
                 *cur = server;
@@ -189,12 +254,23 @@ impl AppState {
     }
 
     pub fn set_active_room(&self, room: Option<Room>) {
-        self.active_room.send_if_modified(|cur| {
+        self.inner.active_room.send_if_modified(|cur| {
             let changed = cur.as_ref().map(|r| r.room_id()) != room.as_ref().map(|r| r.room_id());
             if changed {
                 *cur = room;
             }
             changed
+        });
+    }
+
+    pub fn set_server_order(&self, server_order: Vec<OwnedRoomId>) {
+        self.inner.server_order.send_if_modified(|cur| {
+            if *cur != server_order {
+                *cur = server_order;
+                true
+            } else {
+                false
+            }
         });
     }
 

@@ -8,9 +8,9 @@ use deplace_core::{
 };
 use futures_util::StreamExt;
 use gpui::{
-    App, AppContext, ClipboardItem, Context, Empty, FocusHandle, Focusable, FollowMode,
-    InteractiveElement, IntoElement, ListAlignment, ListScrollEvent, ListState, MouseButton,
-    ParentElement, Render, SharedString, Styled, Task, Window, actions, div, list, px,
+    App, ClipboardItem, Context, Empty, FocusHandle, Focusable, FollowMode, InteractiveElement,
+    IntoElement, ListAlignment, ListScrollEvent, ListState, MouseButton, ParentElement, Render,
+    SharedString, Styled, Task, Window, actions, div, list, px,
 };
 use gpui_component::StyledExt;
 use macros::tailwind_div;
@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use crate::{
     components::{
-        AvatarCache, CustomStyles,
+        AvatarCache,
         cache::ThumbnailCache,
         message::{
             CachedTimelineItem, HoverState, SelectionState, TextCoord, cached_from_timeline_item,
@@ -92,8 +92,8 @@ impl ChatView {
         notify_on_change(image_cache.subscribe(), cx);
 
         let mut view = Self {
-            timeline_manager: state.timeline_manager.clone(),
-            user_id: state.user_device.user_id.clone(),
+            timeline_manager: state.timeline_manager(),
+            user_id: state.user_device().user_id.clone(),
             messages: Arc::new(Vec::new()),
             focused_message: None,
             avatar_cache,

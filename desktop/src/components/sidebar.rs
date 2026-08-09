@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::sync::Arc;
 
 use deplace_core::{
@@ -24,7 +25,6 @@ pub struct SidebarView {
     active_room: watch::Receiver<Option<Room>>,
     parent_to_children: watch::Receiver<ParentToChildren>,
     dm_rooms: watch::Receiver<RoomMap>,
-    tokio_rt: Arc<Runtime>,
     membership_map: watch::Receiver<MembershipMap>,
     presence_map: watch::Receiver<PresenceMap>,
     own_id: OwnedUserId,
@@ -35,9 +35,9 @@ impl EventEmitter<ActiveRoomChange> for SidebarView {}
 
 impl SidebarView {
     pub fn new(
-        state: &AppState,
+        state: AppState,
         cx: &mut Context<Self>,
-        tokio_rt: Arc<Runtime>,
+        _tokio_rt: Arc<Runtime>, // Removed from struct if unused
         cache: AvatarCache,
     ) -> Self {
         let active_server = state.active_server();
@@ -60,10 +60,9 @@ impl SidebarView {
             active_room,
             parent_to_children,
             dm_rooms,
-            tokio_rt,
             membership_map,
             presence_map,
-            own_id: state.user_device.user_id.clone(),
+            own_id: state.user_device().user_id.clone(),
             cache,
         }
     }
@@ -78,22 +77,21 @@ impl Render for SidebarView {
         let theme = cx.app_theme();
         let structure = cx.structure();
 
-        let membership_map = self.membership_map.borrow().clone();
-        let presence_map = self.presence_map.borrow().clone();
-        let own_id = self.own_id.clone();
-        let cache = self.cache.clone();
+        // Borrow watch guards directly without cloning large HashMaps
+        let membership_map = self.membership_map.borrow();
+        let presence_map = self.presence_map.borrow();
+        let active_server = self.active_server.borrow();
 
-        let active_server = self.active_server.borrow().clone();
         let in_dms = active_server.is_none();
         let name = active_server
             .as_ref()
             .map(|room| room.get_name())
-            .unwrap_or("Direct Messages".to_string());
+            .unwrap_or_else(|| "Direct Messages".to_string());
 
         let heading_font_size = structure.font_size * 1.1;
         let heading_padding = (structure.header.height - heading_font_size) / 2.0;
 
-        let items = if let Some(server) = active_server {
+        let items = if let Some(server) = active_server.as_ref() {
             let mut children: Vec<(Room, Option<String>)> = self
                 .parent_to_children
                 .borrow()
@@ -104,14 +102,19 @@ impl Render for SidebarView {
                 .cloned()
                 .collect();
 
-            children.sort_by_key(|(room, order_str)| {
-                order_str.clone().unwrap_or(room.room_id().to_string())
+            // Zero-allocation sorting
+            children.sort_by(|(r1, o1), (r2, o2)| {
+                let k1 = o1.as_deref().unwrap_or_else(|| r1.room_id().as_str());
+                let k2 = o2.as_deref().unwrap_or_else(|| r2.room_id().as_str());
+                k1.cmp(k2)
             });
+
             children.into_iter().map(|(room, _)| room).collect()
         } else {
             let mut dms: Vec<Room> = self.dm_rooms.borrow().values().cloned().collect();
 
-            dms.sort_by_key(|r| r.latest_event_timestamp());
+            // Sort newest messages first
+            dms.sort_by_key(|r| Reverse(r.latest_event_timestamp()));
             dms
         };
 
@@ -121,7 +124,7 @@ impl Render for SidebarView {
         let active_id = self
             .active_room
             .borrow()
-            .clone()
+            .as_ref()
             .map(|r| r.room_id().to_owned());
 
         let heights = move |in_dms| {
@@ -130,16 +133,14 @@ impl Render for SidebarView {
             } else {
                 channel_icon_size
             };
-            let height = icon_height + structure.gap * 2;
+            let height = icon_height + structure.gap * 2.0;
             (icon_height, height)
         };
 
         let divs = items.into_iter().map(|room| {
-            let name = room.get_name();
+            let room_name = room.get_name();
             let room_id = room.room_id().to_owned();
-
             let is_active = Some(&room_id) == active_id.as_ref();
-
             let (icon_height, height) = heights(in_dms);
 
             div()
@@ -168,10 +169,10 @@ impl Render for SidebarView {
                 .id(room_id.to_string())
                 .child(render_room_icon(
                     &room,
-                    &membership_map,
-                    &presence_map,
-                    &own_id,
-                    &cache,
+                    &membership_map, // Borrowed reference passed directly
+                    &presence_map,   // Borrowed reference passed directly
+                    &self.own_id,
+                    &self.cache,
                     icon_height,
                     icon_height / 2.0,
                     theme,
@@ -182,7 +183,7 @@ impl Render for SidebarView {
                         cx.emit(ActiveRoomChange::new(Some(room.clone())));
                     }
                 }))
-                .child(name)
+                .child(room_name)
         });
 
         div()
@@ -195,7 +196,7 @@ impl Render for SidebarView {
                     .items_center()
                     .pl(heading_padding)
                     .font_bold()
-                    .text_size(structure.font_size * 1.1)
+                    .text_size(heading_font_size)
                     .border_b_1()
                     .border_color(theme.tile.border)
                     .text_color(theme.text.normal),

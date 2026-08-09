@@ -33,7 +33,7 @@ use crate::{
         },
         floating_tile,
         header::HeaderView,
-        overlay::{Close, Overlay, OverlayContent},
+        overlay::{Close, Overlay},
         quick_select,
         server_list::ServerListView,
         sidebar::SidebarView,
@@ -57,6 +57,7 @@ pub struct HomeView {
     active_room: Receiver<Option<Room>>,
     membership_map: Receiver<MembershipMap>,
     own_id: OwnedUserId,
+    avatar_cache: AvatarCache,
 
     overlay: Entity<Overlay>,
     overlay_subscription: Option<Subscription>, // keep subscription unique instead of detaching
@@ -285,16 +286,16 @@ impl HomeView {
     ) -> Self {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle, cx);
-        let avatar_cache: AvatarCache = AvatarCache::new(state.client.clone(), tokio_rt.clone());
-        let image_cache: ThumbnailCache =
-            ThumbnailCache::new(state.client.clone(), tokio_rt.clone());
+        let avatar_cache: AvatarCache = AvatarCache::new(state.client(), tokio_rt.clone());
+        let image_cache: ThumbnailCache = ThumbnailCache::new(state.client(), tokio_rt.clone());
 
-        let server_list =
-            cx.new(|cx| ServerListView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
+        let server_list = cx.new(|cx| {
+            ServerListView::new(state.clone(), cx, tokio_rt.clone(), avatar_cache.clone())
+        });
         let header =
-            cx.new(|cx| HeaderView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
-        let sidebar =
-            cx.new(|cx| SidebarView::new(&state, cx, tokio_rt.clone(), avatar_cache.clone()));
+            cx.new(|cx| HeaderView::new(state.clone(), cx, tokio_rt.clone(), avatar_cache.clone()));
+        let sidebar = cx
+            .new(|cx| SidebarView::new(state.clone(), cx, tokio_rt.clone(), avatar_cache.clone()));
         let chat = cx.new(|cx| {
             ChatView::new(
                 &state,
@@ -308,7 +309,7 @@ impl HomeView {
 
         let active_room = state.active_room();
         let membership_map = state.membership_map();
-        let own_id = state.user_device.user_id.clone();
+        let own_id = state.user_device().user_id.clone();
 
         notify_on_change(active_room.clone(), cx);
         notify_on_change(membership_map.clone(), cx);
@@ -327,7 +328,7 @@ impl HomeView {
                 let server_id = room.as_ref().map(|r| r.room_id());
 
                 this.state.set_active_server(room.clone());
-                let mut breadcrumbs = this.state.breadcrumbs.clone();
+                let mut breadcrumbs = this.state.breadcrumbs();
                 let new_room_id = if let Some(room_id) = server_id {
                     breadcrumbs
                         .last_space_ids
@@ -370,19 +371,17 @@ impl HomeView {
                     };
 
                     breadcrumbs.recent_rooms.insert(0, id.clone());
-                    this.state.client.get_room(&id)
+                    this.state.client().get_room(&id)
                 } else {
                     None
                 };
 
-                if breadcrumbs.recent_rooms.len() > 10 {
-                    breadcrumbs.recent_rooms.truncate(10);
-                }
+                breadcrumbs.recent_rooms.truncate(10);
 
                 this.state.set_active_room(new_room);
-                this.state.breadcrumbs = breadcrumbs.clone();
+                this.state.update_breadcrumbs(|b| *b = breadcrumbs.clone());
 
-                let client = this.state.client.clone();
+                let client = this.state.client();
                 this.tokio_rt.spawn(async move {
                     set_account_data(&client, breadcrumbs).await;
                 });
@@ -400,14 +399,15 @@ impl HomeView {
                 this.state.set_active_room(room.clone());
 
                 if let Some(room) = room {
-                    let mut breadcrumbs = this.state.breadcrumbs.clone();
-                    breadcrumbs
-                        .recent_rooms
-                        .insert(0, room.room_id().to_owned());
+                    let mut breadcrumbs = this.state.breadcrumbs();
+                    let room_id = room.room_id().to_owned();
 
-                    if breadcrumbs.recent_rooms.len() > 10 {
-                        breadcrumbs.recent_rooms.truncate(10);
-                    }
+                    // Remove duplicates
+                    breadcrumbs.recent_rooms.retain(|id| id != &room_id);
+
+                    breadcrumbs.recent_rooms.insert(0, room_id);
+
+                    breadcrumbs.recent_rooms.truncate(10);
 
                     let room_id = room.room_id().to_owned();
 
@@ -421,8 +421,8 @@ impl HomeView {
                         breadcrumbs.dms_last = true;
                     }
 
-                    this.state.breadcrumbs = breadcrumbs.clone();
-                    let client = this.state.client.clone();
+                    this.state.update_breadcrumbs(|b| *b = breadcrumbs.clone());
+                    let client = this.state.client();
                     this.tokio_rt
                         .spawn(async move { set_account_data(&client, breadcrumbs).await });
                 }
@@ -441,8 +441,8 @@ impl HomeView {
                 let active_room = this.active_room.borrow().clone();
 
                 if let Some(room) = active_room {
-                    let client = this.state.client.clone();
-                    let timeline = this.state.timeline_manager.clone();
+                    let client = this.state.client();
+                    let timeline = this.state.timeline_manager();
                     let room_id = room.room_id().to_owned();
 
                     this.tokio_rt.spawn(async move {
@@ -474,6 +474,7 @@ impl HomeView {
             active_room,
             membership_map,
             own_id,
+            avatar_cache,
 
             focus: focus_handle,
             overlay,
@@ -537,8 +538,14 @@ impl Render for HomeView {
                         },
                     ));
 
-                    this.overlay
-                        .update(cx, |overlay, cx| overlay.open_quick_select(window, cx));
+                    this.overlay.update(cx, |overlay, cx| {
+                        overlay.open_quick_select(
+                            window,
+                            cx,
+                            this.state.clone(),
+                            this.avatar_cache.clone(),
+                        )
+                    });
                     cx.notify();
                 }),
             )

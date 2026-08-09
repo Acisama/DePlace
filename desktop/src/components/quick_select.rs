@@ -1,7 +1,14 @@
+use deplace_core::{
+    matrix_api::account_data::BreadcrumbsContent,
+    state::{AppState, MembershipMap},
+};
 use gpui::*;
+use gpui_component::input::{Input, InputState};
+use matrix_sdk::ruma::OwnedUserId;
+use tokio::sync::watch::Receiver;
 
 use crate::{
-    components::{floating_tile, overlay::Close},
+    components::{cache::AvatarCache, floating_tile, overlay::Close, profiles::render_room_icon},
     theme::{ActiveAppTheme, StructureExt},
 };
 
@@ -9,14 +16,42 @@ actions!(quick_select, [Open]);
 
 pub struct QuickSelect {
     focus: FocusHandle,
+
+    search_state: Entity<InputState>,
+    breadcrumbs: BreadcrumbsContent,
+
+    membership_map: Receiver<MembershipMap>,
+    own_id: OwnedUserId,
+    avatar_cache: AvatarCache,
 }
 
 impl QuickSelect {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        state: AppState,
+        avatar_cache: AvatarCache,
+    ) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
 
-        Self { focus }
+        let search_state = cx.new(|cx| InputState::new(window, cx));
+
+        let breadcrumbs = state.breadcrumbs();
+        let membership_map = state.membership_map();
+        let own_id = state.user_device().user_id.clone();
+        let avatar_cache = avatar_cache.clone();
+
+        // state.client.resolve_room_alias(room_alias);
+
+        Self {
+            focus,
+            search_state,
+            breadcrumbs,
+            membership_map,
+            own_id,
+            avatar_cache,
+        }
     }
 }
 
