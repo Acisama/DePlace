@@ -239,21 +239,16 @@ impl AppTheme {
     }
 }
 
-pub trait ActiveAppTheme {
+pub trait DeplaceThings {
     fn app_theme(&self) -> &AppTheme;
-}
-
-impl ActiveAppTheme for App {
-    fn app_theme(&self) -> &AppTheme {
-        self.global::<AppTheme>()
-    }
-}
-
-pub trait StructureExt {
     fn structure(&self) -> &Structure;
 }
 
-impl StructureExt for App {
+impl DeplaceThings for App {
+    fn app_theme(&self) -> &AppTheme {
+        self.global::<AppTheme>()
+    }
+
     fn structure(&self) -> &Structure {
         self.global::<Structure>()
     }

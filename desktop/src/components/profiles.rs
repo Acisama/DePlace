@@ -161,7 +161,7 @@ pub trait MemberRenderer {
 fn render_name(name: String, color: Hsla, size: Pixels) -> Div {
     div()
         .text_color(color)
-        .font_bold()
+        .font_semibold()
         .text_size(size)
         .line_height(relative(1.0))
         .child(name)

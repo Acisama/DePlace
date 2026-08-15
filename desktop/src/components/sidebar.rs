@@ -16,7 +16,7 @@ use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
     components::{AvatarCache, home::ActiveRoomChange, profiles::render_room_icon},
-    theme::{ActiveAppTheme, StructureExt},
+    theme::DeplaceThings,
     watch_bridge::notify_on_change,
 };
 

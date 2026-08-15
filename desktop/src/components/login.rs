@@ -15,7 +15,7 @@ use matrix_sdk::Client;
 use crate::{
     GenericState,
     components::{floating_tile, input},
-    theme::{ActiveAppTheme, StructureExt},
+    theme::DeplaceThings,
 };
 
 pub struct LoginView {

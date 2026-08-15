@@ -14,7 +14,7 @@ use crate::{
         AvatarCache,
         profiles::{MemberRenderer, render_icon, render_room_icon},
     },
-    theme::{ActiveAppTheme, StructureExt},
+    theme::DeplaceThings,
     watch_bridge::notify_on_change,
 };
 

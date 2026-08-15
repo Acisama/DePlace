@@ -14,12 +14,14 @@ use macros::tailwind_div;
 use smallvec::SmallVec;
 use std::sync::Arc;
 
+use crate::theme::DeplaceThings;
 use crate::{
     components::cache::AvatarCache,
-    theme::{ActiveAppTheme, AppTheme, Structure, StructureExt},
+    theme::{AppTheme, Structure},
 };
 
 pub mod cache;
+pub mod message;
 pub mod profiles;
 pub mod root;
 
@@ -28,7 +30,6 @@ mod discovery;
 mod header;
 mod home;
 mod login;
-mod message;
 mod overlay;
 mod quick_select;
 mod server_list;

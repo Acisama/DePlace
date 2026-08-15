@@ -28,6 +28,7 @@ pub(crate) mod assets;
 pub(crate) mod components;
 pub(crate) mod helpers;
 pub(crate) mod keybinds;
+pub(crate) mod room_state;
 pub(crate) mod theme;
 pub(crate) mod watch_bridge;
 

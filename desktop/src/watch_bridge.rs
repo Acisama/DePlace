@@ -1,4 +1,4 @@
-use gpui::Context;
+use gpui::{Context, Window};
 use tokio::sync::watch;
 
 /// Spawns a task on gpui's own executor that awaits changes on `rx` and calls
@@ -21,6 +21,44 @@ where
                 break;
             }
         }
+    })
+    .detach();
+}
+
+pub fn execute_on_change<T, V, F>(
+    mut rx: watch::Receiver<T>,
+    cx: &mut Context<V>,
+    name: &'static str,
+    f: F,
+) where
+    T: Clone + 'static,
+    V: 'static,
+    F: Fn(&mut V, &mut Window, &mut Context<V>, T, T) + 'static,
+{
+    let mut prev = rx.borrow().clone();
+
+    cx.spawn(async move |this, cx| {
+        while rx.changed().await.is_ok() {
+            let val = rx.borrow().clone();
+
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                this.update_in(cx, |v, window, cx| {
+                    f(v, window, cx, val.clone(), prev.clone())
+                })
+            })) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    tracing::error!("Stopping listener, {} entity is gone: {:?}", name, e);
+                    break;
+                }
+                Err(e) => {
+                    tracing::error!("Panic while executing on change for {}: {:?}", name, e);
+                }
+            }
+
+            prev = val;
+        }
+        tracing::error!("Listener for {} stopped", name);
     })
     .detach();
 }

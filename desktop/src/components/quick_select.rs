@@ -3,13 +3,13 @@ use deplace_core::{
     state::{AppState, MembershipMap},
 };
 use gpui::*;
-use gpui_component::input::{Input, InputState};
+use gpui_component::input::InputState;
 use matrix_sdk::ruma::OwnedUserId;
 use tokio::sync::watch::Receiver;
 
 use crate::{
-    components::{cache::AvatarCache, floating_tile, overlay::Close, profiles::render_room_icon},
-    theme::{ActiveAppTheme, StructureExt},
+    components::{cache::AvatarCache, floating_tile, overlay::Close},
+    theme::DeplaceThings,
 };
 
 actions!(quick_select, [Open]);

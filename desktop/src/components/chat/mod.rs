@@ -35,9 +35,12 @@ use crate::{
             format_selection,
         },
     },
-    theme::{ActiveAppTheme, StructureExt},
-    watch_bridge::notify_on_change,
+    room_state::RoomStateStore,
+    theme::DeplaceThings,
+    watch_bridge::{execute_on_change, notify_on_change},
 };
+
+pub mod input;
 
 pub struct ChatView {
     pub messages: Arc<Vec<CachedTimelineItem>>,
@@ -76,17 +79,19 @@ impl ChatView {
         tokio_rt: Arc<Runtime>,
         avatar_cache: AvatarCache,
         image_cache: ThumbnailCache,
+        room_store: RoomStateStore,
     ) -> Self {
         let list_state = ListState::new(0, ListAlignment::Bottom, px(500.));
         list_state.set_follow_mode(FollowMode::Tail);
         list_state.set_scroll_handler(cx.listener(|this, event: &ListScrollEvent, _window, cx| {
             this.check_pagination(event.visible_range.clone(), event.count, cx);
         }));
-        let active_room = state.active_room();
+        let active_room_recv = state.active_room();
+        let active_room = active_room_recv.borrow().clone();
 
         let membership_map = state.membership_map();
 
-        notify_on_change(active_room.clone(), cx);
+        notify_on_change(active_room_recv.clone(), cx);
         notify_on_change(membership_map.clone(), cx);
         notify_on_change(avatar_cache.subscribe(), cx);
         notify_on_change(image_cache.subscribe(), cx);
@@ -101,7 +106,7 @@ impl ChatView {
             membership_map,
             tokio_rt,
             timeline_id: None,
-            active_room,
+            active_room: active_room_recv,
             current_fetch: None,
             current_scroll_up: None,
             current_scroll_down: None,
@@ -114,33 +119,19 @@ impl ChatView {
             dragging_selection: false,
         };
 
-        view.load_active_room(cx);
+        view.load_active_room(cx, active_room);
 
-        cx.spawn({
-            let mut active_room = view.active_room.clone();
-            async move |this, cx| {
-                while active_room.changed().await.is_ok() {
-                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        this.update(cx, |view, cx| view.load_active_room(cx))
-                    })) {
-                        Ok(Ok(())) => {}
-                        Ok(Err(_)) => break,
-                        Err(e) => {
-                            tracing::error!(
-                                "Panic while loading active room, will keep listening for room changes: {:?}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        })
-        .detach();
+        execute_on_change(
+            view.active_room.clone(),
+            cx,
+            "chat",
+            |view, _, cx, room, _| view.load_active_room(cx, room),
+        );
 
         view
     }
 
-    fn load_active_room(&mut self, cx: &mut Context<Self>) {
+    fn load_active_room(&mut self, cx: &mut Context<Self>, room: Option<Room>) {
         if let Some(handle) = self.current_fetch.take() {
             handle.abort();
         }
@@ -159,7 +150,7 @@ impl ChatView {
         self.focused_message = None;
         cx.notify();
 
-        let Some(room) = self.active_room.borrow_and_update().clone() else {
+        let Some(room) = room else {
             return;
         };
 
@@ -211,7 +202,7 @@ impl ChatView {
                         view.list_state.splice(0..0, view.messages.len());
                         view.timeline_id = Some(id);
                         view.list_state.set_follow_mode(FollowMode::Tail);
-                        Some(update_stream)
+                        Some((update_stream, id))
                     }
                     Ok(Err(e)) => {
                         tracing::error!("Failed to load timeline: {e:?}");
@@ -227,12 +218,29 @@ impl ChatView {
                 update_stream
             });
 
-            let Ok(Some(mut update_stream)) = outcome else {
-                return;
+            let (mut update_stream, loaded_id) = match outcome {
+                Ok(Some(pair)) => pair,
+                Ok(None) => return,
+                Err(e) => {
+                    tracing::error!(
+                        "Stopping timeline load for room {}, ChatView entity is gone: {:?}",
+                        expected_room_id,
+                        e
+                    );
+                    return;
+                }
             };
 
             while let Some(diffs) = update_stream.next().await {
                 let updated = this.update(cx, |view, cx| {
+                    if view.timeline_id != Some(loaded_id) {
+                        tracing::debug!(
+                            "Discarding diffs for superseded timeline of room {}",
+                            expected_room_id
+                        );
+                        return;
+                    }
+
                     for diff in diffs {
                         apply_diff(&mut view.messages, &view.list_state, diff, &view.user_id);
                     }

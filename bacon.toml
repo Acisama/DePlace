@@ -1,2 +1,3 @@
 [keybindings]
 R = "job:run-long"
+C = "copy-unstyled-output"

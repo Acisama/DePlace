@@ -2,20 +2,15 @@ use std::sync::Arc;
 
 use deplace_core::{
     get_other_member,
-    helpers::RoomPlaceholderExt,
     matrix_api::{account_data::set_account_data, messages::send_message},
     state::{AppState, MembershipMap},
 };
 use gpui::{
-    AppContext, Context, Empty, Entity, FocusHandle, Focusable, FollowMode, InteractiveElement,
-    IntoElement, KeyContext, KeyDownEvent, Keystroke, ParentElement, Pixels, Render,
-    StyleRefinement, Styled, Subscription, Window, actions, div, prelude::FluentBuilder,
+    AppContext, Context, Entity, FocusHandle, Focusable, FollowMode, InteractiveElement,
+    IntoElement, KeyContext, ParentElement, Pixels, Render, StyleRefinement, Styled, Subscription,
+    Window, actions, div, prelude::FluentBuilder,
 };
-use gpui_component::{
-    StyledExt,
-    input::{Input, InputState},
-};
-use macros::tailwind_div;
+use gpui_component::StyledExt;
 use matrix_sdk::{
     Room,
     room::RoomMember,
@@ -25,11 +20,11 @@ use tokio::sync::watch::Receiver;
 
 use crate::{
     components::{
-        AvatarCache, CustomStyles,
+        AvatarCache,
         cache::ThumbnailCache,
         chat::{
-            ChatView, FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, SendMessage,
-            UnfocusInput,
+            ChatView, FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, UnfocusInput,
+            input::{ChatInputBar, SendMessageEvent},
         },
         floating_tile,
         header::HeaderView,
@@ -38,7 +33,8 @@ use crate::{
         server_list::ServerListView,
         sidebar::SidebarView,
     },
-    theme::{ActiveAppTheme, Structure, StructureExt},
+    room_state::RoomStateStore,
+    theme::{DeplaceThings, Structure},
     watch_bridge::notify_on_change,
 };
 
@@ -53,6 +49,8 @@ pub struct HomeView {
     sidebar: Entity<SidebarView>,
     chat: Entity<ChatView>,
     chat_input: Entity<ChatInputBar>,
+
+    room_store: RoomStateStore,
 
     active_room: Receiver<Option<Room>>,
     membership_map: Receiver<MembershipMap>,
@@ -136,147 +134,6 @@ impl ChatSidebar {
     }
 }
 
-pub struct ChatInputBar {
-    chat_input: Entity<InputState>,
-    active_room: Receiver<Option<Room>>,
-    membership_map: Receiver<MembershipMap>,
-}
-
-impl ChatInputBar {
-    pub fn new(state: &AppState, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let active_room = state.active_room();
-        let membership_map = state.membership_map();
-
-        let chat_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
-                .auto_grow(1, 10)
-                .placeholder(
-                    active_room
-                        .borrow()
-                        .clone()
-                        .get_input_placeholder(&membership_map.borrow()),
-                )
-        });
-
-        let view = Self {
-            chat_input,
-            active_room: active_room.clone(),
-            membership_map: membership_map.clone(),
-        };
-
-        cx.spawn({
-            let mut active_room = active_room.clone();
-            async move |this, cx| {
-                while active_room.changed().await.is_ok() {
-                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        this.update_in(cx, |view, window, cx| view.update_placeholder(window, cx))
-                    })) {
-                        Ok(Ok(())) => {}
-                        Ok(Err(_)) => break,
-                        Err(e) => {
-                            tracing::error!(
-                                "Panic while updating chat input placeholder, will keep listening for room changes: {:?}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        })
-        .detach();
-
-        cx.spawn({
-            let mut map = membership_map.clone();
-            async move |this, cx| {
-                while map.changed().await.is_ok() {
-                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        this.update_in(cx, |view, window, cx| view.update_placeholder(window, cx))
-                    })) {
-                        Ok(Ok(())) => {}
-                        Ok(Err(_)) => break,
-                        Err(e) => {
-                            tracing::error!(
-                                "Panic while updating chat input placeholder, will keep listening for membership changes: {:?}",
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        })
-        .detach();
-
-        view
-    }
-
-    fn update_placeholder(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let active_room = self.active_room.borrow().clone();
-        let map = self.membership_map.borrow().clone();
-
-        self.chat_input.update(cx, |input, cx| {
-            input.set_placeholder(active_room.get_input_placeholder(&map), window, cx)
-        });
-    }
-}
-
-impl Focusable for ChatInputBar {
-    fn focus_handle(&self, cx: &gpui::App) -> FocusHandle {
-        self.chat_input.focus_handle(cx)
-    }
-}
-
-pub struct SendMessageEvent {
-    pub text: String,
-}
-
-impl gpui::EventEmitter<SendMessageEvent> for ChatInputBar {}
-
-impl Render for ChatInputBar {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.app_theme();
-        let structure = cx.structure();
-
-        let input_focus_handle = self.chat_input.read(cx).focus_handle(cx);
-        let input_focused = input_focus_handle.is_focused(window);
-
-        let (input_bg, input_border) = if input_focused {
-            (theme.input.focus_background, theme.input.focused_border)
-        } else {
-            (theme.input.background, theme.tile.border)
-        };
-
-        tailwind_div!(
-            min_h(structure.header.height),
-            flex,
-            flex_row,
-            items_center,
-            w_full,
-            rounded(structure.inner_border_radius),
-            text_size(structure.chat.text_size),
-            border_1,
-            border_color(input_border),
-            bg(input_bg)
-        )
-        .track_focus(&input_focus_handle)
-        .on_action(cx.listener(|this, _event: &SendMessage, _window, cx| {
-            let text = this.chat_input.read(cx).text().to_string();
-            if !text.trim().is_empty() {
-                cx.emit(SendMessageEvent { text });
-            }
-            this.chat_input.update(cx, |input, cx| {
-                input.set_value("", _window, cx);
-            })
-        }))
-        .child(
-            Input::new(&self.chat_input)
-                .bg_transparent()
-                .border_transparent()
-                .text_color(theme.text.normal),
-        )
-    }
-}
-
 impl HomeView {
     pub fn new(
         tokio_rt: Arc<tokio::runtime::Runtime>,
@@ -288,6 +145,8 @@ impl HomeView {
         window.focus(&focus_handle, cx);
         let avatar_cache: AvatarCache = AvatarCache::new(state.client(), tokio_rt.clone());
         let image_cache: ThumbnailCache = ThumbnailCache::new(state.client(), tokio_rt.clone());
+
+        let room_store = RoomStateStore::new();
 
         let server_list = cx.new(|cx| {
             ServerListView::new(state.clone(), cx, tokio_rt.clone(), avatar_cache.clone())
@@ -303,9 +162,10 @@ impl HomeView {
                 tokio_rt.clone(),
                 avatar_cache.clone(),
                 image_cache.clone(),
+                room_store.clone(),
             )
         });
-        let chat_input = cx.new(|cx| ChatInputBar::new(&state, window, cx));
+        let chat_input = cx.new(|cx| ChatInputBar::new(&state, window, cx, room_store.clone()));
 
         let active_room = state.active_room();
         let membership_map = state.membership_map();
@@ -463,6 +323,8 @@ impl HomeView {
             sidebar,
             chat,
             chat_input,
+
+            room_store,
 
             chat_sidebar: ChatSidebar::from_active_room(
                 state.active_room().borrow().clone(),
