@@ -184,67 +184,9 @@ impl HomeView {
                   event: &ActiveServerChange,
                   &mut _,
                   cx: &mut Context<Self>| {
-                let room = event.room();
-                let server_id = room.as_ref().map(|r| r.room_id());
+                let server = event.room();
 
-                this.state.set_active_server(room.clone());
-                let mut breadcrumbs = this.state.breadcrumbs();
-                let new_room_id = if let Some(room_id) = server_id {
-                    breadcrumbs
-                        .last_space_ids
-                        .get(room_id)
-                        .cloned()
-                        .or_else(|| {
-                            let mut children: Vec<(Room, Option<String>)> = this
-                                .state
-                                .parent_to_children()
-                                .borrow()
-                                .get(room_id)
-                                .cloned()
-                                .unwrap_or_default()
-                                .values()
-                                .cloned()
-                                .collect();
-
-                            children
-                                .sort_by_key(|(r, o)| o.clone().unwrap_or(r.room_id().to_string()));
-                            children.first().map(|(r, _)| r.room_id().to_owned())
-                        })
-                } else {
-                    breadcrumbs.last_dm_id.clone().or_else(|| {
-                        this.state
-                            .dm_rooms()
-                            .borrow()
-                            .values()
-                            .next()
-                            .map(|r| r.room_id().to_owned())
-                    })
-                };
-
-                let new_room = if let Some(id) = new_room_id {
-                    if let Some(server_id) = server_id {
-                        breadcrumbs
-                            .last_space_ids
-                            .insert(server_id.to_owned(), id.clone());
-                    } else {
-                        breadcrumbs.last_dm_id = Some(id.clone());
-                    };
-
-                    breadcrumbs.recent_rooms.insert(0, id.clone());
-                    this.state.client().get_room(&id)
-                } else {
-                    None
-                };
-
-                breadcrumbs.recent_rooms.truncate(10);
-
-                this.state.set_active_room(new_room);
-                this.state.update_breadcrumbs(|b| *b = breadcrumbs.clone());
-
-                let client = this.state.client();
-                this.tokio_rt.spawn(async move {
-                    set_account_data(&client, breadcrumbs).await;
-                });
+                this.state.set_active_server(server.clone());
 
                 this.update_chat_sidebar(cx);
             },
@@ -257,36 +199,6 @@ impl HomeView {
             move |this: &mut HomeView, _child, event: &ActiveRoomChange, _, cx| {
                 let room = event.room();
                 this.state.set_active_room(room.clone());
-
-                if let Some(room) = room {
-                    let mut breadcrumbs = this.state.breadcrumbs();
-                    let room_id = room.room_id().to_owned();
-
-                    // Remove duplicates
-                    breadcrumbs.recent_rooms.retain(|id| id != &room_id);
-
-                    breadcrumbs.recent_rooms.insert(0, room_id);
-
-                    breadcrumbs.recent_rooms.truncate(10);
-
-                    let room_id = room.room_id().to_owned();
-
-                    let active_server = this.state.active_server().borrow().clone();
-                    if let Some(active_server) = active_server {
-                        breadcrumbs
-                            .last_space_ids
-                            .insert(active_server.room_id().to_owned(), room_id);
-                    } else {
-                        breadcrumbs.last_dm_id = Some(room_id);
-                        breadcrumbs.dms_last = true;
-                    }
-
-                    this.state.update_breadcrumbs(|b| *b = breadcrumbs.clone());
-                    let client = this.state.client();
-                    this.tokio_rt
-                        .spawn(async move { set_account_data(&client, breadcrumbs).await });
-                }
-
                 this.update_chat_sidebar(cx);
             },
         )
@@ -391,8 +303,12 @@ impl Render for HomeView {
                     this.overlay_subscription = Some(cx.subscribe_in(
                         &this.overlay,
                         window,
-                        |this: &mut HomeView, _child, _event: &Close, window, cx| {
+                        |this: &mut HomeView, _child, event: &Close, window, cx| {
                             tracing::debug!("Closing quick select overlay");
+                            if let Some(room_id) = &event.room_id {
+                                let room = this.state.client().get_room(&room_id);
+                                this.state.set_active_room(room);
+                            }
                             this.overlay
                                 .update(cx, |that, cx| that.close_overlay(window, cx));
                             window.focus(&this.focus, cx);

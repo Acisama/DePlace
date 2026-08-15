@@ -12,7 +12,7 @@ use ruma::events::presence::PresenceEventContent;
 use tokio::sync::watch::{self, Sender};
 
 use crate::matrix_api::{
-    account_data::{BreadcrumbsContent, ServerOrderContent, get_account_data},
+    account_data::{BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data},
     sync::{ParentToChildren, reclassify_rooms},
     timeline::TimelineManager,
 };
@@ -230,8 +230,9 @@ impl AppState {
         });
     }
 
-    /// Mutates the breadcrumbs in-place using a closure.
-    pub fn update_breadcrumbs<F>(&self, f: F)
+    /// Mutates the breadcrumbs in-place using a closure. This function is private since
+    /// breadcrumbs should not be updated manually.
+    fn update_breadcrumbs<F>(&self, f: F)
     where
         F: FnOnce(&mut BreadcrumbsContent),
     {
@@ -243,24 +244,107 @@ impl AppState {
         f(&mut guard);
     }
 
+    /// Sets the active server and the new active room. Calling `set_active_room` after
+    /// this is redundant.
     pub fn set_active_server(&self, server: Option<Room>) {
+        let mut server_changed = false;
+
+        // change the server
         self.inner.active_server.send_if_modified(|cur| {
             let changed = cur.as_ref().map(|r| r.room_id()) != server.as_ref().map(|r| r.room_id());
             if changed {
-                *cur = server;
+                *cur = server.clone();
+                server_changed = true;
             }
             changed
         });
+
+        // if the server was changed, also change the room
+        if server_changed {
+            let server_id = server.as_ref().map(|r| r.room_id());
+            let breadcrumbs = self.breadcrumbs();
+
+            let new_room_id = if let Some(server_id) = server_id {
+                breadcrumbs
+                    .last_space_ids
+                    .get(server_id)
+                    .cloned()
+                    .or_else(|| {
+                        let mut children: Vec<(Room, Option<String>)> = self
+                            .inner
+                            .parent_to_children
+                            .borrow()
+                            .get(server_id)
+                            .cloned()
+                            .unwrap_or_default()
+                            .values()
+                            .cloned()
+                            .collect();
+
+                        children.sort_by_key(|(r, o)| {
+                            o.clone().unwrap_or_else(|| r.room_id().to_string())
+                        });
+                        children.first().map(|(r, _)| r.room_id().to_owned())
+                    })
+            } else {
+                breadcrumbs.last_dm_id.clone().or_else(|| {
+                    self.inner
+                        .dm_rooms
+                        .borrow()
+                        .values()
+                        .next()
+                        .map(|r| r.room_id().to_owned())
+                })
+            };
+
+            let new_room = new_room_id.and_then(|id| self.client().get_room(&id));
+            self.set_active_room(new_room);
+        }
     }
 
+    /// Set the currently focused room. This function als takes care of updating
+    /// the breadcrumbs and makes, takes care of when the room is the same as
+    /// before.
     pub fn set_active_room(&self, room: Option<Room>) {
+        let mut room_changed = false;
+
         self.inner.active_room.send_if_modified(|cur| {
             let changed = cur.as_ref().map(|r| r.room_id()) != room.as_ref().map(|r| r.room_id());
             if changed {
-                *cur = room;
+                *cur = room.clone();
+                room_changed = true;
             }
             changed
         });
+
+        if let Some(room) = room
+            && room_changed
+        {
+            let room_id = room.room_id().to_owned();
+            let active_server = self.inner.active_server.borrow().clone();
+
+            self.update_breadcrumbs(|breadcrumbs| {
+                // Remove duplicates
+                breadcrumbs.recent_rooms.retain(|id| id != &room_id);
+                // Insert visited room at top
+                breadcrumbs.recent_rooms.insert(0, room_id.clone());
+                // Truncate to 25
+                breadcrumbs.recent_rooms.truncate(25);
+
+                if let Some(active_server) = active_server {
+                    breadcrumbs
+                        .last_space_ids
+                        .insert(active_server.room_id().to_owned(), room_id);
+                } else {
+                    breadcrumbs.last_dm_id = Some(room_id);
+                    breadcrumbs.dms_last = true;
+                }
+            });
+
+            let client = self.client();
+            let breadcrumbs = self.breadcrumbs();
+            tokio::spawn(async move { set_account_data(&client, breadcrumbs).await });
+        }
     }
 
     pub fn set_server_order(&self, server_order: Vec<OwnedRoomId>) {

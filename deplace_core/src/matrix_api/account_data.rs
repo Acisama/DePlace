@@ -10,15 +10,27 @@ use matrix_sdk::ruma::events::macros::EventContent;
 #[ruma_event(type = "com.deplace.breadcrumbs", kind = GlobalAccountData)]
 pub struct BreadcrumbsContent {
     #[serde(default)]
-    pub recent_rooms: Vec<OwnedRoomId>,
+    pub(crate) recent_rooms: Vec<OwnedRoomId>,
     #[serde(default)]
-    pub last_space_ids: HashMap<OwnedRoomId, OwnedRoomId>,
+    pub(crate) last_space_ids: HashMap<OwnedRoomId, OwnedRoomId>,
     #[serde(default)]
-    pub last_dm_id: Option<OwnedRoomId>,
+    pub(crate) last_dm_id: Option<OwnedRoomId>,
     #[serde(default)]
-    pub last_single_id: Option<OwnedRoomId>,
+    pub(crate) last_single_id: Option<OwnedRoomId>,
     #[serde(default)]
-    pub dms_last: bool,
+    pub(crate) dms_last: bool,
+}
+
+impl BreadcrumbsContent {
+    pub fn recent_rooms(&self) -> &Vec<OwnedRoomId> {
+        &self.recent_rooms
+    }
+    pub fn last_space_ids(&self) -> &HashMap<OwnedRoomId, OwnedRoomId> {
+        &self.last_space_ids
+    }
+    pub fn last_dm_id(&self) -> &Option<OwnedRoomId> {
+        &self.last_dm_id
+    }
 }
 
 #[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]

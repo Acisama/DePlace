@@ -94,7 +94,7 @@ pub fn render_simple_room_icon(room: &Room, size: impl Clone + Into<Length>) -> 
 fn render_room_avatar(
     room: &Room,
     map: &MembershipMap,
-    presence_map: &PresenceMap,
+    presence_map: Option<&PresenceMap>,
     own_id: &UserId,
     cache: &AvatarCache,
     size: Pixels,
@@ -104,7 +104,7 @@ fn render_room_avatar(
     if room.is_dm() {
         let other_member = get_other_member(own_id, map, room.room_id());
         if let Some(other_member) = other_member {
-            return other_member.render_avatar(size, rounding, theme, cache, Some(presence_map));
+            return other_member.render_avatar(size, rounding, theme, cache, presence_map);
         }
     }
 
@@ -132,7 +132,7 @@ pub fn render_room_no_dm(
 pub fn render_room_icon(
     room: &Room,
     map: &MembershipMap,
-    presences: &PresenceMap,
+    presences: Option<&PresenceMap>,
     own_id: &UserId,
     cache: &AvatarCache,
     size: Pixels,

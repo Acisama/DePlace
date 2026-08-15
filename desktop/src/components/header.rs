@@ -90,7 +90,7 @@ impl Render for HeaderView {
                         render_room_icon(
                             room,
                             &membership_map,
-                            &presence_map,
+                            Some(&presence_map),
                             &self.own_id,
                             &self.cache,
                             icon_size,

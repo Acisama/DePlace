@@ -51,6 +51,7 @@ tokio-util = "0.7.19"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = "1.24.0"
+nucleo = "0.5.0"
 
 [patch."https://github.com/zed-industries/zed"]
 collections = { git = "https://github.com/acisama/zed", branch = "main" }

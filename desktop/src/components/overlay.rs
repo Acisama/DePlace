@@ -1,9 +1,20 @@
-use deplace_core::{matrix_api::account_data::BreadcrumbsContent, state::AppState};
+use deplace_core::state::AppState;
 use gpui::*;
+use matrix_sdk::ruma::OwnedRoomId;
+use serde::Deserialize;
 
-use crate::components::{cache::AvatarCache, quick_select::QuickSelect};
+use crate::components::{
+    cache::AvatarCache,
+    quick_select::{self, QuickSelect},
+};
 
-actions!(overlay, [Close]);
+#[derive(Clone, Debug, PartialEq, Deserialize, gpui::Action, schemars::JsonSchema)]
+#[action(namespace = overlay)]
+pub struct Close {
+    #[serde(default)]
+    #[schemars(with = "Option<String>")]
+    pub room_id: Option<OwnedRoomId>,
+}
 
 #[derive(Debug)]
 pub struct Overlay {
@@ -45,9 +56,14 @@ impl Overlay {
         let quick_select = cx.new(|cx| QuickSelect::new(window, cx, state, avatar_cache));
 
         // Subscribe to Close events emitted by QuickSelect
-        cx.subscribe(&quick_select, |_this, _, _event: &Close, cx| {
-            cx.emit(Close); // Re-emit Close from Overlay so home catches it
-        })
+        cx.subscribe(
+            &quick_select,
+            |_this, _, event: &quick_select::Close, cx| {
+                cx.emit(Close {
+                    room_id: event.room_id.clone(),
+                }); // Re-emit Close from Overlay so home catches it
+            },
+        )
         .detach();
 
         window.focus(&self.focus, cx);
@@ -97,7 +113,7 @@ impl Render for Overlay {
             .justify_center()
             .occlude()
             .on_click(cx.listener(|_this, _event, _window, cx| {
-                cx.emit(Close);
+                cx.emit(Close { room_id: None });
             }))
             .child(match &self.content {
                 OverlayContent::None => div().into_any_element(),

@@ -169,8 +169,8 @@ impl Render for SidebarView {
                 .id(room_id.to_string())
                 .child(render_room_icon(
                     &room,
-                    &membership_map, // Borrowed reference passed directly
-                    &presence_map,   // Borrowed reference passed directly
+                    &membership_map,     // Borrowed reference passed directly
+                    Some(&presence_map), // Borrowed reference passed directly
                     &self.own_id,
                     &self.cache,
                     icon_height,
