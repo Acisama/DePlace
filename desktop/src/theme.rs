@@ -96,6 +96,7 @@ pub struct Chat {
     pub small_text_size: Pixels,
     pub max_media_height: Pixels,
     pub max_media_width: Pixels,
+    pub input_height: Pixels,
 }
 
 #[derive(Clone)]
@@ -118,9 +119,9 @@ impl Global for Structure {}
 
 impl Structure {
     pub fn new() -> Self {
-        let outer_border_radius = px(12.0);
-        let gap = px(8.0);
-        let small_gap = px(4.0);
+        let outer_border_radius = px(18.0);
+        let gap = px(12.0);
+        let small_gap = px(8.0);
         let inner_border_radius = outer_border_radius - small_gap;
         let smaller_border_radius = inner_border_radius - small_gap;
 
@@ -140,6 +141,7 @@ impl Structure {
                 small_text_size: px(12.0),
                 max_media_height: px(500.0),
                 max_media_width: px(500.0),
+                input_height: px(50.0),
             },
             header: Header {
                 height: px(50.0),
@@ -167,7 +169,7 @@ impl Structure {
     }
 
     pub fn server_column_width(&self) -> Pixels {
-        self.server_column.icon_width + 3.0 * self.gap
+        self.server_column.icon_width + 4.0 * self.small_gap
     }
 }
 
@@ -200,12 +202,12 @@ impl AppTheme {
         let solid_hover_bg = solid_bg.lighten(0.8);
 
         Self {
-            blur: px(30.0),
+            blur: px(20.0),
             solid_bg,
             solid_hover_bg,
             pill_color: white(),
             tile: TileTheme {
-                background: hsla(0.66, 0.2, 0.1, 0.5),
+                background: hsla(0.66, 0.2, 0.07, 0.5),
                 border: hsla(0.0, 0.0, 1.0, 0.175),
             },
             text: Text {

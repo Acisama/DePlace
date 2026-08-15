@@ -6,13 +6,16 @@ use gpui::{
     AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     ParentElement, Render, SharedString, Styled, Window,
 };
-use gpui_component::input::{Input, InputEvent, InputState, RopeExt as _};
+use gpui_component::{
+    StyledExt,
+    input::{Input, InputEvent, InputState, RopeExt as _},
+};
 use macros::tailwind_div;
 use matrix_sdk::{Room, ruma::OwnedRoomId};
 use tokio::sync::watch::Receiver;
 
 use crate::{
-    components::{CustomStyles, chat::SendMessage},
+    components::{CustomStyles, chat::SendMessage, profiles::render_icon},
     room_state::RoomStateStore,
     theme::DeplaceThings,
     watch_bridge::execute_on_change,
@@ -137,14 +140,18 @@ impl Render for ChatInputBar {
             (theme.input.background, theme.tile.border)
         };
 
+        let icon_size = structure.chat.input_height - structure.small_gap * 2.0;
+
         tailwind_div!(
-            min_h(structure.header.height),
+            min_h(structure.chat.input_height),
             flex,
             flex_row,
             items_center,
             w_full,
             rounded(structure.inner_border_radius),
+            paddings(structure.small_gap),
             text_size(structure.chat.text_size),
+            gap(structure.small_gap),
             border_1,
             border_color(input_border),
             bg(input_bg)
@@ -160,7 +167,26 @@ impl Render for ChatInputBar {
             })
         }))
         .child(
+            tailwind_div!(
+                w(icon_size),
+                h(icon_size),
+                flex,
+                items_center,
+                justify_center,
+                rounded((structure.inner_border_radius + structure.smaller_border_radius) / 2.0),
+                cursor_pointer,
+                text_color(theme.text.dim),
+                hover(bg(theme.solid_hover_bg), text_color(theme.text.normal),)
+            )
+            .id("chat_file_icon")
+            .child(render_icon(
+                phosphor_svgs::icon::plus::REGULAR,
+                icon_size - structure.small_gap * 2.0,
+            )),
+        )
+        .child(
             Input::new(&self.chat_input)
+                .p_0()
                 .bg_transparent()
                 .border_transparent()
                 .text_color(theme.text.normal),

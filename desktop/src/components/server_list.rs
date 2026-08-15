@@ -86,7 +86,7 @@ impl Render for ServerListView {
         let icon_size = structure.server_column.icon_width;
         let rounding = icon_size / 4.0;
 
-        let pill_width = structure.gap / 2.5;
+        let pill_width = structure.small_gap / 2.0;
 
         let ordered_server_ids_vec = self.server_order.clone();
 
@@ -185,7 +185,7 @@ impl Render for ServerListView {
                                 .bg(white())
                                 .absolute()
                                 .inset_0()
-                                .left(-2.0 * pill_width)
+                                .left(-2.5 * pill_width)
                                 .h_full()
                                 .rounded(pill_width / 2.0)
                                 .w(pill_width),
@@ -199,7 +199,7 @@ impl Render for ServerListView {
             .flex_col()
             .w_full()
             .items_center()
-            .pt(1.5 * structure.gap)
+            .pt(2.0 * structure.small_gap)
             .content_center()
             .gap(structure.gap)
             .child(
@@ -254,7 +254,6 @@ impl Render for ServerListView {
                     .h(structure.divider_width)
                     .w(icon_size)
                     .border_color(transparent_black())
-                    .my(structure.small_gap)
                     .when(active_server_id.is_none(), |el| {
                         el.border_color(theme.accent)
                     })
@@ -283,7 +282,7 @@ fn pill(
     };
 
     let icon_size = structure.server_column.icon_width;
-    let rounding = icon_size / 4.0;
+    let rounding = pill_width / 2.0;
     let height = icon_size * scale_factor;
 
     div().size(icon_size).relative().child(
@@ -292,7 +291,7 @@ fn pill(
             .w(pill_width)
             .rounded(rounding)
             .absolute()
-            .left(-2.0 * pill_width)
+            .left(-2.5 * pill_width)
             .top((icon_size - height) / 2.0)
             .bg(theme.pill_color),
     )

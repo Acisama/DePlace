@@ -133,7 +133,7 @@ impl Render for SidebarView {
             } else {
                 channel_icon_size
             };
-            let height = icon_height + structure.gap * 2.0;
+            let height = icon_height + structure.small_gap * 1.5;
             (icon_height, height)
         };
 
@@ -146,7 +146,7 @@ impl Render for SidebarView {
             div()
                 .border_1()
                 .border_color(transparent_black())
-                .px(structure.gap)
+                .px(structure.small_gap)
                 .text_color(theme.text.dim)
                 .items_center()
                 .h(height)
@@ -205,8 +205,8 @@ impl Render for SidebarView {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(structure.small_gap)
-                    .px(structure.gap)
+                    .gap(structure.divider_width)
+                    .px(structure.small_gap)
                     .py(structure.small_gap)
                     .children(divs),
             )

@@ -539,7 +539,7 @@ impl Render for HomeView {
                                             .flex()
                                             .flex_col()
                                             .size_full()
-                                            .paddings(structure.gap)
+                                            .paddings(structure.small_gap)
                                             .pt_0()
                                             .child(
                                                 self.chat
