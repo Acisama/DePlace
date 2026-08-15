@@ -270,17 +270,17 @@ impl CachedTimelineEvent {
         };
 
         let (bg, hover_bg) = if let Some(color) = highlight_color {
-            let color = color.alpha(0.4);
+            let color = color.alpha(0.1);
             (
                 linear_gradient(
                     90.0,
                     LinearColorStop {
                         color,
-                        percentage: 0.0,
+                        percentage: 0.5,
                     },
                     LinearColorStop {
                         color: transparent_black(),
-                        percentage: 1.0,
+                        percentage: 1.1,
                     },
                 ),
                 linear_gradient(
