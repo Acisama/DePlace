@@ -1,17 +1,47 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
-use crate::components::message::CachedTimelineItem;
+use crate::{
+    components::{ByteSize, message::CachedTimelineItem, profiles::render_icon},
+    theme::AppTheme,
+};
 use chrono::{DateTime, Utc};
-use dashmap::{DashMap, mapref::one::RefMut};
-use gpui::{ListOffset, SharedString};
+use dashmap::DashMap;
+use gpui::{
+    AnyElement, Element, Hsla, ListOffset, ObjectFit, ParentElement, Pixels, SharedString, Styled,
+    StyledImage, img, px,
+};
+use gpui_component::Colorize;
+use macros::tailwind_div;
 use matrix_sdk::ruma::{OwnedRoomId, OwnedUserId, RoomId};
+use tokio::sync::watch;
 use uuid::Uuid;
 
+#[derive(Clone)]
+pub enum AttachmentState {
+    Loaded(Arc<Vec<u8>>),
+    Failed(SharedString),
+    Started,
+}
+
+#[derive(Clone)]
+pub enum AttachmentPreview {
+    Image(Arc<gpui::Image>),
+    Extention {
+        extension: SharedString,
+        color: Hsla,
+    },
+    Unknown,
+}
+
+#[derive(Clone)]
 pub struct Attachment {
-    pub name: String,
-    pub mime_type: String,
-    pub size: Option<usize>,
-    pub bytes: Option<Vec<u8>>,
+    pub name: SharedString,
+    pub size: ByteSize,
+    pub state: AttachmentState,
+    pub preview: AttachmentPreview,
 }
 
 #[derive(Clone)]
@@ -29,29 +59,99 @@ pub struct SearchParameters {
 pub struct RoomState {
     pub scroll_offset: ListOffset,
     pub chat_input: SharedString,
-    pub attachments: Arc<Vec<Attachment>>,
+    pub attachments: BTreeMap<Uuid, Attachment>,
     pub search_parameters: Option<SearchParameters>,
     pub search_results: Option<HashMap<OwnedRoomId, Vec<CachedTimelineItem>>>,
     pub pinned_result: Option<Vec<CachedTimelineItem>>,
 }
 
-/// A mutable handle to one room's state. Derefs to [`RoomState`], so fields can be
-/// mutated directly, e.g. `store.entry(id).chat_input = "...".into()`.
-pub type RoomStateRef<'a> = RefMut<'a, OwnedRoomId, RoomState>;
-
 #[derive(Clone)]
-pub struct RoomStateStore(Arc<DashMap<OwnedRoomId, RoomState>>);
+pub struct RoomStateStore {
+    pub state: Arc<DashMap<OwnedRoomId, RoomState>>,
+    changed: watch::Sender<()>,
+}
 
 impl RoomStateStore {
     pub fn new() -> Self {
-        Self(Arc::new(DashMap::new()))
+        let (changed, _) = watch::channel(());
+        Self {
+            state: Arc::new(DashMap::new()),
+            changed,
+        }
     }
 
-    pub fn entry(&self, room_id: &RoomId) -> RoomStateRef<'_> {
-        self.0.entry(room_id.to_owned()).or_default()
+    pub fn subscribe(&self) -> watch::Receiver<()> {
+        self.changed.subscribe()
+    }
+
+    pub fn mutate(&self, room_id: &RoomId, f: impl FnOnce(&mut RoomState)) {
+        let mut state = self.state.entry(room_id.to_owned()).or_default();
+        f(&mut state);
+
+        self.changed.send_replace(());
     }
 
     pub fn get(&self, room_id: &RoomId) -> Option<RoomState> {
-        self.0.get(room_id).map(|e| e.clone())
+        self.state.get(room_id).map(|e| e.clone())
+    }
+}
+
+impl Attachment {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.into(),
+            size: ByteSize::new(0),
+            state: AttachmentState::Started,
+            preview: AttachmentPreview::Unknown,
+        }
+    }
+
+    pub fn render_preview(&self, theme: &AppTheme, rounding: Pixels) -> AnyElement {
+        if let AttachmentState::Failed(e) = &self.state {
+            return tailwind_div!(
+                size_full,
+                text_center,
+                flex,
+                items_center,
+                justify_center,
+                rounded_t(rounding),
+                text_color(theme.colors.unknown),
+                bg(theme.colors.unknown.lightness(0.1))
+            )
+            .child(render_icon(phosphor_svgs::icon::warning::BOLD, px(20.0)))
+            .into_any();
+        }
+
+        match &self.preview {
+            AttachmentPreview::Image(preview) => img(preview.clone())
+                .size_full()
+                .object_fit(ObjectFit::ScaleDown)
+                .rounded_t(rounding)
+                .into_any(),
+            AttachmentPreview::Extention { color, extension } => tailwind_div!(
+                size_full,
+                text_center,
+                flex,
+                items_center,
+                justify_center,
+                rounded_t(rounding),
+                text_color(*color),
+                bg(color.lightness(0.1))
+            )
+            .child(extension.clone())
+            .into_any(),
+            AttachmentPreview::Unknown => tailwind_div!(
+                size_full,
+                text_center,
+                flex,
+                items_center,
+                justify_center,
+                rounded_t(rounding),
+                text_color(theme.colors.unknown),
+                bg(theme.colors.unknown.lightness(0.1))
+            )
+            .child("file")
+            .into_any(),
+        }
     }
 }

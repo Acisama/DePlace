@@ -81,7 +81,7 @@ pub trait CustomStyles: Styled + Sized {
     }
 
     fn outer_gradient(self, color: Hsla, size: Pixels) -> Self {
-        self.shadow(vec![BoxShadow {
+        self.text_color(color).shadow(vec![BoxShadow {
             color,
             blur_radius: size,
             inset: true,

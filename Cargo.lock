@@ -1148,6 +1148,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfb"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a347dcabdae9c31b0825fd6a8bed285ec9c2acb89c47827126d52fa4f59cece3"
+dependencies = [
+ "fnv",
+ "uuid",
+ "web-time",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2052,12 +2063,14 @@ dependencies = [
  "gpui-component-assets",
  "gpui_platform",
  "image",
+ "infer",
  "interprocess",
  "macros",
  "matrix-sdk",
  "matrix-sdk-ui",
  "nucleo",
  "phosphor-svgs",
+ "rayon",
  "ruma-html",
  "rust-embed",
  "schemars",
@@ -4119,6 +4132,15 @@ dependencies = [
  "hashbrown 0.17.1",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "infer"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4200d433cbd5178df7797c9c2e75b348b728e39631cf14520d1e2fc424201f4"
+dependencies = [
+ "cfb",
 ]
 
 [[package]]

@@ -608,7 +608,7 @@ impl Render for ChatView {
             )
         };
 
-        tailwind_div!(size_full, paddings(structure.gap), pt_0, flex, flex_col)
+        tailwind_div!(size_full, paddings(structure.gap), py_0, flex, flex_col)
             .key_context("Chat")
             .on_mouse_up(MouseButton::Left, {
                 let finish_selection = finish_selection.clone();

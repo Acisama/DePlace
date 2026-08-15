@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use gpui::{App, Global, Hsla, Pixels, hsla, px, white};
 use gpui_component::Colorize;
 
@@ -97,6 +99,7 @@ pub struct Chat {
     pub max_media_height: Pixels,
     pub max_media_width: Pixels,
     pub input_height: Pixels,
+    pub attachment_preview_dimensions: (Pixels, Pixels),
 }
 
 #[derive(Clone)]
@@ -142,6 +145,7 @@ impl Structure {
                 max_media_height: px(500.0),
                 max_media_width: px(500.0),
                 input_height: px(50.0),
+                attachment_preview_dimensions: (px(140.0), px(100.0)),
             },
             header: Header {
                 height: px(50.0),
@@ -184,6 +188,8 @@ pub struct AppTheme {
     pub pill_color: Hsla,
     pub solid_hover_bg: Hsla,
     pub solid_bg: Hsla,
+
+    pub hover_animation_duration: Duration,
 }
 
 impl Global for AppTheme {}
@@ -233,6 +239,8 @@ impl AppTheme {
                 },
             ),
             accent,
+
+            hover_animation_duration: Duration::from_millis(150),
         }
     }
 
