@@ -286,12 +286,12 @@ impl CachedTimelineEvent {
                 linear_gradient(
                     90.0,
                     LinearColorStop {
-                        color: color.darken(0.4),
-                        percentage: 0.0,
+                        color,
+                        percentage: 0.5,
                     },
                     LinearColorStop {
-                        color: transparent_black(),
-                        percentage: 1.0,
+                        color: theme.tile.background,
+                        percentage: 1.1,
                     },
                 ),
             )
@@ -310,32 +310,30 @@ impl CachedTimelineEvent {
             .unwrap_or(theme.text.normal);
 
         let mt = if self.show_header {
-            structure.small_gap + Pixels::from(2.0)
+            structure.small_gap * 2.0
         } else {
             Pixels::ZERO
         };
         let mb = if self.pad_bottom {
-            structure.small_gap + Pixels::from(2.0)
+            structure.small_gap / 2.0
         } else {
             Pixels::ZERO
         };
 
-        let pre_col_space = structure.gap * 1.5;
+        let pre_col_space = structure.small_gap * 1.5;
 
         let is_system_message = matches!(self.content, CachedEventContent::SystemMessage(_));
 
         let outer = tailwind_div!(
             w_full,
             border_transparent,
-            rounded(structure.small_gap),
+            rounded(pre_col_space / 2.0),
             group("message"),
             bg(bg),
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
             flex_col,
-            py(structure.small_gap),
-            mt(mt),
-            mb(mb),
+            pt(structure.small_gap / 1.5),
             text_color(text_color),
             text_size(structure.chat.text_size),
         )
@@ -360,8 +358,8 @@ impl CachedTimelineEvent {
             ))
         });
 
-        if is_system_message {
-            outer.child(content).into_any()
+        let body = if is_system_message {
+            outer.child(content).into_any_element()
         } else {
             outer
                 .child(
@@ -390,25 +388,33 @@ impl CachedTimelineEvent {
                             }),
                         )
                         .child(
-                            tailwind_div!(flex, size_full, flex_col, gap(structure.small_gap))
-                                .when(self.show_header, |el| {
-                                    el.child(
-                                        tailwind_div!(flex, flex_row, gap(structure.gap))
-                                            .child(sender_name(structure.chat.text_size))
-                                            .child(
-                                                tailwind_div!(
-                                                    text_size(structure.chat.small_text_size),
-                                                    text_color(theme.text.muted),
-                                                )
-                                                .child(self.long_time.clone()),
-                                            ),
-                                    )
-                                })
-                                .child(content),
+                            tailwind_div!(
+                                flex,
+                                size_full,
+                                flex_col,
+                                gap(structure.small_gap / 2.0)
+                            )
+                            .when(self.show_header, |el| {
+                                el.child(
+                                    tailwind_div!(flex, flex_row)
+                                        .child(sender_name(structure.chat.text_size))
+                                        .child(" ")
+                                        .child(
+                                            tailwind_div!(
+                                                text_size(structure.chat.small_text_size),
+                                                text_color(theme.text.muted),
+                                            )
+                                            .child(self.long_time.clone()),
+                                        ),
+                                )
+                            })
+                            .child(content),
                         ),
                 )
-                .into_any()
-        }
+                .into_any_element()
+        };
+
+        tailwind_div!(w_full, pt(mt), pb(mb)).child(body).into_any()
     }
 }
 
@@ -784,17 +790,23 @@ impl CachedUserMessage {
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
 
-        tailwind_div!(line_height(relative(1.0)), flex, flex_col)
-            .child(content)
-            .when_some(self.reactions.clone(), |el, reactions| {
-                el.child(render_reactions(
-                    reactions,
-                    theme,
-                    structure,
-                    member_avatar,
-                    on_toggle_reaction,
-                ))
-            })
+        tailwind_div!(
+            line_height(relative(1.0)),
+            text_center,
+            justify_center,
+            flex,
+            flex_col
+        )
+        .child(content)
+        .when_some(self.reactions.clone(), |el, reactions| {
+            el.child(render_reactions(
+                reactions,
+                theme,
+                structure,
+                member_avatar,
+                on_toggle_reaction,
+            ))
+        })
     }
 }
 
@@ -865,7 +877,7 @@ impl CachedReplyInfo {
             DetailState::Ready(content) => {
                 let (icon, text, style) = content.body.render_things(theme, structure);
 
-                tailwind_div!(flex, flex_row, items_center)
+                tailwind_div!(flex, flex_row, items_center, text_center)
                     .child(sender_avatar(&content.sender_id))
                     .child(" ")
                     .child(sender_name(&content.sender_id))
@@ -873,12 +885,12 @@ impl CachedReplyInfo {
                     .when_some(icon, |el, icon| {
                         el.child(render_icon(icon, structure.chat.small_text_size))
                     })
-                    .child(" ")
                     .when_some(text, |el, text| {
                         el.child(
                             tailwind_div!(
                                 text_color(theme.text.normal),
-                                text_size(structure.chat.small_text_size)
+                                text_size(structure.chat.small_text_size),
+                                line_height(relative(1.0))
                             )
                             .child(text)
                             .refine_style(&style),
@@ -889,27 +901,29 @@ impl CachedReplyInfo {
 
         let col_width = structure.chat_col_width();
 
-        tailwind_div!(flex, flex_row, cursor_pointer, pb(structure.gap))
-            .child(
-                tailwind_div!(w(col_width), mb(structure.small_gap), relative).child(
-                    tailwind_div!(
-                        absolute,
-                        left(col_width / 2.0),
-                        bottom(-structure.gap),
-                        w(col_width / 2.0 - structure.small_gap),
-                        h((structure.chat.small_icon_size + structure.gap) / 2.0),
-                        rounded_tl(structure.outer_border_radius),
-                        border_l(structure.divider_width),
-                        border_t(structure.divider_width),
-                        border_color(theme.tile.border)
-                    ),
-                ),
-            )
-            .child(content)
+        tailwind_div!(
+            flex,
+            flex_row,
+            cursor_pointer,
+            pb(structure.small_gap / 2.0)
+        )
+        .child(
+            tailwind_div!(w(col_width), mb(structure.small_gap), relative).child(tailwind_div!(
+                absolute,
+                left(col_width / 2.0),
+                bottom(-structure.small_gap),
+                w(col_width / 2.0 - structure.small_gap / 2.0),
+                h((structure.chat.small_text_size * 1.2 + structure.small_gap * 1.5) / 2.0),
+                rounded_tl(structure.outer_border_radius),
+                border_l(structure.divider_width),
+                border_t(structure.divider_width),
+                border_color(theme.tile.border)
+            )),
+        )
+        .child(content)
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_rich_body(
     id: &SharedString,
