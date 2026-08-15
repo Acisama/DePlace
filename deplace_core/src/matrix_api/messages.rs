@@ -1,6 +1,14 @@
+use std::io::Cursor;
+
 use anyhow::Context;
 use ego_tree::NodeRef;
-use matrix_sdk::Client;
+use image::ImageReader;
+use matrix_sdk::{
+    Client,
+    attachment::{AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo},
+};
+use matrix_sdk_ui::timeline::{AttachmentConfig, AttachmentSource};
+use mime_guess::{Mime, mime};
 use ruma::{
     OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
@@ -72,14 +80,86 @@ impl TimelineManager {
         Ok(())
     }
 
-    // pub async fn send_attachment(
-    //     &self,
-    //     matrix_client: Client,
-    //     room_id: OwnedRoomId,
-    //     filename: String,
-    //     bytes: Vec<u8>,
-    // ) -> anyhow::Result<()> {
-    // }
+    pub async fn send_attachment(
+        &self,
+        client: Client,
+        room_id: OwnedRoomId,
+        filename: String,
+        mime_type: Mime,
+        bytes: Vec<u8>,
+    ) -> anyhow::Result<()> {
+        let room = client.get_room(&room_id).context("Room not found")?;
+
+        let (timeline, _) = self
+            .get_or_create_timeline(
+                &room,
+                matrix_sdk_ui::timeline::TimelineFocus::Live {
+                    hide_threaded_events: false,
+                },
+            )
+            .await?;
+
+        let size = bytes.len() as u32;
+
+        let info = match mime_type.subtype() {
+            mime::IMAGE => {
+                let img = ImageReader::new(Cursor::new(&bytes))
+                    .with_guessed_format()
+                    .ok()
+                    .and_then(|r| r.decode().ok());
+
+                let dimensions = img.as_ref().map(|i| (i.width(), i.height()));
+
+                let bh = img.as_ref().and_then(|img| {
+                    let thumb = img.thumbnail(64, 64);
+                    let rgba = thumb.to_rgba8();
+                    blurhash::encode(4, 3, rgba.width(), rgba.height(), &rgba).ok()
+                });
+
+                let info = BaseImageInfo {
+                    width: dimensions.map(|(w, _)| w.into()),
+                    height: dimensions.map(|(_, h)| h.into()),
+                    size: Some(size.into()),
+                    blurhash: bh,
+                    is_animated: None,
+                };
+
+                AttachmentInfo::Image(info)
+            }
+            mime::VIDEO => {
+                let info = BaseVideoInfo {
+                    height: None,
+                    width: None,
+                    size: None,
+                    blurhash: None,
+                    duration: None,
+                };
+
+                AttachmentInfo::Video(info)
+            }
+            _ => AttachmentInfo::File(BaseFileInfo {
+                size: Some(size.into()),
+            }),
+        };
+
+        let config = AttachmentConfig {
+            txn_id: None,
+            info: Some(info),
+            thumbnail: None,
+            caption: None,
+            in_reply_to: None,
+            mentions: None,
+        };
+
+        timeline
+            .send_attachment(
+                AttachmentSource::Data { bytes, filename },
+                mime_type,
+                config,
+            )
+            .await?;
+        Ok(())
+    }
 }
 
 fn process_string_to_message(

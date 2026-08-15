@@ -226,9 +226,9 @@ impl Render for ChatInputBar {
                             .unwrap_or_default()
                             .to_string_lossy()
                             .into_owned();
-                        let mime_type = from_path(&path).first_or_octet_stream().to_string();
+                        let mime_type = from_path(&path).first_or_octet_stream();
 
-                        let mut attachment = Attachment::new(&name);
+                        let mut attachment = Attachment::new(&name, mime_type.clone());
 
                         let room_id = room_id.clone();
                         let mut update_attachment = |attachment: &Attachment| {
@@ -279,22 +279,23 @@ impl Render for ChatInputBar {
                         match fs::read(&path).await {
                             Ok(bytes) => {
                                 tracing::trace!("Loaded attachment: {}", path.display());
-                                attachment.preview =
-                                    if let Some(format) = ImageFormat::from_mime_type(&mime_type) {
-                                        AttachmentPreview::Image(Arc::new(gpui::Image::from_bytes(
-                                            format,
-                                            bytes.clone(),
-                                        )))
-                                    } else if let Some(extension) =
-                                        path.extension().map(|e| e.to_string_lossy().to_string())
-                                    {
-                                        AttachmentPreview::Extention {
-                                            extension: extension.to_uppercase().into(),
-                                            color,
-                                        }
-                                    } else {
-                                        AttachmentPreview::Unknown
-                                    };
+                                attachment.preview = if let Some(format) =
+                                    ImageFormat::from_mime_type(mime_type.as_ref())
+                                {
+                                    AttachmentPreview::Image(Arc::new(gpui::Image::from_bytes(
+                                        format,
+                                        bytes.clone(),
+                                    )))
+                                } else if let Some(extension) =
+                                    path.extension().map(|e| e.to_string_lossy().to_string())
+                                {
+                                    AttachmentPreview::Extention {
+                                        extension: extension.to_uppercase().into(),
+                                        color,
+                                    }
+                                } else {
+                                    AttachmentPreview::Unknown
+                                };
                                 attachment.state = AttachmentState::Loaded(Arc::new(bytes));
                                 update_attachment(&attachment);
                             }

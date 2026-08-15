@@ -1948,7 +1948,7 @@ dependencies = [
  "macros",
  "matrix-sdk",
  "matrix-sdk-ui",
- "mime",
+ "mime_guess",
  "reqwest",
  "ruma",
  "scraper",

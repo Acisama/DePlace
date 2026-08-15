@@ -16,6 +16,7 @@ use gpui::{
 use gpui_component::Colorize;
 use macros::tailwind_div;
 use matrix_sdk::ruma::{OwnedRoomId, OwnedUserId, RoomId};
+use mime_guess::Mime;
 use tokio::sync::watch;
 use uuid::Uuid;
 
@@ -40,6 +41,7 @@ pub enum AttachmentPreview {
 pub struct Attachment {
     pub name: SharedString,
     pub size: ByteSize,
+    pub mime_type: Arc<Mime>,
     pub state: AttachmentState,
     pub preview: AttachmentPreview,
 }
@@ -97,10 +99,11 @@ impl RoomStateStore {
 }
 
 impl Attachment {
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &str, mime_type: Mime) -> Self {
         Self {
             name: name.into(),
             size: ByteSize::new(0),
+            mime_type: Arc::new(mime_type),
             state: AttachmentState::Started,
             preview: AttachmentPreview::Unknown,
         }
