@@ -2068,6 +2068,7 @@ dependencies = [
  "macros",
  "matrix-sdk",
  "matrix-sdk-ui",
+ "mime_guess",
  "nucleo",
  "phosphor-svgs",
  "rayon",
