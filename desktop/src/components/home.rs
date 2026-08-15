@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use deplace_core::{
     get_other_member,
-    matrix_api::{account_data::set_account_data, messages::send_message},
+    matrix_api::account_data::set_account_data,
     state::{AppState, MembershipMap},
 };
 use gpui::{
@@ -218,7 +218,7 @@ impl HomeView {
                     let room_id = room.room_id().to_owned();
 
                     this.tokio_rt.spawn(async move {
-                        match send_message(text, client, timeline, room_id, None).await {
+                        match timeline.send_message(text, client, room_id, None).await {
                             Ok(()) => tracing::debug!("Successfully sent message"),
                             Err(e) => tracing::error!("Did not send message: {e}"),
                         }

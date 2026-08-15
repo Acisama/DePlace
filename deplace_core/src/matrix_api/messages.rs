@@ -15,60 +15,71 @@ use url::Url;
 
 use crate::matrix_api::timeline::TimelineManager;
 
-pub async fn send_message(
-    html: String,
-    matrix_client: Client,
-    timeline_manager: TimelineManager,
-    room_id: OwnedRoomId,
-    replies_to: Option<OwnedEventId>,
-) -> anyhow::Result<()> {
-    tracing::debug!("Sending message to room {}", room_id);
-    let room = matrix_client.get_room(&room_id).context("Room not found")?;
+impl TimelineManager {
+    pub async fn send_message(
+        &self,
+        html: String,
+        matrix_client: Client,
+        room_id: OwnedRoomId,
+        replies_to: Option<OwnedEventId>,
+    ) -> anyhow::Result<()> {
+        tracing::debug!("Sending message to room {}", room_id);
+        let room = matrix_client.get_room(&room_id).context("Room not found")?;
 
-    let (timeline, _) = timeline_manager
-        .get_or_create_timeline(
-            &room,
-            matrix_sdk_ui::timeline::TimelineFocus::Live {
-                hide_threaded_events: false,
-            },
-        )
-        .await?;
+        let (timeline, _) = self
+            .get_or_create_timeline(
+                &room,
+                matrix_sdk_ui::timeline::TimelineFocus::Live {
+                    hide_threaded_events: false,
+                },
+            )
+            .await?;
 
-    let mut mentions = Mentions::default();
+        let mut mentions = Mentions::default();
 
-    let (body, formatted_body, _urls) = process_string_to_message(&html, &mut mentions);
+        let (body, formatted_body, _urls) = process_string_to_message(&html, &mut mentions);
 
-    if body.is_empty() || &body == "\n" {
-        tracing::warn!("Body is empty, not committing message");
-        return Ok(());
-    }
+        if body.is_empty() || &body == "\n" {
+            tracing::warn!("Body is empty, not committing message");
+            return Ok(());
+        }
 
-    if let Some(reply_to_id) = replies_to {
-        let content: MessageEventContentWithoutRelation =
-            if let Some(formatted_body) = formatted_body {
-                MessageEventContent::html(body, formatted_body).into()
-            } else {
-                MessageEventContent::plain(body).into()
-            };
+        if let Some(reply_to_id) = replies_to {
+            let content: MessageEventContentWithoutRelation =
+                if let Some(formatted_body) = formatted_body {
+                    MessageEventContent::html(body, formatted_body).into()
+                } else {
+                    MessageEventContent::plain(body).into()
+                };
 
-        // content.url_previews = get_link_previews(&client, &urls).await;
+            // content.url_previews = get_link_previews(&client, &urls).await;
 
-        let content =
-            content.with_relation(Some(Relation::Reply(Reply::with_event_id(reply_to_id))));
-        timeline.send(content.into()).await?;
-    } else {
-        let mut message_content = if let Some(formatted_body) = formatted_body {
-            RoomMessageEventContent::text_html(body, formatted_body)
+            let content =
+                content.with_relation(Some(Relation::Reply(Reply::with_event_id(reply_to_id))));
+            timeline.send(content.into()).await?;
         } else {
-            RoomMessageEventContent::text_plain(body)
-        };
-        message_content.mentions = Some(mentions.clone());
+            let mut message_content = if let Some(formatted_body) = formatted_body {
+                RoomMessageEventContent::text_html(body, formatted_body)
+            } else {
+                RoomMessageEventContent::text_plain(body)
+            };
+            message_content.mentions = Some(mentions.clone());
 
-        let content = AnyMessageLikeEventContent::RoomMessage(message_content);
-        timeline.send(content).await?;
+            let content = AnyMessageLikeEventContent::RoomMessage(message_content);
+            timeline.send(content).await?;
+        }
+
+        Ok(())
     }
 
-    Ok(())
+    // pub async fn send_attachment(
+    //     &self,
+    //     matrix_client: Client,
+    //     room_id: OwnedRoomId,
+    //     filename: String,
+    //     bytes: Vec<u8>,
+    // ) -> anyhow::Result<()> {
+    // }
 }
 
 fn process_string_to_message(
