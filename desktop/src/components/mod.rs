@@ -1,5 +1,6 @@
 use blurhash::decode;
-use deplace_core::formatting::{DataSizeUnit, format_bytes};
+use deplace_core::formatting::format_bytes;
+use deplace_core::settings::DataSizeUnit;
 use gpui::{
     App, BoxShadow, Div, Entity, Focusable, Hsla, Pixels, SharedString, Window, prelude::*,
     transparent_black,
@@ -107,7 +108,15 @@ impl ByteSize {
             bytes,
             bits_str: format_bytes(bytes, DataSizeUnit::Bits).into(),
             bytes_str: format_bytes(bytes, DataSizeUnit::Bytes).into(),
-            mibi_bytes_str: format_bytes(bytes, DataSizeUnit::MibiBytes).into(),
+            mibi_bytes_str: format_bytes(bytes, DataSizeUnit::Mibibytes).into(),
+        }
+    }
+
+    pub fn get(&self, format: &DataSizeUnit) -> SharedString {
+        match format {
+            DataSizeUnit::Bytes => self.bytes_str.clone(),
+            DataSizeUnit::Bits => self.bits_str.clone(),
+            DataSizeUnit::Mibibytes => self.mibi_bytes_str.clone(),
         }
     }
 }

@@ -3,6 +3,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use deplace_core::{
     helpers::RoomPlaceholderExt,
     matrix_api::messages::MatrixAttachment,
+    settings::DataSizeUnit,
     state::{AppState, MembershipMap},
 };
 use gpui::{
@@ -44,6 +45,7 @@ pub struct ChatInputBar {
     membership_map: Receiver<MembershipMap>,
 
     room_store: RoomStateStore,
+    data_size_unit: Receiver<DataSizeUnit>,
 
     hovered_button: Option<&'static str>,
 }
@@ -66,6 +68,7 @@ impl ChatInputBar {
     ) -> Self {
         let active_room = state.active_room();
         let membership_map = state.membership_map();
+        let data_size_unit = state.settings().watch_data_size_unit();
 
         let chat_input = cx.new(|cx| {
             InputState::new(window, cx)
@@ -80,12 +83,13 @@ impl ChatInputBar {
         });
 
         notify_on_change(room_store.subscribe(), cx);
+        notify_on_change(data_size_unit.clone(), cx);
 
         let view = Self {
             chat_input: chat_input.clone(),
             active_room: active_room.clone(),
             membership_map: membership_map.clone(),
-
+            data_size_unit: data_size_unit.clone(),
             room_store,
 
             hovered_button: None,
@@ -392,10 +396,9 @@ impl Render for ChatInputBar {
                                 text_size(structure.chat.small_text_size)
                             )
                             .child(tailwind_div!(text_color(theme.text.dim)).child(a.name.clone()))
-                            // TODO: Respect setting
                             .child(
                                 tailwind_div!(text_color(theme.text.muted))
-                                    .child(a.size.bytes_str.clone()),
+                                    .child(a.size.get(&self.data_size_unit.borrow())),
                             ),
                         )
                         .id(id.to_string())
