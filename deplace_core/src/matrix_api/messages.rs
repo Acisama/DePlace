@@ -1,16 +1,15 @@
-use std::io::Cursor;
+use std::{io::Cursor, sync::Arc};
 
-use anyhow::Context;
 use ego_tree::NodeRef;
 use image::ImageReader;
 use matrix_sdk::{
-    Client,
+    Room,
     attachment::{AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo},
 };
 use matrix_sdk_ui::timeline::{AttachmentConfig, AttachmentSource};
 use mime_guess::{Mime, mime};
 use ruma::{
-    OwnedEventId, OwnedRoomId, OwnedUserId,
+    OwnedEventId, OwnedUserId,
     events::{
         AnyMessageLikeEventContent, Mentions,
         message::{MessageEventContent, MessageEventContentWithoutRelation},
@@ -23,17 +22,21 @@ use url::Url;
 
 use crate::matrix_api::timeline::TimelineManager;
 
+#[derive(Clone)]
+pub struct MatrixAttachment {
+    pub filename: String,
+    pub mime_type: Mime,
+    pub data: Vec<u8>,
+}
+
 impl TimelineManager {
     pub async fn send_message(
         &self,
         html: String,
-        matrix_client: Client,
-        room_id: OwnedRoomId,
+        room: &Room,
         replies_to: Option<OwnedEventId>,
     ) -> anyhow::Result<()> {
-        tracing::debug!("Sending message to room {}", room_id);
-        let room = matrix_client.get_room(&room_id).context("Room not found")?;
-
+        tracing::debug!("Sending message to room {}", room.room_id());
         let (timeline, _) = self
             .get_or_create_timeline(
                 &room,
@@ -82,13 +85,11 @@ impl TimelineManager {
 
     pub async fn send_attachment(
         &self,
-        client: Client,
-        room_id: OwnedRoomId,
-        filename: String,
-        mime_type: Mime,
-        bytes: Vec<u8>,
+        room: &Room,
+        attachment: MatrixAttachment,
+        replies_to: Option<OwnedEventId>,
     ) -> anyhow::Result<()> {
-        let room = client.get_room(&room_id).context("Room not found")?;
+        tracing::debug!("Sending attachment to room {}", room.room_id());
 
         let (timeline, _) = self
             .get_or_create_timeline(
@@ -99,11 +100,11 @@ impl TimelineManager {
             )
             .await?;
 
-        let size = bytes.len() as u32;
+        let size = attachment.data.len() as u32;
 
-        let info = match mime_type.subtype() {
+        let info = match attachment.mime_type.subtype() {
             mime::IMAGE => {
-                let img = ImageReader::new(Cursor::new(&bytes))
+                let img = ImageReader::new(Cursor::new(&attachment.data))
                     .with_guessed_format()
                     .ok()
                     .and_then(|r| r.decode().ok());
@@ -147,14 +148,17 @@ impl TimelineManager {
             info: Some(info),
             thumbnail: None,
             caption: None,
-            in_reply_to: None,
+            in_reply_to: replies_to,
             mentions: None,
         };
 
         timeline
             .send_attachment(
-                AttachmentSource::Data { bytes, filename },
-                mime_type,
+                AttachmentSource::Data {
+                    bytes: attachment.data,
+                    filename: attachment.filename,
+                },
+                attachment.mime_type,
                 config,
             )
             .await?;

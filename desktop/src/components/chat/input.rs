@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use deplace_core::{
     helpers::RoomPlaceholderExt,
+    matrix_api::messages::MatrixAttachment,
     state::{AppState, MembershipMap},
 };
 use gpui::{
@@ -17,7 +18,10 @@ use gpui_component::{
     scroll::ScrollableElement,
 };
 use macros::tailwind_div;
-use matrix_sdk::{Room, ruma::OwnedRoomId};
+use matrix_sdk::{
+    Room,
+    ruma::{OwnedEventId, OwnedRoomId},
+};
 use mime_guess::from_path;
 use tokio::{
     fs::{self, File},
@@ -149,11 +153,20 @@ impl Focusable for ChatInputBar {
     }
 }
 
-pub struct SendMessageEvent {
-    pub text: String,
+#[derive(Clone)]
+pub enum SendEvent {
+    SendMessage {
+        text: String,
+        attachments: Vec<MatrixAttachment>,
+        in_reply_to: Option<OwnedEventId>,
+    },
+    EditMessage {
+        target_id: OwnedEventId,
+        text: String,
+    },
 }
 
-impl gpui::EventEmitter<SendMessageEvent> for ChatInputBar {}
+impl gpui::EventEmitter<SendEvent> for ChatInputBar {}
 
 impl Render for ChatInputBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -195,7 +208,7 @@ impl Render for ChatInputBar {
                 })
             )
             .id(id)
-            .on_click(cx.listener(move |view, ev, _window, cx| {
+            .on_click(cx.listener(move |view, _, _, cx| {
                 let paths_rx = cx.prompt_for_paths(PathPromptOptions {
                     files: true,
                     directories: false,
@@ -436,13 +449,49 @@ impl Render for ChatInputBar {
                 })
                 .track_focus(&input_focus_handle)
                 .on_action(cx.listener(|this, _event: &SendMessage, _window, cx| {
+                    let Some(room) = this.active_room.borrow().clone() else {
+                        return;
+                    };
+
                     let text = this.chat_input.read(cx).text().to_string();
-                    if !text.trim().is_empty() {
-                        cx.emit(SendMessageEvent { text });
+                    let attachments: Vec<MatrixAttachment> = this
+                        .room_store
+                        .get(room.room_id())
+                        .map(|s| {
+                            s.attachments
+                                .values()
+                                .cloned()
+                                .filter_map(|a| {
+                                    if let AttachmentState::Loaded(bytes) = a.state {
+                                        Some(MatrixAttachment {
+                                            filename: a.name.into(),
+                                            mime_type: (*a.mime_type).clone(),
+                                            data: (*bytes).clone(),
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    if text.trim().is_empty() && attachments.is_empty() {
+                        return;
                     }
+
+                    cx.emit(SendEvent::SendMessage {
+                        text,
+                        attachments,
+                        in_reply_to: None,
+                    });
+
                     this.chat_input.update(cx, |input, cx| {
                         input.set_value("", _window, cx);
-                    })
+                    });
+                    this.room_store.mutate(room.room_id(), |state| {
+                        state.attachments.clear();
+                    });
                 }))
                 .child(chat_input_button(
                     phosphor_svgs::icon::plus::REGULAR,

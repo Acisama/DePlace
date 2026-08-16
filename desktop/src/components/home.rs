@@ -24,7 +24,7 @@ use crate::{
         cache::ThumbnailCache,
         chat::{
             ChatView, FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, UnfocusInput,
-            input::{ChatInputBar, SendMessageEvent},
+            input::{ChatInputBar, SendEvent},
         },
         floating_tile,
         header::HeaderView,
@@ -196,7 +196,7 @@ impl HomeView {
         cx.subscribe_in(
             &sidebar,
             window,
-            move |this: &mut HomeView, _child, event: &ActiveRoomChange, _, cx| {
+            move |this: &mut HomeView, _, event: &ActiveRoomChange, _, cx| {
                 let room = event.room();
                 this.state.set_active_room(room.clone());
                 this.update_chat_sidebar(cx);
@@ -208,21 +208,66 @@ impl HomeView {
         cx.subscribe_in(
             &chat_input,
             window,
-            |this: &mut HomeView, _child, event: &SendMessageEvent, _window, _cx| {
-                let text = event.text.clone();
-                let active_room = this.active_room.borrow().clone();
+            |this: &mut HomeView, _, event: &SendEvent, _, _| {
+                let Some(room) = this.active_room.borrow().clone() else {
+                    tracing::warn!("Tried to send event but no active room");
+                    return;
+                };
 
-                if let Some(room) = active_room {
-                    let client = this.state.client();
-                    let timeline = this.state.timeline_manager();
-                    let room_id = room.room_id().to_owned();
+                let timeline_manager = this.state.timeline_manager();
 
-                    this.tokio_rt.spawn(async move {
-                        match timeline.send_message(text, client, room_id, None).await {
-                            Ok(()) => tracing::debug!("Successfully sent message"),
-                            Err(e) => tracing::error!("Did not send message: {e}"),
+                match event.clone() {
+                    SendEvent::SendMessage {
+                        text,
+                        attachments,
+                        in_reply_to,
+                    } => {
+                        let attachments_empty = attachments.is_empty();
+
+                        if !attachments_empty {
+                            let room = room.clone();
+                            let timeline_manager = timeline_manager.clone();
+                            let in_reply_to = in_reply_to.clone();
+
+                            this.tokio_rt.spawn(async move {
+                                let mut iter = attachments.into_iter();
+
+                                if let Some(attachment) = iter.next() {
+                                    if let Err(e) = timeline_manager
+                                        .send_attachment(&room, attachment, in_reply_to.clone())
+                                        .await
+                                    {
+                                        tracing::error!("Failed to send attachment: {}", e);
+                                    }
+                                }
+
+                                for attachment in iter {
+                                    if let Err(e) = timeline_manager
+                                        .send_attachment(&room, attachment, None)
+                                        .await
+                                    {
+                                        tracing::error!("Failed to send attachment: {}", e);
+                                    }
+                                }
+                            });
                         }
-                    });
+
+                        if !text.trim().is_empty() {
+                            this.tokio_rt.spawn(async move {
+                                if let Err(e) = timeline_manager
+                                    .send_message(
+                                        text,
+                                        &room,
+                                        attachments_empty.then(|| in_reply_to.clone()).flatten(),
+                                    )
+                                    .await
+                                {
+                                    tracing::error!("Failed to send message: {}", e);
+                                }
+                            });
+                        }
+                    }
+                    _ => {}
                 }
             },
         )

@@ -717,7 +717,11 @@ impl CachedUserMessage {
                                     bottom(structure.small_gap),
                                     left(structure.small_gap),
                                     paddings(structure.small_gap),
-                                    rounded(structure.smaller_border_radius)
+                                    rounded(
+                                        (structure.smaller_border_radius
+                                            + structure.inner_border_radius)
+                                            / 2.0
+                                    ),
                                     border_1,
                                     border_color(theme.tile.border),
                                     opacity(0.0),
