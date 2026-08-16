@@ -1,19 +1,30 @@
+use std::sync::Arc;
+
 use deplace_core::state::AppState;
 use gpui::*;
 use matrix_sdk::ruma::OwnedRoomId;
 use serde::Deserialize;
+use tokio::runtime::Runtime;
 
 use crate::components::{
     cache::AvatarCache,
     quick_select::{self, QuickSelect},
+    settings::{self, SettingsView},
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize, gpui::Action, schemars::JsonSchema)]
 #[action(namespace = overlay)]
-pub struct Close {
-    #[serde(default)]
+pub enum Close {
+    Settings,
     #[schemars(with = "Option<String>")]
-    pub room_id: Option<OwnedRoomId>,
+    QuickSelect(Option<OwnedRoomId>),
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, gpui::Action, schemars::JsonSchema)]
+#[action(namespace = overlay)]
+pub enum Open {
+    Settings,
+    QuickSelect,
 }
 
 #[derive(Debug)]
@@ -28,7 +39,7 @@ pub struct Overlay {
 #[derive(Debug)]
 pub enum OverlayContent {
     None,
-    Settings,
+    Settings(Entity<SettingsView>),
     QuickSelect(Entity<QuickSelect>),
 }
 
@@ -59,9 +70,7 @@ impl Overlay {
         cx.subscribe(
             &quick_select,
             |_this, _, event: &quick_select::Close, cx| {
-                cx.emit(Close {
-                    room_id: event.room_id.clone(),
-                }); // Re-emit Close from Overlay so home catches it
+                cx.emit(Close::QuickSelect(event.room_id.clone())); // Re-emit Close from Overlay so home catches it
             },
         )
         .detach();
@@ -74,11 +83,25 @@ impl Overlay {
 
     /// Open the Settings and focus self for now
     ///
-    /// TODO: Add settings so that they can be displayed and focused
-    pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.focus, cx);
+    // TODO: Add settings so that they can be displayed and focused
+    pub fn open_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        state: AppState,
+        tokio_rt: Arc<Runtime>,
+    ) {
+        let settings = cx.new(|cx| SettingsView::new(cx, state.settings(), tokio_rt));
 
-        self.content = OverlayContent::Settings;
+        cx.subscribe(&settings, |_this, _, _: &settings::Close, cx| {
+            cx.emit(Close::Settings); // Re-emit Close from Overlay so home catches it
+        })
+        .detach();
+
+        window.focus(&self.focus, cx);
+        window.focus(&settings.focus_handle(cx), cx);
+
+        self.content = OverlayContent::Settings(settings);
     }
 
     /// Close the overlay
@@ -113,11 +136,11 @@ impl Render for Overlay {
             .justify_center()
             .occlude()
             .on_click(cx.listener(|_this, _event, _window, cx| {
-                cx.emit(Close { room_id: None });
+                cx.emit(Close::QuickSelect(None));
             }))
             .child(match &self.content {
                 OverlayContent::None => div().into_any_element(),
-                OverlayContent::Settings => div().into_any_element(),
+                OverlayContent::Settings(ent) => ent.clone().into_any_element(),
                 OverlayContent::QuickSelect(ent) => ent.clone().into_any_element(),
             })
             .into_any_element()

@@ -680,8 +680,8 @@ pub fn derive_enum_const_vec(input: TokenStream) -> TokenStream {
     });
 
     quote! {
-        impl EnumConstVec for #ident {
-            fn const_vec() -> &'static [Self] {
+        impl #ident {
+            const fn const_vec() -> &'static [Self] {
                 &[#(#entries),*]
             }
         }

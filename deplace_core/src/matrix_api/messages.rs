@@ -1,4 +1,4 @@
-use std::{io::Cursor, sync::Arc};
+use std::io::Cursor;
 
 use ego_tree::NodeRef;
 use image::ImageReader;
@@ -39,7 +39,7 @@ impl TimelineManager {
         tracing::debug!("Sending message to room {}", room.room_id());
         let (timeline, _) = self
             .get_or_create_timeline(
-                &room,
+                room,
                 matrix_sdk_ui::timeline::TimelineFocus::Live {
                     hide_threaded_events: false,
                 },
@@ -93,7 +93,7 @@ impl TimelineManager {
 
         let (timeline, _) = self
             .get_or_create_timeline(
-                &room,
+                room,
                 matrix_sdk_ui::timeline::TimelineFocus::Live {
                     hide_threaded_events: false,
                 },

@@ -22,7 +22,7 @@ use crate::{
     theme::DeplaceThings,
 };
 
-actions!(quick_select, [Open, FocusNext, FocusPrevious, Confirm]);
+actions!(quick_select, [FocusNext, FocusPrevious, Confirm]);
 
 #[derive(Clone, Debug, PartialEq, Deserialize, gpui::Action, schemars::JsonSchema)]
 #[action(namespace = quick_select)]
@@ -58,7 +58,6 @@ impl QuickSelect {
         avatar_cache: AvatarCache,
     ) -> Self {
         let focus = cx.focus_handle();
-        window.focus(&focus, cx);
 
         let search_state = cx.new(|cx| InputState::new(window, cx));
         let last_query = search_state.read(cx).text().to_string();
@@ -136,7 +135,7 @@ impl QuickSelect {
             self.state
                 .breadcrumbs()
                 .recent_rooms()
-                .into_iter()
+                .iter()
                 .skip(1)
                 .filter(|id| client.get_room(id).is_some())
                 .cloned()

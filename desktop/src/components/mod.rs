@@ -34,6 +34,7 @@ mod login;
 mod overlay;
 mod quick_select;
 mod server_list;
+mod settings;
 mod sidebar;
 
 pub fn floating_tile(theme: &AppTheme, structure: &Structure) -> Div {

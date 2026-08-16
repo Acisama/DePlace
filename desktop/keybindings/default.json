@@ -1,77 +1,84 @@
 [
-  {
-    "context": "!QuickSelect && !Overlay",
-    "bindings": {
-      "ctrl-k": "quick_select::Open"
-    }
-  },
-  {
-    "context": "QuickSelect",
-    "bindings": {
-      "ctrl-k": "quick_select::Close",
-      "enter": "quick_select::Confirm",
-      "tab": "quick_select::FocusNext",
-      "shift-tab": "quick_select::FocusPrevious",
-      "down": "quick_select::FocusNext",
-      "up": "quick_select::FocusPrevious"
-    }
-  },
-  {
-    "context": "Overlay > !Input",
-    "bindings": {
-      "escape": "quick_select::Close"
-    }
-  },
-  {
-    "context": "Vim && !Input",
-    "bindings": {
-      "j": "chat::FocusNext",
-      "k": "chat::FocusPrevious",
-      "i": "chat::FocusInput"
-    }
-  },
-  {
-    "context": "(Home > Input) && !(Overlay > Input)",
-    "bindings": {
-      "escape": "chat::UnfocusInput",
-      "enter": "chat::SendMessage"
-    }
-  },
-  {
-    "context": "Home",
-    "bindings": {
-      "ctrl-space": "home::ToggleVimMode"
-    }
-  },
-  {
-    "context": "!Vim && !Input",
-    "bindings": {
-      "a": ["chat::FocusInputWithKey", { "key": "a" }],
-      "b": ["chat::FocusInputWithKey", { "key": "b" }],
-      "c": ["chat::FocusInputWithKey", { "key": "c" }],
-      "d": ["chat::FocusInputWithKey", { "key": "d" }],
-      "e": ["chat::FocusInputWithKey", { "key": "e" }],
-      "f": ["chat::FocusInputWithKey", { "key": "f" }],
-      "g": ["chat::FocusInputWithKey", { "key": "g" }],
-      "h": ["chat::FocusInputWithKey", { "key": "h" }],
-      "i": ["chat::FocusInputWithKey", { "key": "i" }],
-      "j": ["chat::FocusInputWithKey", { "key": "j" }],
-      "k": ["chat::FocusInputWithKey", { "key": "k" }],
-      "l": ["chat::FocusInputWithKey", { "key": "l" }],
-      "m": ["chat::FocusInputWithKey", { "key": "m" }],
-      "n": ["chat::FocusInputWithKey", { "key": "n" }],
-      "o": ["chat::FocusInputWithKey", { "key": "o" }],
-      "p": ["chat::FocusInputWithKey", { "key": "p" }],
-      "q": ["chat::FocusInputWithKey", { "key": "q" }],
-      "r": ["chat::FocusInputWithKey", { "key": "r" }],
-      "s": ["chat::FocusInputWithKey", { "key": "s" }],
-      "t": ["chat::FocusInputWithKey", { "key": "t" }],
-      "u": ["chat::FocusInputWithKey", { "key": "u" }],
-      "v": ["chat::FocusInputWithKey", { "key": "v" }],
-      "w": ["chat::FocusInputWithKey", { "key": "w" }],
-      "x": ["chat::FocusInputWithKey", { "key": "x" }],
-      "y": ["chat::FocusInputWithKey", { "key": "y" }],
-      "z": ["chat::FocusInputWithKey", { "key": "z" }],
+    {
+        "context": "!QuickSelect && !Overlay",
+        "bindings": {
+            "ctrl-k": ["overlay::Open", "QuickSelect"],
+            "ctrl-,": ["overlay::Open", "Settings"]
+        }
+    },
+    {
+        "context": "Settings",
+        "bindings": {
+            "ctrl-,": "settings::Close"
+        }
+    },
+    {
+        "context": "QuickSelect",
+        "bindings": {
+            "ctrl-k": "quick_select::Close",
+            "enter": "quick_select::Confirm",
+            "tab": "quick_select::FocusNext",
+            "shift-tab": "quick_select::FocusPrevious",
+            "down": "quick_select::FocusNext",
+            "up": "quick_select::FocusPrevious"
+        }
+    },
+    {
+        "context": "Overlay > !Input",
+        "bindings": {
+            "escape": "quick_select::Close"
+        }
+    },
+    {
+        "context": "Vim && !Input",
+        "bindings": {
+            "j": "chat::FocusNext",
+            "k": "chat::FocusPrevious",
+            "i": "chat::FocusInput"
+        }
+    },
+    {
+        "context": "(Home > Input) && !(Overlay > Input)",
+        "bindings": {
+            "escape": "chat::UnfocusInput",
+            "enter": "chat::SendMessage"
+        }
+    },
+    {
+        "context": "Home",
+        "bindings": {
+            "ctrl-space": "home::ToggleVimMode"
+        }
+    },
+    {
+        "context": "!Vim && !Input",
+        "bindings": {
+            "a": ["chat::FocusInputWithKey", { "key": "a" }],
+            "b": ["chat::FocusInputWithKey", { "key": "b" }],
+            "c": ["chat::FocusInputWithKey", { "key": "c" }],
+            "d": ["chat::FocusInputWithKey", { "key": "d" }],
+            "e": ["chat::FocusInputWithKey", { "key": "e" }],
+            "f": ["chat::FocusInputWithKey", { "key": "f" }],
+            "g": ["chat::FocusInputWithKey", { "key": "g" }],
+            "h": ["chat::FocusInputWithKey", { "key": "h" }],
+            "i": ["chat::FocusInputWithKey", { "key": "i" }],
+            "j": ["chat::FocusInputWithKey", { "key": "j" }],
+            "k": ["chat::FocusInputWithKey", { "key": "k" }],
+            "l": ["chat::FocusInputWithKey", { "key": "l" }],
+            "m": ["chat::FocusInputWithKey", { "key": "m" }],
+            "n": ["chat::FocusInputWithKey", { "key": "n" }],
+            "o": ["chat::FocusInputWithKey", { "key": "o" }],
+            "p": ["chat::FocusInputWithKey", { "key": "p" }],
+            "q": ["chat::FocusInputWithKey", { "key": "q" }],
+            "r": ["chat::FocusInputWithKey", { "key": "r" }],
+            "s": ["chat::FocusInputWithKey", { "key": "s" }],
+            "t": ["chat::FocusInputWithKey", { "key": "t" }],
+            "u": ["chat::FocusInputWithKey", { "key": "u" }],
+            "v": ["chat::FocusInputWithKey", { "key": "v" }],
+            "w": ["chat::FocusInputWithKey", { "key": "w" }],
+            "x": ["chat::FocusInputWithKey", { "key": "x" }],
+            "y": ["chat::FocusInputWithKey", { "key": "y" }],
+            "z": ["chat::FocusInputWithKey", { "key": "z" }],
 
             "shift-a": ["chat::FocusInputWithKey", { "key": "A" }],
             "shift-b": ["chat::FocusInputWithKey", { "key": "B" }],

@@ -27,9 +27,10 @@ use crate::{
         },
         floating_tile,
         header::HeaderView,
-        overlay::{Close, Overlay},
+        overlay::{Close, Open, Overlay},
         quick_select,
         server_list::ServerListView,
+        settings,
         sidebar::SidebarView,
     },
     room_state::RoomStateStore,
@@ -333,38 +334,39 @@ impl Render for HomeView {
                 tracing::debug!("Toggled vim mode: {}", this.vim_mode);
                 cx.notify();
             }))
-            .on_action(
-                cx.listener(|this, _action: &quick_select::Open, window, cx| {
-                    tracing::debug!("Opening quick select");
+            .on_action(cx.listener(|this, action: &Open, window, cx| {
+                tracing::debug!("Opening quick select");
 
-                    // Subscribe to Close events
-                    this.overlay_subscription = Some(cx.subscribe_in(
-                        &this.overlay,
+                // Subscribe to Close events
+                this.overlay_subscription = Some(cx.subscribe_in(
+                    &this.overlay,
+                    window,
+                    |this: &mut HomeView, _child, event: &Close, window, cx| {
+                        tracing::debug!("Closing quick select overlay");
+                        if let Close::QuickSelect(Some(room_id)) = &event {
+                            let room = this.state.client().get_room(room_id);
+                            this.state.set_active_room(room);
+                        }
+                        this.overlay
+                            .update(cx, |that, cx| that.close_overlay(window, cx));
+                        window.focus(&this.focus, cx);
+                        cx.notify();
+                    },
+                ));
+
+                this.overlay.update(cx, |overlay, cx| match action {
+                    Open::Settings => {
+                        overlay.open_settings(window, cx, this.state.clone(), this.tokio_rt.clone())
+                    }
+                    Open::QuickSelect => overlay.open_quick_select(
                         window,
-                        |this: &mut HomeView, _child, event: &Close, window, cx| {
-                            tracing::debug!("Closing quick select overlay");
-                            if let Some(room_id) = &event.room_id {
-                                let room = this.state.client().get_room(room_id);
-                                this.state.set_active_room(room);
-                            }
-                            this.overlay
-                                .update(cx, |that, cx| that.close_overlay(window, cx));
-                            window.focus(&this.focus, cx);
-                            cx.notify();
-                        },
-                    ));
-
-                    this.overlay.update(cx, |overlay, cx| {
-                        overlay.open_quick_select(
-                            window,
-                            cx,
-                            this.state.clone(),
-                            this.avatar_cache.clone(),
-                        )
-                    });
-                    cx.notify();
-                }),
-            )
+                        cx,
+                        this.state.clone(),
+                        this.avatar_cache.clone(),
+                    ),
+                });
+                cx.notify();
+            }))
             // Focus & Chat Navigation Actions attached directly to root focus
             .on_action(cx.listener(|this, _: &FocusNext, window, cx| {
                 tracing::debug!("Focusing next message");

@@ -42,10 +42,6 @@ impl EnumVariants for chrono_tz::Tz {
     }
 }
 
-pub trait EnumConstVec: Sized {
-    fn const_vec() -> &'static [Self];
-}
-
 #[derive(Clone, PartialEq, Deserialize, Serialize, EnumVariants)]
 pub enum HourFormat {
     #[serde(rename = "12-hour")]
@@ -129,16 +125,14 @@ const DEFAULT_SYSTEM_MESSAGES: &[SystemMessageType] = &[
     SystemMessageType::Unknown,
 ];
 
-pub fn system_message_modes() -> [(&'static str, &'static [SystemMessageType]); 2] {
-    [
-        ("Default", DEFAULT_SYSTEM_MESSAGES),
-        ("Full", SystemMessageType::const_vec()),
-    ]
-}
+pub const SYSTEM_MESSAGE_MODES: &[(&str, &[SystemMessageType])] = &[
+    ("None", &[]),
+    ("Default", DEFAULT_SYSTEM_MESSAGES),
+    ("Full", SystemMessageType::const_vec()),
+];
 
 pub fn default_system_messages_to_show() -> HashMap<SystemMessageType, bool> {
     let mut map = SystemMessageType::all_variants()
-        .into_iter()
         .map(|(variant, _)| (variant, false))
         .collect::<HashMap<_, _>>();
     for message in DEFAULT_SYSTEM_MESSAGES {
