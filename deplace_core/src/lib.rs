@@ -96,6 +96,8 @@ pub async fn try_restore() -> RestoreResult {
         return RestoreResult::NoSession;
     }
 
+    settings.refresh().await;
+
     matrix_api::save_session(&client);
 
     let device = UserDevice {

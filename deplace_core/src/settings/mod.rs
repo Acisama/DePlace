@@ -1,6 +1,6 @@
 use macros::matrix_settings;
 use serde::{Deserialize, Serialize};
-use update::set_field_cloud;
+use update::{get_field_cloud, get_field_local, set_field_cloud};
 
 mod update;
 
@@ -29,8 +29,9 @@ impl SettingsSection {
     }
 }
 
-#[derive(Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Default, PartialEq, Deserialize, Serialize)]
 pub enum DataSizeUnit {
+    #[default]
     Bytes,
     Bits,
     Mibibytes,

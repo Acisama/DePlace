@@ -65,7 +65,9 @@ async fn main() -> Result<(), anyhow::Error> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("warn,desktop=trace,deplace_core=trace")),
+                .unwrap_or_else(|_| {
+                    EnvFilter::new("warn,desktop=trace,deplace_core=trace,matrix_sdk::http_client=off")
+                }),
         )
         .with_target(true)
         .with_file(true)

@@ -2,11 +2,11 @@ use anyhow::Result;
 use matrix_sdk::Client;
 use ruma::events::GlobalAccountDataEventType;
 use serde::{Serialize, de::DeserializeOwned, de::IntoDeserializer};
-use toml_edit::DocumentMut;
+use toml_edit::Table;
 
-use crate::settings::{MatrixSettingField, SETTINGS_TABLE};
+use crate::settings::{CloudSetting, MatrixSettingField};
 
-pub async fn set_field_cloud<T: Serialize + Clone + DeserializeOwned>(
+pub async fn set_field_cloud<T: Serialize + Clone + DeserializeOwned + Default>(
     client: &Client,
     value: &MatrixSettingField<T>,
 ) -> Result<()> {
@@ -20,35 +20,27 @@ pub async fn set_field_cloud<T: Serialize + Clone + DeserializeOwned>(
     Ok(())
 }
 
-async fn get_field_cloud<T: Serialize + Clone + DeserializeOwned + Default>(
+pub async fn get_field_cloud<T: 'static + Serialize + Clone + DeserializeOwned>(
     client: Client,
     cloud_name: &str,
-) -> Result<T> {
-    match client
+) -> Result<Option<CloudSetting<T>>> {
+    let data = client
         .account()
         .fetch_account_data(GlobalAccountDataEventType::from(cloud_name))
         .await
-    {
-        Ok(data) => {
-            let res = if let Some(raw) = data {
-                raw.deserialize_as_unchecked::<T>()?
-            } else {
-                T::default()
-            };
-            Ok(res)
-        }
-        Err(e) => Err(anyhow::anyhow!(e)),
-    }
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    let Some(raw) = data else {
+        return Ok(None);
+    };
+
+    Ok(Some(raw.deserialize_as_unchecked::<CloudSetting<T>>()?))
 }
 
-async fn get_field_local<T: Serialize + Clone + DeserializeOwned + Default>(
-    document: &DocumentMut,
+pub fn get_field_local<T: Serialize + Clone + DeserializeOwned + Default>(
+    table: &Table,
     local_name: &str,
 ) -> Result<T> {
-    let table = document
-        .get(SETTINGS_TABLE)
-        .ok_or(anyhow::anyhow!("No settings table found"))?;
-
     let Some(item) = table.get(local_name) else {
         return Ok(T::default());
     };

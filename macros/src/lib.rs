@@ -129,6 +129,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
     let mut toml_inserts = vec![];
     let mut toml_cloud_inserts = vec![];
     let mut field_updaters = vec![];
+    let mut field_refreshes = vec![];
 
     if let Fields::Named(ref mut fields) = item.fields {
         for field in &mut fields.named {
@@ -248,43 +249,58 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
             });
 
             let type_name = format!("{}", field_name);
-            toml_inserts.push(quote! {
-                if let Err(e) = self.#field_name.insert_into_toml_with_description(&mut table) {
-                    ::tracing::error!("Failed to insert field {} into TOML: {}", #type_name, e);
-                }
-            });
-            toml_cloud_inserts.push(quote! {
-                self.#field_name.insert_into_toml_cloud(&mut table);
-            });
-
-            let set_cloud_name = format_ident!("set_cloud_{}", field_name);
-            let set_name = format_ident!("set_{}", field_name);
-            field_updaters.push(quote! {
-                pub async fn #set_name(&mut self, val: #original_type) {
-                    self.#field_name.set(val, &mut self.document, &self.client).await;
-                }
-
-                pub fn #set_cloud_name(&mut self, uses_cloud: bool) {
-                    self.#field_name.set_uses_cloud(uses_cloud, &mut self.document);
-                }
-            });
 
             if let Some((human_readable, description, uses_cloud, section_expr, default_expr)) =
                 setting_meta
             {
                 field.ty = syn::parse2(quote! { MatrixSettingField<#original_type> }).unwrap();
 
+                toml_inserts.push(quote! {
+                    if let Err(e) = self.#field_name.insert_into_toml_with_description(&mut table) {
+                        ::tracing::error!("Failed to insert field {} into TOML: {}", #type_name, e);
+                    }
+                });
+                toml_cloud_inserts.push(quote! {
+                    self.#field_name.insert_into_toml_cloud(&mut table);
+                });
+
+                let set_cloud_name = format_ident!("set_cloud_{}", field_name);
+                let set_name = format_ident!("set_{}", field_name);
+                let get_name = format_ident!("get_{}", field_name);
+                let watch_name = format_ident!("watch_{}", field_name);
+                field_updaters.push(quote! {
+                    pub async fn #set_name(&self, val: #original_type) {
+                        self.#field_name.set(val, &self.document, &self.client).await;
+                    }
+
+                    pub fn #set_cloud_name(&self, uses_cloud: bool) {
+                        self.#field_name.set_uses_cloud(uses_cloud, &self.document);
+                    }
+
+                    pub fn #get_name(&self) -> #original_type {
+                        self.#field_name.value()
+                    }
+
+                    pub fn #watch_name(&self) -> ::tokio::sync::watch::Receiver<#original_type> {
+                        self.#field_name.watch()
+                    }
+                });
+
+                field_refreshes.push(quote! {
+                    settings.#field_name.refresh(&settings.document, &settings.client, settings.file_last_chaned.load(::std::sync::atomic::Ordering::Relaxed)).await;
+                });
+
                 let cloud_name =
                     quote! { ::const_format::formatcp!("{APP_MATRIX_NAME}.{}", #type_name) };
 
                 let uses_cloud_expr = match uses_cloud {
-                    Some(b) => quote! { Some(#b) },
+                    Some(b) => quote! { Some(::std::sync::atomic::AtomicBool::new(#b)) },
                     None => quote! { None },
                 };
 
                 default_field_initializers.push(quote! {
                     #field_name: MatrixSettingField {
-                        val: #default_expr,
+                        val: ::tokio::sync::watch::Sender::new(#default_expr),
                         type_name: #type_name,
                         human_readable: #human_readable,
                         local_name: #type_name,
@@ -314,8 +330,8 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
             )
         })
         .parse2(quote! {
-            file_last_chaned: i64,
-            document: toml_edit::DocumentMut,
+            file_last_chaned: ::std::sync::Arc<::std::sync::atomic::AtomicI64>,
+            document: ::std::sync::Arc<::std::sync::Mutex<toml_edit::DocumentMut>>,
             file_path: std::path::PathBuf,
             client: matrix_sdk::Client,
         })
@@ -353,12 +369,12 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
 
         #[derive(Debug)]
         pub struct MatrixSettingField<T: 'static> {
-            pub val: T,
+            val: ::tokio::sync::watch::Sender<T>,
             pub type_name: &'static str,
             pub human_readable: &'static str,
             pub local_name: &'static str,
             pub cloud_name: &'static str,
-            pub uses_cloud: Option<bool>,
+            uses_cloud: Option<::std::sync::atomic::AtomicBool>,
             pub description: &'static str,
             pub section: SettingsSection,
         }
@@ -370,8 +386,8 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
             pub description: &'static str,
         }
 
-        #[derive(Debug, Clone, Serialize)]
-        pub struct CloudSetting<T: 'static + ::serde::Serialize + ::serde::de::DeserializeOwned> {
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct CloudSetting<T: 'static> {
             value: T,
             last_changed: i64,
         }
@@ -384,7 +400,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     human_readable: self.human_readable,
                     local_name: self.local_name,
                     cloud_name: self.cloud_name.clone(),
-                    uses_cloud: self.uses_cloud,
+                    uses_cloud: self.uses_cloud.as_ref().map(|c| ::std::sync::atomic::AtomicBool::new(c.load(::std::sync::atomic::Ordering::Relaxed))),
                     description: self.description,
                     section: self.section,
                 }
@@ -393,19 +409,40 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
 
         impl<T> MatrixSettingField<T>
         where
-            T: Clone + ::serde::Serialize + ::serde::de::DeserializeOwned,
+            T: Clone + Default + ::serde::Serialize + ::serde::de::DeserializeOwned,
         {
+            /// Cheap snapshot of the current value.
+            pub fn value(&self) -> T {
+                self.val.borrow().clone()
+            }
 
-            pub fn to_raw(&self) -> ::anyhow::Result<::ruma::serde::Raw<::ruma::events::AnyGlobalAccountDataEventContent>> {
+            /// Subscribe to reactive updates of the current value.
+            pub fn watch(&self) -> ::tokio::sync::watch::Receiver<T> {
+                self.val.subscribe()
+            }
+
+            fn uses_cloud(&self) -> bool {
+                self.uses_cloud
+                    .as_ref()
+                    .map(|c| c.load(::std::sync::atomic::Ordering::Relaxed))
+                    .unwrap_or(false)
+            }
+
+            fn to_raw(&self) -> ::anyhow::Result<::ruma::serde::Raw<::ruma::events::AnyGlobalAccountDataEventContent>> {
                 let now = chrono::Utc::now();
 
-                let setting = CloudSetting { value: self.val.clone(), last_changed: now.timestamp() };
+                let setting = CloudSetting { value: self.value(), last_changed: now.timestamp() };
                 ::serde_json::value::to_raw_value(&setting).map(|v| ::ruma::serde::Raw::from_json(v)).map_err(|e| ::anyhow::anyhow!(e))
             }
 
-            pub fn insert_into_toml(&self, table: &mut toml_edit::Table) -> ::anyhow::Result<()> {
-                let toml_value = self.val
+            fn insert_into_toml(&self, table: &mut toml_edit::Table) -> ::anyhow::Result<()> {
+                let toml_value = self.value()
                     .serialize(toml_edit::ser::ValueSerializer::new())?;
+
+                let existing = table.get(self.local_name).and_then(|item| item.as_value());
+                if existing.map(|v| v.to_string()) == Some(toml_value.to_string()) {
+                    return Ok(());
+                }
 
                 if let Some(item) = table.get_mut(self.local_name) {
                     *item = toml_edit::Item::Value(toml_value);
@@ -418,7 +455,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
             }
 
             fn insert_into_toml_with_description(&self, table: &mut toml_edit::Table) -> ::anyhow::Result<()> {
-                let toml_value = self.val
+                let toml_value = self.value()
                     .serialize(toml_edit::ser::ValueSerializer::new())?;
                 table.insert(self.local_name, toml_edit::Item::Value(toml_value));
 
@@ -431,20 +468,21 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
             }
 
             fn insert_into_toml_cloud(&self, table: &mut toml_edit::Table) {
-                let Some(uses_cloud) = self.uses_cloud else {
-                    return;
-                };
-
-                table.insert(self.local_name, toml_edit::Item::Value(toml_edit::Value::Boolean(toml_edit::Formatted::new(uses_cloud))));
-            }
-
-            fn set_uses_cloud(&mut self, uses_cloud: bool, document: &mut toml_edit::DocumentMut) {
                 if self.uses_cloud.is_none() {
-                    tracing::warn!("Cannot set uses_cloud to true when uses_cloud is not set");
                     return;
                 }
 
-                self.uses_cloud = Some(uses_cloud);
+                table.insert(self.local_name, toml_edit::Item::Value(toml_edit::Value::Boolean(toml_edit::Formatted::new(self.uses_cloud()))));
+            }
+
+            fn set_uses_cloud(&self, uses_cloud: bool, document: &::std::sync::Mutex<toml_edit::DocumentMut>) {
+                let Some(cell) = &self.uses_cloud else {
+                    tracing::warn!("Cannot set uses_cloud to true when uses_cloud is not set");
+                    return;
+                };
+                cell.store(uses_cloud, ::std::sync::atomic::Ordering::Relaxed);
+
+                let mut document = document.lock().unwrap();
                 let Some(table) = document.get_mut(CLOUD_TABLE).and_then(|item| item.as_table_mut()) else {
                     tracing::warn!("Cloud table not found, not updating table");
                     return;
@@ -453,22 +491,73 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 self.insert_into_toml_cloud(table);
             }
 
-            async fn set(&mut self, val: T, document: &mut toml_edit::DocumentMut, client: &matrix_sdk::Client) {
-                self.val = val;
+            async fn set(&self, val: T, document: &::std::sync::Mutex<toml_edit::DocumentMut>, client: &matrix_sdk::Client) {
+                self.val.send_replace(val);
 
-                let Some(table) = document.get_mut(SETTINGS_TABLE).and_then(|item| item.as_table_mut()) else {
-                    tracing::warn!("Settings table not found, not updating table");
-                    return;
-                };
+                {
+                    let mut document = document.lock().unwrap();
+                    let Some(table) = document.get_mut(SETTINGS_TABLE).and_then(|item| item.as_table_mut()) else {
+                        tracing::warn!("Settings table not found, not updating table");
+                        return;
+                    };
 
-                if let Err(e) = self.insert_into_toml(table) {
-                    tracing::error!("Failed to insert into TOML: {:?}", e);
+                    if let Err(e) = self.insert_into_toml(table) {
+                        tracing::error!("Failed to insert into TOML: {:?}", e);
+                    }
                 }
 
-                if self.uses_cloud.unwrap_or(false) {
-                    if let Err(e) = set_field_cloud(client, &self).await {
+                if self.uses_cloud() {
+                    if let Err(e) = set_field_cloud(client, self).await {
                         tracing::error!("Failed to save setting {}: {:?}", self.type_name, e);
                     };
+                }
+            }
+
+            async fn refresh(&self, document: &::std::sync::Mutex<toml_edit::DocumentMut>, client: &matrix_sdk::Client, file_last_changed: i64) {
+                let mut missing_from_cloud = false;
+                let cloud_setting = if self.uses_cloud() {
+                    match get_field_cloud::<T>(client.clone(), &self.cloud_name).await {
+                        Ok(Some(setting)) => Some(setting),
+                        Ok(None) => {
+                            missing_from_cloud = true;
+                            None
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to get field {} from cloud: {:?}", self.type_name, e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                {
+                    let mut document = document.lock().unwrap();
+                    let Some(table) = document.get_mut(SETTINGS_TABLE).and_then(|item| item.as_table_mut()) else {
+                        tracing::warn!("Settings table not found, not updating table");
+                        return;
+                    };
+
+                    let local_setting = get_field_local(table, &self.local_name).unwrap_or_else(|e| {
+                        tracing::error!("Failed to get local setting {}: {:?}", self.type_name, e);
+                        T::default()
+                    });
+
+                    let newer = match &cloud_setting {
+                        Some(cs) if cs.last_changed > file_last_changed => cs.value.clone(),
+                        _ => local_setting,
+                    };
+
+                    self.val.send_replace(newer);
+                    if let Err(e) = self.insert_into_toml(table) {
+                        tracing::error!("Failed to insert into TOML: {:?}", e);
+                    }
+                }
+
+                if missing_from_cloud {
+                    if let Err(e) = set_field_cloud(client, self).await {
+                        tracing::error!("Failed to seed cloud value for setting {}: {:?}", self.type_name, e);
+                    }
                 }
             }
         }
@@ -488,10 +577,10 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
 
                 let existing_is_none = existing.is_none();
 
-                let mut settings = Self {
+                let settings = Self {
                     #(#default_field_initializers,)*
-                    document: existing.unwrap_or_default(),
-                    file_last_chaned: chrono::Utc::now().timestamp(),
+                    document: ::std::sync::Arc::new(::std::sync::Mutex::new(existing.unwrap_or_default())),
+                    file_last_chaned: ::std::sync::Arc::new(::std::sync::atomic::AtomicI64::new(chrono::Utc::now().timestamp())),
                     file_path,
                     client,
                 };
@@ -504,6 +593,16 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
 
                 settings
             }
+
+            /// Pulls the latest value for every cloud-backed setting and merges it with the
+            /// local copy. Call this once a client is authenticated; calling it before then
+            /// just fails the cloud fetch and falls back to the local value.
+            pub async fn refresh(&self) {
+                let settings = self;
+                #(#field_refreshes)*
+                settings.save();
+                settings.update_file_last_changed();
+            }
         }
 
         impl #struct_name {
@@ -514,26 +613,42 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 results
             }
 
-             fn create_settings_table(&mut self) {
+             fn create_settings_table(&self) {
                 let mut table = toml_edit::Table::new();
                 #(#toml_inserts)*
 
-                self.document.insert(SETTINGS_TABLE, toml_edit::Item::Table(table));
+                self.document.lock().unwrap().insert(SETTINGS_TABLE, toml_edit::Item::Table(table));
             }
 
-            fn create_cloud_table(&mut self) {
+            fn create_cloud_table(&self) {
                 let mut table = toml_edit::Table::new();
                 #(#toml_cloud_inserts)*
 
-                self.document.insert(CLOUD_TABLE, toml_edit::Item::Table(table));
+                self.document.lock().unwrap().insert(CLOUD_TABLE, toml_edit::Item::Table(table));
             }
 
-            fn save(&mut self) {
-                let content = self.document.to_string();
+            fn save(&self) {
+                let content = self.document.lock().unwrap().to_string();
                 if let Err(e) = std::fs::write(&self.file_path, content) {
                     tracing::error!("Failed to save settings: {}", e);
                 }
-                self.file_last_chaned = chrono::Utc::now().timestamp();
+                self.file_last_chaned.store(chrono::Utc::now().timestamp(), ::std::sync::atomic::Ordering::Relaxed);
+            }
+
+            fn update_file_last_changed(&self) {
+                match std::fs::metadata(&self.file_path).and_then(|metadata| metadata.modified()) {
+                    Ok(modified) => {
+                        let secs = modified
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or_else(|_| chrono::Utc::now().timestamp());
+                        self.file_last_chaned.store(secs, ::std::sync::atomic::Ordering::Relaxed);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get file metadata: {}", e);
+                        self.file_last_chaned.store(chrono::Utc::now().timestamp(), ::std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
             }
 
             #(#field_updaters)*

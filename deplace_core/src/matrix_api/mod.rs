@@ -20,7 +20,7 @@ use crate::{
     APP_NAME, DEVICE_DISPLAY_NAME,
     keyring::{self, StoredSession, get_or_create_store_key},
     matrix_api::sync::spawn_room_sync,
-    settings::Settings,
+    settings::{SETTINGS_FILE_NAME, Settings},
     state::{AppState, UserDevice},
 };
 
@@ -107,6 +107,8 @@ pub async fn login(
         tracing::error!("Failed to restore session on login client: {:?}", e);
         return LoginResult::Error(e.to_string());
     }
+
+    settings.refresh().await;
 
     if let Err(e) = client
         .encryption()
@@ -220,7 +222,7 @@ pub async fn matrix_client_builder(
         .build()
         .await?;
 
-    let settings = Settings::new(settings_dir, new_client.clone());
+    let settings = Settings::new(settings_dir.join(SETTINGS_FILE_NAME), new_client.clone());
 
     Ok((new_client, settings))
 }
