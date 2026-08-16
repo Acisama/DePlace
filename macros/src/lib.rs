@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
-use syn::{Expr, ExprLit, Fields, Ident, ItemStruct, Lit, Token, parenthesized};
+use syn::{DeriveInput, Expr, ExprLit, Fields, Ident, ItemStruct, Lit, Token, parenthesized};
 
 struct StyleCall {
     name: Ident,
@@ -287,7 +287,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 });
 
                 field_refreshes.push(quote! {
-                    settings.#field_name.refresh(&settings.document, &settings.client, settings.file_last_chaned.load(::std::sync::atomic::Ordering::Relaxed)).await;
+                    settings.#field_name.refresh(&settings.document, &settings.client, settings.file_last_chaned.load(::std::sync::atomic::Ordering::Relaxed), #default_expr).await;
                 });
 
                 let cloud_name =
@@ -409,7 +409,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
 
         impl<T> MatrixSettingField<T>
         where
-            T: Clone + Default + ::serde::Serialize + ::serde::de::DeserializeOwned,
+            T: Clone + ::serde::Serialize + ::serde::de::DeserializeOwned,
         {
             /// Cheap snapshot of the current value.
             pub fn value(&self) -> T {
@@ -428,7 +428,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     .unwrap_or(false)
             }
 
-            fn to_raw(&self) -> ::anyhow::Result<::ruma::serde::Raw<::ruma::events::AnyGlobalAccountDataEventContent>> {
+            pub fn to_raw(&self) -> ::anyhow::Result<::ruma::serde::Raw<::ruma::events::AnyGlobalAccountDataEventContent>> {
                 let now = chrono::Utc::now();
 
                 let setting = CloudSetting { value: self.value(), last_changed: now.timestamp() };
@@ -513,7 +513,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 }
             }
 
-            async fn refresh(&self, document: &::std::sync::Mutex<toml_edit::DocumentMut>, client: &matrix_sdk::Client, file_last_changed: i64) {
+            async fn refresh(&self, document: &::std::sync::Mutex<toml_edit::DocumentMut>, client: &matrix_sdk::Client, file_last_changed: i64, default: T) {
                 let mut missing_from_cloud = false;
                 let cloud_setting = if self.uses_cloud() {
                     match get_field_cloud::<T>(client.clone(), &self.cloud_name).await {
@@ -538,9 +538,9 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                         return;
                     };
 
-                    let local_setting = get_field_local(table, &self.local_name).unwrap_or_else(|e| {
+                    let local_setting = get_field_local(table, &self.local_name, default.clone()).unwrap_or_else(|e| {
                         tracing::error!("Failed to get local setting {}: {:?}", self.type_name, e);
-                        T::default()
+                        default
                     });
 
                     let newer = match &cloud_setting {
@@ -656,4 +656,85 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
     };
 
     expanded.into()
+}
+
+#[proc_macro_derive(EnumConstVec)]
+pub fn derive_enum_const_vec(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as DeriveInput);
+    let ident = &input.ident;
+
+    let syn::Data::Enum(data) = &input.data else {
+        panic!("EnumConstVec can only be derived for enums");
+    };
+
+    let entries = data.variants.iter().map(|variant| {
+        assert!(
+            matches!(variant.fields, Fields::Unit),
+            "EnumVariants only supports fieldless variants, but `{}` has fields",
+            variant.ident
+        );
+
+        let variant_ident = &variant.ident;
+
+        quote! { #ident::#variant_ident }
+    });
+
+    quote! {
+        impl EnumConstVec for #ident {
+            fn const_vec() -> &'static [Self] {
+                &[#(#entries),*]
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro_derive(EnumVariants)]
+pub fn derive_enum_variants(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as DeriveInput);
+    let ident = &input.ident;
+
+    let syn::Data::Enum(data) = &input.data else {
+        panic!("EnumVariants can only be derived for enums");
+    };
+
+    let entries = data.variants.iter().map(|variant| {
+        assert!(
+            matches!(variant.fields, Fields::Unit),
+            "EnumVariants only supports fieldless variants, but `{}` has fields",
+            variant.ident
+        );
+
+        let variant_ident = &variant.ident;
+        let name = serde_variant_name(variant);
+
+        quote! { (#ident::#variant_ident, #name) }
+    });
+
+    quote! {
+        impl EnumVariants for #ident {
+            fn all_variants() -> impl Iterator<Item = (#ident, &'static str)> {
+                [#(#entries),*].into_iter()
+            }
+        }
+    }
+    .into()
+}
+
+/// Mirrors serde's `#[serde(rename = "...")]`, falling back to the
+/// variant's own name, so the string matches what serde_json produces.
+fn serde_variant_name(variant: &syn::Variant) -> String {
+    let mut name = variant.ident.to_string();
+    for attr in &variant.attrs {
+        if !attr.path().is_ident("serde") {
+            continue;
+        }
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("rename") {
+                name = meta.value()?.parse::<syn::LitStr>()?.value();
+            }
+            Ok(())
+        });
+    }
+    name
 }

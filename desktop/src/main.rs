@@ -66,7 +66,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_env_filter(
             EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
-                    EnvFilter::new("warn,desktop=trace,deplace_core=trace,matrix_sdk::http_client=off")
+                    EnvFilter::new("warn,desktop=trace,deplace_core=trace,matrix_sdk::http_client=off,zbus=error")
                 }),
         )
         .with_target(true)

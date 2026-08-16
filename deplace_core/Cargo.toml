@@ -8,6 +8,7 @@ anyhow.workspace = true
 base64.workspace = true
 blurhash.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 const_format = "0.2.36"
 csscolorparser.workspace = true
 dashmap.workspace = true

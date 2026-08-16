@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use deplace_core::{
     NameExt,
     matrix_api::timeline::{ScrollDirection, TimelineManager},
+    settings::DataSizeUnit,
     state::{AppState, MembershipMap},
 };
 use futures_util::StreamExt;
@@ -52,6 +53,8 @@ pub struct ChatView {
     avatar_cache: AvatarCache,
     image_cache: ThumbnailCache,
 
+    data_size_unit: Receiver<DataSizeUnit>,
+
     membership_map: Receiver<MembershipMap>,
     tokio_rt: Arc<Runtime>,
     current_fetch: Option<AbortHandle>,
@@ -90,16 +93,19 @@ impl ChatView {
         let active_room = active_room_recv.borrow().clone();
 
         let membership_map = state.membership_map();
+        let data_size_unit = state.settings().watch_data_size_unit();
 
         notify_on_change(active_room_recv.clone(), cx);
         notify_on_change(membership_map.clone(), cx);
         notify_on_change(avatar_cache.subscribe(), cx);
         notify_on_change(image_cache.subscribe(), cx);
+        notify_on_change(data_size_unit.clone(), cx);
 
         let mut view = Self {
             timeline_manager: state.timeline_manager(),
             user_id: state.user_device().user_id.clone(),
             messages: Arc::new(Vec::new()),
+            data_size_unit,
             focused_message: None,
             avatar_cache,
             image_cache,
@@ -608,6 +614,8 @@ impl Render for ChatView {
             )
         };
 
+        let data_size_unit = self.data_size_unit.borrow().clone();
+
         tailwind_div!(size_full, paddings(structure.gap), py_0, flex, flex_col)
             .key_context("Chat")
             .on_mouse_up(MouseButton::Left, {
@@ -688,6 +696,7 @@ impl Render for ChatView {
                         &hover,
                         &selection,
                         on_toggle_reaction.clone(),
+                        &data_size_unit,
                     )
                 })
                 .h_full()

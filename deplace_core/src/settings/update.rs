@@ -4,9 +4,9 @@ use ruma::events::GlobalAccountDataEventType;
 use serde::{Serialize, de::DeserializeOwned, de::IntoDeserializer};
 use toml_edit::Table;
 
-use crate::settings::{CloudSetting, MatrixSettingField};
+use crate::settings::definition::{CloudSetting, MatrixSettingField};
 
-pub async fn set_field_cloud<T: Serialize + Clone + DeserializeOwned + Default>(
+pub async fn set_field_cloud<T: Serialize + Clone + DeserializeOwned>(
     client: &Client,
     value: &MatrixSettingField<T>,
 ) -> Result<()> {
@@ -37,12 +37,13 @@ pub async fn get_field_cloud<T: 'static + Serialize + Clone + DeserializeOwned>(
     Ok(Some(raw.deserialize_as_unchecked::<CloudSetting<T>>()?))
 }
 
-pub fn get_field_local<T: Serialize + Clone + DeserializeOwned + Default>(
+pub fn get_field_local<T: Serialize + Clone + DeserializeOwned>(
     table: &Table,
     local_name: &str,
+    default: T,
 ) -> Result<T> {
     let Some(item) = table.get(local_name) else {
-        return Ok(T::default());
+        return Ok(default);
     };
 
     let value = item

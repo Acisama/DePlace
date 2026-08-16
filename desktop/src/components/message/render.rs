@@ -1,6 +1,9 @@
 use std::{ops::Range, rc::Rc, sync::Arc, time::Duration};
 
-use deplace_core::{NameExt, colors::ColorExt, formatting::fit_dimensions, state::MembershipMap};
+use deplace_core::{
+    NameExt, colors::ColorExt, formatting::fit_dimensions, settings::DataSizeUnit,
+    state::MembershipMap,
+};
 use gpui::{
     Animation, AnimationExt, AnyElement, App, Div, Element, ElementId, FontStyle, FontWeight,
     HighlightStyle, Hsla, InteractiveElement, IntoElement, LinearColorStop, ObjectFit,
@@ -116,6 +119,7 @@ impl CachedTimelineItem {
         hover: &HoverState,
         selection: &SelectionState,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
+        data_size_unit: &DataSizeUnit,
     ) -> AnyElement {
         let divider_width = structure.divider_width;
 
@@ -152,6 +156,7 @@ impl CachedTimelineItem {
                 hover,
                 selection,
                 on_toggle_reaction,
+                data_size_unit,
             ),
         }
     }
@@ -174,6 +179,7 @@ impl CachedTimelineEvent {
         hover: &HoverState,
         selection: &SelectionState,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
+        data_size_unit: &DataSizeUnit,
     ) -> AnyElement {
         let colors = &theme.colors;
 
@@ -260,6 +266,7 @@ impl CachedTimelineEvent {
                 hover,
                 selection,
                 toggle_reaction,
+                data_size_unit,
             ),
         };
 
@@ -475,6 +482,7 @@ impl CachedUserMessage {
         hover: &HoverState,
         selection: &SelectionState,
         on_toggle_reaction: impl Fn(SharedString) + Clone + 'static,
+        data_size_unit: &DataSizeUnit,
     ) -> Div {
         let warning = theme.colors.warning;
         let error = theme.colors.error;
@@ -574,7 +582,7 @@ impl CachedUserMessage {
                         )
                         .child(
                             size.as_ref()
-                                .map(|s| s.bytes_str.clone())
+                                .map(|s| s.get(data_size_unit))
                                 .unwrap_or("File".into()),
                         ),
                     ),
@@ -733,9 +741,12 @@ impl CachedUserMessage {
                                 )
                                 .group_hover(filename, |style| style.opacity(1.0))
                                 .child(filename.clone())
-                                .when_some(size.clone(), |el, size| {
-                                    el.child(" (").child(size.bytes_str).child(")")
-                                }),
+                                .when_some(
+                                    size.clone(),
+                                    |el, size| {
+                                        el.child(" (").child(size.get(data_size_unit)).child(")")
+                                    },
+                                ),
                             ),
                     )
                     .into_any()

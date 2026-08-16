@@ -1,8 +1,11 @@
-use macros::matrix_settings;
-use serde::{Deserialize, Serialize};
-use update::{get_field_cloud, get_field_local, set_field_cloud};
+use imbl::HashMap;
+use macros::{EnumConstVec, EnumVariants};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
+mod definition;
 mod update;
+
+pub use definition::Settings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SettingsSection {
@@ -29,7 +32,57 @@ impl SettingsSection {
     }
 }
 
-#[derive(Clone, Default, PartialEq, Deserialize, Serialize)]
+pub trait EnumVariants: Sized + Serialize + DeserializeOwned {
+    fn all_variants() -> impl Iterator<Item = (Self, &'static str)>;
+}
+
+impl EnumVariants for chrono_tz::Tz {
+    fn all_variants() -> impl Iterator<Item = (Self, &'static str)> {
+        chrono_tz::TZ_VARIANTS.iter().map(|tz| (*tz, tz.name()))
+    }
+}
+
+pub trait EnumConstVec: Sized {
+    fn const_vec() -> &'static [Self];
+}
+
+#[derive(Clone, PartialEq, Deserialize, Serialize, EnumVariants)]
+pub enum HourFormat {
+    #[serde(rename = "12-hour")]
+    TwelveHour,
+    #[serde(rename = "24-hour")]
+    TwentyFourHour,
+}
+
+#[derive(Clone, PartialEq, Deserialize, Serialize, EnumVariants)]
+pub enum DateFormat {
+    #[serde(rename = "DD/MM/YYYY")]
+    DayMonthYear,
+    #[serde(rename = "MM/DD/YYYY")]
+    MonthDayYear,
+    #[serde(rename = "YYYY/MM/DD")]
+    YearMonthDay,
+}
+
+#[derive(Clone, PartialEq, Deserialize, Serialize, EnumVariants)]
+pub enum DayOfWeek {
+    #[serde(rename = "Monday")]
+    Monday,
+    #[serde(rename = "Tuesday")]
+    Tuesday,
+    #[serde(rename = "Wednesday")]
+    Wednesday,
+    #[serde(rename = "Thursday")]
+    Thursday,
+    #[serde(rename = "Friday")]
+    Friday,
+    #[serde(rename = "Saturday")]
+    Saturday,
+    #[serde(rename = "Sunday")]
+    Sunday,
+}
+
+#[derive(Clone, Default, PartialEq, Deserialize, Serialize, EnumVariants)]
 pub enum DataSizeUnit {
     #[default]
     Bytes,
@@ -37,10 +90,61 @@ pub enum DataSizeUnit {
     Mibibytes,
 }
 
-#[matrix_settings]
-pub struct Settings {
-    #[setting(name = "Data size unit", description = "The unit of data size to use", section = SettingsSection::General, default = DataSizeUnit::Bytes, uses_cloud = Some(true))]
-    pub data_size_unit: DataSizeUnit,
+#[derive(Clone, Copy, PartialEq, Deserialize, Serialize, EnumVariants, EnumConstVec, Hash, Eq)]
+pub enum SystemMessageType {
+    CallInvite,
+    MembershipChange,
+    ProfileChange,
+    RtcNotification,
+    PolicyRuleRoom,
+    PolicyRuleServer,
+    PolicyRuleUser,
+    RoomAvatar,
+    RoomCanonicalAlias,
+    RoomCreate,
+    RoomEncryption,
+    RoomGuestAccess,
+    RoomHistoryVisibility,
+    RoomJoinRules,
+    RoomName,
+    RoomPinnedEvents,
+    RoomPowerLevels,
+    RoomServerAcl,
+    RoomThirdPartyInvite,
+    RoomTombstone,
+    RoomTopic,
+    SpaceChild,
+    SpaceParent,
+    Unknown,
+    Invisible,
+}
+
+const DEFAULT_SYSTEM_MESSAGES: &[SystemMessageType] = &[
+    SystemMessageType::MembershipChange,
+    SystemMessageType::RoomCreate,
+    SystemMessageType::RoomEncryption,
+    SystemMessageType::RoomPinnedEvents,
+    SystemMessageType::SpaceChild,
+    SystemMessageType::SpaceParent,
+    SystemMessageType::Unknown,
+];
+
+pub fn system_message_modes() -> [(&'static str, &'static [SystemMessageType]); 2] {
+    [
+        ("Default", DEFAULT_SYSTEM_MESSAGES),
+        ("Full", SystemMessageType::const_vec()),
+    ]
+}
+
+pub fn default_system_messages_to_show() -> HashMap<SystemMessageType, bool> {
+    let mut map = SystemMessageType::all_variants()
+        .into_iter()
+        .map(|(variant, _)| (variant, false))
+        .collect::<HashMap<_, _>>();
+    for message in DEFAULT_SYSTEM_MESSAGES {
+        map.insert(*message, true);
+    }
+    map
 }
 
 const SETTINGS_TABLE: &str = "settings";
