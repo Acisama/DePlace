@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use deplace_core::settings::{Settings, SettingsSection};
 use gpui::{
     AnyElement, App, Context, Element, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    ParentElement, Render, StatefulInteractiveElement, Styled, UniformListScrollHandle, actions,
-    div, px,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
+    UniformListScrollHandle, actions, div, px, relative,
 };
 use gpui_component::{StyledExt, scroll::ScrollableElement};
 use macros::tailwind_div;
@@ -28,6 +28,7 @@ pub struct SettingsView {
     tokio_rt: Arc<Runtime>,
 
     active_section: Option<UiSettingsSection>,
+    expanded_subsections: HashSet<SharedString>,
 
     focus: FocusHandle,
     scroll_handle: UniformListScrollHandle,
@@ -44,6 +45,7 @@ impl SettingsView {
             tokio_rt,
 
             active_section: None,
+            expanded_subsections: HashSet::new(),
 
             scroll_handle: UniformListScrollHandle::new(),
             focus,
@@ -64,7 +66,15 @@ struct UiSettingsSection {
     title: &'static str,
     id: SettingsSection,
     icon: &'static str,
-    render_fn: fn(&AppTheme, &Structure, &Settings, Arc<Runtime>) -> AnyElement,
+    #[allow(clippy::type_complexity)]
+    render_fn: fn(
+        &AppTheme,
+        &Structure,
+        &Settings,
+        Arc<Runtime>,
+        &HashSet<SharedString>,
+        &mut Context<SettingsView>,
+    ) -> AnyElement,
 }
 
 #[derive(Clone)]
@@ -102,6 +112,7 @@ impl SettingsItem {
                 cursor_pointer,
                 py(structure.small_gap / 2.0),
                 px(structure.small_gap),
+                line_height(relative(1.0)),
                 border_transparent,
             )
             .id(section.id.id())
@@ -125,19 +136,19 @@ const SETTINGS_SECTIONS: &[SettingsItem] = &[
         title: "General",
         id: SettingsSection::General,
         icon: phosphor_svgs::icon::sliders::FILL,
-        render_fn: |_, _, _, _| div().into_any(),
+        render_fn: |_, _, _, _, _, _| div().into_any(),
     }),
     SettingsItem::Section(UiSettingsSection {
         title: "Appearance",
         id: SettingsSection::Appearance,
         icon: phosphor_svgs::icon::palette::REGULAR,
-        render_fn: |_, _, _, _| div().into_any(),
+        render_fn: |_, _, _, _, _, _| div().into_any(),
     }),
     SettingsItem::Section(UiSettingsSection {
         title: "Audio",
         id: SettingsSection::Audio,
         icon: phosphor_svgs::icon::headphones::FILL,
-        render_fn: |_, _, _, _| div().into_any(),
+        render_fn: |_, _, _, _, _, _| div().into_any(),
     }),
     SettingsItem::Section(UiSettingsSection {
         title: "Chats",
@@ -150,7 +161,7 @@ const SETTINGS_SECTIONS: &[SettingsItem] = &[
         title: "Updates",
         id: SettingsSection::Updates,
         icon: phosphor_svgs::icon::arrows_clockwise::FILL,
-        render_fn: |_, _, _, _| div().into_any(),
+        render_fn: |_, _, _, _, _, _| div().into_any(),
     }),
 ];
 
@@ -158,7 +169,7 @@ const PROFILE_SECTION: UiSettingsSection = UiSettingsSection {
     title: "Profile",
     id: SettingsSection::Profile,
     icon: phosphor_svgs::icon::pencil_simple::FILL,
-    render_fn: |_, _, _, _| div().into_any(),
+    render_fn: |_, _, _, _, _, _| div().into_any(),
 };
 
 impl Render for SettingsView {
@@ -220,11 +231,11 @@ impl Render for SettingsView {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .pl((structure.header.height - structure.font_size * 1.1) / 2.0)
-                    .pr((structure.header.height - structure.font_size * 1.1) / 2.0
+                    .pl((structure.header.height - structure.font_size * 1.2) / 2.0)
+                    .pr((structure.header.height - structure.font_size * 1.2) / 2.0
                         - structure.small_gap / 2.0)
-                    .text_size(structure.font_size * 1.1)
-                    .font_bold()
+                    .text_size(structure.font_size * 1.2)
+                    .font_extrabold()
                     .text_color(theme.text.normal)
                     .rounded(structure.inner_border_radius)
                     .rounded_tr(structure.outer_border_radius)
@@ -245,6 +256,8 @@ impl Render for SettingsView {
                         structure,
                         &self.settings,
                         self.tokio_rt.clone(),
+                        &self.expanded_subsections,
+                        cx,
                     )),
             ),
         )

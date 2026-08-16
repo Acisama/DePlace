@@ -1,10 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, Element, ElementId, Hsla, InteractiveElement,
-    ParentElement, StatefulInteractiveElement, Styled, div, px, transparent_black,
+    Animation, AnimationExt, AnyElement, Context, Div, Element, ElementId, Hsla,
+    InteractiveElement, ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    div, relative, transparent_black,
 };
-use gpui_component::tooltip::Tooltip;
+use gpui_component::{StyledExt, tooltip::Tooltip};
 use macros::tailwind_div;
 use tokio::{runtime::Runtime, sync::watch};
 
@@ -13,6 +14,8 @@ use crate::{
     theme::{AppTheme, Structure},
 };
 use deplace_core::settings::{MatrixSettingField, Settings};
+
+use super::SettingsView;
 
 pub(super) mod chats;
 
@@ -39,13 +42,13 @@ fn get_cloud_stuff(
     }
 }
 
-fn render_toggle(
+fn setting_toggle(
     settings: &Settings,
     field: &MatrixSettingField<bool>,
     theme: &AppTheme,
     structure: &Structure,
     tokio_rt: Arc<Runtime>,
-) -> AnyElement {
+) -> Stateful<Div> {
     let (icon, color, tooltip) = get_cloud_stuff(&field.uses_cloud, theme);
 
     let checked = field.value();
@@ -53,8 +56,7 @@ fn render_toggle(
     tailwind_div!(
         flex,
         flex_grow_1,
-        px(structure.gap),
-        py(structure.small_gap / 2.0),
+        p(structure.small_gap / 2.0),
         justify_between,
         cursor_pointer,
         border_transparent,
@@ -88,6 +90,7 @@ fn render_toggle(
             text_center,
             flex_row,
             gap(structure.gap),
+            line_height(relative(1.0)),
         )
         .child(field.human_readable)
         .child(
@@ -174,5 +177,69 @@ fn render_toggle(
                     .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx)),
             ),
     )
-    .into_any()
+}
+
+fn subsection(
+    title: SharedString,
+    id: SharedString,
+    theme: &AppTheme,
+    structure: &Structure,
+    expanded_subsections: &HashSet<SharedString>,
+    cx: &mut Context<SettingsView>,
+) -> Div {
+    let expanded = expanded_subsections.contains(&id);
+
+    tailwind_div!(flex, flex_col, w_full).child(
+        tailwind_div!(
+            w_full,
+            flex,
+            flex_row,
+            items_center,
+            justify_between,
+            cursor_pointer,
+            p(structure.small_gap / 2.0),
+            text_color(theme.text.dim),
+            hover(text_color(theme.text.normal))
+        )
+        .child(
+            tailwind_div!(
+                font_semibold,
+                text_color(theme.text.normal),
+                text_size(structure.font_size * 1.1),
+                line_height(relative(1.0))
+            )
+            .child(title.clone()),
+        )
+        .child(tailwind_div!(
+            flex,
+            flex_grow_1,
+            h(structure.divider_width),
+            bg(theme.tile.border),
+            mx(structure.small_gap)
+        ))
+        .child(
+            tailwind_div!(flex, items_center, justify_center, cursor_pointer).child(render_icon(
+                if expanded {
+                    phosphor_svgs::icon::caret_up::REGULAR
+                } else {
+                    phosphor_svgs::icon::caret_down::REGULAR
+                },
+                structure.font_size * 1.2,
+            )),
+        )
+        .id(id.clone())
+        .on_click(cx.listener({
+            let id = id.clone();
+            move |view, _, _, cx| {
+                if !view.expanded_subsections.remove(&id) {
+                    view.expanded_subsections.insert(id.clone());
+                }
+                cx.notify();
+            }
+        })),
+    )
+}
+
+fn spacer(structure: &Structure) -> Div {
+    tailwind_div!(h(structure.gap),)
 }
