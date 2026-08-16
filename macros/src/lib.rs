@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::parse::{Parse, ParseStream};
+use quote::{format_ident, quote};
+use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
 use syn::{Expr, ExprLit, Fields, Ident, ItemStruct, Lit, Token, parenthesized};
 
@@ -126,6 +126,9 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
     let struct_name = item.ident.clone();
     let mut default_field_initializers = vec![];
     let mut type_name_string_collector = vec![];
+    let mut toml_inserts = vec![];
+    let mut toml_cloud_inserts = vec![];
+    let mut field_updaters = vec![];
 
     if let Fields::Named(ref mut fields) = item.fields {
         for field in &mut fields.named {
@@ -141,9 +144,9 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     {
                         let mut human_readable: Option<String> = None;
                         let mut description: Option<String> = None;
-                        let mut uses_cloud = None;
+                        let mut uses_cloud: Option<Option<bool>> = None;
                         let mut section_expr: Option<Expr> = None;
-                        let mut default_expr = quote! { Default::default() };
+                        let mut default_expr = None;
 
                         for expr in exprs.iter() {
                             let Expr::Assign(assign) = expr else {
@@ -185,7 +188,9 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                                 }
                                 "uses_cloud" => {
                                     uses_cloud = match value {
-                                        Expr::Path(path) if path.path.is_ident("None") => None,
+                                        Expr::Path(path) if path.path.is_ident("None") => {
+                                            Some(None)
+                                        }
                                         Expr::Call(call)
                                             if matches!(
                                                 call.func.as_ref(),
@@ -201,7 +206,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                                                     "`uses_cloud` must be `None` or `Some(bool)`"
                                                 );
                                             };
-                                            Some(lit_bool.value)
+                                            Some(Some(lit_bool.value))
                                         }
                                         _ => panic!("`uses_cloud` must be `None` or `Some(bool)`"),
                                     };
@@ -210,7 +215,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                                     section_expr = Some(value.clone());
                                 }
                                 "default" => {
-                                    default_expr = quote! { #value };
+                                    default_expr = Some(quote! { #value });
                                 }
                                 other => panic!("Unknown `setting` argument `{other}`"),
                             }
@@ -223,6 +228,10 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                         });
                         let section_expr = section_expr
                             .unwrap_or_else(|| panic!("`setting` requires `section = ...`"));
+                        let default_expr = default_expr
+                            .unwrap_or_else(|| panic!("`setting` requires `default = ...`"));
+                        let uses_cloud = uses_cloud
+                            .unwrap_or_else(|| panic!("`setting` requires `uses_cloud = ...`"));
 
                         setting_meta = Some((
                             human_readable,
@@ -238,24 +247,49 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 }
             });
 
+            let type_name = format!("{}", field_name);
+            toml_inserts.push(quote! {
+                if let Err(e) = self.#field_name.insert_into_toml_with_description(&mut table) {
+                    ::tracing::error!("Failed to insert field {} into TOML: {}", #type_name, e);
+                }
+            });
+            toml_cloud_inserts.push(quote! {
+                self.#field_name.insert_into_toml_cloud(&mut table);
+            });
+
+            let set_cloud_name = format_ident!("set_cloud_{}", field_name);
+            let set_name = format_ident!("set_{}", field_name);
+            field_updaters.push(quote! {
+                pub async fn #set_name(&mut self, val: #original_type) {
+                    self.#field_name.set(val, &mut self.document, &self.client).await;
+                }
+
+                pub fn #set_cloud_name(&mut self, uses_cloud: bool) {
+                    self.#field_name.set_uses_cloud(uses_cloud, &mut self.document);
+                }
+            });
+
             if let Some((human_readable, description, uses_cloud, section_expr, default_expr)) =
                 setting_meta
             {
                 field.ty = syn::parse2(quote! { MatrixSettingField<#original_type> }).unwrap();
 
-                let cloud_name = if uses_cloud.is_some() {
-                    quote! { Some(format!("{}.{}", APP_MATRIX_NAME, #human_readable)) }
-                } else {
-                    quote! { None }
+                let cloud_name =
+                    quote! { ::const_format::formatcp!("{APP_MATRIX_NAME}.{}", #type_name) };
+
+                let uses_cloud_expr = match uses_cloud {
+                    Some(b) => quote! { Some(#b) },
+                    None => quote! { None },
                 };
 
                 default_field_initializers.push(quote! {
-                    #field_name : MatrixSettingField {
+                    #field_name: MatrixSettingField {
                         val: #default_expr,
+                        type_name: #type_name,
                         human_readable: #human_readable,
-                        local_name: #field_name,
+                        local_name: #type_name,
                         cloud_name: #cloud_name,
-                        uses_cloud: #uses_cloud,
+                        uses_cloud: #uses_cloud_expr,
                         description: #description,
                         section: #section_expr,
                     }
@@ -272,20 +306,30 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 });
             }
         }
+
+        let extra_fields = (|input: ParseStream| {
+            Punctuated::<syn::Field, Token![,]>::parse_terminated_with(
+                input,
+                syn::Field::parse_named,
+            )
+        })
+        .parse2(quote! {
+            file_last_chaned: i64,
+            document: toml_edit::DocumentMut,
+            file_path: std::path::PathBuf,
+            client: matrix_sdk::Client,
+        })
+        .unwrap();
+        fields.named.extend(extra_fields);
     } else {
         panic!("Only applicable to structs with named fields")
     }
-
-    let get_all_calls = type_name_string_collector
-        .iter()
-        .map(|(field_name, _, _, _)| {
-            quote! { self.#field_name.fetch().await?; }
-        });
 
     let search_pushes =
         type_name_string_collector
             .iter()
             .map(|(field_name, _, human_readable, description)| {
+                let type_name = format!("{}", field_name);
                 quote! {
                     if #human_readable.to_lowercase().contains(&query)
                         || #description.to_lowercase().contains(&query)
@@ -293,8 +337,8 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     {
                         results.push((
                             self.#field_name.section,
-                            Setting {
-                                field_name: #field_name,
+                            SettingSearchResult {
+                                type_name: #type_name,
                                 human_readable: #human_readable,
                                 description: #description,
                             },
@@ -305,51 +349,29 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
 
     let expanded = quote! {
         use crate::APP_MATRIX_NAME;
-
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub enum SettingsSection {
-            Profile,
-            General,
-            Appearance,
-            Audio,
-            Chats,
-            Updates,
-            Divider,
-        }
-
-        impl SettingsSection {
-            pub fn id(&self) -> &'static str {
-                match self {
-                    SettingsSection::Profile => "profile",
-                    SettingsSection::General => "general",
-                    SettingsSection::Appearance => "appearance",
-                    SettingsSection::Audio => "audio",
-                    SettingsSection::Chats => "chats",
-                    SettingsSection::Updates => "updates",
-                    SettingsSection::Divider => "divider",
-                }
-            }
-        }
+        use std::str::FromStr;
 
         #[derive(Debug)]
         pub struct MatrixSettingField<T: 'static> {
             pub val: T,
             pub type_name: &'static str,
             pub human_readable: &'static str,
+            pub local_name: &'static str,
+            pub cloud_name: &'static str,
             pub uses_cloud: Option<bool>,
-            pub last_changed: i64,
             pub description: &'static str,
             pub section: SettingsSection,
         }
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub struct Setting {
+        pub struct SettingSearchResult {
             pub type_name: &'static str,
             pub human_readable: &'static str,
             pub description: &'static str,
         }
 
-        pub struct CloudSetting<T: 'static> {
+        #[derive(Debug, Clone, Serialize)]
+        pub struct CloudSetting<T: 'static + ::serde::Serialize + ::serde::de::DeserializeOwned> {
             value: T,
             last_changed: i64,
         }
@@ -360,8 +382,9 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     val: self.val.clone(),
                     type_name: self.type_name,
                     human_readable: self.human_readable,
+                    local_name: self.local_name,
+                    cloud_name: self.cloud_name.clone(),
                     uses_cloud: self.uses_cloud,
-                    last_changed: self.last_changed,
                     description: self.description,
                     section: self.section,
                 }
@@ -370,56 +393,150 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
 
         impl<T> MatrixSettingField<T>
         where
-            T: 'static + Send + Sync + Clone + ::serde::Serialize + ::serde::de::DeserializeOwned,
+            T: Clone + ::serde::Serialize + ::serde::de::DeserializeOwned,
         {
-            /// Updates the signal and persists the new value to the backend
-            /// (and cloud, if `uses_cloud`).
-            pub fn set(&mut self, val: T) {
-                let serialized = match ::serde_json::to_string(&val) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        ::tracing::error!("Failed to serialize {}: {:?}", self.type_name, e);
-                        return;
-                    }
+
+            pub fn to_raw(&self) -> ::anyhow::Result<::ruma::serde::Raw<::ruma::events::AnyGlobalAccountDataEventContent>> {
+                let now = chrono::Utc::now();
+
+                let setting = CloudSetting { value: self.val.clone(), last_changed: now.timestamp() };
+                ::serde_json::value::to_raw_value(&setting).map(|v| ::ruma::serde::Raw::from_json(v)).map_err(|e| ::anyhow::anyhow!(e))
+            }
+
+            pub fn insert_into_toml(&self, table: &mut toml_edit::Table) -> ::anyhow::Result<()> {
+                let toml_value = self.val
+                    .serialize(toml_edit::ser::ValueSerializer::new())?;
+
+                if let Some(item) = table.get_mut(self.local_name) {
+                    *item = toml_edit::Item::Value(toml_value);
+                } else {
+                    table.insert(self.local_name, toml_edit::Item::Value(toml_value));
+                }
+
+
+                Ok(())
+            }
+
+            fn insert_into_toml_with_description(&self, table: &mut toml_edit::Table) -> ::anyhow::Result<()> {
+                let toml_value = self.val
+                    .serialize(toml_edit::ser::ValueSerializer::new())?;
+                table.insert(self.local_name, toml_edit::Item::Value(toml_value));
+
+                if let Some(mut key) = table.key_mut(self.local_name) {
+                    key.leaf_decor_mut()
+                        .set_prefix(format!("# {}\n", self.description));
+                }
+
+                Ok(())
+            }
+
+            fn insert_into_toml_cloud(&self, table: &mut toml_edit::Table) {
+                let Some(uses_cloud) = self.uses_cloud else {
+                    return;
                 };
+
+                table.insert(self.local_name, toml_edit::Item::Value(toml_edit::Value::Boolean(toml_edit::Formatted::new(uses_cloud))));
+            }
+
+            fn set_uses_cloud(&mut self, uses_cloud: bool, document: &mut toml_edit::DocumentMut) {
+                if self.uses_cloud.is_none() {
+                    tracing::warn!("Cannot set uses_cloud to true when uses_cloud is not set");
+                    return;
+                }
+
+                self.uses_cloud = Some(uses_cloud);
+                let Some(table) = document.get_mut(CLOUD_TABLE).and_then(|item| item.as_table_mut()) else {
+                    tracing::warn!("Cloud table not found, not updating table");
+                    return;
+                };
+
+                self.insert_into_toml_cloud(table);
+            }
+
+            async fn set(&mut self, val: T, document: &mut toml_edit::DocumentMut, client: &matrix_sdk::Client) {
                 self.val = val;
-                let type_name = self.type_name;
-                let uses_cloud = self.uses_cloud;
-                // ::leptos::task::spawn_local(async move {
-                //     let args = ::serde_wasm_bindgen::to_value(
-                //         &::serde_json::json!({ "key": type_name, "value": serialized, "to_cloud": uses_cloud })
-                //     ).expect("Failed to serialize args");
-                //     if let Err(e) = call_tauri("set_setting", args).await {
-                //         ::tracing::error!("Failed to save setting {}: {:?}", type_name, e);
-                //     }
-                // });
+
+                let Some(table) = document.get_mut(SETTINGS_TABLE).and_then(|item| item.as_table_mut()) else {
+                    tracing::warn!("Settings table not found, not updating table");
+                    return;
+                };
+
+                if let Err(e) = self.insert_into_toml(table) {
+                    tracing::error!("Failed to insert into TOML: {:?}", e);
+                }
+
+                if self.uses_cloud.unwrap_or(false) {
+                    if let Err(e) = set_field_cloud(client, &self).await {
+                        tracing::error!("Failed to save setting {}: {:?}", self.type_name, e);
+                    };
+                }
             }
         }
 
         #[derive(Clone)]
         #item
 
-        impl Default for #struct_name {
-            fn default() -> Self {
-                Self {
-                    #(#default_field_initializers),*
+        impl #struct_name {
+            pub fn new(file_path: std::path::PathBuf, client: matrix_sdk::Client) -> Self {
+                let existing = if file_path.exists() {
+                    let content = std::fs::read_to_string(&file_path).map_err(|e| ::tracing::error!("Failed to read settings file: {:?}", e)).ok();
+
+                    content.map(|c| toml_edit::DocumentMut::from_str(&c).map_err(|e| ::tracing::error!("Failed to parse settings file: {:?}", e)).ok()).flatten()
+                } else {
+                    None
+                };
+
+                let existing_is_none = existing.is_none();
+
+                let mut settings = Self {
+                    #(#default_field_initializers,)*
+                    document: existing.unwrap_or_default(),
+                    file_last_chaned: chrono::Utc::now().timestamp(),
+                    file_path,
+                    client,
+                };
+
+                if existing_is_none {
+                    settings.create_settings_table();
+                    settings.create_cloud_table();
+                    settings.save();
                 }
+
+                settings
             }
         }
 
         impl #struct_name {
-            pub async fn get_all(&self) -> Result<(), String> {
-                ::tracing::debug!("Getting all settings");
-                #(#get_all_calls)*
-                Ok(())
-            }
-
-            pub fn search(&self, query: &str) -> Vec<(SettingsSection, Setting)> {
+            pub fn search(&self, query: &str) -> Vec<(SettingsSection, SettingSearchResult)> {
                 let query = query.to_lowercase();
                 let mut results = Vec::new();
                 #(#search_pushes)*
                 results
             }
+
+             fn create_settings_table(&mut self) {
+                let mut table = toml_edit::Table::new();
+                #(#toml_inserts)*
+
+                self.document.insert(SETTINGS_TABLE, toml_edit::Item::Table(table));
+            }
+
+            fn create_cloud_table(&mut self) {
+                let mut table = toml_edit::Table::new();
+                #(#toml_cloud_inserts)*
+
+                self.document.insert(CLOUD_TABLE, toml_edit::Item::Table(table));
+            }
+
+            fn save(&mut self) {
+                let content = self.document.to_string();
+                if let Err(e) = std::fs::write(&self.file_path, content) {
+                    tracing::error!("Failed to save settings: {}", e);
+                }
+                self.file_last_chaned = chrono::Utc::now().timestamp();
+            }
+
+            #(#field_updaters)*
         }
     };
 

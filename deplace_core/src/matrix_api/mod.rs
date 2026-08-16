@@ -20,6 +20,7 @@ use crate::{
     APP_NAME, DEVICE_DISPLAY_NAME,
     keyring::{self, StoredSession, get_or_create_store_key},
     matrix_api::sync::spawn_room_sync,
+    settings::Settings,
     state::{AppState, UserDevice},
 };
 
@@ -90,7 +91,7 @@ pub async fn login(
         None => return LoginResult::Error("Failed to get device ID".to_string()),
     };
 
-    let client = match matrix_client_builder(&user_id, &device_id, url).await {
+    let (client, settings) = match matrix_client_builder(&user_id, &device_id, url).await {
         Ok(client) => client,
         Err(e) => {
             tracing::error!("Failed to create login client: {e}");
@@ -171,7 +172,7 @@ pub async fn matrix_client_builder(
     user_id: &UserId,
     device_id: &DeviceId,
     server_url: Url,
-) -> Result<Client> {
+) -> Result<(Client, Settings)> {
     let safe_user_id = user_id.to_string().replace(':', "_");
 
     let data_dir = dirs::data_dir()
@@ -180,9 +181,13 @@ pub async fn matrix_client_builder(
     let cache_dir = dirs::cache_dir()
         .ok_or(Error::msg("Failed to get cache directory"))?
         .join(APP_NAME);
+    let settings_dir = dirs::config_dir()
+        .ok_or(Error::msg("Failed to get config directory"))?
+        .join(APP_NAME);
 
     std::fs::create_dir_all(&data_dir)?;
     std::fs::create_dir_all(&cache_dir)?;
+    std::fs::create_dir_all(&settings_dir)?;
 
     let name = format!("{}_{}", safe_user_id, device_id);
 
@@ -215,5 +220,7 @@ pub async fn matrix_client_builder(
         .build()
         .await?;
 
-    Ok(new_client)
+    let settings = Settings::new(settings_dir, new_client.clone());
+
+    Ok((new_client, settings))
 }

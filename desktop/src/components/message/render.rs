@@ -547,9 +547,11 @@ impl CachedUserMessage {
             CachedMessageType::File { filename, size, .. } => tailwind_div!(
                 bg(theme.solid_bg),
                 flex,
+                flex_shrink_1,
                 flex_row,
                 items_start,
-                w(relative(0.3))
+                self_start,
+                min_w(relative(0.3)),
                 gap(structure.small_gap),
                 paddings(structure.gap),
                 rounded(structure.inner_border_radius),

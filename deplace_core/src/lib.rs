@@ -70,13 +70,14 @@ pub async fn try_restore() -> RestoreResult {
     let user_id = session.user_id;
     let device_id = session.device_id;
 
-    let client = match matrix_client_builder(&user_id, &device_id, session.homeserver_url).await {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!("Failed to build matrix client: {:?}", error);
-            return RestoreResult::NoSession;
-        }
-    };
+    let (client, settings) =
+        match matrix_client_builder(&user_id, &device_id, session.homeserver_url).await {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::error!("Failed to build matrix client: {:?}", error);
+                return RestoreResult::NoSession;
+            }
+        };
 
     if let Err(error) = client
         .restore_session(MatrixSession {
