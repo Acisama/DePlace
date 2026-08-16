@@ -5,10 +5,11 @@ use deplace_core::{
     state::{AppState, MembershipMap},
 };
 use gpui::{
-    Animation, AnimationExt, AppContext, Context, ElementId, Entity, FocusHandle, Focusable, Hsla,
-    ImageFormat, InteractiveElement, IntoElement, ParentElement, PathPromptOptions, Render,
-    SharedString, StatefulInteractiveElement, Styled, TextOverflow, Window, ease_in_out,
-    prelude::FluentBuilder, transparent_black,
+    Animation, AnimationExt, AppContext, ClickEvent, Context, ElementId, Entity, FocusHandle,
+    Focusable, Hsla, ImageFormat, InteractiveElement, IntoElement, MouseButton, MouseClickEvent,
+    MouseDownEvent, ParentElement, PathPromptOptions, Render, SharedString,
+    StatefulInteractiveElement, Styled, TextOverflow, Window, ease_in_out, prelude::FluentBuilder,
+    transparent_black,
 };
 use gpui_component::{
     StyledExt,
@@ -194,7 +195,7 @@ impl Render for ChatInputBar {
                 })
             )
             .id(id)
-            .on_click(cx.listener(move |view, _ev, _window, cx| {
+            .on_click(cx.listener(move |view, ev, _window, cx| {
                 let paths_rx = cx.prompt_for_paths(PathPromptOptions {
                     files: true,
                     directories: false,
@@ -323,8 +324,9 @@ impl Render for ChatInputBar {
         let active_room = self.active_room.borrow().clone();
         let active_room_id = active_room.as_ref().map(|r| r.room_id().to_owned());
 
-        let attachments =
-            active_room_id.and_then(|id| self.room_store.get(&id).map(|state| state.attachments));
+        let attachments = active_room_id
+            .and_then(|id| self.room_store.get(&id).map(|state| state.attachments))
+            .filter(|a| !a.is_empty());
 
         tailwind_div!(w_full, flex, flex_col)
             .when_some(attachments.clone(), |el, attachments| {
@@ -384,6 +386,33 @@ impl Render for ChatInputBar {
                             ),
                         )
                         .id(id.to_string())
+                        .on_aux_click(cx.listener({
+                            let id = *id;
+                            move |view, ev, _, _| {
+                                if matches!(
+                                    ev,
+                                    ClickEvent::Mouse(MouseClickEvent {
+                                        down: MouseDownEvent {
+                                            button: MouseButton::Middle,
+                                            ..
+                                        },
+                                        ..
+                                    })
+                                ) {
+                                    let room_id = view
+                                        .active_room
+                                        .borrow()
+                                        .as_ref()
+                                        .map(|r| r.room_id().to_owned());
+
+                                    if let Some(room_id) = room_id {
+                                        view.room_store.mutate(&room_id, |room_state| {
+                                            room_state.attachments.remove(&id);
+                                        });
+                                    }
+                                }
+                            }
+                        }))
                     })),
                 )
             })
