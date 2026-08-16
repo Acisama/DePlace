@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use deplace_core::{
     get_other_member,
-    matrix_api::account_data::set_account_data,
     state::{AppState, MembershipMap},
 };
 use gpui::{
@@ -49,8 +48,6 @@ pub struct HomeView {
     sidebar: Entity<SidebarView>,
     chat: Entity<ChatView>,
     chat_input: Entity<ChatInputBar>,
-
-    room_store: RoomStateStore,
 
     active_room: Receiver<Option<Room>>,
     membership_map: Receiver<MembershipMap>,
@@ -224,21 +221,20 @@ impl HomeView {
                     } => {
                         let attachments_empty = attachments.is_empty();
 
-                        if !attachments_empty {
-                            let room = room.clone();
-                            let timeline_manager = timeline_manager.clone();
-                            let in_reply_to = in_reply_to.clone();
+                        this.tokio_rt.spawn(async move {
+                            if !attachments_empty {
+                                let room = room.clone();
+                                let timeline_manager = timeline_manager.clone();
+                                let in_reply_to = in_reply_to.clone();
 
-                            this.tokio_rt.spawn(async move {
                                 let mut iter = attachments.into_iter();
 
-                                if let Some(attachment) = iter.next() {
-                                    if let Err(e) = timeline_manager
+                                if let Some(attachment) = iter.next()
+                                    && let Err(e) = timeline_manager
                                         .send_attachment(&room, attachment, in_reply_to.clone())
                                         .await
-                                    {
-                                        tracing::error!("Failed to send attachment: {}", e);
-                                    }
+                                {
+                                    tracing::error!("Failed to send attachment: {}", e);
                                 }
 
                                 for attachment in iter {
@@ -249,25 +245,24 @@ impl HomeView {
                                         tracing::error!("Failed to send attachment: {}", e);
                                     }
                                 }
-                            });
-                        }
+                            }
 
-                        if !text.trim().is_empty() {
-                            this.tokio_rt.spawn(async move {
-                                if let Err(e) = timeline_manager
+                            if !text.trim().is_empty()
+                                && let Err(e) = timeline_manager
                                     .send_message(
                                         text,
                                         &room,
                                         attachments_empty.then(|| in_reply_to.clone()).flatten(),
                                     )
                                     .await
-                                {
-                                    tracing::error!("Failed to send message: {}", e);
-                                }
-                            });
-                        }
+                            {
+                                tracing::error!("Failed to send message: {}", e);
+                            }
+                        });
                     }
-                    _ => {}
+                    _ => {
+                        tracing::error!("Unknown event: ");
+                    }
                 }
             },
         )
@@ -280,8 +275,6 @@ impl HomeView {
             sidebar,
             chat,
             chat_input,
-
-            room_store,
 
             chat_sidebar: ChatSidebar::from_active_room(
                 state.active_room().borrow().clone(),
@@ -351,7 +344,7 @@ impl Render for HomeView {
                         |this: &mut HomeView, _child, event: &Close, window, cx| {
                             tracing::debug!("Closing quick select overlay");
                             if let Some(room_id) = &event.room_id {
-                                let room = this.state.client().get_room(&room_id);
+                                let room = this.state.client().get_room(room_id);
                                 this.state.set_active_room(room);
                             }
                             this.overlay
