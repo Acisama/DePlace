@@ -187,7 +187,6 @@ impl Render for ChatInputBar {
         };
 
         let icon_size = structure.chat.input_height - structure.small_gap * 2.0;
-        let smaller_border_radius = (structure.inner_border_radius + structure.small_gap) / 2.0;
 
         let chat_input_button = |svg: &'static str, id: &'static str| {
             let hovered = self.hovered_button == Some(id);
@@ -203,7 +202,7 @@ impl Render for ChatInputBar {
                 flex,
                 items_center,
                 justify_center,
-                rounded((structure.inner_border_radius + structure.smaller_border_radius) / 2.0),
+                rounded(structure.semi_border_radius()),
                 cursor_pointer,
                 text_color(if hovered {
                     theme.text.normal
@@ -364,7 +363,7 @@ impl Render for ChatInputBar {
                     )
                     .children(attachments.iter().map(|(id, a)| {
                         tailwind_div!(
-                            rounded(smaller_border_radius),
+                            rounded(structure.semi_border_radius()),
                             border_1,
                             border_color(theme.tile.border),
                             cursor_pointer,
@@ -383,7 +382,7 @@ impl Render for ChatInputBar {
                                 text_size(structure.chat.text_size * 1.5),
                                 font_extrabold,
                             )
-                            .child(a.render_preview(theme, smaller_border_radius)),
+                            .child(a.render_preview(theme, structure.semi_border_radius())),
                         )
                         .child(
                             tailwind_div!(

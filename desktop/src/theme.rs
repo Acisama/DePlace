@@ -25,9 +25,9 @@ pub struct InputTheme {
 
 #[derive(Clone)]
 pub struct Colors {
-    pub red: Hsla,
-    pub green: Hsla,
-    pub yellow: Hsla,
+    pub _red: Hsla,
+    pub _green: Hsla,
+    pub _yellow: Hsla,
     pub success: Hsla,
     pub warning: Hsla,
     pub error: Hsla,
@@ -42,9 +42,9 @@ pub struct Colors {
 impl Colors {
     fn new(red: Hsla, green: Hsla, yellow: Hsla, muted: Hsla, unknown: Hsla) -> Self {
         Self {
-            red,
-            green,
-            yellow,
+            _red: red,
+            _green: green,
+            _yellow: yellow,
             success: green,
             warning: yellow,
             error: red,
@@ -103,6 +103,15 @@ pub struct Chat {
 }
 
 #[derive(Clone)]
+pub struct Settings {
+    pub section_column_width: Pixels,
+    pub full_width: Pixels,
+    pub full_height: Pixels,
+    pub checkbox_width: Pixels,
+    pub checkbox_height: Pixels,
+}
+
+#[derive(Clone)]
 pub struct Structure {
     pub server_column: ServerColumn,
     pub chat_sidebar_width: ChatSidebarWidth,
@@ -116,6 +125,7 @@ pub struct Structure {
     pub font_size: Pixels,
     pub gap: Pixels,
     pub small_gap: Pixels,
+    pub settings: Settings,
 }
 
 impl Global for Structure {}
@@ -165,7 +175,18 @@ impl Structure {
                 pinned: px(480.0),
                 members: px(240.0),
             },
+            settings: Settings {
+                section_column_width: px(300.0),
+                full_width: px(1200.0),
+                full_height: px(900.0),
+                checkbox_width: px(40.0),
+                checkbox_height: px(20.0),
+            },
         }
+    }
+
+    pub fn semi_border_radius(&self) -> Pixels {
+        (self.inner_border_radius + self.smaller_border_radius) / 2.0
     }
 
     pub fn chat_col_width(&self) -> Pixels {
@@ -218,7 +239,7 @@ impl AppTheme {
             },
             text: Text {
                 muted: muted_color,
-                dim: hsla(0.66, 0.15, 0.55, 1.0),
+                dim: hsla(0.66, 0.15, 0.5, 1.0),
                 normal: hsla(0.66, 0.15, 0.8, 1.0),
             },
             input: InputTheme {

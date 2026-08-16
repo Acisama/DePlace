@@ -265,16 +265,21 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 });
 
                 let set_cloud_name = format_ident!("set_cloud_{}", field_name);
+                let watch_cloud_name = format_ident!("watch_cloud_{}", field_name);
                 let set_name = format_ident!("set_{}", field_name);
                 let get_name = format_ident!("get_{}", field_name);
                 let watch_name = format_ident!("watch_{}", field_name);
                 field_updaters.push(quote! {
                     pub async fn #set_name(&self, val: #original_type) {
-                        self.#field_name.set(val, &self.document, &self.client).await;
+                        self.#field_name.set(val, &self).await;
                     }
 
                     pub fn #set_cloud_name(&self, uses_cloud: bool) {
                         self.#field_name.set_uses_cloud(uses_cloud, &self.document);
+                    }
+
+                    pub fn #watch_cloud_name(&self) -> Option<::tokio::sync::watch::Receiver<bool>> {
+                        self.#field_name.watch_uses_cloud()
                     }
 
                     pub fn #get_name(&self) -> #original_type {
@@ -294,7 +299,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     quote! { ::const_format::formatcp!("{APP_MATRIX_NAME}.{}", #type_name) };
 
                 let uses_cloud_expr = match uses_cloud {
-                    Some(b) => quote! { Some(::std::sync::atomic::AtomicBool::new(#b)) },
+                    Some(b) => quote! { Some(::tokio::sync::watch::Sender::new(#b)) },
                     None => quote! { None },
                 };
 
@@ -308,6 +313,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                         uses_cloud: #uses_cloud_expr,
                         description: #description,
                         section: #section_expr,
+                        any_change: any_change.clone(),
                     }
                 });
                 type_name_string_collector.push((
@@ -331,9 +337,10 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
         })
         .parse2(quote! {
             file_last_chaned: ::std::sync::Arc<::std::sync::atomic::AtomicI64>,
-            document: ::std::sync::Arc<::std::sync::Mutex<toml_edit::DocumentMut>>,
+            pub document: ::std::sync::Arc<::std::sync::Mutex<toml_edit::DocumentMut>>,
             file_path: std::path::PathBuf,
-            client: matrix_sdk::Client,
+            pub client: matrix_sdk::Client,
+            any_change: ::tokio::sync::watch::Sender<()>,
         })
         .unwrap();
         fields.named.extend(extra_fields);
@@ -374,9 +381,10 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
             pub human_readable: &'static str,
             pub local_name: &'static str,
             pub cloud_name: &'static str,
-            uses_cloud: Option<::std::sync::atomic::AtomicBool>,
+            pub uses_cloud: Option<::tokio::sync::watch::Sender<bool>>,
             pub description: &'static str,
             pub section: SettingsSection,
+            any_change: ::tokio::sync::watch::Sender<()>,
         }
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,9 +408,10 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     human_readable: self.human_readable,
                     local_name: self.local_name,
                     cloud_name: self.cloud_name.clone(),
-                    uses_cloud: self.uses_cloud.as_ref().map(|c| ::std::sync::atomic::AtomicBool::new(c.load(::std::sync::atomic::Ordering::Relaxed))),
+                    uses_cloud: self.uses_cloud.clone(),
                     description: self.description,
                     section: self.section,
+                    any_change: self.any_change.clone(),
                 }
             }
         }
@@ -424,8 +433,14 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
             fn uses_cloud(&self) -> bool {
                 self.uses_cloud
                     .as_ref()
-                    .map(|c| c.load(::std::sync::atomic::Ordering::Relaxed))
+                    .map(|c| *c.borrow())
                     .unwrap_or(false)
+            }
+
+            /// Subscribe to reactive updates of whether this field is cloud-synced.
+            /// Returns `None` if this field never supports cloud sync.
+            pub fn watch_uses_cloud(&self) -> Option<::tokio::sync::watch::Receiver<bool>> {
+                self.uses_cloud.as_ref().map(|c| c.subscribe())
             }
 
             pub fn to_raw(&self) -> ::anyhow::Result<::ruma::serde::Raw<::ruma::events::AnyGlobalAccountDataEventContent>> {
@@ -480,7 +495,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     tracing::warn!("Cannot set uses_cloud to true when uses_cloud is not set");
                     return;
                 };
-                cell.store(uses_cloud, ::std::sync::atomic::Ordering::Relaxed);
+                cell.send_replace(uses_cloud);
 
                 let mut document = document.lock().unwrap();
                 let Some(table) = document.get_mut(CLOUD_TABLE).and_then(|item| item.as_table_mut()) else {
@@ -491,12 +506,17 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 self.insert_into_toml_cloud(table);
             }
 
-            async fn set(&self, val: T, document: &::std::sync::Mutex<toml_edit::DocumentMut>, client: &matrix_sdk::Client) {
+            pub async fn set(&self, val: T, settings: &Settings) {
                 self.val.send_replace(val);
+                self.any_change.send_replace(());
 
                 {
-                    let mut document = document.lock().unwrap();
-                    let Some(table) = document.get_mut(SETTINGS_TABLE).and_then(|item| item.as_table_mut()) else {
+                    let mut document = settings.document.lock().unwrap();
+                    let Some(item) = document.get_mut(SETTINGS_TABLE) else {
+                        tracing::warn!("Settings table not found, not updating table");
+                        return;
+                    };
+                    let Some(table) = item.as_table_mut() else {
                         tracing::warn!("Settings table not found, not updating table");
                         return;
                     };
@@ -505,9 +525,10 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                         tracing::error!("Failed to insert into TOML: {:?}", e);
                     }
                 }
+                settings.save();
 
                 if self.uses_cloud() {
-                    if let Err(e) = set_field_cloud(client, self).await {
+                    if let Err(e) = set_field_cloud(&settings.client, self).await {
                         tracing::error!("Failed to save setting {}: {:?}", self.type_name, e);
                     };
                 }
@@ -549,6 +570,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     };
 
                     self.val.send_replace(newer);
+                    self.any_change.send_replace(());
                     if let Err(e) = self.insert_into_toml(table) {
                         tracing::error!("Failed to insert into TOML: {:?}", e);
                     }
@@ -577,12 +599,15 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
 
                 let existing_is_none = existing.is_none();
 
+                let any_change = ::tokio::sync::watch::channel(()).0;
+
                 let settings = Self {
                     #(#default_field_initializers,)*
                     document: ::std::sync::Arc::new(::std::sync::Mutex::new(existing.unwrap_or_default())),
                     file_last_chaned: ::std::sync::Arc::new(::std::sync::atomic::AtomicI64::new(chrono::Utc::now().timestamp())),
                     file_path,
                     client,
+                    any_change,
                 };
 
                 if existing_is_none {
@@ -592,6 +617,11 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 }
 
                 settings
+            }
+
+            /// Subscribe to be notified whenever any setting field changes.
+            pub fn watch_any_change(&self) -> ::tokio::sync::watch::Receiver<()> {
+                self.any_change.subscribe()
             }
 
             /// Pulls the latest value for every cloud-backed setting and merges it with the

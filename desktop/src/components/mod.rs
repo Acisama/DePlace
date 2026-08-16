@@ -2,8 +2,8 @@ use blurhash::decode;
 use deplace_core::formatting::format_bytes;
 use deplace_core::settings::DataSizeUnit;
 use gpui::{
-    App, BoxShadow, Div, Entity, Focusable, Hsla, Pixels, SharedString, Window, prelude::*,
-    transparent_black,
+    App, BoxShadow, Div, ElementId, Entity, Focusable, Hsla, Pixels, SharedString, Window,
+    prelude::*, px, transparent_black,
 };
 use gpui::{RenderImage, Role};
 use gpui_component::{
@@ -15,6 +15,7 @@ use macros::tailwind_div;
 use smallvec::SmallVec;
 use std::sync::Arc;
 
+use crate::components::profiles::render_icon;
 use crate::theme::DeplaceThings;
 use crate::{
     components::cache::AvatarCache,
@@ -97,7 +98,7 @@ impl<T: Styled> CustomStyles for T {}
 
 #[derive(Clone)]
 pub struct ByteSize {
-    bytes: u64,
+    _bytes: u64,
     bytes_str: SharedString,
     bits_str: SharedString,
     mibi_bytes_str: SharedString,
@@ -106,7 +107,7 @@ pub struct ByteSize {
 impl ByteSize {
     pub fn new(bytes: u64) -> Self {
         Self {
-            bytes,
+            _bytes: bytes,
             bits_str: format_bytes(bytes, DataSizeUnit::Bits).into(),
             bytes_str: format_bytes(bytes, DataSizeUnit::Bytes).into(),
             mibi_bytes_str: format_bytes(bytes, DataSizeUnit::Mibibytes).into(),
@@ -135,4 +136,23 @@ pub fn blurhash_to_image(hash: &str) -> Arc<RenderImage> {
         .expect("Failed to construct ImageBuffer");
 
     Arc::new(RenderImage::new(SmallVec::from_elem(Frame::new(buf), 1)))
+}
+
+pub fn close_button(
+    theme: &AppTheme,
+    id: impl Into<ElementId>,
+    size: Pixels,
+) -> gpui::Stateful<Div> {
+    tailwind_div!(
+        border_transparent,
+        text_color(theme.text.dim),
+        hover(
+            bg(theme.solid_bg),
+            border_color(theme.tile.border),
+            text_color(theme.text.normal)
+        )
+    )
+    .cursor_pointer()
+    .child(render_icon(phosphor_svgs::icon::x::REGULAR, size))
+    .id(id)
 }

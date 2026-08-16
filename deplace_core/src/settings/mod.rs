@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 mod definition;
 mod update;
 
+pub use definition::MatrixSettingField;
 pub use definition::Settings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -28,6 +29,18 @@ impl SettingsSection {
             SettingsSection::Chats => "chats",
             SettingsSection::Updates => "updates",
             SettingsSection::Divider => "divider",
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            SettingsSection::Profile => "Profile",
+            SettingsSection::General => "General",
+            SettingsSection::Appearance => "Appearance",
+            SettingsSection::Audio => "Audio",
+            SettingsSection::Chats => "Chats",
+            SettingsSection::Updates => "Updates",
+            SettingsSection::Divider => "Divider",
         }
     }
 }

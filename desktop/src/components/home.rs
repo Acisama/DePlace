@@ -28,9 +28,7 @@ use crate::{
         floating_tile,
         header::HeaderView,
         overlay::{Close, Open, Overlay},
-        quick_select,
         server_list::ServerListView,
-        settings,
         sidebar::SidebarView,
     },
     room_state::RoomStateStore,
@@ -160,7 +158,6 @@ impl HomeView {
                 tokio_rt.clone(),
                 avatar_cache.clone(),
                 image_cache.clone(),
-                room_store.clone(),
             )
         });
         let chat_input = cx.new(|cx| ChatInputBar::new(&state, window, cx, room_store.clone()));
@@ -335,7 +332,13 @@ impl Render for HomeView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, action: &Open, window, cx| {
-                tracing::debug!("Opening quick select");
+                tracing::debug!(
+                    "Opening {}",
+                    match action {
+                        Open::Settings => "settings",
+                        Open::QuickSelect => "quick select",
+                    }
+                );
 
                 // Subscribe to Close events
                 this.overlay_subscription = Some(cx.subscribe_in(

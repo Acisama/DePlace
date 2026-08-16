@@ -82,7 +82,6 @@ impl ChatView {
         tokio_rt: Arc<Runtime>,
         avatar_cache: AvatarCache,
         image_cache: ThumbnailCache,
-        room_store: RoomStateStore,
     ) -> Self {
         let list_state = ListState::new(0, ListAlignment::Bottom, px(500.));
         list_state.set_follow_mode(FollowMode::Tail);

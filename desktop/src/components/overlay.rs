@@ -6,10 +6,13 @@ use matrix_sdk::ruma::OwnedRoomId;
 use serde::Deserialize;
 use tokio::runtime::Runtime;
 
-use crate::components::{
-    cache::AvatarCache,
-    quick_select::{self, QuickSelect},
-    settings::{self, SettingsView},
+use crate::{
+    components::{
+        cache::AvatarCache,
+        quick_select::{self, QuickSelect},
+        settings::{self, SettingsView},
+    },
+    theme::DeplaceThings,
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize, gpui::Action, schemars::JsonSchema)]
@@ -122,6 +125,15 @@ impl Render for Overlay {
         if matches!(self.content, OverlayContent::None) {
             return Empty.into_any_element();
         }
+        let structure = cx.structure();
+        let settings_size = StyleRefinement::default()
+            .w(structure.settings.full_width)
+            .h(structure.settings.full_height);
+        let quick_select_size = StyleRefinement::default()
+            .w_1_2()
+            .max_w(px(600.0))
+            .h(px(400.0));
+
         div()
             .id("overlay-backdrop")
             .key_context("Overlay")
@@ -140,8 +152,12 @@ impl Render for Overlay {
             }))
             .child(match &self.content {
                 OverlayContent::None => div().into_any_element(),
-                OverlayContent::Settings(ent) => ent.clone().into_any_element(),
-                OverlayContent::QuickSelect(ent) => ent.clone().into_any_element(),
+                OverlayContent::Settings(ent) => {
+                    ent.clone().cached(settings_size).into_any_element()
+                }
+                OverlayContent::QuickSelect(ent) => {
+                    ent.clone().cached(quick_select_size).into_any_element()
+                }
             })
             .into_any_element()
     }

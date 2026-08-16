@@ -14,7 +14,7 @@ use tokio::{runtime::Runtime, sync::watch};
 
 /// Meant to be cloned and passed around
 pub type AvatarCache = MediaCache<OwnedMxcUri, gpui::Image>;
-pub type FileCache = MediaCache<String, Vec<u8>>;
+// pub type FileCache = MediaCache<String, Vec<u8>>;
 pub type ThumbnailCache = MediaCache<(gpui::SharedString, u64, u64), gpui::Image>;
 
 #[derive(Clone, Default)]
@@ -119,40 +119,40 @@ impl AvatarCache {
     }
 }
 
-impl FileCache {
-    pub fn get(&self, source: &MediaSource, source_key: &str) -> MediaState<Vec<u8>> {
-        if let Some(state) = self.cache.get(source_key) {
-            return state.clone();
-        }
+// impl FileCache {
+//     pub fn get(&self, source: &MediaSource, source_key: &str) -> MediaState<Vec<u8>> {
+//         if let Some(state) = self.cache.get(source_key) {
+//             return state.clone();
+//         }
 
-        self.cache
-            .insert(source_key.to_string(), MediaState::Loading);
+//         self.cache
+//             .insert(source_key.to_string(), MediaState::Loading);
 
-        let store = self.clone();
-        let tokio_rt = self.tokio_rt.clone();
-        let key = source_key.to_string();
-        let request = MediaRequestParameters {
-            source: source.clone(),
-            format: MediaFormat::File,
-        };
-        tokio_rt.spawn(async move {
-            let state = match store.client.media().get_media_content(&request, true).await {
-                Ok(bytes) => MediaState::Loaded(Arc::new(bytes)),
-                Err(e) => {
-                    tracing::error!("Failed to fetch media: {e}");
-                    MediaState::Failed
-                }
-            };
+//         let store = self.clone();
+//         let tokio_rt = self.tokio_rt.clone();
+//         let key = source_key.to_string();
+//         let request = MediaRequestParameters {
+//             source: source.clone(),
+//             format: MediaFormat::File,
+//         };
+//         tokio_rt.spawn(async move {
+//             let state = match store.client.media().get_media_content(&request, true).await {
+//                 Ok(bytes) => MediaState::Loaded(Arc::new(bytes)),
+//                 Err(e) => {
+//                     tracing::error!("Failed to fetch media: {e}");
+//                     MediaState::Failed
+//                 }
+//             };
 
-            store.cache.insert(key, state);
-            if let Err(e) = store.changed.send(()) {
-                tracing::error!("Failed to send cache change notification: {e}");
-            }
-        });
+//             store.cache.insert(key, state);
+//             if let Err(e) = store.changed.send(()) {
+//                 tracing::error!("Failed to send cache change notification: {e}");
+//             }
+//         });
 
-        MediaState::Loading
-    }
-}
+//         MediaState::Loading
+//     }
+// }
 
 impl ThumbnailCache {
     pub fn get(
