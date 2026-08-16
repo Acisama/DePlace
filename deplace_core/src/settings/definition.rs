@@ -97,7 +97,7 @@ pub struct Settings {
         name = "Timezone",
         description = "The timezone to use for the chat",
         section = SettingsSection::General,
-        uses_cloud = None,
+        uses_cloud = Some(true),
         default = chrono_tz::Tz::UTC
     )]
     pub timezone: Tz,

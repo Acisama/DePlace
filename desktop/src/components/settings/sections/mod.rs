@@ -1,11 +1,11 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, Context, Div, Element, ElementId, Hsla,
-    InteractiveElement, ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled,
-    div, relative, transparent_black,
+    Animation, AnimationExt, Context, Div, ElementId, Hsla, InteractiveElement, IntoElement,
+    ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div,
+    prelude::FluentBuilder, px, relative, transparent_black,
 };
-use gpui_component::{StyledExt, tooltip::Tooltip};
+use gpui_component::{StyledExt, scroll::ScrollableElement, tooltip::Tooltip};
 use macros::tailwind_div;
 use tokio::{runtime::Runtime, sync::watch};
 
@@ -13,11 +13,12 @@ use crate::{
     components::{CustomStyles, profiles::render_icon},
     theme::{AppTheme, Structure},
 };
-use deplace_core::settings::{MatrixSettingField, Settings};
+use deplace_core::settings::{EnumVariants, MatrixSettingField, Settings};
 
 use super::SettingsView;
 
 pub(super) mod chats;
+pub(super) mod general;
 
 fn get_cloud_stuff(
     uses_cloud: &Option<watch::Sender<bool>>,
@@ -48,10 +49,14 @@ fn setting_toggle(
     theme: &AppTheme,
     structure: &Structure,
     tokio_rt: Arc<Runtime>,
+    window: &mut Window,
+    cx: &mut Context<SettingsView>,
 ) -> Stateful<Div> {
     let (icon, color, tooltip) = get_cloud_stuff(&field.uses_cloud, theme);
 
     let checked = field.value();
+
+    let prev_checked = window.use_keyed_state(field.local_name, cx, |_, _| checked);
 
     tailwind_div!(
         flex,
@@ -138,24 +143,40 @@ fn setting_toggle(
                     .border_color(theme.tile.border)
                     .focus(|style| style.border_color(theme.accent))
                     .bg(bg)
-                    .child(
-                        div()
-                            .rounded_full()
-                            .bg(tick_color)
-                            .size(tick_size)
-                            .with_animation(
-                                ElementId::NamedInteger("toggle-move".into(), checked as u64),
-                                Animation::new(Duration::from_secs_f64(0.15)),
-                                move |this, delta| {
-                                    let x = if checked {
-                                        max_x * delta
-                                    } else {
-                                        max_x - max_x * delta
-                                    };
-                                    this.left(x)
-                                },
-                            ),
-                    )
+                    .child({
+                        let thumb = div().rounded_full().bg(tick_color).size(tick_size);
+
+                        if *prev_checked.read(cx) == checked {
+                            let x = if checked { max_x } else { px(0.0) };
+                            thumb.left(x).into_any_element()
+                        } else {
+                            let duration = Duration::from_secs_f64(0.15);
+
+                            cx.spawn({
+                                let prev_checked = prev_checked.clone();
+                                async move |_, cx| {
+                                    cx.background_executor().timer(duration).await;
+                                    prev_checked.update(cx, |this, _| *this = checked);
+                                }
+                            })
+                            .detach();
+
+                            thumb
+                                .with_animation(
+                                    ElementId::NamedInteger("toggle-move".into(), checked as u64),
+                                    Animation::new(duration),
+                                    move |this, delta| {
+                                        let x = if checked {
+                                            max_x * delta
+                                        } else {
+                                            max_x - max_x * delta
+                                        };
+                                        this.left(x)
+                                    },
+                                )
+                                .into_any_element()
+                        }
+                    })
                     .on_click({
                         let field = field.clone();
                         let settings = settings.clone();
@@ -197,6 +218,8 @@ fn subsection(
             items_center,
             justify_between,
             cursor_pointer,
+            mt(structure.gap),
+            mb(structure.small_gap),
             p(structure.small_gap / 2.0),
             text_color(theme.text.dim),
             hover(text_color(theme.text.normal))
@@ -241,5 +264,176 @@ fn subsection(
 }
 
 fn spacer(structure: &Structure) -> Div {
-    tailwind_div!(h(structure.gap),)
+    tailwind_div!(h(structure.gap * 2.0))
+}
+
+fn setting_dropdown<T>(
+    settings: &Settings,
+    field: &MatrixSettingField<T>,
+    theme: &AppTheme,
+    structure: &Structure,
+    tokio_rt: Arc<Runtime>,
+    active_dropdown: &Option<&'static str>,
+    cx: &mut Context<SettingsView>,
+) -> Stateful<Div>
+where
+    T: EnumVariants + Clone + PartialEq + Send + Sync + 'static,
+{
+    let mut options = T::all_variants();
+    let current_val = field.value();
+
+    let current_label = options
+        .find(|(variant, _)| variant == &current_val)
+        .map(|(_, label)| label)
+        .unwrap_or_else(|| "Select...");
+
+    let (cloud_icon, cloud_color, cloud_tooltip) = get_cloud_stuff(&field.uses_cloud, theme);
+
+    let field_id = field.local_name;
+
+    let is_open = active_dropdown == &Some(field_id);
+
+    tailwind_div!(
+        flex,
+        flex_grow_1,
+        p(structure.small_gap / 2.0),
+        justify_between,
+        cursor_pointer,
+        border_transparent,
+        text_color(theme.text.dim),
+        hover(
+            border_color(theme.tile.border),
+            text_color(theme.text.normal)
+        ),
+        rounded(structure.semi_border_radius()),
+        items_center,
+    )
+    .id(field_id)
+    .child(
+        tailwind_div!(
+            flex,
+            items_center,
+            gap(structure.gap),
+            line_height(relative(1.0)),
+        )
+        .child(field.human_readable)
+        .child(
+            div()
+                .id(SharedString::from(format!("{}-tooltip", field.local_name)))
+                .child(render_icon(
+                    phosphor_svgs::icon::question::REGULAR,
+                    structure.font_size,
+                ))
+                .tooltip({
+                    let description = field.description;
+                    move |window, cx| Tooltip::new(description).build(window, cx)
+                }),
+        ),
+    )
+    .child(
+        tailwind_div!(flex, items_center, gap(structure.gap))
+            .child(
+                tailwind_div!(
+                    relative,
+                    flex,
+                    items_center,
+                    justify_between,
+                    gap(structure.small_gap / 2.0),
+                    paddings(structure.small_gap / 2.0),
+                    border_1,
+                    border_color(theme.tile.border),
+                    text_color(theme.text.normal),
+                    cursor_pointer,
+                    hover(border_color(theme.accent))
+                )
+                .id("dropdown")
+                .on_click(cx.listener({
+                    let id = field_id;
+                    move |view, _, _, cx| {
+                        if view.active_dropdown == Some(id) {
+                            view.active_dropdown = None;
+                        } else {
+                            view.active_dropdown = Some(id);
+                        }
+                        cx.notify();
+                    }
+                }))
+                .child(current_label)
+                .child(tailwind_div!(text_color(theme.text.dim)).child(render_icon(
+                    if is_open {
+                        phosphor_svgs::icon::caret_up::REGULAR
+                    } else {
+                        phosphor_svgs::icon::caret_down::REGULAR
+                    },
+                    structure.font_size * 0.8,
+                )))
+                .children(if is_open {
+                    Some(
+                        tailwind_div!(
+                            absolute,
+                            top(relative(1.0)),
+                            right_0,
+                            flex,
+                            flex_col,
+                            overflow_y_scrollbar,
+                            border_1,
+                            border_color(theme.tile.border),
+                            bg(theme.solid_bg),
+                            rounded(structure.semi_border_radius())
+                        )
+                        .children(options.enumerate().map(
+                            |(idx, (variant, label))| {
+                                let is_selected = variant == current_val;
+                                let field = field.clone();
+                                let settings = settings.clone();
+                                let tokio_rt = tokio_rt.clone();
+
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "{}-opt-{}",
+                                        field.local_name, idx
+                                    )))
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .rounded(structure.semi_border_radius())
+                                    .cursor_pointer()
+                                    .text_color(if is_selected {
+                                        theme.text.normal
+                                    } else {
+                                        theme.text.dim
+                                    })
+                                    .hover(|style| style.bg(gpui::white().opacity(0.1)))
+                                    .on_click(move |_, _, _| {
+                                        let field = field.clone();
+                                        let settings = settings.clone();
+                                        let variant = variant.clone();
+                                        tokio_rt.spawn(async move {
+                                            field.set(variant, &settings).await;
+                                        });
+                                    })
+                                    .child(label)
+                                    .when(is_selected, |el| {
+                                        el.child(tailwind_div!(text_color(theme.accent)).child(
+                                            render_icon(
+                                                phosphor_svgs::icon::check::REGULAR,
+                                                structure.font_size * 0.8,
+                                            ),
+                                        ))
+                                    })
+                            },
+                        )),
+                    )
+                } else {
+                    None
+                }),
+            )
+            .child(
+                div()
+                    .text_color(cloud_color)
+                    .id(SharedString::from(format!("{}-cloud", field.local_name)))
+                    .child(render_icon(cloud_icon, structure.font_size * 1.2))
+                    .tooltip(move |window, cx| Tooltip::new(cloud_tooltip).build(window, cx)),
+            ),
+    )
 }

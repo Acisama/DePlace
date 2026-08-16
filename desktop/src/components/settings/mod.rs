@@ -4,7 +4,7 @@ use deplace_core::settings::{Settings, SettingsSection};
 use gpui::{
     AnyElement, App, Context, Element, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    UniformListScrollHandle, actions, div, px, relative,
+    UniformListScrollHandle, Window, actions, div, px, relative,
 };
 use gpui_component::{StyledExt, scroll::ScrollableElement};
 use macros::tailwind_div;
@@ -12,8 +12,9 @@ use tokio::runtime::Runtime;
 
 use crate::{
     components::{
-        CustomStyles, close_button, floating_tile, profiles::render_icon,
-        settings::sections::chats::render_chats_section,
+        CustomStyles, close_button, floating_tile,
+        profiles::render_icon,
+        settings::sections::{chats::render_chats_section, general::render_general_section},
     },
     theme::{AppTheme, DeplaceThings, Structure},
     watch_bridge::notify_on_change,
@@ -29,6 +30,7 @@ pub struct SettingsView {
 
     active_section: Option<UiSettingsSection>,
     expanded_subsections: HashSet<SharedString>,
+    active_dropdown: Option<&'static str>,
 
     focus: FocusHandle,
     scroll_handle: UniformListScrollHandle,
@@ -46,6 +48,7 @@ impl SettingsView {
 
             active_section: None,
             expanded_subsections: HashSet::new(),
+            active_dropdown: None,
 
             scroll_handle: UniformListScrollHandle::new(),
             focus,
@@ -73,6 +76,8 @@ struct UiSettingsSection {
         &Settings,
         Arc<Runtime>,
         &HashSet<SharedString>,
+        &Option<&'static str>,
+        &mut Window,
         &mut Context<SettingsView>,
     ) -> AnyElement,
 }
@@ -136,19 +141,19 @@ const SETTINGS_SECTIONS: &[SettingsItem] = &[
         title: "General",
         id: SettingsSection::General,
         icon: phosphor_svgs::icon::sliders::FILL,
-        render_fn: |_, _, _, _, _, _| div().into_any(),
+        render_fn: render_general_section,
     }),
     SettingsItem::Section(UiSettingsSection {
         title: "Appearance",
         id: SettingsSection::Appearance,
         icon: phosphor_svgs::icon::palette::REGULAR,
-        render_fn: |_, _, _, _, _, _| div().into_any(),
+        render_fn: |_, _, _, _, _, _, _, _| div().into_any(),
     }),
     SettingsItem::Section(UiSettingsSection {
         title: "Audio",
         id: SettingsSection::Audio,
         icon: phosphor_svgs::icon::headphones::FILL,
-        render_fn: |_, _, _, _, _, _| div().into_any(),
+        render_fn: |_, _, _, _, _, _, _, _| div().into_any(),
     }),
     SettingsItem::Section(UiSettingsSection {
         title: "Chats",
@@ -161,7 +166,7 @@ const SETTINGS_SECTIONS: &[SettingsItem] = &[
         title: "Updates",
         id: SettingsSection::Updates,
         icon: phosphor_svgs::icon::arrows_clockwise::FILL,
-        render_fn: |_, _, _, _, _, _| div().into_any(),
+        render_fn: |_, _, _, _, _, _, _, _| div().into_any(),
     }),
 ];
 
@@ -169,13 +174,13 @@ const PROFILE_SECTION: UiSettingsSection = UiSettingsSection {
     title: "Profile",
     id: SettingsSection::Profile,
     icon: phosphor_svgs::icon::pencil_simple::FILL,
-    render_fn: |_, _, _, _, _, _| div().into_any(),
+    render_fn: |_, _, _, _, _, _, _, _| div().into_any(),
 };
 
 impl Render for SettingsView {
     fn render(
         &mut self,
-        _window: &mut gpui::Window,
+        window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> impl gpui::IntoElement {
         let theme = cx.app_theme().clone();
@@ -257,6 +262,8 @@ impl Render for SettingsView {
                         &self.settings,
                         self.tokio_rt.clone(),
                         &self.expanded_subsections,
+                        &self.active_dropdown,
+                        window,
                         cx,
                     )),
             ),

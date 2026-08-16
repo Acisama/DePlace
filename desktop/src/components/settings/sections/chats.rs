@@ -1,7 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use deplace_core::settings::Settings;
-use gpui::{AnyElement, Context, Element, ParentElement, SharedString, Styled, div};
+use gpui::{AnyElement, Context, Element, ParentElement, SharedString, Styled, Window};
 use macros::tailwind_div;
 use tokio::runtime::Runtime;
 
@@ -13,17 +13,17 @@ use crate::{
     theme::{AppTheme, Structure},
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_chats_section(
     theme: &AppTheme,
     structure: &Structure,
     settings: &Settings,
     tokio_rt: Arc<Runtime>,
     expanded_subsections: &HashSet<SharedString>,
+    _active_dropdown: &Option<&'static str>,
+    window: &mut Window,
     cx: &mut Context<SettingsView>,
 ) -> AnyElement {
-    let _ = expanded_subsections;
-    let _ = cx;
-
     tailwind_div!(w_full, pt(structure.small_gap), px(structure.gap))
         .child(
             subsection(
@@ -40,6 +40,8 @@ pub fn render_chats_section(
                 theme,
                 structure,
                 tokio_rt.clone(),
+                window,
+                cx,
             ))
             .child(setting_toggle(
                 settings,
@@ -47,6 +49,8 @@ pub fn render_chats_section(
                 theme,
                 structure,
                 tokio_rt.clone(),
+                window,
+                cx,
             ))
             .child(spacer(structure))
             .child(setting_toggle(
@@ -55,6 +59,8 @@ pub fn render_chats_section(
                 theme,
                 structure,
                 tokio_rt.clone(),
+                window,
+                cx,
             ))
             .child(setting_toggle(
                 settings,
@@ -62,6 +68,8 @@ pub fn render_chats_section(
                 theme,
                 structure,
                 tokio_rt.clone(),
+                window,
+                cx,
             )),
         )
         .into_any()
