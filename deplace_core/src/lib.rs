@@ -104,7 +104,7 @@ pub async fn try_restore() -> RestoreResult {
         user_id: user_id.clone(),
         device_id: device_id.clone(),
     };
-    let state = AppState::new(client.clone(), device).await;
+    let state = AppState::new(client.clone(), device, settings).await;
     spawn_room_sync(&client, &state);
 
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");

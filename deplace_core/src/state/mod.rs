@@ -11,10 +11,13 @@ use matrix_sdk::{
 use ruma::events::presence::PresenceEventContent;
 use tokio::sync::watch::{self, Sender};
 
-use crate::matrix_api::{
-    account_data::{BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data},
-    sync::{ParentToChildren, reclassify_rooms},
-    timeline::TimelineManager,
+use crate::{
+    matrix_api::{
+        account_data::{BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data},
+        sync::{ParentToChildren, reclassify_rooms},
+        timeline::TimelineManager,
+    },
+    settings::Settings,
 };
 
 #[derive(Clone)]
@@ -38,6 +41,7 @@ pub struct AppState {
 struct AppStateInner {
     pub client: Client,
     pub user_device: UserDevice,
+    pub settings: Settings,
     dm_rooms: Sender<RoomMap>,
     single_rooms: Sender<RoomMap>,
     server_rooms: Sender<RoomMap>,
@@ -57,7 +61,7 @@ struct AppStateInner {
 }
 
 impl AppState {
-    pub async fn new(client: Client, user_device: UserDevice) -> Self {
+    pub async fn new(client: Client, user_device: UserDevice, settings: Settings) -> Self {
         let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
 
         let last_room_id = breadcrumbs_content.recent_rooms.first().cloned();
@@ -103,6 +107,7 @@ impl AppState {
             inner: Arc::new(AppStateInner {
                 client,
                 user_device,
+                settings,
                 dm_rooms,
                 single_rooms,
                 server_rooms,
@@ -131,6 +136,11 @@ impl AppState {
     /// Retrieves the `TimelineManager` of the app
     pub fn timeline_manager(&self) -> TimelineManager {
         self.inner.timeline_manager.clone()
+    }
+
+    /// Retrieves the `Settings` of the app
+    pub fn settings(&self) -> Settings {
+        self.inner.settings.clone()
     }
 
     // Direct access to constant state
