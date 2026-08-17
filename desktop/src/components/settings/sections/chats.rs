@@ -107,6 +107,7 @@ pub fn render_chats_section(
                 theme,
                 structure,
                 tokio_rt.clone(),
+                5,
             )),
         )
         .into_any()

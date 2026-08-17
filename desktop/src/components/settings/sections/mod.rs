@@ -508,6 +508,7 @@ fn setting_enumset_toggles<T: EnumVariants + EnumSetType>(
     theme: &AppTheme,
     structure: &Structure,
     tokio_rt: Arc<Runtime>,
+    num_cols: u16,
 ) -> Stateful<Div> {
     let mut variants: Vec<(T, &str)> = T::all_variants().collect();
     variants.sort_by_key(|(_, label)| *label);
@@ -579,7 +580,7 @@ fn setting_enumset_toggles<T: EnumVariants + EnumSetType>(
     .child(
         tailwind_div!(
             grid,
-            grid_cols(5),
+            grid_cols(num_cols),
             gap(structure.small_gap),
             text_color(theme.text.dim),
             text_size(structure.font_size * 0.9)

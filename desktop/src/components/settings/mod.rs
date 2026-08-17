@@ -28,7 +28,7 @@ pub struct SettingsView {
     settings: Settings,
     tokio_rt: Arc<Runtime>,
 
-    active_section: Option<UiSettingsSection>,
+    active_section: UiSettingsSection,
     expanded_subsections: HashSet<SharedString>,
     active_dropdown: Option<&'static str>,
 
@@ -46,7 +46,7 @@ impl SettingsView {
             settings,
             tokio_rt,
 
-            active_section: None,
+            active_section: PROFILE_SECTION,
             expanded_subsections: HashSet::new(),
             active_dropdown: None,
 
@@ -136,7 +136,7 @@ impl SettingsItem {
                     el.on_click(cx.listener({
                         let section = section.clone();
                         move |view, _event, _window, cx| {
-                            view.active_section = Some(section.clone());
+                            view.active_section = section.clone();
                             cx.notify();
                         }
                     }))
@@ -200,7 +200,7 @@ impl Render for SettingsView {
         let theme = &theme;
         let structure = &structure;
 
-        let active_section = self.active_section.as_ref().unwrap_or(&PROFILE_SECTION);
+        let active_section = &self.active_section;
 
         tailwind_div!(
             flex,

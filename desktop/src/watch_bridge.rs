@@ -39,6 +39,11 @@ pub fn execute_on_change<T, V, F>(
 
     cx.spawn(async move |this, cx| {
         while rx.changed().await.is_ok() {
+            if this.upgrade().is_none() {
+                tracing::debug!("Stopping listener, {} entity is gone", name);
+                break;
+            }
+
             let val = rx.borrow().clone();
 
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -46,19 +51,23 @@ pub fn execute_on_change<T, V, F>(
                     f(v, window, cx, val.clone(), prev.clone())
                 })
             })) {
-                Ok(Ok(())) => {}
+                Ok(Ok(())) => {
+                    prev = val;
+                }
                 Ok(Err(e)) => {
-                    tracing::error!("Stopping listener, {} entity is gone: {:?}", name, e);
-                    break;
+                    tracing::warn!(
+                        "Skipping update for {} listener, window unavailable: {:?}",
+                        name,
+                        e
+                    );
                 }
                 Err(e) => {
                     tracing::error!("Panic while executing on change for {}: {:?}", name, e);
+                    prev = val;
                 }
             }
-
-            prev = val;
         }
-        tracing::error!("Listener for {} stopped", name);
+        tracing::debug!("Listener for {} stopped", name);
     })
     .detach();
 }

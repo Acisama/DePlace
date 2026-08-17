@@ -146,11 +146,7 @@ pub const SYSTEM_MESSAGE_MODES: &[(&str, &str, EnumSet<SystemMessageType>)] = &[
     (
         "Discord",
         "Only show discord-like system messages",
-        enum_set!(
-            SystemMessageType::CallInvite
-                | SystemMessageType::MembershipChange
-                | SystemMessageType::RoomPinnedEvents
-        ),
+        enum_set!(SystemMessageType::MembershipChange | SystemMessageType::RoomPinnedEvents),
     ),
     (
         "Default",
