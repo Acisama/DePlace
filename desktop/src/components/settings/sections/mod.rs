@@ -1,12 +1,13 @@
 use core::str;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{cell::Cell, collections::HashSet, rc::Rc, sync::Arc, time::Duration};
 
 use gpui::{
-    Animation, AnimationExt, Context, Div, ElementId, Hsla, InteractiveElement, IntoElement,
-    ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, deferred,
-    div, prelude::FluentBuilder, px, relative, transparent_black,
+    Animation, AnimationExt, Bounds, Context, Div, ElementId, Hsla, InteractiveElement,
+    IntoElement, MouseDownEvent, ParentElement, Pixels, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Window, canvas, deferred, div, prelude::FluentBuilder, px,
+    relative, transparent_black,
 };
-use gpui_component::{StyledExt, scroll::ScrollableElement, tooltip::Tooltip};
+use gpui_component::{StyledExt, tooltip::Tooltip};
 use macros::tailwind_div;
 use tokio::{runtime::Runtime, sync::watch};
 
@@ -295,6 +296,8 @@ where
 
     let is_open = active_dropdown == &Some(field_id);
 
+    let popup_bounds: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
+
     tailwind_div!(
         flex,
         flex_grow_1,
@@ -321,7 +324,7 @@ where
         .child(field.human_readable)
         .child(
             div()
-                .id(SharedString::from(format!("{}-tooltip", field.local_name)))
+                .id("tooltip")
                 .child(render_icon(
                     phosphor_svgs::icon::question::REGULAR,
                     structure.font_size,
@@ -341,8 +344,8 @@ where
                     items_center,
                     justify_between,
                     gap(structure.small_gap / 2.0),
-                    py(structure.small_gap / 4.0),
-                    px(structure.small_gap / 2.0),
+                    py(structure.small_gap / 2.0),
+                    px(structure.small_gap),
                     rounded(structure.semi_border_radius()),
                     border_1,
                     border_color(theme.tile.border),
@@ -364,6 +367,18 @@ where
                         cx.notify();
                     }
                 }))
+                .on_mouse_down_out({
+                    let id = field_id;
+                    let popup_bounds = popup_bounds.clone();
+                    cx.listener(move |view, event: &MouseDownEvent, _, cx| {
+                        if view.active_dropdown == Some(id)
+                            && !popup_bounds.get().contains(&event.position)
+                        {
+                            view.active_dropdown = None;
+                            cx.notify();
+                        }
+                    })
+                })
                 .child(current_label)
                 .child(tailwind_div!(text_color(theme.text.dim)).child(render_icon(
                     if is_open {
@@ -376,19 +391,34 @@ where
                 .children(if is_open {
                     Some(deferred(
                         tailwind_div!(
-                            id(SharedString::from(format!("{}-popup", field.local_name))),
+                            id("popup"),
                             absolute,
                             top(relative(1.0)),
-                            right_0,
+                            mt(structure.small_gap),
+                            left(px(-1.0)),
                             flex,
                             flex_col,
                             w(structure.settings.dropdown_width),
                             overflow_y_scroll,
+                            paddings(structure.small_gap / 2.0)
                             border_1,
+                            flex,
+                            flex_col,
+                            gap(structure.divider_width),
                             border_color(theme.tile.border),
                             bg(theme.solid_bg),
-                            rounded(structure.semi_border_radius())
+                            rounded(structure.semi_border_radius()),
                         )
+                        .occlude()
+                        .child({
+                            let popup_bounds = popup_bounds.clone();
+                            canvas(
+                                move |bounds, _, _| popup_bounds.set(bounds),
+                                |_, _, _, _| {},
+                            )
+                            .absolute()
+                            .inset_0()
+                        })
                         .children(options.into_iter().enumerate().map(
                             |(idx, (variant, label))| {
                                 let is_selected = variant == current_val;
@@ -396,39 +426,39 @@ where
                                 let settings = settings.clone();
                                 let tokio_rt = tokio_rt.clone();
 
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "{}-opt-{}",
-                                        field.local_name, idx
-                                    )))
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .rounded(structure.semi_border_radius())
-                                    .cursor_pointer()
-                                    .text_color(if is_selected {
-                                        theme.text.normal
-                                    } else {
-                                        theme.text.dim
-                                    })
-                                    .hover(|style| style.bg(gpui::white().opacity(0.1)))
-                                    .on_click(move |_, _, _| {
-                                        let field = field.clone();
-                                        let settings = settings.clone();
-                                        let variant = variant.clone();
-                                        tokio_rt.spawn(async move {
-                                            field.set(variant, &settings).await;
-                                        });
-                                    })
-                                    .child(label)
-                                    .when(is_selected, |el| {
-                                        el.child(tailwind_div!(text_color(theme.accent)).child(
+                                tailwind_div!(
+                                    flex,
+                                    items_center,
+                                    justify_between,
+                                    rounded(structure.semi_border_radius()),
+                                    cursor_pointer,
+                                    text_color(theme.text.dim),
+                                    paddings(structure.small_gap / 2.0),
+                                    hover(bg(theme.solid_hover_bg))
+                                )
+                                .id(idx)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    let field = field.clone();
+                                    let settings = settings.clone();
+                                    let variant = variant.clone();
+                                    tokio_rt.spawn(async move {
+                                        field.set(variant, &settings).await;
+                                    });
+
+                                    this.active_dropdown = None;
+                                    cx.notify();
+                                }))
+                                .child(label)
+                                .when(is_selected, |el| {
+                                    el.text_color(theme.text.normal)
+                                        .bg(theme.solid_hover_bg)
+                                        .child(tailwind_div!(text_color(theme.accent)).child(
                                             render_icon(
                                                 phosphor_svgs::icon::check::REGULAR,
                                                 structure.font_size * 0.8,
                                             ),
                                         ))
-                                    })
+                                })
                             },
                         )),
                     ))
@@ -439,7 +469,7 @@ where
             .child(
                 div()
                     .text_color(cloud_color)
-                    .id(SharedString::from(format!("{}-cloud", field.local_name)))
+                    .id("cloud")
                     .child(render_icon(cloud_icon, structure.font_size * 1.2))
                     .tooltip(move |window, cx| Tooltip::new(cloud_tooltip).build(window, cx)),
             ),

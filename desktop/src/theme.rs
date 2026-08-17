@@ -227,8 +227,8 @@ impl AppTheme {
         let green = hsla(0.3682, 0.5446, 0.6039, 1.0);
         let yellow = hsla(0.155, 0.786, 0.743, 1.0);
 
-        let solid_bg = hsla(0.667, 0.211, 0.07, 1.0);
-        let solid_hover_bg = solid_bg.lighten(0.8);
+        let solid_bg = hsla(0.6667, 0.5000, 0.0314, 1.0);
+        let solid_hover_bg = hsla(0.6667, 0.2105, 0.1490, 1.0);
 
         Self {
             blur: px(20.0),
@@ -241,8 +241,8 @@ impl AppTheme {
             },
             text: Text {
                 muted: muted_color,
-                dim: hsla(0.66, 0.15, 0.5, 1.0),
-                normal: hsla(0.66, 0.15, 0.8, 1.0),
+                dim: hsla(0.66, 0.15, 0.4, 1.0),
+                normal: hsla(0.66, 0.15, 0.7, 1.0),
             },
             input: InputTheme {
                 background: hsla(0.0, 0.0, 0.0, 0.2),
