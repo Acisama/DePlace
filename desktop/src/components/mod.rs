@@ -6,6 +6,8 @@ use gpui::{
     prelude::*, px, transparent_black,
 };
 use gpui::{RenderImage, Role};
+use gpui_component::text::Text;
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{
     StyledExt,
     input::{Input, InputState},
@@ -155,4 +157,28 @@ pub fn close_button(
     .cursor_pointer()
     .child(render_icon(phosphor_svgs::icon::x::REGULAR, size))
     .id(id)
+}
+
+pub trait TooltipExt<T> {
+    fn custom_tooltip(self, text: &'static str, theme: &AppTheme, structure: &Structure) -> T;
+}
+
+impl<T: StatefulInteractiveElement> TooltipExt<T> for T {
+    fn custom_tooltip(self, text: &'static str, theme: &AppTheme, structure: &Structure) -> T {
+        self.tooltip({
+            let text_normal = theme.text.normal;
+            let border_color = theme.tile.border;
+            let bg_color = theme.solid_bg;
+            let inner = structure.semi_border_radius();
+
+            move |window: &mut Window, cx| {
+                Tooltip::new(text)
+                    .text_color(text_normal)
+                    .border_color(border_color)
+                    .rounded(inner)
+                    .bg(bg_color)
+                    .build(window, cx)
+            }
+        })
+    }
 }

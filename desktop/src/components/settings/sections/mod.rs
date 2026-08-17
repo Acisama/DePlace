@@ -12,7 +12,7 @@ use macros::tailwind_div;
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{CustomStyles, profiles::render_icon},
+    components::{CustomStyles, TooltipExt, profiles::render_icon},
     theme::{AppTheme, Structure},
 };
 use deplace_core::settings::{EnumVariants, MatrixSettingField, Settings};
@@ -318,7 +318,7 @@ where
         tailwind_div!(
             flex,
             items_center,
-            gap(structure.gap),
+            gap(structure.small_gap),
             line_height(relative(1.0)),
         )
         .child(field.human_readable)
@@ -329,10 +329,7 @@ where
                     phosphor_svgs::icon::question::REGULAR,
                     structure.font_size,
                 ))
-                .tooltip({
-                    let description = field.description;
-                    move |window, cx| Tooltip::new(description).build(window, cx)
-                }),
+                .custom_tooltip(field.description, theme, structure),
         ),
     )
     .child(
@@ -437,21 +434,24 @@ where
                                     hover(bg(theme.solid_hover_bg))
                                 )
                                 .id(idx)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    let field = field.clone();
-                                    let settings = settings.clone();
-                                    let variant = variant.clone();
-                                    tokio_rt.spawn(async move {
-                                        field.set(variant, &settings).await;
-                                    });
+                                .when(!is_selected, |el| {
+                                    el.on_click(cx.listener(move |this, _, _, cx| {
+                                        let field = field.clone();
+                                        let settings = settings.clone();
+                                        let variant = variant.clone();
+                                        tokio_rt.spawn(async move {
+                                            field.set(variant, &settings).await;
+                                        });
 
-                                    this.active_dropdown = None;
-                                    cx.notify();
-                                }))
+                                        this.active_dropdown = None;
+                                        cx.notify();
+                                    }))
+                                })
                                 .child(label)
                                 .when(is_selected, |el| {
                                     el.text_color(theme.text.normal)
                                         .bg(theme.solid_hover_bg)
+                                        .cursor_default()
                                         .child(tailwind_div!(text_color(theme.accent)).child(
                                             render_icon(
                                                 phosphor_svgs::icon::check::REGULAR,
@@ -471,7 +471,7 @@ where
                     .text_color(cloud_color)
                     .id("cloud")
                     .child(render_icon(cloud_icon, structure.font_size * 1.2))
-                    .tooltip(move |window, cx| Tooltip::new(cloud_tooltip).build(window, cx)),
+                    .custom_tooltip(cloud_tooltip, theme, structure),
             ),
     )
 }
