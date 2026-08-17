@@ -10,10 +10,8 @@ use matrix_sdk::{Room, ruma::OwnedUserId};
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{
-        AvatarCache,
-        profiles::{MemberRenderer, render_icon, render_room_icon},
-    },
+    cache::AvatarCache,
+    components::profiles::{MemberRenderer, render_icon, render_room_icon},
     theme::DeplaceThings,
     watch_bridge::notify_on_change,
 };

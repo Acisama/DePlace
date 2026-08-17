@@ -32,17 +32,17 @@ fn get_cloud_stuff(
         Some(true) => (
             phosphor_svgs::icon::cloud::REGULAR,
             theme.accent,
-            "This setting is synced with the cloud.",
+            "This setting is synced across all devices",
         ),
         Some(false) => (
             phosphor_svgs::icon::cloud_slash::REGULAR,
             theme.text.dim,
-            "This setting is not synced with the cloud.",
+            "This setting is not synced across all devices",
         ),
         None => (
             phosphor_svgs::icon::cloud_slash::REGULAR,
             theme.text.muted,
-            "This setting can not be synced with the cloud.",
+            "This setting can not be synced across all devices",
         ),
     }
 }

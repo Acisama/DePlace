@@ -29,6 +29,7 @@ imbl = "6.1.0"
 infer = "0.22.0"
 interprocess = { version = "2", features = ["tokio"] }
 # livekit = "0.8.1"
+lru = "0.18.2"
 matrix-sdk = {
   version = "0.18.0",
   features = [

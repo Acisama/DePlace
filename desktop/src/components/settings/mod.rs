@@ -3,8 +3,8 @@ use std::{collections::HashSet, sync::Arc};
 use deplace_core::settings::{Settings, SettingsSection};
 use gpui::{
     AnyElement, App, Context, Element, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    UniformListScrollHandle, Window, actions, div, prelude::FluentBuilder, px, relative,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, actions, div,
+    prelude::FluentBuilder, px, relative,
 };
 use gpui_component::{StyledExt, scroll::ScrollableElement};
 use macros::tailwind_div;
@@ -33,7 +33,6 @@ pub struct SettingsView {
     active_dropdown: Option<&'static str>,
 
     focus: FocusHandle,
-    scroll_handle: UniformListScrollHandle,
 }
 
 impl SettingsView {
@@ -50,7 +49,6 @@ impl SettingsView {
             expanded_subsections: HashSet::new(),
             active_dropdown: None,
 
-            scroll_handle: UniformListScrollHandle::new(),
             focus,
         }
     }

@@ -15,14 +15,11 @@ use gpui::{
 };
 use gpui_component::{
     StyledExt,
-    input::{Input, InputEvent, InputState, RopeExt as _},
+    input::{Input, InputState},
     scroll::ScrollableElement,
 };
 use macros::tailwind_div;
-use matrix_sdk::{
-    Room,
-    ruma::{OwnedEventId, OwnedRoomId},
-};
+use matrix_sdk::{Room, ruma::OwnedEventId};
 use mime_guess::from_path;
 use tokio::{
     fs::{self, File},
@@ -32,19 +29,19 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    components::{ByteSize, CustomStyles, chat::SendMessage, profiles::render_icon},
+    attachments::{Attachment, AttachmentPreview, AttachmentState},
+    components::{ByteSize, CustomStyles, chat::timeline::SendMessage, profiles::render_icon},
     helpers::file_color,
-    room_state::{Attachment, AttachmentPreview, AttachmentState, RoomStateStore},
     theme::DeplaceThings,
-    watch_bridge::{execute_on_change, notify_on_change},
+    watch_bridge::notify_on_change,
 };
 
-pub struct ChatInputBar {
+pub struct ChatInputView {
     pub chat_input: Entity<InputState>,
-    active_room: Receiver<Option<Room>>,
-    membership_map: Receiver<MembershipMap>,
+    _membership_map: Receiver<MembershipMap>,
 
-    room_store: RoomStateStore,
+    attachments: HashMap<Uuid, Attachment>,
+
     data_size_unit: Receiver<DataSizeUnit>,
 
     hovered_button: Option<&'static str>,
@@ -59,14 +56,13 @@ fn lerp_hsla(from: Hsla, to: Hsla, t: f32) -> Hsla {
     }
 }
 
-impl ChatInputBar {
+impl ChatInputView {
     pub fn new(
         state: &AppState,
         window: &mut Window,
         cx: &mut Context<Self>,
-        room_store: RoomStateStore,
+        active_room: Room,
     ) -> Self {
-        let active_room = state.active_room();
         let membership_map = state.membership_map();
         let data_size_unit = state.settings().watch_data_size_unit();
 
@@ -74,84 +70,24 @@ impl ChatInputBar {
             InputState::new(window, cx)
                 .multi_line(true)
                 .auto_grow(1, 10)
-                .placeholder(
-                    active_room
-                        .borrow()
-                        .clone()
-                        .get_input_placeholder(&membership_map.borrow()),
-                )
+                .placeholder(active_room.get_input_placeholder(&membership_map.borrow()))
         });
 
-        notify_on_change(room_store.subscribe(), cx);
         notify_on_change(data_size_unit.clone(), cx);
 
-        let view = Self {
+        Self {
             chat_input: chat_input.clone(),
-            active_room: active_room.clone(),
-            membership_map: membership_map.clone(),
+            _membership_map: membership_map.clone(),
             data_size_unit: data_size_unit.clone(),
-            room_store,
+
+            attachments: HashMap::new(),
 
             hovered_button: None,
-        };
-
-        cx.subscribe(&chat_input, |view: &mut Self, chat_input, event, cx| {
-            if let InputEvent::Change = event
-                && let Some(room) = view.active_room.borrow().clone()
-            {
-                view.room_store.mutate(room.room_id(), |room_state| {
-                    room_state.chat_input = chat_input.read(cx).text().to_string().into();
-                });
-            }
-        })
-        .detach();
-
-        execute_on_change(
-            active_room.clone(),
-            cx,
-            "chat_input",
-            move |view, window, cx, room, _| {
-                view.on_room_change(window, cx, room.map(|r| r.room_id().to_owned()))
-            },
-        );
-
-        view
-    }
-
-    fn on_room_change(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        room_id: Option<OwnedRoomId>,
-    ) {
-        let value = if let Some(room_id) = room_id {
-            self.room_store.get(&room_id).unwrap_or_default().chat_input
-        } else {
-            SharedString::default()
-        };
-
-        self.chat_input.update(cx, |input, cx| {
-            input.set_value(value, window, cx);
-            let end = input.text().offset_to_position(input.text().len());
-            input.set_cursor_position(end, window, cx);
-        });
-
-        self.chat_input.focus_handle(cx).focus(window, cx);
-
-        self.update_placeholder(window, cx);
-    }
-
-    fn update_placeholder(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let active_room = self.active_room.borrow().clone();
-        let map = self.membership_map.borrow().clone();
-
-        self.chat_input.update(cx, |input, cx| {
-            input.set_placeholder(active_room.get_input_placeholder(&map), window, cx)
-        });
+        }
     }
 }
 
-impl Focusable for ChatInputBar {
+impl Focusable for ChatInputView {
     fn focus_handle(&self, cx: &gpui::App) -> FocusHandle {
         self.chat_input.focus_handle(cx)
     }
@@ -170,9 +106,9 @@ pub enum SendEvent {
     },
 }
 
-impl gpui::EventEmitter<SendEvent> for ChatInputBar {}
+impl gpui::EventEmitter<SendEvent> for ChatInputView {}
 
-impl Render for ChatInputBar {
+impl Render for ChatInputView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.app_theme();
         let structure = cx.structure();
@@ -211,7 +147,7 @@ impl Render for ChatInputBar {
                 })
             )
             .id(id)
-            .on_click(cx.listener(move |view, _, _, cx| {
+            .on_click(cx.listener(move |_, _, _, cx| {
                 let paths_rx = cx.prompt_for_paths(PathPromptOptions {
                     files: true,
                     directories: false,
@@ -219,18 +155,9 @@ impl Render for ChatInputBar {
                     prompt: Some(SharedString::new("Upload files")),
                 });
 
-                let room_id = view
-                    .active_room
-                    .borrow()
-                    .as_ref()
-                    .map(|r| r.room_id().to_owned());
-
                 let theme = cx.app_theme().clone();
                 cx.spawn(async move |this, cx| {
                     let Ok(Ok(Some(paths))) = paths_rx.await else {
-                        return;
-                    };
-                    let Some(room_id) = room_id else {
                         return;
                     };
 
@@ -247,12 +174,10 @@ impl Render for ChatInputBar {
 
                         let mut attachment = Attachment::new(&name, mime_type.clone());
 
-                        let room_id = room_id.clone();
                         let mut update_attachment = |attachment: &Attachment| {
-                            if let Err(e) = this.update(cx, |this, _cx| {
-                                this.room_store.mutate(&room_id, |room_state| {
-                                    room_state.attachments.insert(id, attachment.clone());
-                                });
+                            if let Err(e) = this.update(cx, |this, cx| {
+                                this.attachments.insert(id, attachment.clone());
+                                cx.notify();
                             }) {
                                 tracing::error!("Failed to update attachment state: {}", e);
                             }
@@ -330,19 +255,9 @@ impl Render for ChatInputBar {
                 cx.notify();
             }))
             .child(render_icon(svg, icon_size - structure.small_gap * 2.0))
-            .with_animation(
-                ElementId::Name(format!("{id}-hover-{hovered}").into()),
-                Animation::new(theme.hover_animation_duration).with_easing(ease_in_out),
-                move |el, delta| el.bg(lerp_hsla(from, to, delta)),
-            )
         };
 
-        let active_room = self.active_room.borrow().clone();
-        let active_room_id = active_room.as_ref().map(|r| r.room_id().to_owned());
-
-        let attachments = active_room_id
-            .and_then(|id| self.room_store.get(&id).map(|state| state.attachments))
-            .filter(|a| !a.is_empty());
+        let attachments = (!self.attachments.is_empty()).then_some(self.attachments.clone());
 
         tailwind_div!(w_full, flex, flex_col)
             .when_some(attachments.clone(), |el, attachments| {
@@ -403,7 +318,7 @@ impl Render for ChatInputBar {
                         .id(id.to_string())
                         .on_aux_click(cx.listener({
                             let id = *id;
-                            move |view, ev, _, _| {
+                            move |view, ev, _, cx| {
                                 if matches!(
                                     ev,
                                     ClickEvent::Mouse(MouseClickEvent {
@@ -413,18 +328,9 @@ impl Render for ChatInputBar {
                                         },
                                         ..
                                     })
-                                ) {
-                                    let room_id = view
-                                        .active_room
-                                        .borrow()
-                                        .as_ref()
-                                        .map(|r| r.room_id().to_owned());
-
-                                    if let Some(room_id) = room_id {
-                                        view.room_store.mutate(&room_id, |room_state| {
-                                            room_state.attachments.remove(&id);
-                                        });
-                                    }
+                                ) && view.attachments.remove(&id).is_some()
+                                {
+                                    cx.notify();
                                 }
                             }
                         }))
@@ -451,32 +357,23 @@ impl Render for ChatInputBar {
                 })
                 .track_focus(&input_focus_handle)
                 .on_action(cx.listener(|this, _event: &SendMessage, _window, cx| {
-                    let Some(room) = this.active_room.borrow().clone() else {
-                        return;
-                    };
-
                     let text = this.chat_input.read(cx).text().to_string();
                     let attachments: Vec<MatrixAttachment> = this
-                        .room_store
-                        .get(room.room_id())
-                        .map(|s| {
-                            s.attachments
-                                .values()
-                                .cloned()
-                                .filter_map(|a| {
-                                    if let AttachmentState::Loaded(bytes) = a.state {
-                                        Some(MatrixAttachment {
-                                            filename: a.name.into(),
-                                            mime_type: (*a.mime_type).clone(),
-                                            data: (*bytes).clone(),
-                                        })
-                                    } else {
-                                        None
-                                    }
+                        .attachments
+                        .values()
+                        .cloned()
+                        .filter_map(|a| {
+                            if let AttachmentState::Loaded(bytes) = a.state {
+                                Some(MatrixAttachment {
+                                    filename: a.name.into(),
+                                    mime_type: (*a.mime_type).clone(),
+                                    data: (*bytes).clone(),
                                 })
-                                .collect()
+                            } else {
+                                None
+                            }
                         })
-                        .unwrap_or_default();
+                        .collect();
 
                     if text.trim().is_empty() && attachments.is_empty() {
                         return;
@@ -491,9 +388,8 @@ impl Render for ChatInputBar {
                     this.chat_input.update(cx, |input, cx| {
                         input.set_value("", _window, cx);
                     });
-                    this.room_store.mutate(room.room_id(), |state| {
-                        state.attachments.clear();
-                    });
+                    this.attachments.clear();
+                    cx.notify();
                 }))
                 .child(chat_input_button(
                     phosphor_svgs::icon::plus::REGULAR,

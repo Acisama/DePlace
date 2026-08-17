@@ -1,11 +1,7 @@
 use std::{ops::Range, rc::Rc, sync::Arc, time::Duration};
 
 use deplace_core::{
-    NameExt,
-    colors::ColorExt,
-    formatting::fit_dimensions,
-    settings::{DataSizeUnit, Settings},
-    state::MembershipMap,
+    NameExt, colors::ColorExt, formatting::fit_dimensions, settings::Settings, state::MembershipMap,
 };
 use gpui::{
     Animation, AnimationExt, AnyElement, App, Div, Element, ElementId, FontStyle, FontWeight,
@@ -19,9 +15,9 @@ use macros::tailwind_div;
 use matrix_sdk::ruma::{OwnedEventId, RoomId, UserId};
 
 use crate::{
+    cache::{AvatarCache, MediaState, ThumbnailCache},
     components::{
-        AvatarCache, CustomStyles,
-        cache::{MediaState, ThumbnailCache},
+        CustomStyles,
         message::{
             CachedEventContent, CachedMessageType, CachedReplyInfo, CachedSendState,
             CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
@@ -820,23 +816,17 @@ impl CachedUserMessage {
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
 
-        tailwind_div!(
-            line_height(relative(1.0)),
-            text_center,
-            justify_center,
-            flex,
-            flex_col
-        )
-        .child(content)
-        .when_some(self.reactions.clone(), |el, reactions| {
-            el.child(render_reactions(
-                reactions,
-                theme,
-                structure,
-                member_avatar,
-                on_toggle_reaction,
-            ))
-        })
+        tailwind_div!(line_height(relative(1.0)), text_center, flex, flex_col)
+            .child(content)
+            .when_some(self.reactions.clone(), |el, reactions| {
+                el.child(render_reactions(
+                    reactions,
+                    theme,
+                    structure,
+                    member_avatar,
+                    on_toggle_reaction,
+                ))
+            })
     }
 }
 

@@ -19,6 +19,7 @@ gpui-platform = { package = "gpui_platform", git = "https://github.com/zed-indus
 image.workspace = true
 infer.workspace = true
 interprocess.workspace = true
+lru.workspace = true
 macros.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true

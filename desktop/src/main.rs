@@ -25,11 +25,13 @@ use crate::theme::Structure;
 const SOCKET_NAME: &str = "deplace.sock";
 
 pub(crate) mod assets;
+pub(crate) mod attachments;
+pub(crate) mod cache;
 pub(crate) mod components;
 pub(crate) mod helpers;
 pub(crate) mod keybinds;
-pub(crate) mod room_state;
 pub(crate) mod theme;
+pub(crate) mod view_lru;
 pub(crate) mod watch_bridge;
 
 #[derive(Serialize, Deserialize)]
@@ -63,12 +65,11 @@ impl GenericState {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| {
-                    EnvFilter::new("warn,desktop=trace,deplace_core=trace,matrix_sdk::http_client=off,zbus=error")
-                }),
-        )
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            EnvFilter::new(
+                "warn,desktop=trace,deplace_core=trace,matrix_sdk::http_client=off,zbus=error",
+            )
+        }))
         .with_target(true)
         .with_file(true)
         .with_line_number(true)

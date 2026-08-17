@@ -11,10 +11,8 @@ use macros::tailwind_div;
 use matrix_sdk::{Room, room::RoomMember, ruma::UserId};
 
 use crate::{
-    components::{
-        CustomStyles,
-        cache::{AvatarCache, MediaState},
-    },
+    cache::{AvatarCache, MediaState},
+    components::CustomStyles,
     theme::{AppTheme, Colors},
 };
 

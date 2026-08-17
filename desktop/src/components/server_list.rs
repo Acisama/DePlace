@@ -16,7 +16,8 @@ use matrix_sdk::{Room, ruma::OwnedRoomId};
 use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
-    components::{AvatarCache, home::ActiveServerChange, profiles::render_room_no_dm},
+    cache::AvatarCache,
+    components::{home::ActiveServerChange, profiles::render_room_no_dm},
     theme::{AppTheme, DeplaceThings, Structure},
     watch_bridge::notify_on_change,
 };

@@ -7,8 +7,8 @@ use serde::Deserialize;
 use tokio::runtime::Runtime;
 
 use crate::{
+    cache::AvatarCache,
     components::{
-        cache::AvatarCache,
         quick_select::{self, QuickSelect},
         settings::{self, SettingsView},
     },

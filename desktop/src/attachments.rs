@@ -1,23 +1,18 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use crate::{
-    components::{ByteSize, message::CachedTimelineItem, profiles::render_icon},
+    components::{ByteSize, profiles::render_icon},
     theme::AppTheme,
 };
 use chrono::{DateTime, Utc};
-use dashmap::DashMap;
 use gpui::{
-    AnyElement, Element, Hsla, ListOffset, ObjectFit, ParentElement, Pixels, SharedString, Styled,
-    StyledImage, img, px,
+    AnyElement, Element, Hsla, ObjectFit, ParentElement, Pixels, SharedString, Styled, StyledImage,
+    img, px,
 };
 use gpui_component::Colorize;
 use macros::tailwind_div;
-use matrix_sdk::ruma::{OwnedRoomId, OwnedUserId, RoomId};
+use matrix_sdk::ruma::{OwnedRoomId, OwnedUserId};
 use mime_guess::Mime;
-use tokio::sync::watch;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -57,47 +52,6 @@ pub struct SearchParameters {
     pub has_link: bool,
 }
 
-#[derive(Default, Clone)]
-pub struct RoomState {
-    pub scroll_offset: ListOffset,
-    pub chat_input: SharedString,
-    pub attachments: BTreeMap<Uuid, Attachment>,
-    pub search_parameters: Option<SearchParameters>,
-    pub search_results: Option<HashMap<OwnedRoomId, Vec<CachedTimelineItem>>>,
-    pub pinned_result: Option<Vec<CachedTimelineItem>>,
-}
-
-#[derive(Clone)]
-pub struct RoomStateStore {
-    pub state: Arc<DashMap<OwnedRoomId, RoomState>>,
-    changed: watch::Sender<()>,
-}
-
-impl RoomStateStore {
-    pub fn new() -> Self {
-        let (changed, _) = watch::channel(());
-        Self {
-            state: Arc::new(DashMap::new()),
-            changed,
-        }
-    }
-
-    pub fn subscribe(&self) -> watch::Receiver<()> {
-        self.changed.subscribe()
-    }
-
-    pub fn mutate(&self, room_id: &RoomId, f: impl FnOnce(&mut RoomState)) {
-        let mut state = self.state.entry(room_id.to_owned()).or_default();
-        f(&mut state);
-
-        self.changed.send_replace(());
-    }
-
-    pub fn get(&self, room_id: &RoomId) -> Option<RoomState> {
-        self.state.get(room_id).map(|e| e.clone())
-    }
-}
-
 impl Attachment {
     pub fn new(name: &str, mime_type: Mime) -> Self {
         Self {
@@ -110,7 +64,7 @@ impl Attachment {
     }
 
     pub fn render_preview(&self, theme: &AppTheme, rounding: Pixels) -> AnyElement {
-        if let AttachmentState::Failed(e) = &self.state {
+        if let AttachmentState::Failed(_) = &self.state {
             return tailwind_div!(
                 size_full,
                 text_center,

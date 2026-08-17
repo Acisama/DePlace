@@ -18,7 +18,8 @@ use serde::Deserialize;
 use tokio::sync::watch::Receiver;
 
 use crate::{
-    components::{cache::AvatarCache, floating_tile, profiles::render_room_icon},
+    cache::AvatarCache,
+    components::{floating_tile, profiles::render_room_icon},
     theme::DeplaceThings,
 };
 

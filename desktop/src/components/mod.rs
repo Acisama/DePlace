@@ -3,10 +3,9 @@ use deplace_core::formatting::format_bytes;
 use deplace_core::settings::DataSizeUnit;
 use gpui::{
     App, BoxShadow, Div, ElementId, Entity, Focusable, Hsla, Pixels, SharedString, Window,
-    prelude::*, px, transparent_black,
+    prelude::*, transparent_black,
 };
 use gpui::{RenderImage, Role};
-use gpui_component::text::Text;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{
     StyledExt,
@@ -19,17 +18,13 @@ use std::sync::Arc;
 
 use crate::components::profiles::render_icon;
 use crate::theme::DeplaceThings;
-use crate::{
-    components::cache::AvatarCache,
-    theme::{AppTheme, Structure},
-};
+use crate::theme::{AppTheme, Structure};
 
-pub mod cache;
+pub mod chat;
 pub mod message;
 pub mod profiles;
 pub mod root;
 
-mod chat;
 mod discovery;
 mod header;
 mod home;
