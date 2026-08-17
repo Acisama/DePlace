@@ -14,6 +14,7 @@ csscolorparser.workspace = true
 dashmap.workspace = true
 dirs.workspace = true
 ego-tree = "0.11.0"
+enumset.workspace = true
 futures = "0.3.33"
 futures-util.workspace = true
 getrandom.workspace = true

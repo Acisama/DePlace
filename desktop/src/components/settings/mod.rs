@@ -4,7 +4,7 @@ use deplace_core::settings::{Settings, SettingsSection};
 use gpui::{
     AnyElement, App, Context, Element, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    UniformListScrollHandle, Window, actions, div, px, relative,
+    UniformListScrollHandle, Window, actions, div, prelude::FluentBuilder, px, relative,
 };
 use gpui_component::{StyledExt, scroll::ScrollableElement};
 use macros::tailwind_div;
@@ -94,6 +94,7 @@ impl SettingsItem {
         theme: &AppTheme,
         structure: &Structure,
         cx: &mut Context<SettingsView>,
+        active_section: &UiSettingsSection,
     ) -> AnyElement {
         match self {
             SettingsItem::Divider => tailwind_div!(
@@ -102,35 +103,46 @@ impl SettingsItem {
                 mx(structure.small_gap)
             )
             .into_any(),
-            SettingsItem::Section(section) => tailwind_div!(
-                flex,
-                items_center,
-                text_left,
-                text_color(theme.text.dim),
-                hover(
-                    text_color(theme.text.normal),
-                    border_color(theme.tile.border)
-                ),
-                gap(structure.small_gap),
-                mx(structure.small_gap),
-                rounded(structure.semi_border_radius()),
-                cursor_pointer,
-                py(structure.small_gap / 2.0),
-                px(structure.small_gap),
-                line_height(relative(1.0)),
-                border_transparent,
-            )
-            .id(section.id.id())
-            .child(render_icon(section.icon, structure.font_size * 1.2))
-            .child(section.title)
-            .on_click(cx.listener({
-                let section = section.clone();
-                move |view, _event, _window, cx| {
-                    view.active_section = Some(section.clone());
-                    cx.notify();
-                }
-            }))
-            .into_any(),
+            SettingsItem::Section(section) => {
+                let is_active = section.id == active_section.id;
+
+                tailwind_div!(
+                    flex,
+                    items_center,
+                    text_left,
+                    text_color(theme.text.dim),
+                    hover(
+                        text_color(theme.text.normal),
+                        border_color(theme.tile.border)
+                    ),
+                    gap(structure.small_gap),
+                    mx(structure.small_gap),
+                    rounded(structure.semi_border_radius()),
+                    cursor_pointer,
+                    p(structure.small_gap),
+                    line_height(relative(1.0)),
+                    border_transparent,
+                )
+                .when(is_active, |el| {
+                    el.border_color(theme.tile.border)
+                        .bg(theme.solid_hover_bg)
+                        .text_color(theme.text.normal)
+                        .cursor_default()
+                })
+                .id(section.id.id())
+                .child(render_icon(section.icon, structure.font_size * 1.2))
+                .child(section.title)
+                .when(!is_active, |el| {
+                    el.on_click(cx.listener({
+                        let section = section.clone();
+                        move |view, _event, _window, cx| {
+                            view.active_section = Some(section.clone());
+                            cx.notify();
+                        }
+                    }))
+                })
+                .into_any()
+            }
         }
     }
 }
@@ -209,7 +221,7 @@ impl Render for SettingsView {
                 .rounded_l(structure.outer_border_radius)
                 .rounded_r(structure.inner_border_radius)
                 .w(structure.settings.section_column_width)
-                .gap(structure.small_gap / 2.0)
+                .gap(structure.small_gap)
                 .h_full()
                 .flex()
                 .flex_col()
@@ -218,7 +230,7 @@ impl Render for SettingsView {
                 .children(
                     SETTINGS_SECTIONS
                         .iter()
-                        .map(|s| s.render_column_item(theme, structure, cx)),
+                        .map(|s| s.render_column_item(theme, structure, cx, active_section)),
                 ),
         )
         .child(

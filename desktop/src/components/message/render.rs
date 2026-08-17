@@ -1,7 +1,10 @@
 use std::{ops::Range, rc::Rc, sync::Arc, time::Duration};
 
 use deplace_core::{
-    NameExt, colors::ColorExt, formatting::fit_dimensions, settings::DataSizeUnit,
+    NameExt,
+    colors::ColorExt,
+    formatting::fit_dimensions,
+    settings::{DataSizeUnit, Settings},
     state::MembershipMap,
 };
 use gpui::{
@@ -119,7 +122,7 @@ impl CachedTimelineItem {
         hover: &HoverState,
         selection: &SelectionState,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
-        data_size_unit: &DataSizeUnit,
+        settings: &Settings,
     ) -> AnyElement {
         let divider_width = structure.divider_width;
 
@@ -156,7 +159,7 @@ impl CachedTimelineItem {
                 hover,
                 selection,
                 on_toggle_reaction,
-                data_size_unit,
+                settings,
             ),
         }
     }
@@ -179,7 +182,7 @@ impl CachedTimelineEvent {
         hover: &HoverState,
         selection: &SelectionState,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
-        data_size_unit: &DataSizeUnit,
+        settings: &Settings,
     ) -> AnyElement {
         let colors = &theme.colors;
 
@@ -248,6 +251,7 @@ impl CachedTimelineEvent {
                     || sender_avatar(small_icon_size),
                     || sender_name(structure.chat.text_size),
                     member_avatar,
+                    settings,
                 ) {
                     div
                 } else {
@@ -266,7 +270,7 @@ impl CachedTimelineEvent {
                 hover,
                 selection,
                 toggle_reaction,
-                data_size_unit,
+                settings,
             ),
         };
 
@@ -432,7 +436,14 @@ impl CachedSystemMessage {
         sender_avatar: impl Fn() -> AnyElement,
         sender_name: impl Fn() -> AnyElement,
         member_avatar: impl Fn(&UserId) -> AnyElement,
+        settings: &Settings,
     ) -> Option<Div> {
+        let message_to_show = settings.system_messages_to_show.value();
+
+        if !self.should_show(message_to_show) {
+            return None;
+        }
+
         let parent = tailwind_div!(
             text_color(theme.text.dim),
             items_center,
@@ -482,7 +493,7 @@ impl CachedUserMessage {
         hover: &HoverState,
         selection: &SelectionState,
         on_toggle_reaction: impl Fn(SharedString) + Clone + 'static,
-        data_size_unit: &DataSizeUnit,
+        settings: &Settings,
     ) -> Div {
         let warning = theme.colors.warning;
         let error = theme.colors.error;
@@ -492,6 +503,8 @@ impl CachedUserMessage {
         let base_text_style = window.text_style();
         let hover = hover.clone();
         let selection = selection.clone();
+
+        let data_size_unit = &settings.data_size_unit.value();
 
         let render_body = move |blocks: Arc<[CachedBlock]>| {
             tailwind_div!(text_color(theme.text.normal), flex, items_baseline)

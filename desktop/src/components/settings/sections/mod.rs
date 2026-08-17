@@ -1,9 +1,10 @@
+use core::str;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use gpui::{
     Animation, AnimationExt, Context, Div, ElementId, Hsla, InteractiveElement, IntoElement,
-    ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div,
-    prelude::FluentBuilder, px, relative, transparent_black,
+    ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, deferred,
+    div, prelude::FluentBuilder, px, relative, transparent_black,
 };
 use gpui_component::{StyledExt, scroll::ScrollableElement, tooltip::Tooltip};
 use macros::tailwind_div;
@@ -61,7 +62,8 @@ fn setting_toggle(
     tailwind_div!(
         flex,
         flex_grow_1,
-        p(structure.small_gap / 2.0),
+        px(structure.small_gap / 2.0),
+        py(structure.small_gap),
         justify_between,
         cursor_pointer,
         border_transparent,
@@ -210,7 +212,7 @@ fn subsection(
 ) -> Div {
     let expanded = expanded_subsections.contains(&id);
 
-    tailwind_div!(flex, flex_col, w_full).child(
+    tailwind_div!(flex, flex_col, w_full, mb(structure.gap)).child(
         tailwind_div!(
             w_full,
             flex,
@@ -218,9 +220,8 @@ fn subsection(
             items_center,
             justify_between,
             cursor_pointer,
-            mt(structure.gap),
-            mb(structure.small_gap),
             p(structure.small_gap / 2.0),
+            border_transparent,
             text_color(theme.text.dim),
             hover(text_color(theme.text.normal))
         )
@@ -238,7 +239,7 @@ fn subsection(
             flex_grow_1,
             h(structure.divider_width),
             bg(theme.tile.border),
-            mx(structure.small_gap)
+            mx(structure.gap)
         ))
         .child(
             tailwind_div!(flex, items_center, justify_center, cursor_pointer).child(render_icon(
@@ -279,13 +280,14 @@ fn setting_dropdown<T>(
 where
     T: EnumVariants + Clone + PartialEq + Send + Sync + 'static,
 {
-    let mut options = T::all_variants();
+    let options: Vec<_> = T::all_variants().collect();
     let current_val = field.value();
 
     let current_label = options
+        .iter()
         .find(|(variant, _)| variant == &current_val)
-        .map(|(_, label)| label)
-        .unwrap_or_else(|| "Select...");
+        .map(|(_, label)| *label)
+        .unwrap_or("Select...");
 
     let (cloud_icon, cloud_color, cloud_tooltip) = get_cloud_stuff(&field.uses_cloud, theme);
 
@@ -339,12 +341,16 @@ where
                     items_center,
                     justify_between,
                     gap(structure.small_gap / 2.0),
-                    paddings(structure.small_gap / 2.0),
+                    py(structure.small_gap / 4.0),
+                    px(structure.small_gap / 2.0),
+                    rounded(structure.semi_border_radius()),
                     border_1,
                     border_color(theme.tile.border),
                     text_color(theme.text.normal),
                     cursor_pointer,
-                    hover(border_color(theme.accent))
+                    hover(border_color(theme.accent)),
+                    w(structure.settings.dropdown_width),
+                    bg(theme.solid_bg)
                 )
                 .id("dropdown")
                 .on_click(cx.listener({
@@ -368,20 +374,22 @@ where
                     structure.font_size * 0.8,
                 )))
                 .children(if is_open {
-                    Some(
+                    Some(deferred(
                         tailwind_div!(
+                            id(SharedString::from(format!("{}-popup", field.local_name))),
                             absolute,
                             top(relative(1.0)),
                             right_0,
                             flex,
                             flex_col,
-                            overflow_y_scrollbar,
+                            w(structure.settings.dropdown_width),
+                            overflow_y_scroll,
                             border_1,
                             border_color(theme.tile.border),
                             bg(theme.solid_bg),
                             rounded(structure.semi_border_radius())
                         )
-                        .children(options.enumerate().map(
+                        .children(options.into_iter().enumerate().map(
                             |(idx, (variant, label))| {
                                 let is_selected = variant == current_val;
                                 let field = field.clone();
@@ -423,7 +431,7 @@ where
                                     })
                             },
                         )),
-                    )
+                    ))
                 } else {
                     None
                 }),

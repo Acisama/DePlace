@@ -109,6 +109,7 @@ pub struct Settings {
     pub full_height: Pixels,
     pub checkbox_width: Pixels,
     pub checkbox_height: Pixels,
+    pub dropdown_width: Pixels,
 }
 
 #[derive(Clone)]
@@ -181,6 +182,7 @@ impl Structure {
                 full_height: px(900.0),
                 checkbox_width: px(40.0),
                 checkbox_height: px(20.0),
+                dropdown_width: px(200.0),
             },
         }
     }
@@ -225,7 +227,7 @@ impl AppTheme {
         let green = hsla(0.3682, 0.5446, 0.6039, 1.0);
         let yellow = hsla(0.155, 0.786, 0.743, 1.0);
 
-        let solid_bg = hsla(0.667, 0.211, 0.1, 1.0);
+        let solid_bg = hsla(0.667, 0.211, 0.07, 1.0);
         let solid_hover_bg = solid_bg.lighten(0.8);
 
         Self {

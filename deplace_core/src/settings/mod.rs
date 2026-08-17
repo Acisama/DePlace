@@ -1,4 +1,6 @@
-use imbl::HashMap;
+use enumset::EnumSet;
+use enumset::EnumSetType;
+use enumset::enum_set;
 use macros::{EnumConstVec, EnumVariants};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -99,7 +101,8 @@ pub enum DataSizeUnit {
     Mibibytes,
 }
 
-#[derive(Clone, Copy, PartialEq, Deserialize, Serialize, EnumVariants, EnumConstVec, Hash, Eq)]
+#[derive(Deserialize, Serialize, EnumVariants, EnumConstVec, Hash, EnumSetType)]
+#[enumset(serialize_repr = "list")]
 pub enum SystemMessageType {
     CallInvite,
     MembershipChange,
@@ -128,31 +131,29 @@ pub enum SystemMessageType {
     Invisible,
 }
 
-const DEFAULT_SYSTEM_MESSAGES: &[SystemMessageType] = &[
-    SystemMessageType::MembershipChange,
-    SystemMessageType::RoomCreate,
-    SystemMessageType::RoomEncryption,
-    SystemMessageType::RoomPinnedEvents,
-    SystemMessageType::SpaceChild,
-    SystemMessageType::SpaceParent,
-    SystemMessageType::Unknown,
-];
+const DEFAULT_SYSTEM_MESSAGES: EnumSet<SystemMessageType> = enum_set!(
+    SystemMessageType::MembershipChange
+        | SystemMessageType::RoomCreate
+        | SystemMessageType::RoomEncryption
+        | SystemMessageType::RoomPinnedEvents
+        | SystemMessageType::SpaceChild
+        | SystemMessageType::SpaceParent
+        | SystemMessageType::Unknown
+);
 
-pub const SYSTEM_MESSAGE_MODES: &[(&str, &[SystemMessageType])] = &[
-    ("None", &[]),
+pub const SYSTEM_MESSAGE_MODES: &[(&str, EnumSet<SystemMessageType>)] = &[
+    ("None", EnumSet::empty()),
     ("Default", DEFAULT_SYSTEM_MESSAGES),
-    ("Full", SystemMessageType::const_vec()),
+    (
+        "Discord",
+        enum_set!(
+            SystemMessageType::CallInvite
+                | SystemMessageType::MembershipChange
+                | SystemMessageType::RoomPinnedEvents
+        ),
+    ),
+    ("Full", EnumSet::all()),
 ];
-
-pub fn default_system_messages_to_show() -> HashMap<SystemMessageType, bool> {
-    let mut map = SystemMessageType::all_variants()
-        .map(|(variant, _)| (variant, false))
-        .collect::<HashMap<_, _>>();
-    for message in DEFAULT_SYSTEM_MESSAGES {
-        map.insert(*message, true);
-    }
-    map
-}
 
 const SETTINGS_TABLE: &str = "settings";
 const CLOUD_TABLE: &str = "cloud";

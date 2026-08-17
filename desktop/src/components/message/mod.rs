@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use deplace_core::settings::SystemMessageType;
+use enumset::EnumSet;
 use gpui::{ElementId, ImageFormat, SharedString, StyleRefinement, Styled};
 use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, UserId, events::room::MediaSource};
 
@@ -56,7 +58,8 @@ pub(crate) fn format_selection(
             continue;
         };
 
-        let from = (message_index == lo.message_index).then_some((lo.element_index, lo.byte_offset));
+        let from =
+            (message_index == lo.message_index).then_some((lo.element_index, lo.byte_offset));
         let to = (message_index == hi.message_index).then_some((hi.element_index, hi.byte_offset));
 
         let text = text::selected_plain_text(blocks, from, to);
@@ -547,6 +550,68 @@ impl CachedSystemMessage {
             | CachedSystemMessage::SpaceParent(text)
             | CachedSystemMessage::Unknown(text) => Some(text.clone()),
             CachedSystemMessage::Invisible => None,
+        }
+    }
+
+    pub fn should_show(&self, allowed: EnumSet<SystemMessageType>) -> bool {
+        match self {
+            CachedSystemMessage::CallInvite(_) => allowed.contains(SystemMessageType::CallInvite),
+            CachedSystemMessage::Invisible => allowed.contains(SystemMessageType::Invisible),
+            CachedSystemMessage::MemberShipChange(_) => {
+                allowed.contains(SystemMessageType::MembershipChange)
+            }
+            CachedSystemMessage::PolicyRuleRoom(_) => {
+                allowed.contains(SystemMessageType::PolicyRuleRoom)
+            }
+            CachedSystemMessage::PolicyRuleServer(_) => {
+                allowed.contains(SystemMessageType::PolicyRuleServer)
+            }
+            CachedSystemMessage::PolicyRuleUser(_) => {
+                allowed.contains(SystemMessageType::PolicyRuleUser)
+            }
+            CachedSystemMessage::RoomAvatar(_) => allowed.contains(SystemMessageType::RoomAvatar),
+            CachedSystemMessage::RoomCanonicalAlias(_) => {
+                allowed.contains(SystemMessageType::RoomCanonicalAlias)
+            }
+            CachedSystemMessage::RoomCreate(_) => allowed.contains(SystemMessageType::RoomCreate),
+            CachedSystemMessage::RoomEncryption(_) => {
+                allowed.contains(SystemMessageType::RoomEncryption)
+            }
+            CachedSystemMessage::RoomGuestAccess(_) => {
+                allowed.contains(SystemMessageType::RoomGuestAccess)
+            }
+            CachedSystemMessage::RoomHistoryVisibility(_) => {
+                allowed.contains(SystemMessageType::RoomHistoryVisibility)
+            }
+            CachedSystemMessage::RoomJoinRules(_) => {
+                allowed.contains(SystemMessageType::RoomJoinRules)
+            }
+            CachedSystemMessage::RoomName(_) => allowed.contains(SystemMessageType::RoomName),
+            CachedSystemMessage::RoomPinnedEvents(_) => {
+                allowed.contains(SystemMessageType::RoomPinnedEvents)
+            }
+            CachedSystemMessage::RoomPowerLevels(_) => {
+                allowed.contains(SystemMessageType::RoomPowerLevels)
+            }
+            CachedSystemMessage::RoomServerAcl(_) => {
+                allowed.contains(SystemMessageType::RoomServerAcl)
+            }
+            CachedSystemMessage::RoomThirdPartyInvite(_) => {
+                allowed.contains(SystemMessageType::RoomThirdPartyInvite)
+            }
+            CachedSystemMessage::RoomTombstone(_) => {
+                allowed.contains(SystemMessageType::RoomTombstone)
+            }
+            CachedSystemMessage::RoomTopic(_) => allowed.contains(SystemMessageType::RoomTopic),
+            CachedSystemMessage::SpaceChild(_) => allowed.contains(SystemMessageType::SpaceChild),
+            CachedSystemMessage::SpaceParent(_) => allowed.contains(SystemMessageType::SpaceParent),
+            CachedSystemMessage::Unknown(_) => allowed.contains(SystemMessageType::Unknown),
+            CachedSystemMessage::ProfileChange(_) => {
+                allowed.contains(SystemMessageType::ProfileChange)
+            }
+            CachedSystemMessage::RtcNotification { .. } => {
+                allowed.contains(SystemMessageType::RtcNotification)
+            }
         }
     }
 }
