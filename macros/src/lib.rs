@@ -128,6 +128,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
     let mut type_name_string_collector = vec![];
     let mut toml_inserts = vec![];
     let mut toml_cloud_inserts = vec![];
+    let mut toml_cloud_reads = vec![];
     let mut field_updaters = vec![];
     let mut field_refreshes = vec![];
 
@@ -263,6 +264,9 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 toml_cloud_inserts.push(quote! {
                     self.#field_name.insert_into_toml_cloud(&mut table);
                 });
+                toml_cloud_reads.push(quote! {
+                    self.#field_name.load_uses_cloud(table);
+                });
 
                 let set_cloud_name = format_ident!("set_cloud_{}", field_name);
                 let watch_cloud_name = format_ident!("watch_cloud_{}", field_name);
@@ -275,7 +279,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     }
 
                     pub fn #set_cloud_name(&self, uses_cloud: bool) {
-                        self.#field_name.set_uses_cloud(uses_cloud, &self.document);
+                        self.#field_name.set_uses_cloud(uses_cloud, &self);
                     }
 
                     pub fn #watch_cloud_name(&self) -> Option<::tokio::sync::watch::Receiver<bool>> {
@@ -404,6 +408,8 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     settings.create_settings_table();
                     settings.create_cloud_table();
                     settings.save();
+                } else {
+                    settings.load_cloud_table();
                 }
 
                 settings
@@ -445,6 +451,16 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
                 #(#toml_cloud_inserts)*
 
                 self.document.lock().unwrap().insert(CLOUD_TABLE, toml_edit::Item::Table(table));
+            }
+
+            fn load_cloud_table(&self) {
+                let document = self.document.lock().unwrap_or_else(|poison| poison.into_inner());
+                let Some(table) = document.get(CLOUD_TABLE).and_then(|item| item.as_table()) else {
+                    ::tracing::warn!("Cloud table not found, not loading cloud settings");
+                    return;
+                };
+
+                #(#toml_cloud_reads)*
             }
 
             fn save(&self) {

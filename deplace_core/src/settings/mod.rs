@@ -141,18 +141,23 @@ const DEFAULT_SYSTEM_MESSAGES: EnumSet<SystemMessageType> = enum_set!(
         | SystemMessageType::Unknown
 );
 
-pub const SYSTEM_MESSAGE_MODES: &[(&str, EnumSet<SystemMessageType>)] = &[
-    ("None", EnumSet::empty()),
-    ("Default", DEFAULT_SYSTEM_MESSAGES),
+pub const SYSTEM_MESSAGE_MODES: &[(&str, &str, EnumSet<SystemMessageType>)] = &[
+    ("None", "Show no system messages", EnumSet::empty()),
     (
         "Discord",
+        "Only show discord-like system messages",
         enum_set!(
             SystemMessageType::CallInvite
                 | SystemMessageType::MembershipChange
                 | SystemMessageType::RoomPinnedEvents
         ),
     ),
-    ("Full", EnumSet::all()),
+    (
+        "Default",
+        "Default system messages",
+        DEFAULT_SYSTEM_MESSAGES,
+    ),
+    ("Full", "Show all system messages", EnumSet::all()),
 ];
 
 const SETTINGS_TABLE: &str = "settings";

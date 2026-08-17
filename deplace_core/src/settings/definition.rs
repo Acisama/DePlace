@@ -1,9 +1,9 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use anyhow::{Result, anyhow};
 use chrono_tz::Tz;
 use enumset::EnumSet;
-use imbl::HashMap;
 use macros::matrix_settings;
 use matrix_sdk::Client;
 use ruma::events::AnyGlobalAccountDataEventContent;
@@ -147,23 +147,39 @@ where
         );
     }
 
-    fn set_uses_cloud(&self, uses_cloud: bool, document: &Mutex<DocumentMut>) {
+    fn load_uses_cloud(&self, table: &Table) {
+        let Some(cell) = &self.uses_cloud else {
+            return;
+        };
+
+        if let Some(value) = table.get(self.local_name).and_then(|item| item.as_bool()) {
+            cell.send_replace(value);
+        }
+    }
+
+    pub fn set_uses_cloud(&self, uses_cloud: bool, settings: &Settings) {
         let Some(cell) = &self.uses_cloud else {
             tracing::warn!("Cannot set uses_cloud to true when uses_cloud is not set");
             return;
         };
         cell.send_replace(uses_cloud);
 
-        let mut document = document.lock().unwrap_or_else(|posion| posion.into_inner());
-        let Some(table) = document
-            .get_mut(CLOUD_TABLE)
-            .and_then(|item| item.as_table_mut())
-        else {
-            tracing::warn!("Cloud table not found, not updating table");
-            return;
-        };
+        {
+            let mut document = settings
+                .document
+                .lock()
+                .unwrap_or_else(|posion| posion.into_inner());
+            let Some(table) = document
+                .get_mut(CLOUD_TABLE)
+                .and_then(|item| item.as_table_mut())
+            else {
+                tracing::warn!("Cloud table not found, not updating table");
+                return;
+            };
 
-        self.insert_into_toml_cloud(table);
+            self.insert_into_toml_cloud(table);
+        }
+        settings.save();
     }
 
     pub async fn set(&self, val: T, settings: &Settings) {

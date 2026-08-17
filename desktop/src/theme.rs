@@ -124,6 +124,7 @@ pub struct Structure {
     pub inner_border_radius: Pixels,
     pub smaller_border_radius: Pixels,
     pub font_size: Pixels,
+    pub small_font_size: Pixels,
     pub gap: Pixels,
     pub small_gap: Pixels,
     pub settings: Settings,
@@ -145,7 +146,8 @@ impl Structure {
             inner_border_radius,
             outer_border_radius,
             smaller_border_radius,
-            font_size: px(16.0),
+            font_size: px(15.0),
+            small_font_size: px(11.0),
             divider_width: px(2.0),
 
             chat: Chat {

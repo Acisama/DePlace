@@ -1,6 +1,6 @@
 use std::{collections::HashSet, sync::Arc};
 
-use deplace_core::settings::Settings;
+use deplace_core::settings::{SYSTEM_MESSAGE_MODES, Settings};
 use gpui::{AnyElement, Context, Element, ParentElement, SharedString, Styled, Window};
 use macros::tailwind_div;
 use tokio::runtime::Runtime;
@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 use crate::{
     components::settings::{
         SettingsView,
-        sections::{setting_toggle, spacer, subsection},
+        sections::{setting_enumset_toggles, setting_toggle, spacer, subsection},
     },
     theme::{AppTheme, Structure},
 };
@@ -70,6 +70,43 @@ pub fn render_chats_section(
                 tokio_rt.clone(),
                 window,
                 cx,
+            )),
+        )
+        .child(
+            subsection(
+                "Messages".into(),
+                "messages-chat".into(),
+                theme,
+                structure,
+                expanded_subsections,
+                cx,
+            )
+            .child(setting_toggle(
+                settings,
+                &settings.url_previews_default,
+                theme,
+                structure,
+                tokio_rt.clone(),
+                window,
+                cx,
+            ))
+            .child(setting_toggle(
+                settings,
+                &settings.mark_pinned_messages,
+                theme,
+                structure,
+                tokio_rt.clone(),
+                window,
+                cx,
+            ))
+            .child(spacer(structure))
+            .child(setting_enumset_toggles(
+                settings,
+                &settings.system_messages_to_show,
+                SYSTEM_MESSAGE_MODES,
+                theme,
+                structure,
+                tokio_rt.clone(),
             )),
         )
         .into_any()
