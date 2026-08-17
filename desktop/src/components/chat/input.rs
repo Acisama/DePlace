@@ -126,11 +126,6 @@ impl Render for ChatInputView {
 
         let chat_input_button = |svg: &'static str, id: &'static str| {
             let hovered = self.hovered_button == Some(id);
-            let (from, to) = if hovered {
-                (transparent_black(), theme.solid_hover_bg)
-            } else {
-                (theme.solid_hover_bg, transparent_black())
-            };
 
             tailwind_div!(
                 w(icon_size),

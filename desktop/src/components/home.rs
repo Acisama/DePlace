@@ -170,13 +170,16 @@ impl HomeView {
             move |this: &mut HomeView,
                   _child,
                   event: &ActiveServerChange,
-                  &mut _,
+                  window: &mut Window,
                   cx: &mut Context<Self>| {
                 let server = event.room();
 
                 this.state.set_active_server(server.clone());
 
                 this.update_chat_sidebar(cx);
+
+                let room = this.state.active_room().borrow().clone();
+                this.load_room_chat(room, cx, window);
             },
         )
         .detach();
@@ -184,10 +187,11 @@ impl HomeView {
         cx.subscribe_in(
             &sidebar,
             window,
-            move |this: &mut HomeView, _, event: &ActiveRoomChange, _, cx| {
+            move |this: &mut HomeView, _, event: &ActiveRoomChange, window, cx| {
                 let room = event.room();
                 this.state.set_active_room(room.clone());
                 this.update_chat_sidebar(cx);
+                this.load_room_chat(room, cx, window);
             },
         )
         .detach();
@@ -237,7 +241,7 @@ impl HomeView {
             if let Some(room) = room {
                 let room_id = room.room_id().to_owned();
 
-                if !that.show(&room_id, cx) {
+                if !that.show(&room_id, window, cx) {
                     that.insert(
                         room_id,
                         cx.new(|cx| {
@@ -251,12 +255,9 @@ impl HomeView {
                                 room,
                             )
                         }),
+                        window,
                         cx,
                     );
-                }
-
-                if let Some(chat_view) = that.visible() {
-                    window.focus(&chat_view.focus_handle(cx), cx);
                 }
             } else {
                 that.hide_all(cx);
@@ -318,11 +319,13 @@ impl Render for HomeView {
                         tracing::debug!("Closing quick select overlay");
                         if let Close::QuickSelect(Some(room_id)) = &event {
                             let room = this.state.client().get_room(room_id);
-                            this.state.set_active_room(room);
+                            this.state.set_active_room(room.clone());
+                            this.load_room_chat(room, cx, window);
+                        } else {
+                            window.focus(&this.focus, cx);
                         }
                         this.overlay
                             .update(cx, |that, cx| that.close_overlay(window, cx));
-                        window.focus(&this.focus, cx);
                         cx.notify();
                     },
                 ));

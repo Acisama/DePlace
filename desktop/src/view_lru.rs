@@ -1,4 +1,4 @@
-use gpui::{AnyElement, Context, IntoElement, Render};
+use gpui::{AnyElement, Context, Focusable, IntoElement, Render, Window};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 
@@ -15,7 +15,7 @@ pub struct VisibleLruCache<K: Hash + Eq + Clone, V> {
     empty_render: fn() -> AnyElement,
 }
 
-impl<K: Hash + Eq + Clone + 'static, V: 'static> VisibleLruCache<K, V> {
+impl<K: Hash + Eq + Clone + 'static, V: Focusable + 'static> VisibleLruCache<K, V> {
     pub fn new(cap: NonZeroUsize, empty_render: fn() -> AnyElement) -> Self {
         Self {
             cache: LruCache::new(cap),
@@ -24,16 +24,27 @@ impl<K: Hash + Eq + Clone + 'static, V: 'static> VisibleLruCache<K, V> {
         }
     }
 
-    /// Inserts the value into the cache and makes it the visible entry
-    pub fn insert(&mut self, key: K, value: Entity<V>, cx: &mut Context<Self>) {
+    /// Inserts the value into the cache, makes it the visible entry, and focuses it -
+    /// atomically, so there's no frame where the previous entry is still shown/focused.
+    pub fn insert(
+        &mut self,
+        key: K,
+        value: Entity<V>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.focus(&value.focus_handle(cx), cx);
         self.cache.push(key.clone(), value);
         self.visible = Some(key);
         cx.notify();
     }
 
-    /// Makes `key` the visible entry if it's cached. Returns `false` if it isn't.
-    pub fn show(&mut self, key: &K, cx: &mut Context<Self>) -> bool {
-        if self.cache.promote(key) {
+    /// Makes `key` the visible entry and focuses it, if it's cached. Returns `false` if
+    /// it isn't.
+    pub fn show(&mut self, key: &K, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if let Some(entity) = self.cache.peek(key).cloned() {
+            window.focus(&entity.focus_handle(cx), cx);
+            self.cache.promote(key);
             self.visible = Some(key.clone());
             cx.notify();
             true
