@@ -2,7 +2,39 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
-use syn::{DeriveInput, Expr, ExprLit, Fields, Ident, ItemStruct, Lit, Token, parenthesized};
+use syn::{
+    DeriveInput, Expr, ExprLit, Fields, Ident, ItemStruct, Lit, Token, parenthesized,
+    parse_macro_input,
+};
+
+/// Safely creates a `NonZeroUsize` at compile time.
+#[proc_macro]
+pub fn nonzero_usize(input: TokenStream) -> TokenStream {
+    let expr = parse_macro_input!(input as Expr);
+
+    if let Expr::Lit(ExprLit {
+        lit: Lit::Int(lit_int),
+        ..
+    }) = &expr
+        && lit_int.base10_digits() == "0"
+    {
+        let error = quote! {
+            compile_error!("Compilation failed: Value cannot be zero!");
+        };
+        return error.into();
+    }
+
+    let expanded = quote! {
+        const {
+            match ::core::num::NonZeroUsize::new(#expr) {
+                Some(nz) => nz,
+                None => panic!("Compilation failed: Value evaluated to zero!"),
+            }
+        }
+    };
+
+    expanded.into()
+}
 
 struct StyleCall {
     name: Ident,

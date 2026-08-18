@@ -1,4 +1,7 @@
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    num::{NonZero, NonZeroUsize},
+    sync::Arc,
+};
 
 use deplace_core::{
     get_other_member,
@@ -10,7 +13,7 @@ use gpui::{
     actions, div, prelude::FluentBuilder,
 };
 use gpui_component::StyledExt;
-use macros::tailwind_div;
+use macros::{nonzero_usize, tailwind_div};
 use matrix_sdk::{
     Room,
     room::RoomMember,
@@ -149,10 +152,7 @@ impl HomeView {
             .new(|cx| SidebarView::new(state.clone(), cx, tokio_rt.clone(), avatar_cache.clone()));
 
         let chat = cx.new(|_| {
-            ChatTimelineCache::new(
-                NonZeroUsize::new(15).expect("nonzero usize required"),
-                || tailwind_div!(size_full).into_any(),
-            )
+            ChatTimelineCache::new(nonzero_usize!(15), || tailwind_div!(size_full).into_any())
         });
 
         let active_room = state.active_room();

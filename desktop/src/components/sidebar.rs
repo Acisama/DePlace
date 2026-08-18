@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use deplace_core::{
     NameExt, RoomMap,
-    matrix_api::sync::ParentToChildren,
+    matrix_api::sync::ParentToChildrenOrderStr,
     state::{AppState, MembershipMap, PresenceMap},
 };
 use gpui::{
@@ -24,7 +24,7 @@ use crate::{
 pub struct SidebarView {
     active_server: watch::Receiver<Option<Room>>,
     active_room: watch::Receiver<Option<Room>>,
-    parent_to_children: watch::Receiver<ParentToChildren>,
+    parent_to_children: watch::Receiver<ParentToChildrenOrderStr>,
     dm_rooms: watch::Receiver<RoomMap>,
     membership_map: watch::Receiver<MembershipMap>,
     presence_map: watch::Receiver<PresenceMap>,

@@ -13,8 +13,10 @@ use tokio::sync::watch::{self, Sender};
 
 use crate::{
     matrix_api::{
-        account_data::{BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data},
-        sync::{ParentToChildren, reclassify_rooms},
+        account_data::{
+            BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data,
+        },
+        sync::{ParentToChildren, ParentToChildrenOrderStr, reclassify_rooms},
         timeline::TimelineManager,
     },
     settings::Settings,
@@ -45,7 +47,10 @@ struct AppStateInner {
     dm_rooms: Sender<RoomMap>,
     single_rooms: Sender<RoomMap>,
     server_rooms: Sender<RoomMap>,
-    parent_to_children: Sender<ParentToChildren>,
+
+    parent_to_children: Sender<ParentToChildrenOrderStr>,
+    parent_to_all_children: Sender<ParentToChildren>,
+
     active_room: Sender<Option<Room>>,
     active_server: Sender<Option<Room>>,
     membership_map: Sender<MembershipMap>,
@@ -94,6 +99,8 @@ impl AppState {
         let (server_rooms, _) = watch::channel(response.server_rooms);
         let (single_rooms, _) = watch::channel(response.single_rooms);
         let (parent_to_children, _) = watch::channel(response.parent_to_children);
+        let (parent_to_all_children, _) = watch::channel(response.parent_to_all_children);
+
         let (active_room, _) = watch::channel(last_room_id.and_then(|id| client.get_room(&id)));
         let (active_server, _) = watch::channel(last_server.and_then(|id| client.get_room(&id)));
 
@@ -111,7 +118,10 @@ impl AppState {
                 dm_rooms,
                 single_rooms,
                 server_rooms,
+
                 parent_to_children,
+                parent_to_all_children,
+
                 active_room,
                 active_server,
 
@@ -159,7 +169,7 @@ impl AppState {
         self.inner.server_rooms.subscribe()
     }
 
-    pub fn parent_to_children(&self) -> watch::Receiver<ParentToChildren> {
+    pub fn parent_to_children(&self) -> watch::Receiver<ParentToChildrenOrderStr> {
         self.inner.parent_to_children.subscribe()
     }
 
@@ -233,7 +243,7 @@ impl AppState {
         });
     }
 
-    pub(crate) fn set_parent_to_children(&self, parent_to_children: ParentToChildren) {
+    pub(crate) fn set_parent_to_children(&self, parent_to_children: ParentToChildrenOrderStr) {
         self.inner.parent_to_children.send_if_modified(|cur| {
             *cur = parent_to_children;
             true
@@ -313,8 +323,7 @@ impl AppState {
     }
 
     /// Set the currently focused room. This function als takes care of updating
-    /// the breadcrumbs and makes, takes care of when the room is the same as
-    /// before.
+    /// the breadcrumbs and active server
     pub fn set_active_room(&self, room: Option<Room>) {
         let mut room_changed = false;
 
@@ -331,7 +340,27 @@ impl AppState {
             && room_changed
         {
             let room_id = room.room_id().to_owned();
-            let active_server = self.inner.active_server.borrow().clone();
+            let active_server_id = self
+                .inner
+                .parent_to_all_children
+                .borrow()
+                .clone()
+                .into_iter()
+                .find(|(_, v)| v.contains_key(&room_id))
+                .map(|(k, _)| k);
+
+            let active_server = active_server_id
+                .and_then(|id| self.server_rooms().borrow().clone().get(&id).cloned());
+
+            if self
+                .active_server()
+                .borrow()
+                .clone()
+                .map(|s| s.room_id().to_owned())
+                != active_server.as_ref().map(|s| s.room_id().to_owned())
+            {
+                self.set_active_server(active_server.clone());
+            }
 
             self.update_breadcrumbs(|breadcrumbs| {
                 // Remove duplicates

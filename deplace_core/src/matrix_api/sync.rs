@@ -73,14 +73,19 @@ async fn run_room_classification(client: Client, state: AppState) {
     }
 }
 
-pub type ParentToChildren = HashMap<OwnedRoomId, HashMap<OwnedRoomId, (Room, Option<String>)>>;
+pub type ParentToChildrenOrderStr =
+    HashMap<OwnedRoomId, HashMap<OwnedRoomId, (Room, Option<String>)>>;
+pub type ParentToChildren = HashMap<OwnedRoomId, HashMap<OwnedRoomId, Room>>;
 pub type ChildToParents = HashMap<OwnedRoomId, Vec<Room>>;
 
 pub struct ClasifiedRooms {
     pub dm_rooms: RoomMap,
     pub single_rooms: RoomMap,
     pub server_rooms: RoomMap,
-    pub parent_to_children: ParentToChildren,
+
+    pub parent_to_children: ParentToChildrenOrderStr,
+    pub parent_to_all_children: ParentToChildren,
+
     pub child_to_parents: ChildToParents,
 }
 
@@ -89,7 +94,9 @@ pub async fn reclassify_rooms(client: &Client) -> ClasifiedRooms {
     let mut server_rooms = HashMap::new();
     let mut single_rooms = HashMap::new();
 
-    let mut parent_to_children: ParentToChildren = HashMap::new();
+    let mut parent_to_children: ParentToChildrenOrderStr = HashMap::new();
+    let mut parent_to_all_children: ParentToChildren = HashMap::new();
+
     let mut child_to_parents: ChildToParents = HashMap::new();
 
     let rooms = client.rooms();
@@ -184,11 +191,23 @@ pub async fn reclassify_rooms(client: &Client) -> ClasifiedRooms {
         single_rooms.insert(room_id, room.clone());
     }
 
+    for (parent_id, children) in &parent_to_children {
+        for (child_id, (child, _)) in children {
+            parent_to_all_children
+                .entry(parent_id.clone())
+                .or_default()
+                .insert(child_id.clone(), child.clone());
+        }
+    }
+
     ClasifiedRooms {
         dm_rooms,
         server_rooms,
         single_rooms,
+
         parent_to_children,
+        parent_to_all_children,
+
         child_to_parents,
     }
 }
