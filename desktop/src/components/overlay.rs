@@ -85,8 +85,6 @@ impl Overlay {
     }
 
     /// Open the Settings and focus self for now
-    ///
-    // TODO: Add settings so that they can be displayed and focused
     pub fn open_settings(
         &mut self,
         window: &mut Window,

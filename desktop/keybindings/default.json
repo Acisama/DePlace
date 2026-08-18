@@ -1,6 +1,6 @@
 [
     {
-        "context": "!QuickSelect && !Overlay",
+        "context": "!Overlay",
         "bindings": {
             "ctrl-k": ["overlay::Open", "QuickSelect"],
             "ctrl-,": ["overlay::Open", "Settings"]
@@ -9,7 +9,8 @@
     {
         "context": "Settings",
         "bindings": {
-            "ctrl-,": "settings::Close"
+            "ctrl-,": "settings::Close",
+            "escape": "settings::Close"
         }
     },
     {
@@ -20,12 +21,7 @@
             "tab": "quick_select::FocusNext",
             "shift-tab": "quick_select::FocusPrevious",
             "down": "quick_select::FocusNext",
-            "up": "quick_select::FocusPrevious"
-        }
-    },
-    {
-        "context": "Overlay > !Input",
-        "bindings": {
+            "up": "quick_select::FocusPrevious",
             "escape": "quick_select::Close"
         }
     },
