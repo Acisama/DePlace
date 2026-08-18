@@ -1,7 +1,11 @@
 use std::{ops::Range, rc::Rc, sync::Arc, time::Duration};
 
 use deplace_core::{
-    NameExt, colors::ColorExt, formatting::fit_dimensions, settings::Settings, state::MembershipMap,
+    NameExt,
+    colors::ColorExt,
+    formatting::fit_dimensions,
+    settings::Settings,
+    state::{AppState, MembershipMap},
 };
 use gpui::{
     Animation, AnimationExt, AnyElement, App, Div, Element, ElementId, FontStyle, FontWeight,
@@ -27,6 +31,7 @@ use crate::{
         },
         profiles::{MemberRenderer, render_icon},
     },
+    saving::save_file,
     theme::{AppTheme, Structure},
 };
 
@@ -108,8 +113,9 @@ impl CachedTimelineItem {
         &self,
         message_index: usize,
         window: &Window,
-        theme: &AppTheme,
-        structure: &Structure,
+        cx: &mut App,
+        theme: AppTheme,
+        structure: Structure,
         curent_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
@@ -118,7 +124,7 @@ impl CachedTimelineItem {
         hover: &HoverState,
         selection: &SelectionState,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
-        settings: &Settings,
+        state: &AppState,
     ) -> AnyElement {
         let divider_width = structure.divider_width;
 
@@ -133,7 +139,11 @@ impl CachedTimelineItem {
                 depends_on_system_messages,
             } => {
                 if let Some(types) = depends_on_system_messages
-                    && settings.system_messages_to_show.value().is_disjoint(*types)
+                    && state
+                        .settings()
+                        .system_messages_to_show
+                        .value()
+                        .is_disjoint(*types)
                 {
                     return div().into_any();
                 }
@@ -154,8 +164,9 @@ impl CachedTimelineItem {
                 self.id(),
                 message_index,
                 window,
-                theme,
-                structure,
+                cx,
+                &theme,
+                &structure,
                 curent_room_id,
                 map,
                 avatar_cache,
@@ -164,7 +175,7 @@ impl CachedTimelineItem {
                 hover,
                 selection,
                 on_toggle_reaction,
-                settings,
+                state,
             ),
         }
     }
@@ -177,6 +188,7 @@ impl CachedTimelineEvent {
         id: ElementId,
         message_index: usize,
         window: &Window,
+        cx: &mut App,
         theme: &AppTheme,
         structure: &Structure,
         current_room_id: &RoomId,
@@ -187,7 +199,7 @@ impl CachedTimelineEvent {
         hover: &HoverState,
         selection: &SelectionState,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
-        settings: &Settings,
+        state: &AppState,
     ) -> AnyElement {
         let colors = &theme.colors;
 
@@ -256,7 +268,7 @@ impl CachedTimelineEvent {
                     || sender_avatar(small_icon_size),
                     || sender_name(structure.chat.text_size),
                     member_avatar,
-                    settings,
+                    state.settings(),
                 ) {
                     div
                 } else {
@@ -267,6 +279,7 @@ impl CachedTimelineEvent {
                 &id,
                 message_index,
                 window,
+                cx,
                 structure,
                 theme,
                 image_cache,
@@ -275,7 +288,7 @@ impl CachedTimelineEvent {
                 hover,
                 selection,
                 toggle_reaction,
-                settings,
+                state,
             ),
         };
 
@@ -441,7 +454,7 @@ impl CachedSystemMessage {
         sender_avatar: impl Fn() -> AnyElement,
         sender_name: impl Fn() -> AnyElement,
         member_avatar: impl Fn(&UserId) -> AnyElement,
-        settings: &Settings,
+        settings: Settings,
     ) -> Option<Div> {
         let message_to_show = settings.system_messages_to_show.value();
 
@@ -490,6 +503,7 @@ impl CachedUserMessage {
         id: &ElementId,
         message_index: usize,
         window: &Window,
+        cx: &mut App,
         structure: &Structure,
         theme: &AppTheme,
         media_cache: &ThumbnailCache,
@@ -498,7 +512,7 @@ impl CachedUserMessage {
         hover: &HoverState,
         selection: &SelectionState,
         on_toggle_reaction: impl Fn(SharedString) + Clone + 'static,
-        settings: &Settings,
+        state: &AppState,
     ) -> Div {
         let warning = theme.colors.warning;
         let error = theme.colors.error;
@@ -509,7 +523,7 @@ impl CachedUserMessage {
         let hover = hover.clone();
         let selection = selection.clone();
 
-        let data_size_unit = &settings.data_size_unit.value();
+        let data_size_unit = &state.settings().data_size_unit.value();
 
         let render_body = move |blocks: Arc<[CachedBlock]>| {
             tailwind_div!(text_color(theme.text.normal), flex, items_baseline)
@@ -570,7 +584,12 @@ impl CachedUserMessage {
                 .cursor_text()
                 .into_any(),
             // TODO: Emit notification if user clicks on file
-            CachedMessageType::File { filename, size, .. } => tailwind_div!(
+            CachedMessageType::File {
+                filename,
+                size,
+                source,
+                ..
+            } => tailwind_div!(
                 bg(theme.solid_bg),
                 flex,
                 flex_shrink_1,
@@ -590,7 +609,13 @@ impl CachedUserMessage {
                     .child(
                         tailwind_div!(text_color(theme.accent), hover(underline), cursor_pointer)
                             .id(filename.clone())
-                            .child(filename.clone()),
+                            .child(filename.clone())
+                            .on_click({
+                                let client = state.client();
+                                let source = source.clone();
+                                let filename = filename.clone();
+                                move |_, _, cx| save_file(cx, client.clone(), &source, &filename)
+                            }),
                     )
                     .child(
                         tailwind_div!(

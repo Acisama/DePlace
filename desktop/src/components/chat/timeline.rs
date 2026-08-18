@@ -30,8 +30,8 @@ use uuid::Uuid;
 use crate::{
     cache::{AvatarCache, ThumbnailCache},
     components::message::{
-        CachedTimelineItem, HoverState, SelectionState, TextCoord, cached_from_timeline_item,
-        format_selection,
+        CachedTimelineItem, CachedTimelineItemKind, HoverState, SelectionState, TextCoord,
+        cached_from_timeline_item, format_selection,
     },
     theme::DeplaceThings,
     watch_bridge::notify_on_change,
@@ -47,7 +47,7 @@ pub struct TimelineView {
     avatar_cache: AvatarCache,
     image_cache: ThumbnailCache,
 
-    settings: Settings,
+    state: AppState,
 
     membership_map: Receiver<MembershipMap>,
     tokio_rt: Arc<Runtime>,
@@ -187,7 +187,7 @@ impl TimelineView {
             timeline_manager: state.timeline_manager(),
             user_id: state.user_device().user_id.clone(),
             messages: Arc::new(Vec::new()),
-            settings: settings.clone(),
+            state: state.clone(),
             focused_message: None,
             avatar_cache,
             image_cache,
@@ -305,6 +305,32 @@ fn recompute_grouping_range(messages: &mut Arc<Vec<CachedTimelineItem>>, range: 
     }
 }
 
+/// Recomputes the date divider(s) affected by a change at `index`: the item at
+/// `index` itself (if it's a divider) and the nearest divider preceding it,
+/// since inserting/removing/changing an item can change what a divider's
+/// forward-looking scan sees.
+fn recompute_datedivider_near(messages: &mut Arc<Vec<CachedTimelineItem>>, index: usize) {
+    let messages = Arc::make_mut(messages);
+
+    if index < messages.len()
+        && matches!(
+            messages[index].kind,
+            CachedTimelineItemKind::DateDivider { .. }
+        )
+        && let Some((current_item, rest)) = messages[index..].split_first_mut()
+    {
+        current_item.recompute_datedivider_types(rest);
+    }
+
+    if let Some(p) = messages[..index.min(messages.len())]
+        .iter()
+        .rposition(|item| matches!(item.kind, CachedTimelineItemKind::DateDivider { .. }))
+        && let Some((current_item, rest)) = messages[p..].split_first_mut()
+    {
+        current_item.recompute_datedivider_types(rest);
+    }
+}
+
 fn apply_diff(
     messages: &mut Arc<Vec<CachedTimelineItem>>,
     list_state: &ListState,
@@ -375,6 +401,7 @@ fn apply_diff(
             if Arc::make_mut(messages).pop().is_some() {
                 list_state.splice(messages.len()..messages.len() + 1, 0);
 
+                recompute_datedivider_near(messages, messages.len());
                 if !messages.is_empty() {
                     recompute_pad_bottom_at(messages, messages.len() - 1);
                 }
@@ -392,6 +419,7 @@ fn apply_diff(
             Arc::make_mut(messages).insert(index, cached_from_timeline_item(&value, own_id));
             list_state.splice(index..index, 1);
 
+            recompute_datedivider_near(messages, index);
             if index > 0 {
                 recompute_pad_bottom_at(messages, index - 1);
             }
@@ -411,6 +439,7 @@ fn apply_diff(
             Arc::make_mut(messages)[index] = cached_from_timeline_item(&value, own_id);
             list_state.splice(index..index + 1, 1);
 
+            recompute_datedivider_near(messages, index);
             if index > 0 {
                 recompute_pad_bottom_at(messages, index - 1);
             }
@@ -430,6 +459,7 @@ fn apply_diff(
             Arc::make_mut(messages).remove(index);
             list_state.splice(index..index + 1, 0);
 
+            recompute_datedivider_near(messages, index);
             if index > 0 {
                 recompute_pad_bottom_at(messages, index - 1);
             }
@@ -447,6 +477,7 @@ fn apply_diff(
             list_state.splice(length..messages.len(), 0);
             Arc::make_mut(messages).truncate(length);
 
+            recompute_datedivider_near(messages, length);
             if length > 0 {
                 recompute_pad_bottom_at(messages, length - 1);
             }
@@ -461,6 +492,14 @@ fn apply_diff(
             );
 
             let len = messages.len();
+            for i in 0..len {
+                let Some((current_item, rest)) = Arc::make_mut(messages)[i..].split_first_mut()
+                else {
+                    continue;
+                };
+
+                current_item.recompute_datedivider_types(rest);
+            }
             recompute_grouping_range(messages, 0..len);
         }
     }
@@ -574,7 +613,7 @@ impl Render for TimelineView {
             )
         };
 
-        let settings = self.settings.clone();
+        let state = self.state.clone();
 
         tailwind_div!(size_full, paddings(structure.gap), py_0, flex, flex_col)
             .key_context("Chat")
@@ -635,8 +674,8 @@ impl Render for TimelineView {
             .child({
                 let focused_message = self.focused_message;
                 list(self.list_state.clone(), move |ix, window, cx| {
-                    let theme = cx.app_theme();
-                    let structure = cx.structure();
+                    let theme = cx.app_theme().clone();
+                    let structure = cx.structure().clone();
 
                     let Some(current) = messages.get(ix) else {
                         return Empty.into_any_element();
@@ -646,6 +685,7 @@ impl Render for TimelineView {
                     current.render(
                         ix,
                         window,
+                        cx,
                         theme,
                         structure,
                         &room_id,
@@ -656,7 +696,7 @@ impl Render for TimelineView {
                         &hover,
                         &selection,
                         on_toggle_reaction.clone(),
-                        &settings,
+                        &state,
                     )
                 })
                 .h_full()

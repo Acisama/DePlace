@@ -189,22 +189,25 @@ impl CachedTimelineItem {
             return;
         };
 
+        *depends_on_system_messages = None;
+
         let mut types = EnumSet::empty();
         for item in rest {
             if let CachedTimelineItemKind::DateDivider { .. } = item.kind {
-                return;
+                break;
             }
 
-            if let CachedTimelineItemKind::Event(event) = &item.kind
-                && let Some(sys) = event.as_system_message()
-            {
-                let kind = sys.message_type();
-                types.insert(kind);
-                *depends_on_system_messages = Some(types);
-            } else {
+            let CachedTimelineItemKind::Event(event) = &item.kind else {
                 return;
-            }
+            };
+            let Some(sys) = event.as_system_message() else {
+                return;
+            };
+
+            types.insert(sys.message_type());
         }
+
+        *depends_on_system_messages = Some(types);
     }
 }
 
@@ -388,9 +391,9 @@ fn cached_from_timeline_item_content(
                                 content.formatted.as_ref(),
                             )),
                             CachedMessageType::Audio {
-                                source: Arc::new(content.source.clone()),
-                                filename: content.filename().into(),
-                                duration: content
+                                _source: Arc::new(content.source.clone()),
+                                _filename: content.filename().into(),
+                                _duration: content
                                     .info
                                     .map(|v| v.duration.map(|d| d.as_secs()))
                                     .unwrap_or_default(),
@@ -415,7 +418,7 @@ fn cached_from_timeline_item_content(
                                 CachedMessageType::File {
                                     source: content.source.clone().into(),
                                     filename: content.filename().into(),
-                                    mime_type: info.mimetype.map(|m| m.into()),
+                                    _mime_type: info.mimetype.map(|m| m.into()),
                                     size: info.size.map(|s| ByteSize::new(s.into())),
                                 },
                             )

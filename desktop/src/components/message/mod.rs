@@ -452,16 +452,16 @@ struct CachedBeaconInfo {
 #[derive(Clone)]
 enum CachedMessageType {
     Audio {
-        source: Arc<MediaSource>,
-        filename: SharedString,
-        duration: Option<u64>,
+        _source: Arc<MediaSource>,
+        _filename: SharedString,
+        _duration: Option<u64>,
     },
     Emote,
     Empty,
     File {
         source: Arc<MediaSource>,
         filename: SharedString,
-        mime_type: Option<SharedString>,
+        _mime_type: Option<SharedString>,
         size: Option<ByteSize>,
     },
     Image {
@@ -503,7 +503,7 @@ enum CachedMessageType {
 }
 
 #[derive(Clone)]
-enum CachedSystemMessage {
+pub enum CachedSystemMessage {
     CallInvite(SharedString),
     MemberShipChange(SharedString),
     ProfileChange(SharedString),

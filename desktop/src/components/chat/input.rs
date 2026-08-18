@@ -46,15 +46,6 @@ pub struct ChatInputView {
     hovered_button: Option<&'static str>,
 }
 
-fn lerp_hsla(from: Hsla, to: Hsla, t: f32) -> Hsla {
-    Hsla {
-        h: from.h + (to.h - from.h) * t,
-        s: from.s + (to.s - from.s) * t,
-        l: from.l + (to.l - from.l) * t,
-        a: from.a + (to.a - from.a) * t,
-    }
-}
-
 impl ChatInputView {
     pub fn new(
         state: &AppState,

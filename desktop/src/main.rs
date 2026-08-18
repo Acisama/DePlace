@@ -30,6 +30,7 @@ pub(crate) mod cache;
 pub(crate) mod components;
 pub(crate) mod helpers;
 pub(crate) mod keybinds;
+pub(crate) mod saving;
 pub(crate) mod theme;
 pub(crate) mod view_lru;
 pub(crate) mod watch_bridge;
