@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
+use crate::components::chat::{FocusNext, FocusPrevious};
+
 use deplace_core::{
     get_other_member,
     state::{AppState, MembershipMap},
 };
 use gpui::{
-    AppContext, Context, Element, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, StyleRefinement, Styled, Subscription, Window, actions, div,
-    prelude::FluentBuilder,
+    AppContext, Context, Element, Entity, FocusHandle, Focusable, FollowMode, InteractiveElement,
+    IntoElement, KeyContext, ParentElement, Pixels, Render, StyleRefinement, Styled, Subscription,
+    Window, actions, div, prelude::FluentBuilder,
 };
 use gpui_component::StyledExt;
 use macros::{nonzero_usize, tailwind_div};
@@ -332,9 +334,60 @@ impl Render for HomeView {
                 });
                 cx.notify();
             }))
-            // Message-navigation FocusNext/FocusPrevious are handled by `TimelineView` itself
-            // (it's the focused element when browsing chat messages), so `HomeView` only needs
-            // the actions that move focus in/out of the chat input.
+            // Focus & Chat Navigation Actions attached directly to root focus
+            .on_action(cx.listener(|this, _: &FocusNext, window, cx| {
+                tracing::trace!("Focusing next message");
+                this.chat.update(cx, |that, cx| {
+                    that.update_visible_timeline(cx, |timeline, cx| {
+                        let mut new_focus = match timeline.focused_message {
+                            Some(focus) => focus + 1,
+                            None if !timeline.messages.is_empty() => timeline.messages.len() - 1,
+                            None => return,
+                        };
+
+                        while let Some(item) = timeline.messages.get(new_focus) {
+                            if item.is_user_message() {
+                                timeline.focused_message = Some(new_focus);
+                                timeline.list_state.set_follow_mode(FollowMode::Normal);
+                                timeline.list_state.scroll_to_reveal_item(new_focus);
+                                cx.notify();
+                                window.focus(&timeline.focus_handle(cx), cx);
+                                return;
+                            }
+                            new_focus += 1;
+                        }
+                    });
+                });
+            }))
+            .on_action(cx.listener(|this, _: &FocusPrevious, window, cx| {
+                tracing::trace!("Focusing previous message");
+                this.chat.update(cx, |that, cx| {
+                    that.update_visible_timeline(cx, |timeline, cx| {
+                        let mut new_focus = match timeline.focused_message {
+                            Some(focus) => focus.saturating_sub(1),
+                            None if !timeline.messages.is_empty() => {
+                                timeline.messages.len().saturating_sub(1)
+                            }
+                            None => return,
+                        };
+
+                        while let Some(item) = timeline.messages.get(new_focus) {
+                            if item.is_user_message() {
+                                timeline.focused_message = Some(new_focus);
+                                timeline.list_state.set_follow_mode(FollowMode::Normal);
+                                timeline.list_state.scroll_to_reveal_item(new_focus);
+                                cx.notify();
+                                window.focus(&timeline.focus_handle(cx), cx);
+                                return;
+                            }
+                            if new_focus == 0 {
+                                return;
+                            }
+                            new_focus -= 1;
+                        }
+                    })
+                });
+            }))
             .on_action(cx.listener(|this, _: &FocusInput, window, cx| {
                 tracing::debug!("Focusing chat input");
                 if let Some(chat_view) = this.chat.read(cx).visible().cloned() {

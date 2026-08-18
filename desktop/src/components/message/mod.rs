@@ -91,15 +91,11 @@ impl CachedTimelineItem {
             _ => false,
         }
     }
-}
 
-impl CachedTimelineItem {
     pub fn id(&self) -> ElementId {
         ElementId::Name(self.id.clone())
     }
-}
 
-impl CachedTimelineItem {
     /// Recomputes whether this item should show its own header (avatar/name/time),
     /// based on the identity of the item immediately before it.
     pub fn recompute_show_header(&mut self, prev: Option<&CachedTimelineItem>) {

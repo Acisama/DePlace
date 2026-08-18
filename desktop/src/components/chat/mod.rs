@@ -25,7 +25,7 @@ use crate::{
 mod input;
 mod timeline;
 
-pub use timeline::{FocusInput, FocusInputWithKey, UnfocusInput};
+pub use timeline::{FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, UnfocusInput};
 
 pub type ChatTimelineCache = VisibleLruCache<OwnedRoomId, ChatView>;
 
@@ -145,5 +145,18 @@ impl Render for ChatView {
             .child(self.timeline.clone())
             .child(self.input.clone()),
         )
+    }
+}
+
+impl ChatTimelineCache {
+    pub fn update_visible_timeline(
+        &self,
+        cx: &mut impl AppContext,
+        update: impl FnOnce(&mut TimelineView, &mut Context<TimelineView>),
+    ) {
+        let Some(visible) = self.visible() else {
+            return;
+        };
+        visible.update(cx, |chat, cx| chat.timeline.update(cx, update))
     }
 }

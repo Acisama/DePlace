@@ -621,55 +621,6 @@ impl Render for TimelineView {
                 let finish_selection = finish_selection.clone();
                 move |_event, _window, cx| finish_selection(cx)
             })
-            .on_action(cx.listener(|this, FocusNext, _, cx| {
-                tracing::debug!("Focusing next message");
-                let mut new_focus = match this.focused_message {
-                    Some(focus) => focus + 1,
-                    None if !this.messages.is_empty() => this.messages.len() - 1,
-                    None => return,
-                };
-
-                while let Some(item) = this.messages.get(new_focus) {
-                    if item.is_user_message() {
-                        this.focused_message = Some(new_focus);
-                        this.list_state.set_follow_mode(FollowMode::Normal);
-                        this.list_state.scroll_to_reveal_item(new_focus);
-                        cx.notify();
-                        tracing::debug!("Focused message {}", new_focus);
-                        return;
-                    }
-                    new_focus += 1;
-                }
-                tracing::debug!("Didn't find new message to focus");
-                // if no new user message to focus is found, we don't change focus
-                // TODO: Focus the message input instead
-            }))
-            .on_action(cx.listener(|this, FocusPrevious, _, cx| {
-                tracing::debug!("Focusing previous message");
-                let mut new_focus = match this.focused_message {
-                    Some(focus) => focus.saturating_sub(1),
-                    None if !this.messages.is_empty() => this.messages.len().saturating_sub(1),
-                    None => return,
-                };
-
-                while let Some(item) = this.messages.get(new_focus) {
-                    if item.is_user_message() {
-                        this.focused_message = Some(new_focus);
-                        this.list_state.set_follow_mode(FollowMode::Normal);
-                        this.list_state.scroll_to_reveal_item(new_focus);
-                        cx.notify();
-                        tracing::debug!("Focused message {}", new_focus);
-                        return;
-                    }
-                    if new_focus == 0 {
-                        // TODO: reached top of loaded chat messages, load more
-                        return;
-                    }
-                    new_focus -= 1;
-                }
-                tracing::debug!("Didn't find new message to focus");
-                // if no new user message to focus is found, we don't change focus
-            }))
             .track_focus(&self.focus_handle)
             .child({
                 let focused_message = self.focused_message;
