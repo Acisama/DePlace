@@ -7,7 +7,7 @@ use deplace_core::{
     state::{AppState, MembershipMap},
 };
 use gpui::{
-    AppContext, ClickEvent, Context, Entity, FocusHandle, Focusable, Hsla, ImageFormat,
+    AppContext, ClickEvent, Context, Entity, FocusHandle, Focusable, ImageFormat,
     InteractiveElement, IntoElement, MouseButton, MouseClickEvent, MouseDownEvent, ParentElement,
     PathPromptOptions, Render, SharedString, StatefulInteractiveElement, Styled, TextOverflow,
     Window, prelude::FluentBuilder,

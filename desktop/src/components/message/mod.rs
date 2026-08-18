@@ -208,7 +208,7 @@ pub struct CachedTimelineEvent {
 
     timestamp: i64,
     sender: Arc<OwnedUserId>,
-    read_by: Vec<Arc<OwnedUserId>>,
+    read_by: Arc<Vec<OwnedUserId>>,
 
     show_header: bool,
     pad_bottom: bool,
@@ -424,7 +424,7 @@ impl CachedEventContent {
 
 #[derive(Clone)]
 struct ReactionInfo {
-    reactors: Vec<Arc<OwnedUserId>>,
+    reactors: Arc<Vec<OwnedUserId>>,
     reactors_count: SharedString,
     emoji: SharedString,
     timestamp: u64,
@@ -442,6 +442,7 @@ struct CachedUserMessage {
     msg_type: CachedMessageType,
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct CachedBeaconInfo {
     pub geo_uri: SharedString,

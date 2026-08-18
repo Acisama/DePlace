@@ -152,7 +152,7 @@ impl Structure {
 
             chat: Chat {
                 icon_size: px(40.0),
-                small_icon_size: px(22.0),
+                small_icon_size: px(18.0),
                 text_size: px(16.0),
                 small_text_size: px(12.0),
                 max_media_height: px(500.0),
@@ -214,7 +214,7 @@ pub struct AppTheme {
     pub solid_hover_bg: Hsla,
     pub solid_bg: Hsla,
 
-    pub hover_animation_duration: Duration,
+    pub _hover_animation_duration: Duration,
 }
 
 impl Global for AppTheme {}
@@ -265,7 +265,7 @@ impl AppTheme {
             ),
             accent,
 
-            hover_animation_duration: Duration::from_millis(150),
+            _hover_animation_duration: Duration::from_millis(150),
         }
     }
 

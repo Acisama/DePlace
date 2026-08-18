@@ -1,3 +1,4 @@
+use core::str;
 use std::{ops::Range, rc::Rc, sync::Arc, time::Duration};
 
 use deplace_core::{
@@ -113,9 +114,8 @@ impl CachedTimelineItem {
         &self,
         message_index: usize,
         window: &Window,
-        cx: &mut App,
-        theme: AppTheme,
-        structure: Structure,
+        theme: &AppTheme,
+        structure: &Structure,
         curent_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
@@ -164,9 +164,8 @@ impl CachedTimelineItem {
                 self.id(),
                 message_index,
                 window,
-                cx,
-                &theme,
-                &structure,
+                theme,
+                structure,
                 curent_room_id,
                 map,
                 avatar_cache,
@@ -188,7 +187,6 @@ impl CachedTimelineEvent {
         id: ElementId,
         message_index: usize,
         window: &Window,
-        cx: &mut App,
         theme: &AppTheme,
         structure: &Structure,
         current_room_id: &RoomId,
@@ -279,7 +277,6 @@ impl CachedTimelineEvent {
                 &id,
                 message_index,
                 window,
-                cx,
                 structure,
                 theme,
                 image_cache,
@@ -385,6 +382,21 @@ impl CachedTimelineEvent {
                 bottom(pre_col_space / 4.0),
                 rounded(pre_col_space / 6.0)
             ))
+        })
+        .when(!self.read_by.is_empty(), |el| {
+            el.child(
+                tailwind_div!(
+                    absolute,
+                    right(structure.small_gap),
+                    bottom(structure.small_gap),
+                    flex,
+                    flex_row,
+                    gap(structure.small_gap),
+                    items_center,
+                    cursor_pointer
+                )
+                .children(self.read_by.iter().map(|id| member_avatar(id))),
+            )
         });
 
         let body = if is_system_message {
@@ -399,22 +411,23 @@ impl CachedTimelineEvent {
                                 px(pre_col_space),
                                 relative
                             )
-                            .when(self.show_header, |el| {
-                                el.child(sender_avatar(structure.chat.icon_size))
-                            })
-                            .when(!self.show_header, |el| {
-                                el.child(
-                                    tailwind_div!(
-                                        text_color(transparent_black()),
-                                        text_size(structure.chat.small_text_size),
+                            .when_else(
+                                self.show_header,
+                                |el| el.child(sender_avatar(structure.chat.icon_size)),
+                                |el| {
+                                    el.child(
+                                        tailwind_div!(
+                                            text_color(transparent_black()),
+                                            text_size(structure.chat.small_text_size),
+                                        )
+                                        .id(id)
+                                        .group_hover("message", |style| {
+                                            style.text_color(theme.text.muted)
+                                        })
+                                        .child(self.short_time.clone()),
                                     )
-                                    .id(id)
-                                    .group_hover("message", |style| {
-                                        style.text_color(theme.text.muted)
-                                    })
-                                    .child(self.short_time.clone()),
-                                )
-                            }),
+                                },
+                            ),
                         )
                         .child(
                             tailwind_div!(
@@ -503,7 +516,6 @@ impl CachedUserMessage {
         id: &ElementId,
         message_index: usize,
         window: &Window,
-        cx: &mut App,
         structure: &Structure,
         theme: &AppTheme,
         media_cache: &ThumbnailCache,

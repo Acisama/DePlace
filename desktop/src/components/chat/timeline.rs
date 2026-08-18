@@ -674,8 +674,8 @@ impl Render for TimelineView {
             .child({
                 let focused_message = self.focused_message;
                 list(self.list_state.clone(), move |ix, window, cx| {
-                    let theme = cx.app_theme().clone();
-                    let structure = cx.structure().clone();
+                    let theme = cx.app_theme();
+                    let structure = cx.structure();
 
                     let Some(current) = messages.get(ix) else {
                         return Empty.into_any_element();
@@ -685,7 +685,6 @@ impl Render for TimelineView {
                     current.render(
                         ix,
                         window,
-                        cx,
                         theme,
                         structure,
                         &room_id,

@@ -233,20 +233,22 @@ pub fn cached_from_timeline_item(value: &Arc<TimelineItem>, own_id: &UserId) -> 
         TimelineItemKind::Event(event) => {
             let sender = Arc::new(event.sender().to_owned());
 
-            let read_by = event
-                .read_receipts()
-                .iter()
-                .filter_map(|(user_id, receipt)| {
-                    if matches!(
-                        receipt.thread,
-                        ReceiptThread::Main | ReceiptThread::Unthreaded
-                    ) {
-                        Some(Arc::new(user_id.to_owned()))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let read_by = Arc::new(
+                event
+                    .read_receipts()
+                    .iter()
+                    .filter_map(|(user_id, receipt)| {
+                        if matches!(
+                            receipt.thread,
+                            ReceiptThread::Main | ReceiptThread::Unthreaded
+                        ) {
+                            Some(user_id.to_owned())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+            );
 
             let secs = event.timestamp().as_secs().into();
             let date = Local
@@ -443,7 +445,9 @@ fn cached_from_timeline_item_content(
                                     height: info.height.map(|h| u64::from(h) as f32),
                                     size: info.size.map(|s| ByteSize::new(s.into())),
                                     format,
-                                    blurhash_image: info.blurhash.map(|h| blurhash_to_image(&h)),
+                                    blurhash_image: info
+                                        .blurhash
+                                        .and_then(|h| blurhash_to_image(&h)),
                                 },
                             )
                         }
@@ -548,14 +552,14 @@ fn cached_from_timeline_item_content(
                             if id == own_id {
                                 has_own = true;
                             }
-                            reactors.push((Arc::new(id.clone()), ts));
+                            reactors.push((id.clone(), ts));
                         }
 
                         reactors.sort_by_key(|(_, ts)| *ts);
 
                         ReactionInfo {
                             reactors_count: reactors.len().to_string().into(),
-                            reactors: reactors.into_iter().map(|(id, _)| id).collect(),
+                            reactors: Arc::new(reactors.into_iter().map(|(id, _)| id).collect()),
                             emoji: reaction.into(),
                             timestamp,
                             has_own,

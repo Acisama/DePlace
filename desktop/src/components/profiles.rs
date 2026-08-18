@@ -5,7 +5,10 @@ use deplace_core::{
     matrix_api::presence::PresenceIcon,
     state::{MembershipMap, PresenceMap},
 };
-use gpui::{AnyElement, Div, Hsla, Length, ObjectFit, Pixels, div, img, prelude::*, relative, svg};
+use gpui::{
+    AnyElement, Div, Hsla, Length, ObjectFit, Pixels, SharedString, div, img, prelude::*, relative,
+    svg,
+};
 use gpui_component::{Colorize, StyledExt};
 use macros::tailwind_div;
 use matrix_sdk::{Room, room::RoomMember, ruma::UserId};
@@ -16,7 +19,7 @@ use crate::{
     theme::{AppTheme, Colors},
 };
 
-pub fn text_circle(initial: char, color: Hsla, size: Pixels, rounding: Pixels) -> Div {
+pub fn text_circle(text: SharedString, color: Hsla, size: Pixels, rounding: Pixels) -> Div {
     let font_size = size / 2.0;
 
     let bg_color = color.lightness(0.1);
@@ -36,11 +39,11 @@ pub fn text_circle(initial: char, color: Hsla, size: Pixels, rounding: Pixels) -
         cursor_pointer,
         outer_gradient(color, size / 17.0)
     )
-    .child(initial.to_string())
+    .child(text)
 }
 
 fn avatar(
-    initial: char,
+    initial: SharedString,
     color: Hsla,
     size: Pixels,
     rounding: Pixels,
@@ -61,14 +64,20 @@ fn avatar(
                 .size_full()
                 .rounded(rounding),
         ),
-        Some(MediaState::Failed) => text_circle('!', color, size, rounding),
+        Some(MediaState::Failed) => text_circle('!'.to_string().into(), color, size, rounding),
         Some(MediaState::Loading) => text_circle(initial, color, size, rounding),
         None => text_circle(initial, color, size, rounding),
     }
 }
 
 fn unknown_avatar(size: Pixels, rounding: Pixels, color: Hsla) -> Div {
-    avatar('?', color, size, rounding, Some(MediaState::Failed))
+    avatar(
+        '?'.to_string().into(),
+        color,
+        size,
+        rounding,
+        Some(MediaState::Failed),
+    )
 }
 
 pub fn render_icon(svg_content: &'static str, size: impl Clone + Into<Length>) -> AnyElement {
@@ -123,7 +132,14 @@ pub fn render_room_no_dm(
     let url = room.avatar_url().map(|u| u.to_owned());
     let image = url.map(|url| cache.get(&url));
 
-    avatar(room.initial(), room.color().into(), size, rounding, image).into_any()
+    avatar(
+        room.initial().to_string().into(),
+        room.color().into(),
+        size,
+        rounding,
+        image,
+    )
+    .into_any()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -180,7 +196,14 @@ impl MemberRenderer for RoomMember {
     ) -> AnyElement {
         let image = self.avatar_url().map(|url| cache.get(url));
 
-        let content = avatar(self.initial(), self.color().into(), size, rounding, image).into_any();
+        let content = avatar(
+            self.initial().to_string().into(),
+            self.color().into(),
+            size,
+            rounding,
+            image,
+        )
+        .into_any();
 
         if let Some(map) = presence_map {
             let icon_size = size * 0.3;

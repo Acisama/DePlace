@@ -133,6 +133,7 @@ pub enum SystemMessageType {
 
 const DEFAULT_SYSTEM_MESSAGES: EnumSet<SystemMessageType> = enum_set!(
     SystemMessageType::MembershipChange
+        | SystemMessageType::ProfileChange
         | SystemMessageType::RoomCreate
         | SystemMessageType::RoomEncryption
         | SystemMessageType::RoomPinnedEvents

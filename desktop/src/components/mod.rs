@@ -120,19 +120,33 @@ impl ByteSize {
     }
 }
 
-pub fn blurhash_to_image(hash: &str) -> Arc<RenderImage> {
+pub fn blurhash_to_image(hash: &str) -> Option<Arc<RenderImage>> {
     let width = 32;
     let height = 32;
-    let mut pixels = decode(hash, width, height, 1.2).expect("Failed to decode blurhash");
+    let mut pixels = match decode(hash, width, height, 1.2) {
+        Ok(pixels) => pixels,
+        Err(e) => {
+            eprintln!("Failed to decode blurhash: {:?}", e);
+            return None;
+        }
+    };
 
     for chunk in pixels.chunks_exact_mut(4) {
         chunk.swap(0, 2);
     }
 
-    let buf = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels)
-        .expect("Failed to construct ImageBuffer");
+    let buf = match ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels) {
+        Some(buf) => buf,
+        None => {
+            eprintln!("Failed to construct ImageBuffer");
+            return None;
+        }
+    };
 
-    Arc::new(RenderImage::new(SmallVec::from_elem(Frame::new(buf), 1)))
+    Some(Arc::new(RenderImage::new(SmallVec::from_elem(
+        Frame::new(buf),
+        1,
+    ))))
 }
 
 pub fn close_button(

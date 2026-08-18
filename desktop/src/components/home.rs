@@ -1,7 +1,4 @@
-use std::{
-    num::{NonZero, NonZeroUsize},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use deplace_core::{
     get_other_member,
@@ -9,8 +6,8 @@ use deplace_core::{
 };
 use gpui::{
     AppContext, Context, Element, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyContext, ParentElement, Pixels, Render, StyleRefinement, Styled, Subscription, Window,
-    actions, div, prelude::FluentBuilder,
+    ParentElement, Pixels, Render, StyleRefinement, Styled, Subscription, Window, actions, div,
+    prelude::FluentBuilder,
 };
 use gpui_component::StyledExt;
 use macros::{nonzero_usize, tailwind_div};
@@ -283,13 +280,11 @@ impl Render for HomeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.app_theme();
         let structure = cx.structure();
-        let key_context = KeyContext::parse(if self.vim_mode { "Home Vim" } else { "Home" })
-            .expect("Could not parse key context");
 
         div()
             .track_focus(&self.focus)
             .id("home-view")
-            .key_context(key_context)
+            .key_context(if self.vim_mode { "Home Vim" } else { "Home" })
             // Global Home View Actions
             .on_action(cx.listener(|this, _: &ToggleVimMode, _window, cx| {
                 this.vim_mode = !this.vim_mode;
