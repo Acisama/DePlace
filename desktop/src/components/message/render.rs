@@ -371,29 +371,49 @@ impl CachedTimelineEvent {
         .when_some(self.in_reply_to(), |el, reply| {
             el.child(reply.render(theme, structure, smaller_member_avatar, member_name))
         })
-        .when(show_highlight, |el| {
-            el.child(tailwind_div!(
-                bg(theme.accent),
-                absolute,
-                left(pre_col_space / 4.0),
-                w(pre_col_space / 3.0),
-                flex,
-                top(pre_col_space / 4.0),
-                bottom(pre_col_space / 4.0),
-                rounded(pre_col_space / 6.0)
-            ))
-        })
         .when(!self.read_by.is_empty(), |el| {
+            // check whether the message is short enough to
+            // decide where to display the read marker
+            let is_short_message = !self.show_header
+                && self.in_reply_to().is_none()
+                && match &self.content {
+                    CachedEventContent::UserMessage(msg) => {
+                        msg.reactions.as_ref().map_or(true, |r| r.is_empty())
+                            && match &msg.msg_type {
+                                CachedMessageType::Text | CachedMessageType::Emote => {
+                                    match &msg.body {
+                                        Some(blocks) if blocks.len() == 1 => match &blocks[0] {
+                                            CachedBlock::Paragraph(rich_text) => {
+                                                !rich_text.text.contains('\n')
+                                                // && rich_text.text.chars().count() <= 60
+                                                // TODO: Implement when wrapping is added
+                                            }
+                                            _ => false,
+                                        },
+                                        None => true,
+                                        _ => false,
+                                    }
+                                }
+                                _ => false,
+                            }
+                    }
+                    _ => false,
+                };
+
             el.child(
                 tailwind_div!(
                     absolute,
                     right(structure.small_gap),
-                    bottom(structure.small_gap),
                     flex,
                     flex_row,
                     gap(structure.small_gap),
                     items_center,
                     cursor_pointer
+                )
+                .when_else(
+                    is_short_message,
+                    |style| style.top(Pixels::ZERO).bottom(Pixels::ZERO),
+                    |style| style.bottom(structure.small_gap),
                 )
                 .children(self.read_by.iter().map(|id| member_avatar(id))),
             )
