@@ -29,7 +29,7 @@ use crate::{
         sidebar::SidebarView,
     },
     theme::{DeplaceThings, Structure},
-    watch_bridge::{execute_on_change, notify_on_change},
+    watch_bridge::notify_on_change,
 };
 
 pub struct HomeView {
@@ -150,7 +150,7 @@ impl HomeView {
 
         let chat = cx.new(|_| {
             ChatTimelineCache::new(
-                NonZeroUsize::new(500).expect("nonzero usize required"),
+                NonZeroUsize::new(15).expect("nonzero usize required"),
                 || tailwind_div!(size_full).into_any(),
             )
         });
@@ -195,12 +195,6 @@ impl HomeView {
             },
         )
         .detach();
-
-        execute_on_change(active_room.clone(), cx, "chat_input", {
-            move |this: &mut HomeView, window, cx, room: Option<Room>, _| {
-                this.load_room_chat(room, cx, window);
-            }
-        });
 
         let mut view = Self {
             server_list,

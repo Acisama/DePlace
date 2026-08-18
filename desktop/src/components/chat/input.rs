@@ -7,11 +7,10 @@ use deplace_core::{
     state::{AppState, MembershipMap},
 };
 use gpui::{
-    Animation, AnimationExt, AppContext, ClickEvent, Context, ElementId, Entity, FocusHandle,
-    Focusable, Hsla, ImageFormat, InteractiveElement, IntoElement, MouseButton, MouseClickEvent,
-    MouseDownEvent, ParentElement, PathPromptOptions, Render, SharedString,
-    StatefulInteractiveElement, Styled, TextOverflow, Window, ease_in_out, prelude::FluentBuilder,
-    transparent_black,
+    AppContext, ClickEvent, Context, Entity, FocusHandle, Focusable, Hsla, ImageFormat,
+    InteractiveElement, IntoElement, MouseButton, MouseClickEvent, MouseDownEvent, ParentElement,
+    PathPromptOptions, Render, SharedString, StatefulInteractiveElement, Styled, TextOverflow,
+    Window, prelude::FluentBuilder,
 };
 use gpui_component::{
     StyledExt,

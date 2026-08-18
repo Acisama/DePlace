@@ -6,6 +6,7 @@ use deplace_core::{
     helpers::{format_date_divider, format_message_long_date, format_message_short_date},
     matrix_api::timeline::{DisplayString, get_current_and_prev},
 };
+use enumset::EnumSet;
 use gpui::ImageFormat;
 use matrix_sdk::{
     media::UniqueKey,
@@ -178,6 +179,35 @@ impl From<&OtherState> for CachedSystemMessage {
     }
 }
 
+impl CachedTimelineItem {
+    pub fn recompute_datedivider_types(&mut self, rest: &[CachedTimelineItem]) {
+        let CachedTimelineItemKind::DateDivider {
+            depends_on_system_messages,
+            ..
+        } = &mut self.kind
+        else {
+            return;
+        };
+
+        let mut types = EnumSet::empty();
+        for item in rest {
+            if let CachedTimelineItemKind::DateDivider { .. } = item.kind {
+                return;
+            }
+
+            if let CachedTimelineItemKind::Event(event) = &item.kind
+                && let Some(sys) = event.as_system_message()
+            {
+                let kind = sys.message_type();
+                types.insert(kind);
+                *depends_on_system_messages = Some(types);
+            } else {
+                return;
+            }
+        }
+    }
+}
+
 pub fn cached_from_timeline_item(value: &Arc<TimelineItem>, own_id: &UserId) -> CachedTimelineItem {
     let kind = match value.kind() {
         TimelineItemKind::Virtual(virt) => match virt {
@@ -187,8 +217,12 @@ pub fn cached_from_timeline_item(value: &Arc<TimelineItem>, own_id: &UserId) -> 
                     .timestamp_opt(secs, 0)
                     .latest()
                     .unwrap_or_else(|| DateTime::UNIX_EPOCH.with_timezone(&Local));
+                let text = format_date_divider(date);
 
-                CachedTimelineItemKind::DateDivider(format_date_divider(date).into())
+                CachedTimelineItemKind::DateDivider {
+                    date: text.into(),
+                    depends_on_system_messages: None,
+                }
             }
             VirtualTimelineItem::ReadMarker => CachedTimelineItemKind::ReadMarker,
             VirtualTimelineItem::TimelineStart => CachedTimelineItemKind::TimelineStart,

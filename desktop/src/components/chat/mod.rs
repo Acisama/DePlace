@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use deplace_core::state::AppState;
 use gpui::{
-    App, AppContext, Context, Entity, FocusHandle, Focusable, ParentElement, Render,
-    StyleRefinement, Styled, Window,
+    App, AppContext, Context, Entity, FocusHandle, Focusable, ParentElement, Render, Styled, Window,
 };
 use gpui_component::StyledExt;
 use macros::tailwind_div;
@@ -143,11 +142,7 @@ impl Render for ChatView {
                 paddings(structure.small_gap),
                 pt_0
             )
-            .child(
-                self.timeline
-                    .clone()
-                    .cached(StyleRefinement::default().w_full().flex_grow_1()),
-            )
+            .child(self.timeline.clone())
             .child(self.input.clone()),
         )
     }

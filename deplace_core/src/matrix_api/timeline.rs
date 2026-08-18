@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 type TimelineFocusMap = DashMap<(OwnedRoomId, Option<OwnedEventId>), (Arc<Timeline>, Uuid)>;
 type TimelineMap = DashMap<Uuid, (Arc<Timeline>, PaginationState)>;
-pub type Messages = imbl::Vector<Arc<TimelineItem>>;
+pub type Messages = Vec<Arc<TimelineItem>>;
 
 #[derive(Default, Clone, Copy)]
 struct PaginationState {
@@ -112,7 +112,7 @@ impl TimelineManager {
         let (timeline, id) = self.get_or_create_timeline(room, focus).await?;
         let (initial_messages, update_stream) = timeline.subscribe().await;
 
-        Ok((initial_messages, update_stream, id))
+        Ok((initial_messages.into_iter().collect(), update_stream, id))
     }
 
     pub async fn scroll_timeline(&self, id: Uuid, direction: ScrollDirection) {

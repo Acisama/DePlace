@@ -120,13 +120,23 @@ impl TimelineView {
                             room_id,
                             initial_messages.len()
                         );
+
+                        let mut cached_messages: Vec<CachedTimelineItem> = initial_messages
+                            .iter()
+                            .map(|item| cached_from_timeline_item(item, &view.user_id))
+                            .collect();
+
+                        for i in 0..cached_messages.len() {
+                            let Some((current_item, rest)) = cached_messages[i..].split_first_mut()
+                            else {
+                                continue;
+                            };
+
+                            current_item.recompute_datedivider_types(rest);
+                        }
+
                         view.timeline_id = Some(id);
-                        view.messages = Arc::new(
-                            initial_messages
-                                .iter()
-                                .map(|item| cached_from_timeline_item(item, &view.user_id))
-                                .collect(),
-                        );
+                        view.messages = Arc::new(cached_messages);
                         let len = view.messages.len();
                         recompute_grouping_range(&mut view.messages, 0..len);
                         view.list_state.splice(0..0, view.messages.len());
@@ -304,12 +314,22 @@ fn apply_diff(
     match diff {
         VectorDiff::Append { values } => {
             let start = messages.len();
+
             Arc::make_mut(messages).extend(
                 values
                     .iter()
                     .map(|item| cached_from_timeline_item(item, own_id)),
             );
             list_state.splice(start..start, messages.len() - start);
+
+            for i in 0..messages.len() {
+                let Some((current_item, rest)) = Arc::make_mut(messages)[i..].split_first_mut()
+                else {
+                    continue;
+                };
+
+                current_item.recompute_datedivider_types(rest);
+            }
 
             if start > 0 {
                 recompute_pad_bottom_at(messages, start - 1);
@@ -323,6 +343,10 @@ fn apply_diff(
         VectorDiff::PushFront { value } => {
             Arc::make_mut(messages).insert(0, cached_from_timeline_item(&value, own_id));
             list_state.splice(0..0, 1);
+
+            if let Some((current_item, rest)) = Arc::make_mut(messages).split_first_mut() {
+                current_item.recompute_datedivider_types(rest);
+            }
 
             recompute_show_header_at(messages, 0);
             recompute_pad_bottom_at(messages, 0);

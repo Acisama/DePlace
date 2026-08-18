@@ -128,7 +128,16 @@ impl CachedTimelineItem {
             //     item.and_then(|i| i.as_virtual().cloned())
             //         .is_some_and(|v| matches!(v, VirtualTimelineItem::ReadMarker))
             // }
-            CachedTimelineItemKind::DateDivider(date) => {
+            CachedTimelineItemKind::DateDivider {
+                date,
+                depends_on_system_messages,
+            } => {
+                if let Some(types) = depends_on_system_messages
+                    && settings.system_messages_to_show.value().is_disjoint(*types)
+                {
+                    return div().into_any();
+                }
+
                 tailwind_div!(w_full, flex, items_center, gap(structure.gap))
                     .child(tailwind_div!(h(divider_width), flex_1 bg(theme.tile.border)))
                     .child(tailwind_div!(text_color(theme.text.muted)).child(date.clone()))

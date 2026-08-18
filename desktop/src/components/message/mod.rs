@@ -11,6 +11,7 @@ mod selectable_text;
 mod text;
 
 pub use convert::cached_from_timeline_item;
+
 pub(crate) use render::{HoverState, SelectionState};
 
 use crate::{
@@ -151,7 +152,11 @@ impl CachedTimelineItem {
 
 #[derive(Clone)]
 pub enum CachedTimelineItemKind {
-    DateDivider(SharedString),
+    DateDivider {
+        date: SharedString,
+        /// Used for rendering, compared against visible system messages if some and if none are visible, the divider is hidden
+        depends_on_system_messages: Option<EnumSet<SystemMessageType>>,
+    },
     ReadMarker,
     TimelineStart,
     Event(Box<CachedTimelineEvent>),
@@ -217,6 +222,13 @@ impl CachedTimelineEvent {
     pub fn in_reply_to(&self) -> Option<CachedReplyInfo> {
         match &self.content {
             CachedEventContent::UserMessage(content) => content.in_reply_to.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn as_system_message(&self) -> Option<&CachedSystemMessage> {
+        match &self.content {
+            CachedEventContent::SystemMessage(sys) => Some(sys),
             _ => None,
         }
     }
@@ -553,65 +565,39 @@ impl CachedSystemMessage {
         }
     }
 
-    pub fn should_show(&self, allowed: EnumSet<SystemMessageType>) -> bool {
+    pub fn message_type(&self) -> SystemMessageType {
         match self {
-            CachedSystemMessage::CallInvite(_) => allowed.contains(SystemMessageType::CallInvite),
-            CachedSystemMessage::Invisible => allowed.contains(SystemMessageType::Invisible),
-            CachedSystemMessage::MemberShipChange(_) => {
-                allowed.contains(SystemMessageType::MembershipChange)
-            }
-            CachedSystemMessage::PolicyRuleRoom(_) => {
-                allowed.contains(SystemMessageType::PolicyRuleRoom)
-            }
-            CachedSystemMessage::PolicyRuleServer(_) => {
-                allowed.contains(SystemMessageType::PolicyRuleServer)
-            }
-            CachedSystemMessage::PolicyRuleUser(_) => {
-                allowed.contains(SystemMessageType::PolicyRuleUser)
-            }
-            CachedSystemMessage::RoomAvatar(_) => allowed.contains(SystemMessageType::RoomAvatar),
-            CachedSystemMessage::RoomCanonicalAlias(_) => {
-                allowed.contains(SystemMessageType::RoomCanonicalAlias)
-            }
-            CachedSystemMessage::RoomCreate(_) => allowed.contains(SystemMessageType::RoomCreate),
-            CachedSystemMessage::RoomEncryption(_) => {
-                allowed.contains(SystemMessageType::RoomEncryption)
-            }
-            CachedSystemMessage::RoomGuestAccess(_) => {
-                allowed.contains(SystemMessageType::RoomGuestAccess)
-            }
+            CachedSystemMessage::CallInvite(_) => SystemMessageType::CallInvite,
+            CachedSystemMessage::Invisible => SystemMessageType::Invisible,
+            CachedSystemMessage::MemberShipChange(_) => SystemMessageType::MembershipChange,
+            CachedSystemMessage::PolicyRuleRoom(_) => SystemMessageType::PolicyRuleRoom,
+            CachedSystemMessage::PolicyRuleServer(_) => SystemMessageType::PolicyRuleServer,
+            CachedSystemMessage::PolicyRuleUser(_) => SystemMessageType::PolicyRuleUser,
+            CachedSystemMessage::RoomAvatar(_) => SystemMessageType::RoomAvatar,
+            CachedSystemMessage::RoomCanonicalAlias(_) => SystemMessageType::RoomCanonicalAlias,
+            CachedSystemMessage::RoomCreate(_) => SystemMessageType::RoomCreate,
+            CachedSystemMessage::RoomEncryption(_) => SystemMessageType::RoomEncryption,
+            CachedSystemMessage::RoomGuestAccess(_) => SystemMessageType::RoomGuestAccess,
             CachedSystemMessage::RoomHistoryVisibility(_) => {
-                allowed.contains(SystemMessageType::RoomHistoryVisibility)
+                SystemMessageType::RoomHistoryVisibility
             }
-            CachedSystemMessage::RoomJoinRules(_) => {
-                allowed.contains(SystemMessageType::RoomJoinRules)
-            }
-            CachedSystemMessage::RoomName(_) => allowed.contains(SystemMessageType::RoomName),
-            CachedSystemMessage::RoomPinnedEvents(_) => {
-                allowed.contains(SystemMessageType::RoomPinnedEvents)
-            }
-            CachedSystemMessage::RoomPowerLevels(_) => {
-                allowed.contains(SystemMessageType::RoomPowerLevels)
-            }
-            CachedSystemMessage::RoomServerAcl(_) => {
-                allowed.contains(SystemMessageType::RoomServerAcl)
-            }
-            CachedSystemMessage::RoomThirdPartyInvite(_) => {
-                allowed.contains(SystemMessageType::RoomThirdPartyInvite)
-            }
-            CachedSystemMessage::RoomTombstone(_) => {
-                allowed.contains(SystemMessageType::RoomTombstone)
-            }
-            CachedSystemMessage::RoomTopic(_) => allowed.contains(SystemMessageType::RoomTopic),
-            CachedSystemMessage::SpaceChild(_) => allowed.contains(SystemMessageType::SpaceChild),
-            CachedSystemMessage::SpaceParent(_) => allowed.contains(SystemMessageType::SpaceParent),
-            CachedSystemMessage::Unknown(_) => allowed.contains(SystemMessageType::Unknown),
-            CachedSystemMessage::ProfileChange(_) => {
-                allowed.contains(SystemMessageType::ProfileChange)
-            }
-            CachedSystemMessage::RtcNotification { .. } => {
-                allowed.contains(SystemMessageType::RtcNotification)
-            }
+            CachedSystemMessage::RoomJoinRules(_) => SystemMessageType::RoomJoinRules,
+            CachedSystemMessage::RoomName(_) => SystemMessageType::RoomName,
+            CachedSystemMessage::RoomPinnedEvents(_) => SystemMessageType::RoomPinnedEvents,
+            CachedSystemMessage::RoomPowerLevels(_) => SystemMessageType::RoomPowerLevels,
+            CachedSystemMessage::RoomServerAcl(_) => SystemMessageType::RoomServerAcl,
+            CachedSystemMessage::RoomThirdPartyInvite(_) => SystemMessageType::RoomThirdPartyInvite,
+            CachedSystemMessage::RoomTombstone(_) => SystemMessageType::RoomTombstone,
+            CachedSystemMessage::RoomTopic(_) => SystemMessageType::RoomTopic,
+            CachedSystemMessage::SpaceChild(_) => SystemMessageType::SpaceChild,
+            CachedSystemMessage::SpaceParent(_) => SystemMessageType::SpaceParent,
+            CachedSystemMessage::Unknown(_) => SystemMessageType::Unknown,
+            CachedSystemMessage::ProfileChange(_) => SystemMessageType::ProfileChange,
+            CachedSystemMessage::RtcNotification { .. } => SystemMessageType::RtcNotification,
         }
+    }
+
+    pub fn should_show(&self, allowed: EnumSet<SystemMessageType>) -> bool {
+        allowed.contains(self.message_type())
     }
 }
