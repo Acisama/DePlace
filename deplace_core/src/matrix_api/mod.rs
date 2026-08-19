@@ -7,6 +7,7 @@ use matrix_sdk::{
     ruma::UserId,
     search_index::SearchIndexStoreKind,
 };
+use ruma::DeviceId;
 
 pub mod account_data;
 // mod matrixrtc;
@@ -187,7 +188,7 @@ where
         None => return LoginResult::Error("Failed to get device ID".to_string()),
     };
 
-    let (client, settings) = match matrix_client_builder(&user_id, url).await {
+    let (client, settings) = match matrix_client_builder(&user_id, &device_id, url).await {
         Ok(client) => client,
         Err(e) => {
             tracing::error!("Failed to create login client: {e}");
@@ -262,6 +263,7 @@ pub fn save_session(client: &Client) {
 
 pub async fn matrix_client_builder(
     user_id: &UserId,
+    device_id: &DeviceId,
     server_url: Url,
 ) -> Result<(Client, Settings)> {
     let safe_user_id = user_id.to_string().replace(':', "_");
@@ -280,9 +282,10 @@ pub async fn matrix_client_builder(
     std::fs::create_dir_all(&cache_dir)?;
     std::fs::create_dir_all(&settings_dir)?;
 
-    let db_path = data_dir.join(format!("{safe_user_id}.db"));
-    let cache_path = cache_dir.join("sessions-cache").join(&safe_user_id);
-    let index_path = data_dir.join("sessions-index").join(&safe_user_id);
+    let name = format!("{safe_user_id}_{device_id}");
+    let db_path = data_dir.join(format!("{name}.db"));
+    let cache_path = cache_dir.join("sessions-cache").join(&name);
+    let index_path = data_dir.join("sessions-index").join(&name);
 
     std::fs::create_dir_all(&index_path)?;
     std::fs::create_dir_all(&cache_path)?;
