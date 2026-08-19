@@ -4,6 +4,7 @@ use crate::components::chat::{FocusNext, FocusPrevious};
 
 use deplace_core::{
     APP_HUMAN_NAME, NameExt, get_other_member,
+    helpers::RoomPlaceholderExt,
     state::{AppState, MembershipMap},
 };
 use gpui::{
@@ -179,7 +180,7 @@ impl HomeView {
 
                 let room = this.state.active_room().borrow().clone();
                 this.load_room_chat(room.clone(), cx, window);
-                this.set_active_room_title(room, window);
+                this.set_active_room_title(window);
             },
         )
         .detach();
@@ -192,7 +193,7 @@ impl HomeView {
                 this.state.set_active_room(room.clone());
                 this.update_chat_sidebar(cx);
                 this.load_room_chat(room.clone(), cx, window);
-                this.set_active_room_title(room, window);
+                this.set_active_room_title(window);
             },
         )
         .detach();
@@ -227,16 +228,33 @@ impl HomeView {
         };
 
         view.load_room_chat(state.active_room().borrow().clone(), cx, window);
-        view.set_active_room_title(state.active_room().borrow().clone(), window);
+        view.set_active_room_title(window);
 
         view
     }
 
-    fn set_active_room_title(&mut self, room: Option<Room>, window: &mut Window) {
-        let extra = room
-            .map(|r| format!(" | {}", r.get_name()))
-            .unwrap_or_default();
-        window.set_window_title(&format!("{}{}", APP_HUMAN_NAME, extra));
+    fn set_active_room_title(&mut self, window: &mut Window) {
+        let room_name = self
+            .state
+            .active_room()
+            .borrow()
+            .clone()
+            .map(|r| r.get_input_placeholder());
+
+        let server_name = self
+            .state
+            .active_server()
+            .borrow()
+            .clone()
+            .map(|r| r.get_name());
+
+        let text = match (room_name, server_name) {
+            (Some(room_name), Some(server_name)) => format!("{} | {}", room_name, server_name),
+            (Some(room_name), None) => format!("{} - {APP_HUMAN_NAME}", room_name),
+            (None, Some(server_name)) => format!("{} - {APP_HUMAN_NAME}", server_name),
+            (None, None) => APP_HUMAN_NAME.to_string(),
+        };
+        window.set_window_title(&text);
     }
 
     fn load_room_chat(&mut self, room: Option<Room>, cx: &mut Context<Self>, window: &mut Window) {

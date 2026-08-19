@@ -60,10 +60,14 @@ impl ChatInputView {
             InputState::new(window, cx)
                 .multi_line(true)
                 .auto_grow(1, 10)
-                .placeholder(active_room.get_input_placeholder(&membership_map.borrow()))
+                .placeholder(format!(
+                    "Message {} ...",
+                    active_room.get_input_placeholder()
+                ))
         });
 
         notify_on_change(data_size_unit.clone(), cx);
+        notify_on_change(membership_map.clone(), cx);
 
         Self {
             chat_input: chat_input.clone(),

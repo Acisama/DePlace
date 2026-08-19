@@ -1,12 +1,11 @@
-use anyhow::Result;
 use chrono::{DateTime, Local};
 use matrix_sdk::{
-    Client, Media, Room,
+    Media, Room,
     media::{MediaFormat, MediaRequestParameters},
 };
 use ruma::events::room::MediaSource;
 
-use crate::{NameExt, get_other_member, state::MembershipMap};
+use crate::NameExt;
 
 pub fn format_message_long_date(date: DateTime<Local>) -> String {
     let hour_str = "%H:%M";
@@ -47,27 +46,17 @@ pub fn format_message_short_date(date: DateTime<Local>) -> String {
 }
 
 pub trait RoomPlaceholderExt {
-    fn get_input_placeholder(&self, map: &MembershipMap) -> String;
+    fn get_input_placeholder(&self) -> String;
 }
 
 impl RoomPlaceholderExt for Room {
-    fn get_input_placeholder(&self, map: &MembershipMap) -> String {
+    fn get_input_placeholder(&self) -> String {
         if self.is_dm()
-            && let Some(member) = get_other_member(self.own_user_id(), map, self.room_id())
+            && let Some(name) = self.cached_display_name()
         {
-            format!("Message @{}", member.get_name())
+            format!("@{}", name)
         } else {
-            format!("Message #{}", self.get_name())
-        }
-    }
-}
-
-impl RoomPlaceholderExt for Option<Room> {
-    fn get_input_placeholder(&self, map: &MembershipMap) -> String {
-        if let Some(room) = self {
-            room.get_input_placeholder(map)
-        } else {
-            "Type a message...".to_string()
+            format!("#{}", self.get_name())
         }
     }
 }

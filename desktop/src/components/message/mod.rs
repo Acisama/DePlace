@@ -3,80 +3,18 @@ use std::sync::Arc;
 use deplace_core::settings::SystemMessageType;
 use enumset::EnumSet;
 use gpui::{ElementId, ImageFormat, SharedString, StyleRefinement, Styled};
-use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, UserId, events::room::MediaSource};
+use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
 
 mod convert;
 mod render;
-mod selectable_text;
 mod text;
 
 pub use convert::cached_from_timeline_item;
-
-pub(crate) use render::{HoverState, SelectionState};
 
 use crate::{
     components::{ByteSize, message::text::CachedBlock},
     theme::{AppTheme, Structure},
 };
-
-/// A position within the whole visible chat: which message, which selectable rich-text
-/// element within that message's block tree (the same counter `render_block`/`render_rich_text`
-/// assign while rendering, see `text::selected_plain_text`), and which byte offset within
-/// that element's text. Comparing two coordinates (`Ord`) gives document order.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub(crate) struct TextCoord {
-    pub(crate) message_index: usize,
-    pub(crate) element_index: usize,
-    pub(crate) byte_offset: usize,
-}
-
-/// Builds Discord-style clipboard text - `"Sender — Time\n<text>"` per spanned message,
-/// separated by blank lines - for a selection between `anchor` and `cursor` (either order).
-pub(crate) fn format_selection(
-    messages: &[CachedTimelineItem],
-    anchor: TextCoord,
-    cursor: TextCoord,
-    member_name: &dyn Fn(&UserId) -> SharedString,
-) -> String {
-    let (lo, hi) = if anchor <= cursor {
-        (anchor, cursor)
-    } else {
-        (cursor, anchor)
-    };
-
-    let mut parts = Vec::new();
-    for (message_index, item) in messages.iter().enumerate() {
-        if message_index < lo.message_index || message_index > hi.message_index {
-            continue;
-        }
-        let CachedTimelineItemKind::Event(event) = &item.kind else {
-            continue;
-        };
-        let CachedEventContent::UserMessage(msg) = &event.content else {
-            continue;
-        };
-        let Some(blocks) = msg.body.as_ref() else {
-            continue;
-        };
-
-        let from =
-            (message_index == lo.message_index).then_some((lo.element_index, lo.byte_offset));
-        let to = (message_index == hi.message_index).then_some((hi.element_index, hi.byte_offset));
-
-        let text = text::selected_plain_text(blocks, from, to);
-        if text.trim().is_empty() {
-            continue;
-        }
-
-        parts.push(format!(
-            "{} — {}\n{text}",
-            member_name(&event.sender),
-            event.long_time
-        ));
-    }
-
-    parts.join("\n\n")
-}
 
 #[derive(Clone)]
 pub struct CachedTimelineItem {

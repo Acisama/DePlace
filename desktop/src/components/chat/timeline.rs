@@ -1,17 +1,15 @@
-use std::{ops::Range, rc::Rc, sync::Arc};
+use std::{ops::Range, sync::Arc};
 
 use dashmap::DashMap;
 use deplace_core::{
-    NameExt,
     matrix_api::timeline::{ScrollDirection, TimelineManager},
-    settings::Settings,
     state::{AppState, MembershipMap},
 };
 use futures_util::StreamExt;
 use gpui::{
-    App, ClipboardItem, Context, Empty, FocusHandle, Focusable, FollowMode, InteractiveElement,
-    IntoElement, ListAlignment, ListScrollEvent, ListState, MouseButton, ParentElement, Render,
-    SharedString, Styled, Task, Window, actions, list, px,
+    Context, Empty, FocusHandle, Focusable, FollowMode, InteractiveElement, IntoElement,
+    ListAlignment, ListScrollEvent, ListState, ParentElement, Render, SharedString, Styled, Task,
+    Window, actions, list, px,
 };
 use gpui_component::StyledExt;
 use macros::tailwind_div;
@@ -29,10 +27,7 @@ use uuid::Uuid;
 
 use crate::{
     cache::{AvatarCache, ThumbnailCache},
-    components::message::{
-        CachedTimelineItem, CachedTimelineItemKind, HoverState, SelectionState, TextCoord,
-        cached_from_timeline_item, format_selection,
-    },
+    components::message::{CachedTimelineItem, CachedTimelineItemKind, cached_from_timeline_item},
     theme::DeplaceThings,
     watch_bridge::notify_on_change,
 };
@@ -58,14 +53,6 @@ pub struct TimelineView {
     _updates_task: Task<()>,
     pub list_state: ListState,
     focus_handle: FocusHandle,
-    /// Which rich-text run (link/mention) is currently hovered, if any - see `HoverState`.
-    hovered_link: Option<SharedString>,
-    /// The current cross-element/cross-message text selection, if any - see `SelectionState`.
-    selection: Option<(TextCoord, TextCoord)>,
-    /// Whether the mouse is currently held down dragging a selection - `selection` alone stays
-    /// `Some` after release (so the highlight persists), so this is what tells a mouse-move
-    /// whether to actually extend it.
-    dragging_selection: bool,
 }
 
 impl TimelineView {
@@ -201,9 +188,6 @@ impl TimelineView {
             _updates_task: updates_task,
             list_state,
             focus_handle: cx.focus_handle(),
-            hovered_link: None,
-            selection: None,
-            dragging_selection: false,
         }
     }
 
@@ -526,101 +510,10 @@ impl Render for TimelineView {
 
         let on_toggle_reaction = self.toggle_reaction();
 
-        let self_entity = cx.entity();
-        let hover = HoverState::new(self.hovered_link.clone(), move |key, cx| {
-            self_entity.update(cx, |view, cx| {
-                if view.hovered_link != key {
-                    view.hovered_link = key;
-                    cx.notify();
-                }
-            });
-        });
-
-        // `finish` is shared: `SelectionState` calls it from mouse-up on whichever text
-        // element the drag ended over, and the outer container below calls it too, as a
-        // safety net for a drag that's released outside any message's text bounds entirely
-        // (nothing would otherwise finalize/copy that selection).
-        let finish_selection: Rc<dyn Fn(&mut App)> = {
-            let self_entity = cx.entity();
-            let map = map.clone();
-            let room_id = room_id.clone();
-            Rc::new(move |cx: &mut App| {
-                self_entity.update(cx, |view, cx| {
-                    // Mouse-up always ends the drag, whether or not there ends up being a
-                    // selection to keep - otherwise a stray extra `finish` call (e.g. the
-                    // top-level safety net firing alongside an element's own handler) would
-                    // leave `dragging_selection` stuck true.
-                    view.dragging_selection = false;
-
-                    let Some((anchor, cursor)) = view.selection else {
-                        return;
-                    };
-
-                    // A zero-length "selection" was just a click - nothing to keep visible.
-                    // A real drag stays highlighted after release, like any normal text
-                    // selection; it's only replaced by starting a new drag elsewhere (`start`
-                    // already overwrites `view.selection` for that) or cleared explicitly.
-                    if anchor == cursor {
-                        view.selection = None;
-                        cx.notify();
-                        return;
-                    }
-
-                    let text = format_selection(&view.messages, anchor, cursor, &|id| {
-                        map.get(&room_id)
-                            .and_then(|m| m.get(id))
-                            .map(|member| member.get_name().into())
-                            .unwrap_or_else(|| "Unknown".into())
-                    });
-                    if !text.is_empty() {
-                        cx.write_to_clipboard(ClipboardItem::new_string(text));
-                    }
-                });
-            })
-        };
-
-        let selection = {
-            let self_entity = cx.entity();
-            let start = move |coord: TextCoord, cx: &mut App| {
-                self_entity.update(cx, |view, cx| {
-                    view.selection = Some((coord, coord));
-                    view.dragging_selection = true;
-                    cx.notify();
-                });
-            };
-
-            let self_entity = cx.entity();
-            let extend = move |coord: TextCoord, cx: &mut App| {
-                self_entity.update(cx, |view, cx| {
-                    let anchor = view.selection.map_or(coord, |(anchor, _)| anchor);
-                    let updated = Some((anchor, coord));
-                    if view.selection != updated {
-                        view.selection = updated;
-                        cx.notify();
-                    }
-                });
-            };
-
-            let finish_selection = finish_selection.clone();
-            let finish = move |cx: &mut App| finish_selection(cx);
-
-            SelectionState::new(
-                self.selection,
-                self.dragging_selection,
-                start,
-                extend,
-                finish,
-            )
-        };
-
         let state = self.state.clone();
 
         tailwind_div!(size_full, paddings(structure.gap), py_0, flex, flex_col)
             .key_context("Chat")
-            .on_mouse_up(MouseButton::Left, {
-                let finish_selection = finish_selection.clone();
-                move |_event, _window, cx| finish_selection(cx)
-            })
             .track_focus(&self.focus_handle)
             .child({
                 let focused_message = self.focused_message;
@@ -634,7 +527,6 @@ impl Render for TimelineView {
                     let focused = focused_message.is_some_and(|f| f == ix);
 
                     current.render(
-                        ix,
                         window,
                         theme,
                         structure,
@@ -643,8 +535,6 @@ impl Render for TimelineView {
                         &avatar_cache,
                         &image_cache,
                         focused,
-                        &hover,
-                        &selection,
                         on_toggle_reaction.clone(),
                         &state,
                     )
