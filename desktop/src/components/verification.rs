@@ -15,7 +15,7 @@ use gpui_component::{
     input::{Input, InputState},
 };
 
-use crate::{components::floating_tile, theme::DeplaceThings};
+use crate::{components::floating_tile, things::DeplaceThings};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum KeyAquiryStage {

@@ -17,8 +17,8 @@ use smallvec::SmallVec;
 use std::sync::Arc;
 
 use crate::components::profiles::render_icon;
-use crate::theme::DeplaceThings;
-use crate::theme::{AppTheme, Structure};
+use crate::things::DeplaceThings;
+use crate::things::{AppTheme, Structure};
 
 pub mod chat;
 pub mod message;

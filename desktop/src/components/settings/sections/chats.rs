@@ -10,7 +10,7 @@ use crate::{
         SettingsView,
         sections::{setting_enumset_toggles, setting_toggle, spacer, subsection},
     },
-    theme::{AppTheme, Structure},
+    things::{AppTheme, Structure},
 };
 
 #[allow(clippy::too_many_arguments)]

@@ -20,7 +20,7 @@ use tokio::sync::watch::Receiver;
 use crate::{
     cache::AvatarCache,
     components::{floating_tile, profiles::render_room_icon},
-    theme::DeplaceThings,
+    things::DeplaceThings,
 };
 
 actions!(quick_select, [FocusNext, FocusPrevious, Confirm]);

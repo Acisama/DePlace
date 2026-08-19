@@ -1,10 +1,11 @@
-use std::collections::HashMap;
+use anyhow::Result;
+use std::{collections::HashMap, io::ErrorKind, path::PathBuf};
 
 use gpui::{Action, App};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct KeymapSection {
     pub context: Option<String>,
     pub bindings: HashMap<String, JsonValue>,
@@ -51,11 +52,153 @@ pub fn create_keybinding(
     Ok(binding)
 }
 
-use anyhow::{Context, Result};
+fn default_keymap() -> Vec<KeymapSection> {
+    let mut keybind = KeymapSection {
+        context: Some("!Vim && !Input".to_string()),
+        bindings: HashMap::from([(
+            "space".to_string(),
+            serde_json::json!(["chat::FocusInputWithKey", { "key": " " }]),
+        )]),
+    };
 
-pub fn load_keymap_from_json(json_str: &str, cx: &mut App) -> Result<()> {
+    for char in [
+        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r',
+        's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        '`', '-', '=', '[', ']', '\\', ';', '\'', ',', '.', '/',
+    ] {
+        keybind.bindings.insert(
+            char.to_string(),
+            serde_json::json!(["chat::FocusInputWithKey", { "key": char.to_string() }]),
+        );
+    }
+
+    for char in [
+        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r',
+        's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        '`', '-', '=', '[', ']', '\\', ';', '\'', ',', '.', '/',
+    ] {
+        keybind.bindings.insert(
+            format!("shift-{}", char),
+            serde_json::json!(["chat::FocusInputWithKey", { "key": char.to_ascii_uppercase().to_string() }]),
+        );
+    }
+
+    let keybinds = vec![
+        KeymapSection {
+            context: Some("!Overlay".to_string()),
+            bindings: HashMap::from([
+                (
+                    "ctrl-k".to_string(),
+                    serde_json::json!(["overlay::Open", "QuickSelect"]),
+                ),
+                (
+                    "ctrl-,".to_string(),
+                    serde_json::json!(["overlay::Open", "Settings"]),
+                ),
+            ]),
+        },
+        KeymapSection {
+            context: Some("Settings".to_string()),
+            bindings: HashMap::from([
+                ("ctrl-,".to_string(), serde_json::json!("settings::Close")),
+                ("escape".to_string(), serde_json::json!("settings::Close")),
+            ]),
+        },
+        KeymapSection {
+            context: Some("QuickSelect".to_string()),
+            bindings: HashMap::from([
+                (
+                    "ctrl-k".to_string(),
+                    serde_json::json!("quick_select::Close"),
+                ),
+                (
+                    "enter".to_string(),
+                    serde_json::json!("quick_select::Confirm"),
+                ),
+                (
+                    "tab".to_string(),
+                    serde_json::json!("quick_select::FocusNext"),
+                ),
+                (
+                    "shift-tab".to_string(),
+                    serde_json::json!("quick_select::FocusPrevious"),
+                ),
+                (
+                    "down".to_string(),
+                    serde_json::json!("quick_select::FocusNext"),
+                ),
+                (
+                    "up".to_string(),
+                    serde_json::json!("quick_select::FocusPrevious"),
+                ),
+                (
+                    "escape".to_string(),
+                    serde_json::json!("quick_select::Close"),
+                ),
+            ]),
+        },
+        KeymapSection {
+            context: Some("Vim && !Input".to_string()),
+            bindings: HashMap::from([
+                ("j".to_string(), serde_json::json!("chat::FocusNext")),
+                ("k".to_string(), serde_json::json!("chat::FocusPrevious")),
+                ("i".to_string(), serde_json::json!("chat::FocusInput")),
+            ]),
+        },
+        KeymapSection {
+            context: Some("(Home > Input) && !(Overlay > Input)".to_string()),
+            bindings: HashMap::from([
+                (
+                    "escape".to_string(),
+                    serde_json::json!("chat::UnfocusInput"),
+                ),
+                ("enter".to_string(), serde_json::json!("chat::SendMessage")),
+            ]),
+        },
+        KeymapSection {
+            context: Some("Home".to_string()),
+            bindings: HashMap::from([(
+                "ctrl-space".to_string(),
+                serde_json::json!("home::ToggleVimMode"),
+            )]),
+        },
+        keybind,
+    ];
+
+    keybinds
+}
+
+pub fn load_keymap_from_json(path: &PathBuf, cx: &mut App) {
     let keymap_file: KeymapFile =
-        serde_json::from_str(json_str).context("Failed to parse keymap JSON")?;
+        match std::fs::read_to_string(path).map(|s| serde_json::from_str(&s)) {
+            Ok(Ok(map)) => map,
+            Ok(Err(e)) => {
+                tracing::error!("Failed to deserialize keybinds: {e}");
+                default_keymap()
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                tracing::debug!("Keybinds file not found, creating default");
+
+                let default = default_keymap();
+
+                match serde_json::to_string(&default) {
+                    Ok(default_str) => {
+                        if let Err(e) = std::fs::write(path, default_str) {
+                            tracing::error!("Failed to write default keymap: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to serialize default keymap: {e}");
+                    }
+                };
+
+                default
+            }
+            Err(e) => {
+                tracing::error!("Failed to load keybinds: {e}");
+                default_keymap()
+            }
+        };
 
     let mut key_bindings = Vec::new();
 
@@ -84,6 +227,4 @@ pub fn load_keymap_from_json(json_str: &str, cx: &mut App) -> Result<()> {
         }
     }
     cx.bind_keys(key_bindings);
-
-    Ok(())
 }

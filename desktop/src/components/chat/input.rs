@@ -31,7 +31,7 @@ use crate::{
     attachments::{Attachment, AttachmentPreview, AttachmentState},
     components::{ByteSize, CustomStyles, chat::timeline::SendMessage, profiles::render_icon},
     helpers::file_color,
-    theme::DeplaceThings,
+    things::DeplaceThings,
     watch_bridge::notify_on_change,
 };
 

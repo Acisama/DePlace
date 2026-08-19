@@ -24,7 +24,7 @@ pub mod settings;
 pub mod state;
 
 pub const APP_HUMAN_NAME: &str = "DePlace";
-const APP_NAME: &str = "deplace";
+pub const APP_NAME: &str = "deplace";
 pub const APP_MATRIX_NAME: &str = formatcp!("com.{APP_NAME}");
 
 #[cfg(target_os = "linux")]

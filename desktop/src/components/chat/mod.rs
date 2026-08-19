@@ -18,7 +18,7 @@ use crate::{
         },
         floating_tile,
     },
-    theme::DeplaceThings,
+    things::DeplaceThings,
     view_lru::VisibleLruCache,
 };
 

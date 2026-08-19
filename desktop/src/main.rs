@@ -18,9 +18,9 @@ use tracing_subscriber::EnvFilter;
 use assets::AppAssets;
 use components::root::RootView;
 use keybinds::load_keymap_from_json;
-use theme::AppTheme;
+use things::AppTheme;
 
-use crate::theme::Structure;
+use crate::things::{ImportantPaths, Structure};
 
 const SOCKET_NAME: &str = "deplace.sock";
 
@@ -31,7 +31,7 @@ pub(crate) mod components;
 pub(crate) mod helpers;
 pub(crate) mod keybinds;
 pub(crate) mod saving;
-pub(crate) mod theme;
+pub(crate) mod things;
 pub(crate) mod view_lru;
 pub(crate) mod watch_bridge;
 
@@ -135,6 +135,14 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
         }
     };
 
+    let important_paths = match ImportantPaths::new() {
+        Ok(paths) => paths,
+        Err(e) => {
+            tracing::error!("Failed to get important paths: {:?}", e);
+            return;
+        }
+    };
+
     let platform = gpui_platform::current_platform(false);
     Application::with_platform(platform)
         .with_assets(AppAssets)
@@ -152,8 +160,11 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
             theme.border = app_theme.tile.border;
             theme.font_family = "Noto Sans".into();
 
+            load_keymap_from_json(&important_paths.keybind_file, cx);
+
             cx.set_global(structure);
             cx.set_global(app_theme.clone());
+            cx.set_global(important_paths);
 
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Maximized(Bounds::maximized(None, cx))),
@@ -165,13 +176,10 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
             };
 
             let tokio_rt = Arc::clone(&tokio_rt);
-            if let Err(e) = load_keymap_from_json(include_str!("../keybindings/default.json"), cx) {
-                tracing::error!("Failed to load keymap: {:?}", e);
-            }
-            
+
             cx.observe_keystrokes(|e, _, _| tracing::trace!("{:?}", e.context_stack))
                 .detach();
-            
+
             if let Err(e) = cx.open_window(options, |window, cx| {
                 let root_view = cx.new(|cx| RootView::new(tokio_rt, window, cx));
                 cx.new(|cx| Root::new(root_view, window, cx))

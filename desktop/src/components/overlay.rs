@@ -12,7 +12,7 @@ use crate::{
         quick_select::{self, QuickSelect},
         settings::{self, SettingsView},
     },
-    theme::DeplaceThings,
+    things::DeplaceThings,
 };
 
 #[derive(Clone, Debug, PartialEq, Deserialize, gpui::Action, schemars::JsonSchema)]

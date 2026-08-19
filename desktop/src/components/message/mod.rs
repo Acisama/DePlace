@@ -13,7 +13,7 @@ pub use convert::cached_from_timeline_item;
 
 use crate::{
     components::{ByteSize, message::text::CachedBlock},
-    theme::{AppTheme, Structure},
+    things::{AppTheme, Structure},
 };
 
 #[derive(Clone)]

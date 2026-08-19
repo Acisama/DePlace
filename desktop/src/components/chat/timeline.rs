@@ -28,7 +28,7 @@ use uuid::Uuid;
 use crate::{
     cache::{AvatarCache, ThumbnailCache},
     components::message::{CachedTimelineItem, CachedTimelineItemKind, cached_from_timeline_item},
-    theme::DeplaceThings,
+    things::DeplaceThings,
     watch_bridge::notify_on_change,
 };
 
@@ -520,6 +520,7 @@ impl Render for TimelineView {
                 list(self.list_state.clone(), move |ix, window, cx| {
                     let theme = cx.app_theme();
                     let structure = cx.structure();
+                    let importantpaths = cx.important_paths();
 
                     let Some(current) = messages.get(ix) else {
                         return Empty.into_any_element();
@@ -537,6 +538,7 @@ impl Render for TimelineView {
                         focused,
                         on_toggle_reaction.clone(),
                         &state,
+                        importantpaths,
                     )
                 })
                 .h_full()

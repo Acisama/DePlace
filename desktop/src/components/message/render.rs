@@ -10,9 +10,9 @@ use deplace_core::{
 use gpui::{
     Animation, AnimationExt, AnyElement, Div, Element, ElementId, FontStyle, FontWeight,
     HighlightStyle, Hsla, InteractiveElement, InteractiveText, IntoElement, LinearColorStop,
-    ObjectFit, ParentElement, Pixels, SharedString, StatefulInteractiveElement,
-    StrikethroughStyle, Styled, StyledImage, StyledText, TextStyle, UnderlineStyle, Window, div,
-    img, linear_gradient, prelude::FluentBuilder, px, relative, transparent_black,
+    ObjectFit, ParentElement, Pixels, SharedString, StatefulInteractiveElement, StrikethroughStyle,
+    Styled, StyledImage, StyledText, TextStyle, UnderlineStyle, Window, div, img, linear_gradient,
+    prelude::FluentBuilder, px, relative, transparent_black,
 };
 use gpui_component::{StyledExt, red_600};
 use macros::tailwind_div;
@@ -31,7 +31,7 @@ use crate::{
         profiles::{MemberRenderer, render_icon},
     },
     saving::save_file,
-    theme::{AppTheme, Structure},
+    things::{AppTheme, ImportantPaths, Structure},
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -48,6 +48,7 @@ impl CachedTimelineItem {
         focused: bool,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
         state: &AppState,
+        importantpaths: &ImportantPaths,
     ) -> AnyElement {
         let divider_width = structure.divider_width;
 
@@ -95,6 +96,7 @@ impl CachedTimelineItem {
                 focused,
                 on_toggle_reaction,
                 state,
+                importantpaths,
             ),
         }
     }
@@ -115,6 +117,7 @@ impl CachedTimelineEvent {
         focused: bool,
         on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
         state: &AppState,
+        importantpaths: &ImportantPaths,
     ) -> AnyElement {
         let colors = &theme.colors;
 
@@ -200,6 +203,7 @@ impl CachedTimelineEvent {
                 member_name_color,
                 toggle_reaction,
                 state,
+                importantpaths,
             ),
         };
 
@@ -264,6 +268,31 @@ impl CachedTimelineEvent {
 
         let is_system_message = matches!(self.content, CachedEventContent::SystemMessage(_));
 
+        // check whether the message is short enough to
+        // decide where to display the read marker
+        let is_short_message = !self.show_header
+            && self.in_reply_to().is_none()
+            && matches!(&self.content, CachedEventContent::UserMessage(msg) if {
+                msg.reactions.as_ref().is_none_or(|r| r.is_empty())
+                    && match &msg.msg_type {
+                        CachedMessageType::Text | CachedMessageType::Emote => {
+                            match &msg.body {
+                                Some(blocks) if blocks.len() == 1 => match &blocks[0] {
+                                    CachedBlock::Paragraph(rich_text) => {
+                                        !rich_text.text.contains('\n')
+                                        // && rich_text.text.chars().count() <= 60
+                                        // TODO: Implement when wrapping is added
+                                    }
+                                    _ => false,
+                                },
+                                None => true,
+                                _ => false,
+                            }
+                        }
+                        _ => false,
+                    }
+            });
+
         let outer = tailwind_div!(
             w_full,
             border_transparent,
@@ -273,7 +302,6 @@ impl CachedTimelineEvent {
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
             flex_col,
-            pt(structure.small_gap / 1.5),
             text_color(text_color),
             text_size(structure.chat.text_size),
         )
@@ -286,31 +314,6 @@ impl CachedTimelineEvent {
             el.child(reply.render(theme, structure, smaller_member_avatar, member_name))
         })
         .when(!self.read_by.is_empty(), |el| {
-            // check whether the message is short enough to
-            // decide where to display the read marker
-            let is_short_message = !self.show_header
-                && self.in_reply_to().is_none()
-                && matches!(&self.content, CachedEventContent::UserMessage(msg) if {
-                    msg.reactions.as_ref().is_none_or(|r| r.is_empty())
-                        && match &msg.msg_type {
-                            CachedMessageType::Text | CachedMessageType::Emote => {
-                                match &msg.body {
-                                    Some(blocks) if blocks.len() == 1 => match &blocks[0] {
-                                        CachedBlock::Paragraph(rich_text) => {
-                                            !rich_text.text.contains('\n')
-                                            // && rich_text.text.chars().count() <= 60
-                                            // TODO: Implement when wrapping is added
-                                        }
-                                        _ => false,
-                                    },
-                                    None => true,
-                                    _ => false,
-                                }
-                            }
-                            _ => false,
-                        }
-                });
-
             el.child(
                 tailwind_div!(
                     absolute,
@@ -351,6 +354,13 @@ impl CachedTimelineEvent {
                                             text_color(transparent_black()),
                                             text_size(structure.chat.small_text_size),
                                         )
+                                        .when(is_short_message, |el| {
+                                            el.flex()
+                                                .justify_center()
+                                                .text_center()
+                                                .h_full()
+                                                .items_center()
+                                        })
                                         .id(id)
                                         .group_hover("message", |style| {
                                             style.text_color(theme.text.muted)
@@ -448,6 +458,7 @@ impl CachedUserMessage {
         member_name_color: impl Fn(&UserId) -> (SharedString, Hsla),
         on_toggle_reaction: impl Fn(SharedString) + Clone + 'static,
         state: &AppState,
+        importantpaths: &ImportantPaths,
     ) -> Div {
         let warning = theme.colors.warning;
         let error = theme.colors.error;
@@ -545,7 +556,17 @@ impl CachedUserMessage {
                                 let client = state.client();
                                 let source = source.clone();
                                 let filename = filename.clone();
-                                move |_, _, cx| save_file(cx, client.clone(), &source, &filename)
+                                let importantpaths = importantpaths.clone();
+
+                                move |_, _, cx| {
+                                    save_file(
+                                        cx,
+                                        client.clone(),
+                                        &source,
+                                        &filename,
+                                        &importantpaths,
+                                    )
+                                }
                             }),
                     )
                     .child(
@@ -1155,8 +1176,10 @@ fn render_rich_text(
         ElementId::Name(paragraph_key),
         StyledText::new(rendered).with_runs(runs),
     )
-    .on_click(click_ranges, move |ix, _window, cx| match &click_actions[ix] {
-        RunAction::OpenUrl(href) => cx.open_url(href),
+    .on_click(click_ranges, move |ix, _window, cx| {
+        match &click_actions[ix] {
+            RunAction::OpenUrl(href) => cx.open_url(href),
+        }
     })
     .into_any_element()
 }

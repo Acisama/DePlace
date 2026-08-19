@@ -31,7 +31,7 @@ use crate::{
         server_list::ServerListView,
         sidebar::SidebarView,
     },
-    theme::{DeplaceThings, Structure},
+    things::{DeplaceThings, Structure},
     watch_bridge::notify_on_change,
 };
 

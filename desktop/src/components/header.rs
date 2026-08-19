@@ -12,7 +12,7 @@ use tokio::{runtime::Runtime, sync::watch};
 use crate::{
     cache::AvatarCache,
     components::profiles::{MemberRenderer, render_icon, render_room_icon},
-    theme::DeplaceThings,
+    things::DeplaceThings,
     watch_bridge::notify_on_change,
 };
 

@@ -1,5 +1,7 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
+use anyhow::Result;
+use deplace_core::APP_NAME;
 use gpui::{App, Global, Hsla, Pixels, hsla, px, white};
 use gpui_component::Colorize;
 
@@ -274,9 +276,44 @@ impl AppTheme {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ImportantPaths {
+    pub config_dir: PathBuf,
+    pub download_dir: PathBuf,
+    pub keybind_file: PathBuf,
+}
+
+impl ImportantPaths {
+    pub fn new() -> Result<Self> {
+        let config_dir = dirs::config_dir()
+            .ok_or(anyhow::anyhow!("Failed to get config dir"))?
+            .join(APP_NAME);
+        let download_dir =
+            dirs::download_dir().ok_or(anyhow::anyhow!("Failed to get download dir"))?;
+
+        if !config_dir.exists() {
+            std::fs::create_dir_all(&config_dir)?;
+        }
+        if !download_dir.exists() {
+            std::fs::create_dir_all(&download_dir)?;
+        }
+
+        let keybind_file = config_dir.join("keybinds.json");
+
+        Ok(Self {
+            config_dir,
+            download_dir,
+            keybind_file,
+        })
+    }
+}
+
+impl Global for ImportantPaths {}
+
 pub trait DeplaceThings {
     fn app_theme(&self) -> &AppTheme;
     fn structure(&self) -> &Structure;
+    fn important_paths(&self) -> &ImportantPaths;
 }
 
 impl DeplaceThings for App {
@@ -286,5 +323,9 @@ impl DeplaceThings for App {
 
     fn structure(&self) -> &Structure {
         self.global::<Structure>()
+    }
+
+    fn important_paths(&self) -> &ImportantPaths {
+        self.global::<ImportantPaths>()
     }
 }

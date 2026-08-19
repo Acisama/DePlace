@@ -15,7 +15,7 @@ use matrix_sdk::{Client, reqwest::Url};
 use crate::{
     GenericState,
     components::{floating_tile, input},
-    theme::DeplaceThings,
+    things::DeplaceThings,
 };
 
 pub struct DiscoveryView {

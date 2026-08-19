@@ -16,7 +16,7 @@ use crate::{
         profiles::render_icon,
         settings::sections::{chats::render_chats_section, general::render_general_section},
     },
-    theme::{AppTheme, DeplaceThings, Structure},
+    things::{AppTheme, DeplaceThings, Structure},
     watch_bridge::notify_on_change,
 };
 

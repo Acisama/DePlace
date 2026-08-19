@@ -16,7 +16,7 @@ use matrix_sdk::{Room, room::RoomMember, ruma::UserId};
 use crate::{
     cache::{AvatarCache, MediaState},
     components::CustomStyles,
-    theme::{AppTheme, Colors},
+    things::{AppTheme, Colors},
 };
 
 pub fn text_circle(text: SharedString, color: Hsla, size: Pixels, rounding: Pixels) -> Div {

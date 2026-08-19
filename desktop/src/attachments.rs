@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     components::{ByteSize, profiles::render_icon},
-    theme::AppTheme,
+    things::AppTheme,
 };
 use chrono::{DateTime, Utc};
 use gpui::{

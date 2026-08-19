@@ -15,7 +15,7 @@ use tokio::{runtime::Runtime, sync::watch};
 
 use crate::{
     components::{CustomStyles, TooltipExt, profiles::render_icon},
-    theme::{AppTheme, Structure},
+    things::{AppTheme, Structure},
 };
 use deplace_core::settings::{EnumVariants, MatrixSettingField, Settings};
 

@@ -15,7 +15,7 @@ use matrix_sdk::{Client, ruma::api::client::session::get_login_types::v3::LoginT
 use crate::{
     GenericState,
     components::{floating_tile, input},
-    theme::DeplaceThings,
+    things::DeplaceThings,
 };
 
 pub struct LoginView {

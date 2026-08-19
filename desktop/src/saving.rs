@@ -2,13 +2,18 @@ use deplace_core::helpers::MatrixClientExt;
 use gpui::App;
 use matrix_sdk::{Client, ruma::events::room::MediaSource};
 
-pub fn save_file(cx: &mut App, client: Client, source: &MediaSource, filename: &str) {
-    tracing::trace!("Saving file: {}", filename);
-    let Some(download_dir) = dirs::download_dir() else {
-        return;
-    };
+use crate::things::ImportantPaths;
 
-    let path_rx = cx.prompt_for_new_path(&download_dir, Some(filename));
+pub fn save_file(
+    cx: &mut App,
+    client: Client,
+    source: &MediaSource,
+    filename: &str,
+    importantpaths: &ImportantPaths,
+) {
+    tracing::trace!("Saving file: {}", filename);
+
+    let path_rx = cx.prompt_for_new_path(&importantpaths.download_dir, Some(filename));
     let source = source.clone();
     let client = client.clone();
 
