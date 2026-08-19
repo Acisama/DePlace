@@ -34,6 +34,7 @@ mod quick_select;
 mod server_list;
 mod settings;
 mod sidebar;
+mod verification;
 
 pub fn floating_tile(theme: &AppTheme, structure: &Structure) -> Div {
     tailwind_div!(

@@ -1,10 +1,10 @@
 use anyhow::{Error, Result};
 use matrix_sdk::{
     Client, SqliteStoreConfig,
-    config::RequestConfig,
+    config::{RequestConfig, SyncSettings},
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
-    ruma::{DeviceId, UserId},
+    ruma::UserId,
     search_index::SearchIndexStoreKind,
 };
 
@@ -41,10 +41,16 @@ pub async fn test_server(server_name_or_url: String) -> Option<(Client, Url)> {
 }
 
 pub enum LoginResult {
-    Success(Box<AppState>),
+    ValidCredentials(AppState),
     InvalidCredentials,
     Error(String),
     BackToDiscovery,
+}
+
+pub enum EncryptionUpgradeResult {
+    Verified,
+    Error,
+    Canceled,
 }
 
 impl Default for LoginResult {
@@ -53,32 +59,122 @@ impl Default for LoginResult {
     }
 }
 
-pub async fn login(
-    old_client: &Client,
-    username: String,
-    password: String,
-    recovery_key: String,
-) -> LoginResult {
-    let url = old_client.homeserver();
-
-    let temp_client = match Client::new(url.clone()).await {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("Failed to construct client: {e}");
-            return LoginResult::Error("Failed to construct client".to_string());
-        }
+/// Upgrades the clients encryption using the recovery key.
+pub async fn recover_client_encryption(
+    state: AppState,
+    recovery_key: &str,
+) -> EncryptionUpgradeResult {
+    let Ok(_) = state
+        .client()
+        .encryption()
+        .recovery()
+        .recover(recovery_key)
+        .await
+    else {
+        tracing::error!("Recovery failed");
+        return EncryptionUpgradeResult::Error;
     };
 
-    if temp_client
-        .matrix_auth()
-        .login_username(&username, &password)
-        .initial_device_display_name(DEVICE_DISPLAY_NAME)
-        .send()
-        .await
-        .is_err()
-    {
-        return LoginResult::InvalidCredentials;
-    }
+    tracing::info!("Restored encryption");
+
+    tracing::info!("Spawned room sync");
+
+    state.settings().refresh().await;
+
+    EncryptionUpgradeResult::Verified
+}
+
+pub enum LoginMethod<F, Fut>
+where
+    F: FnOnce(String) -> Fut + Send + 'static,
+    Fut: Future<Output = matrix_sdk::Result<()>> + Send + 'static,
+{
+    Credentials {
+        old_client: Client,
+        username: String,
+        password: String,
+    },
+    Sso {
+        authenticated_client: Client,
+        url_handler: F,
+    },
+}
+
+/// Try to log into the homeserver of the provided client
+///
+/// This uses the users credentials to direcly log in with the homeserver. This
+/// might not be supported and instead the user might need to log into their
+/// account using SSO, see `login_sso`.
+///
+/// If successful, this will return `LoginResult::ValidCredentials(Client)` with a new client
+/// that is logged into the account. This client will not have the encryption
+/// keys and will have to get them either using the recovery key or from another
+/// device that has them
+pub async fn login<F, Fut>(method: LoginMethod<F, Fut>) -> LoginResult
+where
+    F: FnOnce(String) -> Fut + Send + 'static,
+    Fut: Future<Output = matrix_sdk::Result<()>> + Send + 'static,
+{
+    // let temp_client = match Client::new(url.clone()).await {
+    //     Ok(c) => c,
+    //     Err(e) => {
+    //         tracing::error!("Failed to construct client: {e}");
+    //         return LoginResult::Error("Failed to construct client".to_string());
+    //     }
+    // };
+
+    // if temp_client
+    //     .matrix_auth()
+    //     .login_username(&username, &password)
+    //     .initial_device_display_name(DEVICE_DISPLAY_NAME)
+    //     .send()
+    //     .await
+    //     .is_err()
+    // {
+    //     return LoginResult::InvalidCredentials;
+    // }
+
+    let (url, temp_client) = match method {
+        LoginMethod::Credentials {
+            username,
+            password,
+            old_client,
+        } => {
+            let temp_client = match Client::new(old_client.homeserver().clone()).await {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!("Failed to construct client: {e}");
+                    return LoginResult::Error("Failed to construct client".to_string());
+                }
+            };
+            if temp_client
+                .matrix_auth()
+                .login_username(&username, &password)
+                .initial_device_display_name(DEVICE_DISPLAY_NAME)
+                .send()
+                .await
+                .is_err()
+            {
+                return LoginResult::InvalidCredentials;
+            }
+            (old_client.homeserver(), temp_client)
+        }
+        LoginMethod::Sso {
+            authenticated_client,
+            url_handler,
+        } => {
+            if let Err(e) = authenticated_client
+                .matrix_auth()
+                .login_sso(url_handler)
+                .initial_device_display_name(DEVICE_DISPLAY_NAME)
+                .await
+            {
+                tracing::error!("SSO login failed: {e}");
+                return LoginResult::Error(e.to_string());
+            }
+            (authenticated_client.homeserver(), authenticated_client)
+        }
+    };
 
     tracing::debug!("Logged in with temporary client, fetching session info");
 
@@ -91,7 +187,7 @@ pub async fn login(
         None => return LoginResult::Error("Failed to get device ID".to_string()),
     };
 
-    let (client, settings) = match matrix_client_builder(&user_id, &device_id, url).await {
+    let (client, settings) = match matrix_client_builder(&user_id, url).await {
         Ok(client) => client,
         Err(e) => {
             tracing::error!("Failed to create login client: {e}");
@@ -108,29 +204,23 @@ pub async fn login(
         return LoginResult::Error(e.to_string());
     }
 
-    settings.refresh().await;
-
-    if let Err(e) = client
-        .encryption()
-        .recovery()
-        .recover(recovery_key.as_str())
-        .await
-    {
-        tracing::error!("Recovery failed: {:?}", e);
-        return LoginResult::InvalidCredentials;
+    if let Err(e) = client.sync_once(SyncSettings::default()).await {
+        tracing::error!("Initial sync failed: {:?}", e);
+        return LoginResult::Error(e.to_string());
     }
-
-    save_session(&client);
+    settings.refresh().await;
 
     let device = UserDevice {
         user_id: user_id.to_owned(),
         device_id: device_id.to_owned(),
     };
 
+    save_session(&client);
+
     let state = AppState::new(client.clone(), device.clone(), settings).await;
     spawn_room_sync(&client, &state);
 
-    LoginResult::Success(Box::new(state))
+    LoginResult::ValidCredentials(state)
 }
 
 pub fn save_session(client: &Client) {
@@ -172,7 +262,6 @@ pub fn save_session(client: &Client) {
 
 pub async fn matrix_client_builder(
     user_id: &UserId,
-    device_id: &DeviceId,
     server_url: Url,
 ) -> Result<(Client, Settings)> {
     let safe_user_id = user_id.to_string().replace(':', "_");
@@ -191,24 +280,22 @@ pub async fn matrix_client_builder(
     std::fs::create_dir_all(&cache_dir)?;
     std::fs::create_dir_all(&settings_dir)?;
 
-    let name = format!("{}_{}", safe_user_id, device_id);
-
-    let db_path = data_dir.join(format!("{name}.db"));
-    let cache_path = cache_dir.join("sessions-cache").join(&name);
-    let index_path = data_dir.join("sessions-index").join(&name);
+    let db_path = data_dir.join(format!("{safe_user_id}.db"));
+    let cache_path = cache_dir.join("sessions-cache").join(&safe_user_id);
+    let index_path = data_dir.join("sessions-index").join(&safe_user_id);
 
     std::fs::create_dir_all(&index_path)?;
     std::fs::create_dir_all(&cache_path)?;
 
-    let store_key = get_or_create_store_key(user_id.as_str()).await?;
+    let Ok(store_key) = get_or_create_store_key(user_id.as_str()).await else {
+        return Err(Error::msg("Failed to get or create store key"));
+    };
 
     let sqlite_store_config = SqliteStoreConfig::new(db_path).key(Some(&store_key));
 
     let password = hex::encode(store_key);
-    let new_client = Client::builder()
-        .homeserver_url(
-            Url::parse(server_url.as_str()).expect("Valid homeserverurl from other client"),
-        )
+    let Ok(new_client) = Client::builder()
+        .homeserver_url(server_url)
         .request_config(RequestConfig::short_retry())
         .handle_refresh_tokens()
         .sqlite_store_with_config_and_cache_path(sqlite_store_config, Some(cache_path))
@@ -220,7 +307,10 @@ pub async fn matrix_client_builder(
             ..Default::default()
         })
         .build()
-        .await?;
+        .await
+    else {
+        return Err(Error::msg("Failed to build client"));
+    };
 
     let settings = Settings::new(settings_dir.join(SETTINGS_FILE_NAME), new_client.clone());
 

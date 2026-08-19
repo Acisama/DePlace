@@ -39,6 +39,7 @@ matrix-sdk = {
     "experimental-element-recent-emojis",
     "experimental-search",
     "experimental-send-custom-to-device",
+    "sso-login"
   ]
 }
 matrix-sdk-ui = "0.18.0"
