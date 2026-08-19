@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::components::chat::{FocusNext, FocusPrevious};
 
 use deplace_core::{
-    get_other_member,
+    APP_HUMAN_NAME, NameExt, get_other_member,
     state::{AppState, MembershipMap},
 };
 use gpui::{
@@ -178,7 +178,8 @@ impl HomeView {
                 this.update_chat_sidebar(cx);
 
                 let room = this.state.active_room().borrow().clone();
-                this.load_room_chat(room, cx, window);
+                this.load_room_chat(room.clone(), cx, window);
+                this.set_active_room_title(room, window);
             },
         )
         .detach();
@@ -190,7 +191,8 @@ impl HomeView {
                 let room = event.room();
                 this.state.set_active_room(room.clone());
                 this.update_chat_sidebar(cx);
-                this.load_room_chat(room, cx, window);
+                this.load_room_chat(room.clone(), cx, window);
+                this.set_active_room_title(room, window);
             },
         )
         .detach();
@@ -225,8 +227,16 @@ impl HomeView {
         };
 
         view.load_room_chat(state.active_room().borrow().clone(), cx, window);
+        view.set_active_room_title(state.active_room().borrow().clone(), window);
 
         view
+    }
+
+    fn set_active_room_title(&mut self, room: Option<Room>, window: &mut Window) {
+        let extra = room
+            .map(|r| format!(" | {}", r.get_name()))
+            .unwrap_or_default();
+        window.set_window_title(&format!("{}{}", APP_HUMAN_NAME, extra));
     }
 
     fn load_room_chat(&mut self, room: Option<Room>, cx: &mut Context<Self>, window: &mut Window) {

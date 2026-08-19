@@ -376,29 +376,26 @@ impl CachedTimelineEvent {
             // decide where to display the read marker
             let is_short_message = !self.show_header
                 && self.in_reply_to().is_none()
-                && match &self.content {
-                    CachedEventContent::UserMessage(msg) => {
-                        msg.reactions.as_ref().map_or(true, |r| r.is_empty())
-                            && match &msg.msg_type {
-                                CachedMessageType::Text | CachedMessageType::Emote => {
-                                    match &msg.body {
-                                        Some(blocks) if blocks.len() == 1 => match &blocks[0] {
-                                            CachedBlock::Paragraph(rich_text) => {
-                                                !rich_text.text.contains('\n')
-                                                // && rich_text.text.chars().count() <= 60
-                                                // TODO: Implement when wrapping is added
-                                            }
-                                            _ => false,
-                                        },
-                                        None => true,
+                && matches!(&self.content, CachedEventContent::UserMessage(msg) if {
+                    msg.reactions.as_ref().is_none_or(|r| r.is_empty())
+                        && match &msg.msg_type {
+                            CachedMessageType::Text | CachedMessageType::Emote => {
+                                match &msg.body {
+                                    Some(blocks) if blocks.len() == 1 => match &blocks[0] {
+                                        CachedBlock::Paragraph(rich_text) => {
+                                            !rich_text.text.contains('\n')
+                                            // && rich_text.text.chars().count() <= 60
+                                            // TODO: Implement when wrapping is added
+                                        }
                                         _ => false,
-                                    }
+                                    },
+                                    None => true,
+                                    _ => false,
                                 }
-                                _ => false,
                             }
-                    }
-                    _ => false,
-                };
+                            _ => false,
+                        }
+                });
 
             el.child(
                 tailwind_div!(
@@ -450,27 +447,22 @@ impl CachedTimelineEvent {
                             ),
                         )
                         .child(
-                            tailwind_div!(
-                                flex,
-                                size_full,
-                                flex_col,
-                                gap(structure.small_gap / 2.0)
-                            )
-                            .when(self.show_header, |el| {
-                                el.child(
-                                    tailwind_div!(flex, flex_row)
-                                        .child(sender_name(structure.chat.text_size))
-                                        .child(" ")
-                                        .child(
-                                            tailwind_div!(
-                                                text_size(structure.chat.small_text_size),
-                                                text_color(theme.text.muted),
-                                            )
-                                            .child(self.long_time.clone()),
-                                        ),
-                                )
-                            })
-                            .child(content),
+                            tailwind_div!(flex, size_full, flex_col)
+                                .when(self.show_header, |el| {
+                                    el.child(
+                                        tailwind_div!(flex, flex_row)
+                                            .child(sender_name(structure.chat.text_size))
+                                            .child(" ")
+                                            .child(
+                                                tailwind_div!(
+                                                    text_size(structure.chat.small_text_size),
+                                                    text_color(theme.text.muted),
+                                                )
+                                                .child(self.long_time.clone()),
+                                            ),
+                                    )
+                                })
+                                .child(content),
                         ),
                 )
                 .into_any_element()
@@ -1221,10 +1213,7 @@ fn render_rich_text(
 
     let mut offset = 0;
     for run in text.runs.iter() {
-        let slice = text
-            .text
-            .get(offset..offset + run.len)
-            .expect("CachedRun boundaries are byte lengths pushed by RunBuilder over this exact string, so they always land on char boundaries");
+        let slice = text.text.get(offset..offset + run.len).unwrap_or_default();
         offset += run.len;
 
         // Runs that are hover-sensitive (links, mention pills) get a stable key so we can

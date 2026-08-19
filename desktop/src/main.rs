@@ -124,12 +124,16 @@ async fn listen_for_focus_requests(listener: TokioListener, focus_tx: mpsc::Unbo
 }
 
 fn run_ui(_: mpsc::UnboundedReceiver<()>) {
-    let tokio_rt = Arc::new(
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create Tokio runtime"),
-    );
+    let tokio_rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => Arc::new(rt),
+        Err(e) => {
+            tracing::error!("Failed to create Tokio runtime: {:?}", e);
+            return;
+        }
+    };
 
     let platform = gpui_platform::current_platform(false);
     Application::with_platform(platform)
@@ -161,15 +165,19 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
             };
 
             let tokio_rt = Arc::clone(&tokio_rt);
-            load_keymap_from_json(include_str!("../keybindings/default.json"), cx)
-                .expect("Failed to load keymap");
+            if let Err(e) = load_keymap_from_json(include_str!("../keybindings/default.json"), cx) {
+                tracing::error!("Failed to load keymap: {:?}", e);
+            }
+            
             cx.observe_keystrokes(|e, _, _| tracing::trace!("{:?}", e.context_stack))
                 .detach();
-            cx.open_window(options, |window, cx| {
+            
+            if let Err(e) = cx.open_window(options, |window, cx| {
                 let root_view = cx.new(|cx| RootView::new(tokio_rt, window, cx));
                 cx.new(|cx| Root::new(root_view, window, cx))
-            })
-            .expect("Failed to open window");
+            }) {
+                tracing::error!("Failed to open window: {:?}", e);
+            }
 
             cx.activate(true);
         });
