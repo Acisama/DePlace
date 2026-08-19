@@ -299,6 +299,7 @@ impl CachedTimelineEvent {
             rounded(pre_col_space / 2.0),
             group("message"),
             bg(bg),
+            pt(structure.small_gap / 1.5),
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
             flex_col,
