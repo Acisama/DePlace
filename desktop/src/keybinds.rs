@@ -181,7 +181,7 @@ pub fn load_keymap_from_json(path: &PathBuf, cx: &mut App) {
 
                 let default = default_keymap();
 
-                match serde_json::to_string(&default) {
+                match serde_json::to_string_pretty(&default) {
                     Ok(default_str) => {
                         if let Err(e) = std::fs::write(path, default_str) {
                             tracing::error!("Failed to write default keymap: {e}");
