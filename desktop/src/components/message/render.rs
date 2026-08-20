@@ -299,13 +299,13 @@ impl CachedTimelineEvent {
             rounded(pre_col_space / 2.0),
             group("message"),
             bg(bg),
-            pt(structure.small_gap / 1.5),
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
             flex_col,
             text_color(text_color),
             text_size(structure.chat.text_size),
         )
+        .when(is_system_message, |el| el.pt(structure.small_gap / 1.5))
         .when(focused, |el| el.border_color(colors.error))
         .when(self.flags.contains_only_emojis, |el| {
             el.text_size(structure.chat.text_size * 2.0)
@@ -339,11 +339,13 @@ impl CachedTimelineEvent {
         } else {
             outer
                 .child(
-                    tailwind_div!(flex, flex_row)
+                    tailwind_div!(flex, flex_row, pt(structure.small_gap / 1.5), h_full)
                         .child(
                             tailwind_div!(
                                 w(structure.chat_col_width()),
                                 px(pre_col_space),
+                                flex,
+                                flex_col,
                                 relative
                             )
                             .when_else(
@@ -356,11 +358,7 @@ impl CachedTimelineEvent {
                                             text_size(structure.chat.small_text_size),
                                         )
                                         .when(is_short_message, |el| {
-                                            el.flex()
-                                                .justify_center()
-                                                .text_center()
-                                                .h_full()
-                                                .items_center()
+                                            el.h(structure.chat.text_size).flex().items_center()
                                         })
                                         .id(id)
                                         .group_hover("message", |style| {
