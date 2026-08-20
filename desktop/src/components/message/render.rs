@@ -814,7 +814,7 @@ impl CachedUserMessage {
             _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
         };
 
-        tailwind_div!(line_height(relative(1.0)), text_center, flex, flex_col)
+        tailwind_div!(line_height(relative(1.0)), flex, flex_col)
             .child(content)
             .when_some(self.reactions.clone(), |el, reactions| {
                 el.child(render_reactions(
