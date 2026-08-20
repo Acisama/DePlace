@@ -9,8 +9,8 @@ use deplace_core::{
 };
 use gpui::{
     AppContext, Context, Element, Entity, FocusHandle, Focusable, FollowMode, InteractiveElement,
-    IntoElement, KeyContext, ParentElement, Pixels, Render, StyleRefinement, Styled, Subscription,
-    Window, actions, div, prelude::FluentBuilder,
+    IntoElement, ParentElement, Pixels, Render, StyleRefinement, Styled, Subscription, Window,
+    actions, div, prelude::FluentBuilder,
 };
 use gpui_component::StyledExt;
 use macros::{nonzero_usize, tailwind_div};

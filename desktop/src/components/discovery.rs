@@ -88,10 +88,12 @@ impl DiscoveryView {
 
         cx.spawn(async move |this, cx| {
             cx.update(|cx| {
-                let _ = this.update(cx, |_, cx| {
+                if let Err(e) = this.update(cx, |_, cx| {
                     cx.emit(event);
                     cx.notify();
-                });
+                }) {
+                    tracing::debug!("Failed to emit discover click event: {}", e);
+                }
             });
         })
         .detach();
@@ -121,7 +123,7 @@ impl DiscoveryView {
             };
 
             cx.update(|cx| {
-                let _ = this.update(cx, |view, cx| {
+                if let Err(e) = this.update(cx, |view, cx| {
                     if result.is_none() {
                         view.state = GenericState::Error("Couldn't reach that server".to_string());
                     } else {
@@ -130,7 +132,9 @@ impl DiscoveryView {
                     view.valid_result = result;
                     view.current_request = None;
                     cx.notify();
-                });
+                }) {
+                    tracing::debug!("Failed to update discovery view: {}", e);
+                }
             });
         })
         .detach();

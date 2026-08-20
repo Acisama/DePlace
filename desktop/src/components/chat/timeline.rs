@@ -158,16 +158,35 @@ impl TimelineView {
             };
 
             while let Some(diffs) = update_stream.next().await {
-                let updated = this.update(cx, |view, cx| {
-                    for diff in diffs {
-                        apply_diff(&mut view.messages, &view.list_state, diff, &view.user_id);
+                let updated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    this.update(cx, |view, cx| {
+                        for diff in diffs {
+                            apply_diff(&mut view.messages, &view.list_state, diff, &view.user_id);
+                        }
+                        cx.notify();
+                    })
+                }));
+
+                match updated {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        tracing::debug!(
+                            "Stopping timeline updates for room {}, entity is gone: {:?}",
+                            room_id,
+                            e
+                        );
+                        break;
                     }
-                    cx.notify();
-                });
-                if updated.is_err() {
-                    break;
+                    Err(e) => {
+                        tracing::error!(
+                            "Panic while applying timeline diff for room {}: {:?}",
+                            room_id,
+                            e
+                        );
+                    }
                 }
             }
+            tracing::warn!("Timeline update stream ended for room {}", room_id);
         });
 
         Self {
@@ -213,13 +232,19 @@ impl TimelineView {
 
         cx.spawn(async move |this, cx| {
             let result = task.await;
-            let _ = this.update(cx, |view, _cx| {
+            if let Err(e) = this.update(cx, |view, _cx| {
                 let current_scroll = match direction {
                     ScrollDirection::Up => &mut view.current_scroll_up,
                     ScrollDirection::Down => &mut view.current_scroll_down,
                 };
                 *current_scroll = None;
-            });
+            }) {
+                tracing::debug!(
+                    "Failed to reset scroll guard for {}, entity is gone: {:?}",
+                    direction,
+                    e
+                );
+            }
             if let Err(e) = result {
                 tracing::error!("Failed to scroll timeline: {}", e);
             }

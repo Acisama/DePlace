@@ -58,6 +58,7 @@ desktop = ["gpui"]
 
 [lints.clippy]
 exit = "warn"
+let_underscore_must_use = "warn"
 panic_in_result_fn = "warn"
 string_slice = "warn"
 todo = "warn"

@@ -42,6 +42,7 @@ webbrowser = "1.2.4"
 [lints.clippy]
 exit = "warn"
 expect_used = "warn"
+let_underscore_must_use = "warn"
 panic = "warn"
 panic_in_result_fn = "warn"
 string_slice = "warn"
