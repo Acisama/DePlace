@@ -76,6 +76,12 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_line_number(true)
         .init();
 
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!("Panic: {:?}", info);
+        default_hook(info);
+    }));
+
     let namespaced_socket_name = SOCKET_NAME.to_ns_name::<GenericNamespaced>()?;
 
     // Another instance already holds the socket: ask it to focus its window and exit.
@@ -116,8 +122,9 @@ async fn listen_for_focus_requests(listener: TokioListener, focus_tx: mpsc::Unbo
             let mut buf = [0u8; 256];
             if let Ok(bytes_read) = reader.read(&mut buf).await
                 && serde_json::from_slice::<InstanceCommand>(&buf[..bytes_read]).is_ok()
+                && let Err(e) = focus_tx.send(())
             {
-                let _ = focus_tx.send(());
+                tracing::warn!("Failed to send focus request: {e}");
             }
         });
     }
