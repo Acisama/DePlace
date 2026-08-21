@@ -294,7 +294,7 @@ impl TimelineView {
         let tokio_rt = self.tokio_rt.clone();
         let timeline_manager = self.timeline_manager.clone();
         let in_flight = self.reactions_in_flight.clone();
-        let timeline_id = self.timeline_id;
+        let timeline = self.timeline.clone();
 
         move |event_id: Arc<OwnedEventId>, reaction: SharedString| {
             let Some(timeline_id) = timeline_id else {

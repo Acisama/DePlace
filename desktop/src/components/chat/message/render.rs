@@ -8,7 +8,7 @@ use deplace_core::{
     state::{AppState, MembershipMap},
 };
 use gpui::{
-    Animation, AnimationExt, AnyElement, Div, Element, ElementId, FontStyle, FontWeight,
+    Animation, AnimationExt, AnyElement, App, Div, Element, ElementId, FontStyle, FontWeight,
     HighlightStyle, Hsla, InteractiveElement, InteractiveText, IntoElement, LinearColorStop,
     ObjectFit, ParentElement, Pixels, SharedString, StatefulInteractiveElement, StrikethroughStyle,
     Styled, StyledImage, StyledText, TextStyle, UnderlineStyle, Window, div, img, linear_gradient,
@@ -18,20 +18,20 @@ use gpui_component::{StyledExt, red_600};
 use macros::tailwind_div;
 use matrix_sdk::ruma::{OwnedEventId, RoomId, UserId};
 
+use super::{
+    CachedEventContent, CachedMessageType, CachedReplyInfo, CachedSendState, CachedSystemMessage,
+    CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind, CachedUserMessage,
+    DetailState, ReactionInfo,
+    text::{CachedBlock, CachedLink, CachedPill, CachedRichText},
+};
 use crate::{
     cache::{AvatarCache, MediaState, ThumbnailCache},
     components::{
         CustomStyles,
-        message::{
-            CachedEventContent, CachedMessageType, CachedReplyInfo, CachedSendState,
-            CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
-            CachedUserMessage, DetailState, ReactionInfo,
-            text::{CachedBlock, CachedLink, CachedPill, CachedRichText},
-        },
         profiles::{MemberRenderer, render_icon},
     },
     saving::save_file,
-    things::{AppTheme, ImportantPaths, Structure},
+    things::{AppTheme, DeplaceThings, Structure},
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -39,17 +39,18 @@ impl CachedTimelineItem {
     pub fn render(
         &self,
         window: &Window,
-        theme: &AppTheme,
-        structure: &Structure,
+        cx: &mut App,
+        toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
         curent_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
         focused: bool,
-        on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
         state: &AppState,
-        importantpaths: &ImportantPaths,
     ) -> AnyElement {
+        let structure = cx.structure();
+        let theme = cx.app_theme();
+
         let divider_width = structure.divider_width;
 
         match &self.kind {
@@ -87,16 +88,14 @@ impl CachedTimelineItem {
             CachedTimelineItemKind::Event(event) => event.render(
                 self.id(),
                 window,
-                theme,
-                structure,
+                cx,
+                toggle_reaction,
                 curent_room_id,
                 map,
                 avatar_cache,
                 image_cache,
                 focused,
-                on_toggle_reaction,
                 state,
-                importantpaths,
             ),
         }
     }
@@ -108,25 +107,21 @@ impl CachedTimelineEvent {
         &self,
         id: ElementId,
         window: &Window,
-        theme: &AppTheme,
-        structure: &Structure,
+        cx: &mut App,
+        toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
         current_room_id: &RoomId,
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
         focused: bool,
-        on_toggle_reaction: impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static,
         state: &AppState,
-        importantpaths: &ImportantPaths,
     ) -> AnyElement {
+        let theme = &cx.app_theme().clone();
+        let structure = &cx.structure().clone();
+
         let colors = &theme.colors;
 
         let event_id = self.event_id.clone();
-        let toggle_reaction = move |reaction: SharedString| {
-            if let Some(event_id) = event_id.clone() {
-                on_toggle_reaction(event_id, reaction);
-            }
-        };
 
         let show_highlight = self.flags.is_highlighted;
 
@@ -165,9 +160,6 @@ impl CachedTimelineEvent {
             member.render_name(structure.chat.small_text_size, colors)
         };
 
-        // Same lookup as `member_avatar`/`member_name` above, but returning the plain
-        // name text + tint color instead of a built element - what mention pills inside
-        // a formatted message body need to build a `TextRun`.
         let member_name_color = move |id: &UserId| -> (SharedString, gpui::Hsla) {
             match map.get(current_room_id).and_then(|m| m.get(id)) {
                 Some(member) => (member.get_name().into(), member.color().into()),
@@ -196,14 +188,16 @@ impl CachedTimelineEvent {
             CachedEventContent::UserMessage(msg) => msg.render(
                 &id,
                 window,
-                structure,
-                theme,
+                cx,
                 image_cache,
                 member_avatar,
                 member_name_color,
-                toggle_reaction,
                 state,
-                importantpaths,
+                move |reaction: SharedString| {
+                    if let Some(event_id) = event_id.clone() {
+                        toggle_reaction(event_id, reaction);
+                    }
+                },
             ),
         };
 
@@ -450,15 +444,16 @@ impl CachedUserMessage {
         &self,
         id: &ElementId,
         window: &Window,
-        structure: &Structure,
-        theme: &AppTheme,
+        cx: &mut App,
         media_cache: &ThumbnailCache,
         member_avatar: impl Fn(&UserId) -> AnyElement,
         member_name_color: impl Fn(&UserId) -> (SharedString, Hsla),
-        on_toggle_reaction: impl Fn(SharedString) + Clone + 'static,
         state: &AppState,
-        importantpaths: &ImportantPaths,
+        toggle_reaction: impl Fn(SharedString) + Clone + 'static,
     ) -> Div {
+        let theme = cx.app_theme();
+        let structure = cx.structure();
+
         let warning = theme.colors.warning;
         let error = theme.colors.error;
 
@@ -555,7 +550,7 @@ impl CachedUserMessage {
                                 let client = state.client();
                                 let source = source.clone();
                                 let filename = filename.clone();
-                                let importantpaths = importantpaths.clone();
+                                let importantpaths = cx.important_paths().clone();
 
                                 move |_, _, cx| {
                                     save_file(
@@ -822,7 +817,7 @@ impl CachedUserMessage {
                     theme,
                     structure,
                     member_avatar,
-                    on_toggle_reaction,
+                    toggle_reaction,
                 ))
             })
     }
@@ -840,6 +835,8 @@ fn render_reactions(
         let emoji = info.emoji.clone();
         let on_toggle_reaction = on_toggle_reaction.clone();
 
+        let has_own = info.has_own;
+
         tailwind_div!(
             flex,
             flex_row,
@@ -853,8 +850,10 @@ fn render_reactions(
             cursor_pointer
         )
         .id(info.emoji.clone())
-        .on_click(move |_, _, _| on_toggle_reaction(emoji.clone()))
-        .when(info.has_own, |el| {
+        .on_click(move |_, _, _| {
+            on_toggle_reaction(emoji.clone());
+        })
+        .when(has_own, |el| {
             el.border_color(theme.accent).bg(theme.accent_bg())
         })
         .child(info.emoji)

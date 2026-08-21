@@ -17,7 +17,6 @@ use crate::{
             BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data,
         },
         sync::{ParentToChildren, ParentToChildrenOrderStr, reclassify_rooms},
-        timeline::TimelineManager,
     },
     settings::Settings,
 };
@@ -61,8 +60,6 @@ struct AppStateInner {
     /// Last accessed servers and rooms, since the data is only
     /// needed as snapshots, it is held in a mutex
     breadcrumbs: Mutex<BreadcrumbsContent>,
-
-    timeline_manager: TimelineManager,
 }
 
 impl AppState {
@@ -130,8 +127,6 @@ impl AppState {
 
                 server_order,
                 breadcrumbs,
-
-                timeline_manager: TimelineManager::default(),
             }),
         }
     }
@@ -141,11 +136,6 @@ impl AppState {
     /// Retrieves the `matrix-sdk::Client` of the app
     pub fn client(&self) -> Client {
         self.inner.client.clone()
-    }
-
-    /// Retrieves the `TimelineManager` of the app
-    pub fn timeline_manager(&self) -> TimelineManager {
-        self.inner.timeline_manager.clone()
     }
 
     /// Retrieves the `Settings` of the app

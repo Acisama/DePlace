@@ -15,7 +15,6 @@ mod members;
 pub mod messages;
 pub mod presence;
 pub mod sync;
-pub mod timeline;
 
 use crate::{
     APP_NAME, DEVICE_DISPLAY_NAME,

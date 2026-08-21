@@ -3,8 +3,10 @@ use std::sync::Arc;
 use chrono::{DateTime, Local, TimeZone};
 use deplace_core::{
     get_change,
-    helpers::{format_date_divider, format_message_long_date, format_message_short_date},
-    matrix_api::timeline::{DisplayString, get_current_and_prev},
+    helpers::{
+        DisplayString, format_date_divider, format_message_long_date, format_message_short_date,
+        get_current_and_prev,
+    },
 };
 use enumset::EnumSet;
 use gpui::ImageFormat;
@@ -25,16 +27,14 @@ use matrix_sdk_ui::timeline::{
     TimelineItemKind, VirtualTimelineItem,
 };
 
-use crate::components::{
-    ByteSize, blurhash_to_image,
-    message::{
-        CachedBeaconInfo, CachedEventContent, CachedMediaUploadProgress, CachedMessageType,
-        CachedProgress, CachedReplyInfo, CachedReplyPreview, CachedReplyPreviewBody,
-        CachedSendState, CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem,
-        CachedTimelineItemKind, CachedUserMessage, DetailState, EventFlags, ReactionInfo,
-        text::{CachedBlock, convert_formatted_body},
-    },
+use super::{
+    CachedBeaconInfo, CachedEventContent, CachedMediaUploadProgress, CachedMessageType,
+    CachedProgress, CachedReplyInfo, CachedReplyPreview, CachedReplyPreviewBody, CachedSendState,
+    CachedSystemMessage, CachedTimelineEvent, CachedTimelineItem, CachedTimelineItemKind,
+    CachedUserMessage, DetailState, EventFlags, ReactionInfo,
+    text::{CachedBlock, convert_formatted_body},
 };
+use crate::components::{ByteSize, blurhash_to_image};
 
 impl From<&EventSendState> for CachedSendState {
     fn from(state: &EventSendState) -> Self {

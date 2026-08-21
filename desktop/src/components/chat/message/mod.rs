@@ -5,14 +5,14 @@ use enumset::EnumSet;
 use gpui::{ElementId, ImageFormat, SharedString, StyleRefinement, Styled};
 use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
 
-mod convert;
-mod render;
+pub(super) mod convert;
+pub(super) mod render;
 mod text;
 
 pub use convert::cached_from_timeline_item;
 
 use crate::{
-    components::{ByteSize, message::text::CachedBlock},
+    components::{ByteSize, chat::message::text::CachedBlock},
     things::{AppTheme, Structure},
 };
 

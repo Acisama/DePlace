@@ -21,7 +21,6 @@ use crate::things::DeplaceThings;
 use crate::things::{AppTheme, Structure};
 
 pub mod chat;
-pub mod message;
 pub mod profiles;
 pub mod root;
 

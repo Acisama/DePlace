@@ -1,26 +1,24 @@
+use anyhow::Result;
 use std::io::Cursor;
 
 use ego_tree::NodeRef;
 use image::ImageReader;
 use matrix_sdk::{
     Room,
-    attachment::{AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo},
+    attachment::{AttachmentConfig, AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo},
+    room::reply::{EnforceThread, Reply},
 };
-use matrix_sdk_ui::timeline::{AttachmentConfig, AttachmentSource};
 use mime_guess::{Mime, mime};
 use ruma::{
     OwnedEventId, OwnedUserId,
     events::{
         AnyMessageLikeEventContent, Mentions,
         message::{MessageEventContent, MessageEventContentWithoutRelation},
-        relation::Reply,
-        room::message::{Relation, RoomMessageEventContent},
+        room::message::{AddMentions, Relation, RoomMessageEventContent},
     },
 };
 use scraper::{Html, Node};
 use url::Url;
-
-use crate::matrix_api::timeline::TimelineManager;
 
 #[derive(Clone)]
 pub struct MatrixAttachment {
@@ -29,22 +27,22 @@ pub struct MatrixAttachment {
     pub data: Vec<u8>,
 }
 
-impl TimelineManager {
-    pub async fn send_message(
+pub trait RoomSendingExt {
+    fn send_message(
         &self,
         html: String,
-        room: &Room,
         replies_to: Option<OwnedEventId>,
-    ) -> anyhow::Result<()> {
-        tracing::debug!("Sending message to room {}", room.room_id());
-        let (timeline, _) = self
-            .get_or_create_timeline(
-                room,
-                matrix_sdk_ui::timeline::TimelineFocus::Live {
-                    hide_threaded_events: false,
-                },
-            )
-            .await?;
+    ) -> impl Future<Output = Result<()>>;
+    fn send_deplace_attachment(
+        &self,
+        attachment: MatrixAttachment,
+        replies_to: Option<OwnedEventId>,
+    ) -> impl Future<Output = Result<()>>;
+}
+
+impl RoomSendingExt for Room {
+    async fn send_message(&self, html: String, replies_to: Option<OwnedEventId>) -> Result<()> {
+        let queue = self.send_queue();
 
         let mut mentions = Mentions::default();
 
@@ -65,9 +63,10 @@ impl TimelineManager {
 
             // content.url_previews = get_link_previews(&client, &urls).await;
 
-            let content =
-                content.with_relation(Some(Relation::Reply(Reply::with_event_id(reply_to_id))));
-            timeline.send(content.into()).await?;
+            let content = content.with_relation(Some(Relation::Reply(
+                matrix_sdk::ruma::events::relation::Reply::with_event_id(reply_to_id),
+            )));
+            queue.send(content.into()).await?;
         } else {
             let mut message_content = if let Some(formatted_body) = formatted_body {
                 RoomMessageEventContent::text_html(body, formatted_body)
@@ -77,31 +76,20 @@ impl TimelineManager {
             message_content.mentions = Some(mentions.clone());
 
             let content = AnyMessageLikeEventContent::RoomMessage(message_content);
-            timeline.send(content).await?;
+            queue.send(content).await?;
         }
 
         Ok(())
     }
 
-    pub async fn send_attachment(
+    async fn send_deplace_attachment(
         &self,
-        room: &Room,
         attachment: MatrixAttachment,
         replies_to: Option<OwnedEventId>,
-    ) -> anyhow::Result<()> {
-        tracing::debug!("Sending attachment to room {}", room.room_id());
-
-        let (timeline, _) = self
-            .get_or_create_timeline(
-                room,
-                matrix_sdk_ui::timeline::TimelineFocus::Live {
-                    hide_threaded_events: false,
-                },
-            )
-            .await?;
+    ) -> Result<()> {
+        let queue = self.send_queue();
 
         let size = attachment.data.len() as u32;
-
         let info = match attachment.mime_type.subtype() {
             mime::IMAGE => {
                 let img = ImageReader::new(Cursor::new(&attachment.data))
@@ -148,20 +136,23 @@ impl TimelineManager {
             info: Some(info),
             thumbnail: None,
             caption: None,
-            in_reply_to: replies_to,
+            reply: replies_to.map(|event_id| Reply {
+                event_id,
+                enforce_thread: EnforceThread::MaybeThreaded,
+                add_mentions: AddMentions::Yes,
+            }),
             mentions: None,
         };
 
-        timeline
+        queue
             .send_attachment(
-                AttachmentSource::Data {
-                    bytes: attachment.data,
-                    filename: attachment.filename,
-                },
+                attachment.filename,
                 attachment.mime_type,
+                attachment.data,
                 config,
             )
             .await?;
+
         Ok(())
     }
 }

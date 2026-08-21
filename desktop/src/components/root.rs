@@ -1,11 +1,6 @@
 use std::sync::Arc;
 
-use deplace_core::{
-    RestoreResult,
-    matrix_api::{EncryptionUpgradeResult, LoginResult},
-    state::AppState,
-    try_restore,
-};
+use deplace_core::{RestoreResult, matrix_api::LoginResult, state::AppState, try_restore};
 use gpui::{
     AppContext, Context, Entity, InteractiveElement, IntoElement, KeyContext, ObjectFit,
     ParentElement, Render, RenderImage, Styled, StyledImage, Window, blue, div, img,
@@ -65,7 +60,7 @@ impl RootView {
                 .spawn(async move { try_restore().await })
                 .await;
 
-            let _ = this.update_in(cx, |root, window, cx| {
+            if let Err(e) = this.update_in(cx, |root, window, cx| {
                 match outcome {
                     Ok(RestoreResult::Success(state)) => {
                         let state = *state;
@@ -87,7 +82,9 @@ impl RootView {
                     }
                 }
                 cx.notify();
-            });
+            }) {
+                tracing::error!("failed to restore session: {:?}", e);
+            }
         })
         .detach();
 

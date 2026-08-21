@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use deplace_core::state::AppState;
+use deplace_core::{matrix_api::messages::RoomSendingExt, state::AppState};
 use gpui::{
     App, AppContext, Context, Entity, FocusHandle, Focusable, ParentElement, Render, Styled, Window,
 };
@@ -23,6 +23,7 @@ use crate::{
 };
 
 mod input;
+mod message;
 mod timeline;
 
 pub use timeline::{FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, UnfocusInput};
@@ -44,7 +45,6 @@ impl ChatView {
         image_cache: ThumbnailCache,
         room: Room,
     ) -> Self {
-        let timeline_manager = state.timeline_manager();
         let timeline = cx.new(|cx| {
             TimelineView::new(
                 state,
@@ -71,35 +71,30 @@ impl ChatView {
 
             let room = room.clone();
             let attachments_empty = attachments.is_empty();
-            let timeline_manager = timeline_manager.clone();
 
             tokio_rt.spawn(async move {
                 if !attachments_empty {
                     let mut iter = attachments.into_iter();
 
                     if let Some(attachment) = iter.next()
-                        && let Err(e) = timeline_manager
-                            .send_attachment(&room, attachment, in_reply_to.clone())
+                        && let Err(e) = room
+                            .send_deplace_attachment(attachment, in_reply_to.clone())
                             .await
                     {
                         tracing::error!("Failed to send attachment: {}", e);
                     }
 
                     for attachment in iter {
-                        if let Err(e) = timeline_manager
-                            .send_attachment(&room, attachment, None)
-                            .await
-                        {
+                        if let Err(e) = room.send_deplace_attachment(attachment, None).await {
                             tracing::error!("Failed to send attachment: {}", e);
                         }
                     }
                 }
 
                 if !text.trim().is_empty()
-                    && let Err(e) = timeline_manager
+                    && let Err(e) = room
                         .send_message(
                             text,
-                            &room,
                             attachments_empty.then(|| in_reply_to.clone()).flatten(),
                         )
                         .await
