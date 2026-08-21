@@ -26,7 +26,9 @@ mod input;
 mod message;
 mod timeline;
 
-pub use timeline::{FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, UnfocusInput};
+pub use timeline::{
+    FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, ScrollOffset, UnfocusInput,
+};
 
 pub type ChatTimelineCache = VisibleLruCache<OwnedRoomId, ChatView>;
 

@@ -24,7 +24,9 @@ use tokio::sync::watch::Receiver;
 use crate::{
     cache::{AvatarCache, ThumbnailCache},
     components::{
-        chat::{ChatTimelineCache, ChatView, FocusInput, FocusInputWithKey, UnfocusInput},
+        chat::{
+            ChatTimelineCache, ChatView, FocusInput, FocusInputWithKey, ScrollOffset, UnfocusInput,
+        },
         floating_tile,
         header::HeaderView,
         overlay::{Close, Open, Overlay},
@@ -406,6 +408,10 @@ impl Render for HomeView {
                                 timeline.list_state.scroll_to_reveal_item(new_focus);
                                 cx.notify();
                                 window.focus(&timeline.focus_handle(cx), cx);
+                                timeline.check_pagination(
+                                    ScrollOffset::FocusedIndex { index: new_focus },
+                                    cx,
+                                );
                                 return;
                             }
                             if new_focus == 0 {

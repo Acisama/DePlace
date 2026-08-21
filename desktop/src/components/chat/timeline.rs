@@ -49,6 +49,15 @@ enum TimelineMessagePayload {
     Diffs(Vec<VectorDiff<Arc<TimelineItem>>>),
 }
 
+/// Enum to feed into [`check_pagination`]
+///
+/// Can be either constructed with the range of visible
+/// items or an index of a focused item
+pub enum ScrollOffset {
+    VisibleRange { range: Range<usize> },
+    FocusedIndex { index: usize },
+}
+
 #[derive(Default, Clone, Copy)]
 pub struct PaginationState {
     pub reached_start: bool,
@@ -119,7 +128,12 @@ impl TimelineView {
         let list_state = ListState::new(0, ListAlignment::Bottom, px(500.));
         list_state.set_follow_mode(FollowMode::Tail);
         list_state.set_scroll_handler(cx.listener(|this, event: &ListScrollEvent, _window, cx| {
-            this.check_pagination(event.visible_range.clone(), event.count, cx);
+            this.check_pagination(
+                ScrollOffset::VisibleRange {
+                    range: event.visible_range.clone(),
+                },
+                cx,
+            );
         }));
 
         let membership_map = state.membership_map();
@@ -229,6 +243,7 @@ impl TimelineView {
                                 for diff in diffs {
                                     apply_diff(
                                         &mut view.messages,
+                                        &mut view.focused_message,
                                         &view.list_state,
                                         diff,
                                         &view.user_id,
@@ -307,7 +322,10 @@ impl TimelineView {
         *current_scroll = Some(task.abort_handle());
 
         cx.spawn(async move |this, cx| {
-            let result = task.await;
+            let result: Result<
+                Result<bool, matrix_sdk_ui::timeline::Error>,
+                tokio::task::JoinError,
+            > = task.await;
             if let Err(e) = this.update(cx, |view, _| {
                 let current_scroll = match direction {
                     ScrollDirection::Up => &mut view.current_scroll_up,
@@ -380,13 +398,28 @@ impl TimelineView {
         }
     }
 
-    fn check_pagination(&mut self, range: Range<usize>, len: usize, cx: &mut Context<Self>) {
+    pub fn check_pagination(&mut self, scroll_offset: ScrollOffset, cx: &mut Context<Self>) {
         const EDGE_THRESHOLD: usize = 10;
 
-        if range.start < EDGE_THRESHOLD {
+        let length = self.list_state.item_count();
+
+        let upper_check: usize;
+        let lower_check: usize;
+        match scroll_offset {
+            ScrollOffset::VisibleRange { range } => {
+                upper_check = range.start;
+                lower_check = length.saturating_sub(range.end);
+            }
+            ScrollOffset::FocusedIndex { index } => {
+                upper_check = index;
+                lower_check = length.saturating_sub(index);
+            }
+        }
+
+        if upper_check < EDGE_THRESHOLD {
             self.scroll(cx, ScrollDirection::Up);
         }
-        if len.saturating_sub(range.end) < EDGE_THRESHOLD {
+        if lower_check < EDGE_THRESHOLD {
             self.scroll(cx, ScrollDirection::Down);
         }
     }
@@ -443,6 +476,7 @@ fn recompute_datedivider_near(messages: &mut Arc<Vec<CachedTimelineItem>>, index
 
 fn apply_diff(
     messages: &mut Arc<Vec<CachedTimelineItem>>,
+    focused_message: &mut Option<usize>,
     list_state: &ListState,
     diff: VectorDiff<Arc<TimelineItem>>,
     own_id: &UserId,
@@ -484,6 +518,10 @@ fn apply_diff(
                 current_item.recompute_datedivider_types(rest);
             }
 
+            if let Some(focused) = focused_message {
+                *focused += 1;
+            }
+
             recompute_show_header_at(messages, 0);
             recompute_pad_bottom_at(messages, 0);
             recompute_show_header_at(messages, 1);
@@ -504,12 +542,27 @@ fn apply_diff(
                 Arc::make_mut(messages).remove(0);
                 list_state.splice(0..1, 0);
 
+                if let Some(focused) = focused_message {
+                    if *focused == 0 {
+                        *focused_message = None; // Focused item was popped
+                    } else {
+                        *focused -= 1;
+                    }
+                }
+
                 recompute_show_header_at(messages, 0);
             }
         }
         VectorDiff::PopBack => {
             if Arc::make_mut(messages).pop().is_some() {
-                list_state.splice(messages.len()..messages.len() + 1, 0);
+                let len = messages.len();
+                list_state.splice(len..len + 1, 0);
+
+                if let Some(focused) = focused_message {
+                    if *focused == len - 1 {
+                        *focused_message = None;
+                    }
+                }
 
                 recompute_datedivider_near(messages, messages.len());
                 if !messages.is_empty() {
@@ -533,6 +586,13 @@ fn apply_diff(
             if index > 0 {
                 recompute_pad_bottom_at(messages, index - 1);
             }
+
+            if let Some(focused) = focused_message {
+                if index <= *focused {
+                    *focused += 1;
+                }
+            }
+
             recompute_show_header_at(messages, index);
             recompute_pad_bottom_at(messages, index);
             recompute_show_header_at(messages, index + 1);
@@ -569,6 +629,14 @@ fn apply_diff(
             Arc::make_mut(messages).remove(index);
             list_state.splice(index..index + 1, 0);
 
+            if let Some(focused) = focused_message {
+                if index < *focused {
+                    *focused -= 1;
+                } else if index == *focused {
+                    *focused_message = None; // Focused item was removed
+                }
+            }
+
             recompute_datedivider_near(messages, index);
             if index > 0 {
                 recompute_pad_bottom_at(messages, index - 1);
@@ -586,6 +654,12 @@ fn apply_diff(
             }
             list_state.splice(length..messages.len(), 0);
             Arc::make_mut(messages).truncate(length);
+
+            if let Some(focused) = focused_message {
+                if *focused >= length {
+                    *focused_message = None;
+                }
+            }
 
             recompute_datedivider_near(messages, length);
             if length > 0 {
