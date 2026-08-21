@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
+async-channel.workspace = true
 blurhash.workspace = true
 chrono.workspace = true
 dashmap.workspace = true

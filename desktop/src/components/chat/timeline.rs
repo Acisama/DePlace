@@ -22,7 +22,12 @@ use matrix_sdk_ui::{
     timeline::{TimelineFocus, TimelineItem},
 };
 use serde::Deserialize;
-use tokio::{runtime::Runtime, sync::watch::Receiver, task::AbortHandle};
+use tokio::{
+    runtime::Runtime,
+    sync::watch::Receiver,
+    task::{AbortHandle, JoinHandle},
+};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -50,12 +55,23 @@ pub struct TimelineView {
     current_scroll_down: Option<AbortHandle>,
     reactions_in_flight: Arc<DashMap<(Arc<OwnedEventId>, SharedString), ()>>,
     user_id: OwnedUserId,
-    _updates_task: Task<()>,
+    _updates_task: (Task<()>, JoinHandle<()>),
     pub list_state: ListState,
     focus_handle: FocusHandle,
 }
 
 impl TimelineView {
+    /// Creates a new `TimelineView` and initializes its message stream for the active room.
+    ///
+    /// # Cross-Runtime Bug Reference
+    ///
+    ///
+    /// * Polling Tokio primitives or using `tokio::sync::mpsc` receivers inside
+    ///   GPUI's `cx.spawn` can orphan task wakers.  This causes updates to freeze
+    ///   silently without errors, panics, or task cancellation.
+    /// * The Fix: The Matrix stream collection loop runs entirely within the dedicated
+    ///   Tokio runtime (`tokio_rt`), utilizing a runtime-agnostic `async_channel` to safely
+    ///   bridge updates across to GPUI's UI thread via `weak_self.update`.
     pub fn new(
         state: &AppState,
         cx: &mut Context<Self>,
@@ -85,108 +101,130 @@ impl TimelineView {
 
         tracing::debug!("Loading timeline for room {}", room_id);
 
-        let clone = active_room.clone();
-        let task = tokio_rt.spawn(async move {
-            timeline_manager
+        // Payload enum for communication
+        enum TimelineMessagePayload {
+            Initialized {
+                initial_messages: Vec<Arc<TimelineItem>>,
+                id: Uuid,
+            },
+            Diffs(Vec<VectorDiff<Arc<TimelineItem>>>),
+        }
+
+        // Use async_channel
+        let (tx, rx) = async_channel::bounded(100);
+        let clone_room = active_room.clone();
+        let room_id_tokio = room_id.clone();
+        let timeline_manager_clone = timeline_manager.clone();
+
+        // matrix-sdk stream loop completely inside tokio
+        let tokio_task = tokio_rt.spawn(async move {
+            let result = timeline_manager_clone
                 .get_messages(
-                    &clone,
+                    &clone_room,
                     TimelineFocus::Live {
                         hide_threaded_events: false,
                     },
                 )
-                .await
-        });
+                .await;
 
-        let updates_task = cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let outcome = this.update(cx, |view, cx| {
-                let update_stream = match result {
-                    Ok(Ok((initial_messages, update_stream, id))) => {
-                        tracing::debug!(
-                            "Loaded timeline for room {}: {} messages",
-                            room_id,
-                            initial_messages.len()
-                        );
-
-                        let mut cached_messages: Vec<CachedTimelineItem> = initial_messages
-                            .iter()
-                            .map(|item| cached_from_timeline_item(item, &view.user_id))
-                            .collect();
-
-                        for i in 0..cached_messages.len() {
-                            let Some((current_item, rest)) = cached_messages[i..].split_first_mut()
-                            else {
-                                continue;
-                            };
-
-                            current_item.recompute_datedivider_types(rest);
-                        }
-
-                        view.timeline_id = Some(id);
-                        view.messages = Arc::new(cached_messages);
-                        let len = view.messages.len();
-                        recompute_grouping_range(&mut view.messages, 0..len);
-                        view.list_state.splice(0..0, view.messages.len());
-                        view.list_state.set_follow_mode(FollowMode::Tail);
-                        Some(update_stream)
-                    }
-                    Ok(Err(e)) => {
-                        tracing::error!("Failed to load timeline: {e:?}");
-                        None
-                    }
-                    Err(e) if e.is_cancelled() => None,
-                    Err(e) => {
-                        tracing::error!("Timeline fetch task failed: {e:?}");
-                        None
-                    }
-                };
-                cx.notify();
-                update_stream
-            });
-
-            let mut update_stream = match outcome {
-                Ok(Some(pair)) => pair,
-                Ok(None) => return,
+            let (initial_messages, mut update_stream, id) = match result {
+                Ok(res) => res,
                 Err(e) => {
-                    tracing::error!(
-                        "Stopping timeline load for room {}, ChatView entity is gone: {:?}",
-                        room_id,
-                        e
-                    );
+                    tracing::error!("Timeline fetch task failed: {e:?}");
                     return;
                 }
             };
 
+            tracing::debug!(
+                "Loaded timeline for room {}: {} messages",
+                room_id_tokio,
+                initial_messages.len()
+            );
+
+            // Send initial load to GPUI
+            if let Err(e) = tx
+                .send(TimelineMessagePayload::Initialized {
+                    initial_messages,
+                    id,
+                })
+                .await
+            {
+                error!("{}", e);
+                return;
+            }
+
+            // poll the Matrix stream and forward via async_channel
             while let Some(diffs) = update_stream.next().await {
+                if let Err(e) = tx.send(TimelineMessagePayload::Diffs(diffs)).await {
+                    error!("{}", e);
+                    break;
+                }
+            }
+            tracing::info!("Timeline update stream ended for room {}", room_id_tokio);
+        });
+
+        let weak_self = cx.entity().downgrade();
+        let room_id_gpui = room_id.clone();
+
+        // consume items cleanly on gpui's foreground thread pool completely distinct
+        // from tokios runtime via the runtime agnostic async_channel
+        let updates_task = cx.spawn(async move |_this, cx| {
+            while let Ok(payload) = rx.recv().await {
                 let updated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    this.update(cx, |view, cx| {
-                        for diff in diffs {
-                            apply_diff(&mut view.messages, &view.list_state, diff, &view.user_id);
+                    let _ = weak_self.update(cx, |view, cx| {
+                        match payload {
+                            TimelineMessagePayload::Initialized {
+                                initial_messages,
+                                id,
+                            } => {
+                                let mut cached_messages: Vec<CachedTimelineItem> = initial_messages
+                                    .iter()
+                                    .map(|item| cached_from_timeline_item(item, &view.user_id))
+                                    .collect();
+
+                                for i in 0..cached_messages.len() {
+                                    let Some((current_item, rest)) =
+                                        cached_messages[i..].split_first_mut()
+                                    else {
+                                        continue;
+                                    };
+
+                                    current_item.recompute_datedivider_types(rest);
+                                }
+
+                                view.timeline_id = Some(id);
+                                view.messages = Arc::new(cached_messages);
+                                let len = view.messages.len();
+                                recompute_grouping_range(&mut view.messages, 0..len);
+                                view.list_state.splice(0..0, view.messages.len());
+                                view.list_state.set_follow_mode(FollowMode::Tail);
+                            }
+                            TimelineMessagePayload::Diffs(diffs) => {
+                                for diff in diffs {
+                                    apply_diff(
+                                        &mut view.messages,
+                                        &view.list_state,
+                                        diff,
+                                        &view.user_id,
+                                    );
+                                }
+                            }
                         }
                         cx.notify();
-                    })
+                    });
                 }));
 
                 match updated {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => {
-                        tracing::debug!(
-                            "Stopping timeline updates for room {}, entity is gone: {:?}",
-                            room_id,
-                            e
-                        );
-                        break;
-                    }
+                    Ok(()) => {}
                     Err(e) => {
                         tracing::error!(
-                            "Panic while applying timeline diff for room {}: {:?}",
-                            room_id,
+                            "Panic while applying timeline payload for room {}: {:?}",
+                            room_id_gpui,
                             e
                         );
                     }
                 }
             }
-            tracing::warn!("Timeline update stream ended for room {}", room_id);
         });
 
         Self {
@@ -204,7 +242,7 @@ impl TimelineView {
             current_scroll_up: None,
             current_scroll_down: None,
             reactions_in_flight: Arc::new(DashMap::new()),
-            _updates_task: updates_task,
+            _updates_task: (updates_task, tokio_task),
             list_state,
             focus_handle: cx.focus_handle(),
         }
