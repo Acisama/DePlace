@@ -1,15 +1,12 @@
 use std::{ops::Range, sync::Arc};
 
 use dashmap::DashMap;
-use deplace_core::{
-    matrix_api::timeline::{ScrollDirection, TimelineManager},
-    state::{AppState, MembershipMap},
-};
+use deplace_core::state::{AppState, MembershipMap};
 use futures_util::StreamExt;
 use gpui::{
-    Context, Empty, FocusHandle, Focusable, FollowMode, InteractiveElement, IntoElement,
-    ListAlignment, ListScrollEvent, ListState, ParentElement, Render, SharedString, Styled, Task,
-    Window, actions, list, px,
+    Context, Empty, EventEmitter, FocusHandle, Focusable, FollowMode, InteractiveElement,
+    IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement, Render, SharedString,
+    Styled, Task, Window, actions, list, px,
 };
 use gpui_component::StyledExt;
 use macros::tailwind_div;
@@ -18,8 +15,12 @@ use matrix_sdk::{
     ruma::{OwnedEventId, OwnedUserId, UserId},
 };
 use matrix_sdk_ui::{
-    eyeball_im::VectorDiff,
-    timeline::{TimelineFocus, TimelineItem},
+    Timeline,
+    eyeball_im::{Vector, VectorDiff},
+    timeline::{
+        DateDividerMode, TimelineBuilder, TimelineEventItemId, TimelineFocus, TimelineItem,
+        TimelineReadReceiptTracking,
+    },
 };
 use serde::Deserialize;
 use tokio::{
@@ -27,38 +28,73 @@ use tokio::{
     sync::watch::Receiver,
     task::{AbortHandle, JoinHandle},
 };
-use tracing::{error, info, warn};
-use uuid::Uuid;
+use tracing::error;
 
 use crate::{
     cache::{AvatarCache, ThumbnailCache},
-    components::message::{CachedTimelineItem, CachedTimelineItemKind, cached_from_timeline_item},
+    components::chat::{
+        input::SendEvent,
+        message::{CachedTimelineItem, CachedTimelineItemKind, cached_from_timeline_item},
+    },
     things::DeplaceThings,
     watch_bridge::notify_on_change,
 };
+
+/// Payload enum for communication
+enum TimelineMessagePayload {
+    Initialized {
+        timeline: Box<Timeline>,
+        initial_messages: Vector<Arc<TimelineItem>>,
+    },
+    Diffs(Vec<VectorDiff<Arc<TimelineItem>>>),
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct PaginationState {
+    pub reached_start: bool,
+    pub reached_end: bool,
+}
+
+#[derive(Clone, Copy)]
+pub enum ScrollDirection {
+    Up,
+    Down,
+}
+
+impl std::fmt::Display for ScrollDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScrollDirection::Up => write!(f, "up"),
+            ScrollDirection::Down => write!(f, "down"),
+        }
+    }
+}
 
 pub struct TimelineView {
     pub messages: Arc<Vec<CachedTimelineItem>>,
     pub focused_message: Option<usize>,
     active_room: Room,
-    timeline_manager: TimelineManager,
-    timeline_id: Option<Uuid>,
+    timeline: Option<Arc<Timeline>>,
 
     avatar_cache: AvatarCache,
     image_cache: ThumbnailCache,
 
     state: AppState,
+    pagination_state: PaginationState,
+
+    reactions_in_flight: Arc<DashMap<(Arc<OwnedEventId>, SharedString), ()>>,
 
     membership_map: Receiver<MembershipMap>,
     tokio_rt: Arc<Runtime>,
     current_scroll_up: Option<AbortHandle>,
     current_scroll_down: Option<AbortHandle>,
-    reactions_in_flight: Arc<DashMap<(Arc<OwnedEventId>, SharedString), ()>>,
     user_id: OwnedUserId,
     _updates_task: (Task<()>, JoinHandle<()>),
     pub list_state: ListState,
     focus_handle: FocusHandle,
 }
+
+impl EventEmitter<SendEvent> for TimelineView {}
 
 impl TimelineView {
     /// Creates a new `TimelineView` and initializes its message stream for the active room.
@@ -88,7 +124,6 @@ impl TimelineView {
 
         let membership_map = state.membership_map();
         let settings = state.settings();
-        let timeline_manager = state.timeline_manager();
 
         notify_on_change(membership_map.clone(), cx);
         notify_on_change(avatar_cache.subscribe(), cx);
@@ -101,39 +136,29 @@ impl TimelineView {
 
         tracing::debug!("Loading timeline for room {}", room_id);
 
-        // Payload enum for communication
-        enum TimelineMessagePayload {
-            Initialized {
-                initial_messages: Vec<Arc<TimelineItem>>,
-                id: Uuid,
-            },
-            Diffs(Vec<VectorDiff<Arc<TimelineItem>>>),
-        }
-
         // Use async_channel
         let (tx, rx) = async_channel::bounded(100);
-        let clone_room = active_room.clone();
         let room_id_tokio = room_id.clone();
-        let timeline_manager_clone = timeline_manager.clone();
+
+        let timeline_builder = TimelineBuilder::new(&active_room)
+            .with_date_divider_mode(DateDividerMode::Daily)
+            .with_focus(TimelineFocus::Live {
+                hide_threaded_events: false,
+            })
+            .track_read_marker_and_receipts(TimelineReadReceiptTracking::AllEvents)
+            .add_failed_to_parse(true);
 
         // matrix-sdk stream loop completely inside tokio
         let tokio_task = tokio_rt.spawn(async move {
-            let result = timeline_manager_clone
-                .get_messages(
-                    &clone_room,
-                    TimelineFocus::Live {
-                        hide_threaded_events: false,
-                    },
-                )
-                .await;
-
-            let (initial_messages, mut update_stream, id) = match result {
-                Ok(res) => res,
+            let timeline = match timeline_builder.build().await {
+                Ok(timeline) => timeline,
                 Err(e) => {
-                    tracing::error!("Timeline fetch task failed: {e:?}");
+                    tracing::error!("Timeline build failed: {e:?}");
                     return;
                 }
             };
+
+            let (initial_messages, mut update_stream) = timeline.subscribe().await;
 
             tracing::debug!(
                 "Loaded timeline for room {}: {} messages",
@@ -144,8 +169,8 @@ impl TimelineView {
             // Send initial load to GPUI
             if let Err(e) = tx
                 .send(TimelineMessagePayload::Initialized {
+                    timeline: Box::new(timeline),
                     initial_messages,
-                    id,
                 })
                 .await
             {
@@ -171,11 +196,11 @@ impl TimelineView {
         let updates_task = cx.spawn(async move |_this, cx| {
             while let Ok(payload) = rx.recv().await {
                 let updated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let _ = weak_self.update(cx, |view, cx| {
+                    if let Err(e) = weak_self.update(cx, |view, cx| {
                         match payload {
                             TimelineMessagePayload::Initialized {
+                                timeline,
                                 initial_messages,
-                                id,
                             } => {
                                 let mut cached_messages: Vec<CachedTimelineItem> = initial_messages
                                     .iter()
@@ -192,8 +217,9 @@ impl TimelineView {
                                     current_item.recompute_datedivider_types(rest);
                                 }
 
-                                view.timeline_id = Some(id);
                                 view.messages = Arc::new(cached_messages);
+                                view.timeline = Some(Arc::new(*timeline));
+
                                 let len = view.messages.len();
                                 recompute_grouping_range(&mut view.messages, 0..len);
                                 view.list_state.splice(0..0, view.messages.len());
@@ -211,7 +237,9 @@ impl TimelineView {
                             }
                         }
                         cx.notify();
-                    });
+                    }) {
+                        tracing::error!("Failed to update timeline view: {:?}", e);
+                    };
                 }));
 
                 match updated {
@@ -228,7 +256,6 @@ impl TimelineView {
         });
 
         Self {
-            timeline_manager: state.timeline_manager(),
             user_id: state.user_device().user_id.clone(),
             messages: Arc::new(Vec::new()),
             state: state.clone(),
@@ -237,40 +264,51 @@ impl TimelineView {
             image_cache,
             membership_map,
             tokio_rt,
-            timeline_id: None,
+            timeline: None,
             active_room,
             current_scroll_up: None,
             current_scroll_down: None,
-            reactions_in_flight: Arc::new(DashMap::new()),
             _updates_task: (updates_task, tokio_task),
             list_state,
             focus_handle: cx.focus_handle(),
+
+            pagination_state: PaginationState::default(),
+
+            reactions_in_flight: Arc::new(DashMap::new()),
         }
     }
 
     fn scroll(&mut self, cx: &mut Context<Self>, direction: ScrollDirection) {
         let current_scroll = match direction {
-            ScrollDirection::Up => &mut self.current_scroll_up,
-            ScrollDirection::Down => &mut self.current_scroll_down,
+            ScrollDirection::Up => {
+                if self.current_scroll_up.is_some() || self.pagination_state.reached_end {
+                    return;
+                }
+                &mut self.current_scroll_up
+            }
+            ScrollDirection::Down => {
+                if self.current_scroll_down.is_some() || self.pagination_state.reached_start {
+                    return;
+                }
+                &mut self.current_scroll_down
+            }
         };
-        if current_scroll.is_some() {
-            return;
-        }
 
-        // Timeline hasn't finished its initial load yet - nothing to scroll yet.
-        let Some(id) = self.timeline_id else {
+        let Some(timeline) = self.timeline.clone() else {
             return;
         };
-        let timeline_manager = self.timeline_manager.clone();
 
         let task = self.tokio_rt.spawn(async move {
-            timeline_manager.scroll_timeline(id, direction).await;
+            match direction {
+                ScrollDirection::Up => timeline.paginate_backwards(30).await,
+                ScrollDirection::Down => timeline.paginate_forwards(30).await,
+            }
         });
         *current_scroll = Some(task.abort_handle());
 
         cx.spawn(async move |this, cx| {
             let result = task.await;
-            if let Err(e) = this.update(cx, |view, _cx| {
+            if let Err(e) = this.update(cx, |view, _| {
                 let current_scroll = match direction {
                     ScrollDirection::Up => &mut view.current_scroll_up,
                     ScrollDirection::Down => &mut view.current_scroll_down,
@@ -283,21 +321,41 @@ impl TimelineView {
                     e
                 );
             }
-            if let Err(e) = result {
-                tracing::error!("Failed to scroll timeline: {}", e);
+            match result {
+                Ok(Ok(direction_end)) => {
+                    if let Err(e) = this.update(cx, |view, _| match direction {
+                        ScrollDirection::Up => view.pagination_state.reached_end = direction_end,
+                        ScrollDirection::Down => {
+                            view.pagination_state.reached_start = direction_end
+                        }
+                    }) {
+                        tracing::error!("Failed to update pagination state: {}", e);
+                    }
+                }
+                Ok(Err(e)) => {
+                    tracing::error!("Failed to scroll timeline: {}", e);
+                    if let Err(e) = this.update(cx, |view, _| match direction {
+                        ScrollDirection::Up => view.pagination_state.reached_end = false,
+                        ScrollDirection::Down => view.pagination_state.reached_start = false,
+                    }) {
+                        tracing::error!("Failed to update pagination state: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Join error: {}", e);
+                }
             }
         })
         .detach();
     }
 
-    fn toggle_reaction(&self) -> impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static {
+    pub fn toggle_reaction(&self) -> impl Fn(Arc<OwnedEventId>, SharedString) + Clone + 'static {
         let tokio_rt = self.tokio_rt.clone();
-        let timeline_manager = self.timeline_manager.clone();
         let in_flight = self.reactions_in_flight.clone();
         let timeline = self.timeline.clone();
 
         move |event_id: Arc<OwnedEventId>, reaction: SharedString| {
-            let Some(timeline_id) = timeline_id else {
+            let Some(timeline) = timeline.clone() else {
                 return;
             };
 
@@ -306,12 +364,17 @@ impl TimelineView {
                 return;
             }
 
-            let timeline_manager = timeline_manager.clone();
             let in_flight = in_flight.clone();
             tokio_rt.spawn(async move {
-                timeline_manager
-                    .toggle_reaction(timeline_id, (*event_id).clone(), &reaction)
-                    .await;
+                if let Err(e) = timeline
+                    .toggle_reaction(
+                        &TimelineEventItemId::EventId((*event_id).clone()),
+                        &reaction,
+                    )
+                    .await
+                {
+                    tracing::error!("Failed to toggle reaction: {}", e);
+                }
                 in_flight.remove(&key);
             });
         }
@@ -571,9 +634,9 @@ impl Render for TimelineView {
 
         let map = self.membership_map.borrow().clone();
 
-        let on_toggle_reaction = self.toggle_reaction();
-
         let state = self.state.clone();
+
+        let toggle_reaction = self.toggle_reaction();
 
         tailwind_div!(size_full, paddings(structure.gap), py_0, flex, flex_col)
             .key_context("Chat")
@@ -581,10 +644,6 @@ impl Render for TimelineView {
             .child({
                 let focused_message = self.focused_message;
                 list(self.list_state.clone(), move |ix, window, cx| {
-                    let theme = cx.app_theme();
-                    let structure = cx.structure();
-                    let importantpaths = cx.important_paths();
-
                     let Some(current) = messages.get(ix) else {
                         return Empty.into_any_element();
                     };
@@ -592,16 +651,14 @@ impl Render for TimelineView {
 
                     current.render(
                         window,
-                        theme,
-                        structure,
+                        cx,
+                        toggle_reaction.clone(),
                         &room_id,
                         &map,
                         &avatar_cache,
                         &image_cache,
                         focused,
-                        on_toggle_reaction.clone(),
                         &state,
-                        importantpaths,
                     )
                 })
                 .h_full()
