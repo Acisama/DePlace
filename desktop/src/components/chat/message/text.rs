@@ -438,18 +438,75 @@ pub(crate) enum CachedBlock {
     },
 }
 
-impl CachedBlock {
-    pub fn new_plain(text: &str) -> Self {
-        let mut builder = RunBuilder::default();
-        push_with_autolink(&mut builder, text, CachedRunStyle::default());
-        Self::Paragraph(builder.finish())
-    }
+pub fn cached_blocks_to_plain_text(blocks: &[CachedBlock]) -> String {
+    blocks
+        .iter()
+        .map(|b| b.to_plain_text())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Debug)]
 pub(crate) struct CachedRichText {
     pub(crate) text: SharedString,
     pub(crate) runs: Box<[CachedRun]>,
+}
+
+impl std::fmt::Display for CachedRichText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl CachedBlock {
+    pub fn new_plain(text: &str) -> Self {
+        let mut builder = RunBuilder::default();
+        push_with_autolink(&mut builder, text, CachedRunStyle::default());
+        Self::Paragraph(builder.finish())
+    }
+
+    pub fn to_plain_text(&self) -> String {
+        let mut out = String::new();
+        self.write_plain_text(&mut out);
+        out
+    }
+
+    fn write_plain_text(&self, out: &mut String) {
+        match self {
+            CachedBlock::Paragraph(text) | CachedBlock::Heading { text, .. } => {
+                out.push_str(&text.text);
+            }
+            CachedBlock::List { items, .. } => {
+                for (i, item_blocks) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push('\n');
+                    }
+                    for block in item_blocks {
+                        block.write_plain_text(out);
+                    }
+                }
+            }
+            CachedBlock::CodeBlock { code, .. } => {
+                out.push_str(code);
+            }
+            CachedBlock::Quote(blocks) => {
+                for (i, block) in blocks.iter().enumerate() {
+                    if i > 0 {
+                        out.push('\n');
+                    }
+                    block.write_plain_text(out);
+                }
+            }
+            CachedBlock::Rule => {
+                out.push_str("\n---\n");
+            }
+            CachedBlock::Image { alt, .. } => {
+                if let Some(alt) = alt {
+                    out.push_str(alt);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

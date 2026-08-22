@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use deplace_core::settings::SystemMessageType;
 use enumset::EnumSet;
-use gpui::{ElementId, ImageFormat, SharedString, StyleRefinement, Styled};
+use gpui::{AppContext, ElementId, Entity, ImageFormat, SharedString, StyleRefinement, Styled};
+use gpui_component::input::InputState;
 use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
 
 pub(super) mod convert;
@@ -12,7 +13,10 @@ mod text;
 pub use convert::cached_from_timeline_item;
 
 use crate::{
-    components::{ByteSize, chat::message::text::CachedBlock},
+    components::{
+        ByteSize,
+        chat::message::text::{CachedBlock, cached_blocks_to_plain_text},
+    },
     things::{AppTheme, Structure},
 };
 
@@ -28,6 +32,33 @@ impl CachedTimelineItem {
             CachedTimelineItemKind::Event(event) => event.content.is_user_message(),
             _ => false,
         }
+    }
+
+    pub fn is_sent_by(&self, sender: OwnedUserId) -> bool {
+        match &self.kind {
+            CachedTimelineItemKind::Event(event) => *event.sender == sender,
+            _ => false,
+        }
+    }
+
+    pub fn owned_event_id(&self) -> Option<OwnedEventId> {
+        match &self.kind {
+            CachedTimelineItemKind::Event(event) => event.event_id.clone().map(|id| (*id).clone()),
+            _ => None,
+        }
+    }
+
+    pub fn retrieve_text(&self) -> Option<String> {
+        let CachedTimelineItemKind::Event(event) = &self.kind else {
+            return None;
+        };
+        let CachedEventContent::UserMessage(message) = &event.content else {
+            return None;
+        };
+        let Some(body) = &message.body else {
+            return None;
+        };
+        Some(cached_blocks_to_plain_text(&body))
     }
 
     pub fn id(&self) -> ElementId {
@@ -372,6 +403,8 @@ struct CachedUserMessage {
 
     is_edited: bool,
     body: Option<Arc<[CachedBlock]>>,
+
+    editing: Option<Entity<InputState>>,
 
     msg_type: CachedMessageType,
 }

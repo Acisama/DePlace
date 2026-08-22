@@ -8,13 +8,17 @@ use deplace_core::{
     state::{AppState, MembershipMap},
 };
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, Div, Element, ElementId, FontStyle, FontWeight,
-    HighlightStyle, Hsla, InteractiveElement, InteractiveText, IntoElement, LinearColorStop,
-    ObjectFit, ParentElement, Pixels, SharedString, StatefulInteractiveElement, StrikethroughStyle,
-    Styled, StyledImage, StyledText, TextStyle, UnderlineStyle, Window, div, img, linear_gradient,
-    prelude::FluentBuilder, px, relative, transparent_black,
+    Animation, AnimationExt, AnyElement, App, Div, Element, ElementId, Entity, Focusable,
+    FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveElement, InteractiveText, IntoElement,
+    LinearColorStop, ObjectFit, ParentElement, Pixels, SharedString, StatefulInteractiveElement,
+    StrikethroughStyle, Styled, StyledImage, StyledText, TextStyle, UnderlineStyle, Window, div,
+    img, linear_gradient, prelude::FluentBuilder, px, relative, transparent_black,
 };
-use gpui_component::{StyledExt, red_600};
+use gpui_component::{
+    StyledExt,
+    input::{self, Input, InputState},
+    red_600,
+};
 use macros::tailwind_div;
 use matrix_sdk::ruma::{OwnedEventId, RoomId, UserId};
 
@@ -28,6 +32,7 @@ use crate::{
     cache::{AvatarCache, MediaState, ThumbnailCache},
     components::{
         CustomStyles,
+        chat::message::text::cached_blocks_to_plain_text,
         profiles::{MemberRenderer, render_icon},
     },
     saving::save_file,
@@ -46,6 +51,7 @@ impl CachedTimelineItem {
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
         focused: bool,
+        editing: Option<Entity<InputState>>,
         state: &AppState,
     ) -> AnyElement {
         let structure = cx.structure();
@@ -95,6 +101,7 @@ impl CachedTimelineItem {
                 avatar_cache,
                 image_cache,
                 focused,
+                editing,
                 state,
             ),
         }
@@ -114,6 +121,7 @@ impl CachedTimelineEvent {
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
         focused: bool,
+        editing: Option<Entity<InputState>>,
         state: &AppState,
     ) -> AnyElement {
         let theme = &cx.app_theme().clone();
@@ -193,6 +201,7 @@ impl CachedTimelineEvent {
                 member_avatar,
                 member_name_color,
                 state,
+                editing,
                 move |reaction: SharedString| {
                     if let Some(event_id) = event_id.clone() {
                         toggle_reaction(event_id, reaction);
@@ -449,6 +458,7 @@ impl CachedUserMessage {
         member_avatar: impl Fn(&UserId) -> AnyElement,
         member_name_color: impl Fn(&UserId) -> (SharedString, Hsla),
         state: &AppState,
+        editing: Option<Entity<InputState>>,
         toggle_reaction: impl Fn(SharedString) + Clone + 'static,
     ) -> Div {
         let theme = cx.app_theme();
@@ -464,27 +474,64 @@ impl CachedUserMessage {
         let data_size_unit = &state.settings().data_size_unit.value();
 
         let text_style_clone = base_text_style.clone();
-        let render_body = move |blocks: Arc<[CachedBlock]>| {
-            tailwind_div!(text_color(theme.text.normal), flex, items_baseline)
-                .child(render_rich_body(
-                    &id_prefix,
-                    &blocks,
-                    &text_style_clone,
-                    theme,
-                    structure,
-                    &member_name_color,
-                ))
-                .when(self.is_edited, |el| {
-                    el.child(
-                        tailwind_div!(
-                            text_size(chat.small_text_size),
-                            text_color(theme.text.muted)
-                        )
-                        .child(" (edited)"),
-                    )
-                })
-                .cursor_text()
+        let render_body = |blocks: Arc<[CachedBlock]>| {
+            if let Some(input_state) = editing {
+                let input_focus_handle = input_state.read(cx).focus_handle(cx);
+                let input_focused = input_focus_handle.is_focused(window);
+
+                let (input_bg, input_border) = if input_focused {
+                    (theme.input.focus_background, theme.input.focused_border)
+                } else {
+                    (theme.input.background, theme.tile.border)
+                };
+
+                tailwind_div!(
+                    min_h(structure.chat.input_height),
+                    flex,
+                    flex_row,
+                    items_center,
+                    w_full,
+                    rounded(structure.inner_border_radius),
+                    paddings(structure.small_gap),
+                    text_size(structure.chat.text_size),
+                    gap(structure.small_gap),
+                    border_1,
+                    border_color(input_border),
+                    bg(input_bg)
+                )
+                .key_context("EditMessage")
+                .track_focus(&input_focus_handle)
+                .child(
+                    Input::new(&input_state)
+                        .p_0()
+                        .bg_transparent()
+                        .border_transparent()
+                        .text_size(structure.chat.text_size)
+                        .text_color(theme.text.normal),
+                )
                 .into_any()
+            } else {
+                tailwind_div!(text_color(theme.text.normal), flex, items_baseline)
+                    .child(render_rich_body(
+                        &id_prefix,
+                        &blocks,
+                        &text_style_clone,
+                        theme,
+                        structure,
+                        &member_name_color,
+                    ))
+                    .when(self.is_edited, |el| {
+                        el.child(
+                            tailwind_div!(
+                                text_size(chat.small_text_size),
+                                text_color(theme.text.muted)
+                            )
+                            .child(" (edited)"),
+                        )
+                    })
+                    .cursor_text()
+                    .into_any()
+            }
         };
 
         let content = match &self.msg_type {
@@ -628,7 +675,7 @@ impl CachedUserMessage {
                     tailwind_div!(
                         size_full,
                         bg(error_bg),
-                        text_color(error)
+                        text_color(error),
                         outer_gradient(error, px(2.0)),
                         flex,
                         items_center,

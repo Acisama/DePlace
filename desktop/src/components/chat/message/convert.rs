@@ -579,6 +579,7 @@ fn cached_from_timeline_item_content(
                 is_edited,
                 body,
                 msg_type,
+                editing: None,
             }))
         }
     }

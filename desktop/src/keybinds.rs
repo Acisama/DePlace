@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::{collections::HashMap, io::ErrorKind, path::PathBuf};
+use tracing::info;
 
 use gpui::{Action, App};
 use serde::{Deserialize, Serialize};
@@ -143,10 +144,18 @@ fn default_keymap() -> Vec<KeymapSection> {
                 ("j".to_string(), serde_json::json!("chat::FocusNext")),
                 ("k".to_string(), serde_json::json!("chat::FocusPrevious")),
                 ("i".to_string(), serde_json::json!("chat::FocusInput")),
+                ("e".to_string(), serde_json::json!("chat::EditMessage")),
             ]),
         },
         KeymapSection {
-            context: Some("(Home > Input) && !(Overlay > Input)".to_string()),
+            context: Some("EditMessage".to_string()),
+            bindings: HashMap::from([
+                ("escape".to_string(), serde_json::json!("chat::CancelEdit")),
+                ("enter".to_string(), serde_json::json!("chat::SubmitEdit")),
+            ]),
+        },
+        KeymapSection {
+            context: Some("(Home > Input) && !(Overlay > Input) && !EditMessage".to_string()),
             bindings: HashMap::from([
                 (
                     "escape".to_string(),
@@ -199,6 +208,8 @@ pub fn load_keymap_from_json(path: &PathBuf, cx: &mut App) {
                 default_keymap()
             }
         };
+    #[cfg(debug_assertions)]
+    let keymap_file = default_keymap();
 
     let mut key_bindings = Vec::new();
 

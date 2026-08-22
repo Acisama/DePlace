@@ -6,7 +6,10 @@ use image::ImageReader;
 use matrix_sdk::{
     Room,
     attachment::{AttachmentConfig, AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo},
-    room::reply::{EnforceThread, Reply},
+    room::{
+        edit::EditedContent,
+        reply::{EnforceThread, Reply},
+    },
 };
 use mime_guess::{Mime, mime};
 use ruma::{
@@ -14,7 +17,9 @@ use ruma::{
     events::{
         AnyMessageLikeEventContent, Mentions,
         message::{MessageEventContent, MessageEventContentWithoutRelation},
-        room::message::{AddMentions, Relation, RoomMessageEventContent},
+        room::message::{
+            AddMentions, Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+        },
     },
 };
 use scraper::{Html, Node};
@@ -38,6 +43,13 @@ pub trait RoomSendingExt {
         attachment: MatrixAttachment,
         replies_to: Option<OwnedEventId>,
     ) -> impl Future<Output = Result<()>>;
+    fn reply_to_message(
+        &self,
+        replying_to: OwnedEventId,
+        html: String,
+    ) -> impl Future<Output = Result<()>>;
+    fn edit_message(&self, message: OwnedEventId, html: String)
+    -> impl Future<Output = Result<()>>;
 }
 
 impl RoomSendingExt for Room {
@@ -153,6 +165,27 @@ impl RoomSendingExt for Room {
             )
             .await?;
 
+        Ok(())
+    }
+
+    async fn reply_to_message(&self, replying_to: OwnedEventId, html: String) -> Result<()> {
+        todo!()
+    }
+
+    async fn edit_message(&self, message: OwnedEventId, html: String) -> Result<()> {
+        let queue = self.send_queue();
+
+        if html.is_empty() || &html == "\n" {
+            tracing::warn!("Body is empty, not committing message");
+            return Ok(());
+        }
+
+        let body =
+            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(html));
+
+        let event = self.make_edit_event(&message, body).await?;
+
+        queue.send(event).await?;
         Ok(())
     }
 }

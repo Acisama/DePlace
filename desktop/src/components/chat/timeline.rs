@@ -1,14 +1,20 @@
 use std::{ops::Range, sync::Arc};
 
 use dashmap::DashMap;
-use deplace_core::state::{AppState, MembershipMap};
+use deplace_core::{
+    matrix_api::messages::RoomSendingExt,
+    state::{AppState, MembershipMap},
+};
 use futures_util::StreamExt;
 use gpui::{
-    Context, Empty, EventEmitter, FocusHandle, Focusable, FollowMode, InteractiveElement,
-    IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement, Render, SharedString,
-    Styled, Task, Window, actions, list, px,
+    App, AppContext, Context, Empty, Entity, EventEmitter, FocusHandle, Focusable, FollowMode,
+    InteractiveElement, IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement,
+    Render, SharedString, Styled, Task, WeakEntity, Window, actions, list, px,
 };
-use gpui_component::StyledExt;
+use gpui_component::{
+    StyledExt,
+    input::{self, InputState},
+};
 use macros::tailwind_div;
 use matrix_sdk::{
     Room,
@@ -81,7 +87,15 @@ impl std::fmt::Display for ScrollDirection {
 
 pub struct TimelineView {
     pub messages: Arc<Vec<CachedTimelineItem>>,
-    pub focused_message: Option<usize>,
+
+    /// Which message you are focusing and editing
+    ///
+    /// 1. `usize` is the index of the focused message
+    /// among the loaded messages
+    /// 2. `bool` is whether the focused message is being
+    /// edited
+    pub focused_message: Option<(usize, bool)>,
+    editing_message: Entity<InputState>,
     active_room: Room,
     timeline: Option<Arc<Timeline>>,
 
@@ -120,6 +134,7 @@ impl TimelineView {
     pub fn new(
         state: &AppState,
         cx: &mut Context<Self>,
+        window: &mut Window,
         tokio_rt: Arc<Runtime>,
         avatar_cache: AvatarCache,
         image_cache: ThumbnailCache,
@@ -275,6 +290,7 @@ impl TimelineView {
             messages: Arc::new(Vec::new()),
             state: state.clone(),
             focused_message: None,
+            editing_message: cx.new(|cx| InputState::new(window, cx)),
             avatar_cache,
             image_cache,
             membership_map,
@@ -423,6 +439,46 @@ impl TimelineView {
             self.scroll(cx, ScrollDirection::Down);
         }
     }
+
+    /// Mark the message at the index for editing
+    ///
+    /// Also sets the value of the editing inputstate to the
+    /// text of the message
+    ///
+    /// This also subscribes to the Enter or Escape actions
+    /// of the input in order to easily terminate.
+    pub fn edit_message(&mut self, window: &mut Window, cx: &mut App, index: usize) -> Option<()> {
+        if let Some((_, editing)) = &mut self.focused_message {
+            *editing = true
+        };
+        let Some(message) = self.messages.get(index) else {
+            return None;
+        };
+        let Some(text) = message.retrieve_text() else {
+            return None;
+        };
+        self.editing_message.update(cx, |this, cx| {
+            this.set_value(text, window, cx);
+            this.focus(window, cx);
+        });
+
+        Some(())
+    }
+
+    /// Resets the editing flag and restores focus to chat
+    fn cancel_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        tracing::debug!("Canceling editing message");
+        if let Some((_, editing)) = &mut self.focused_message {
+            if !*editing {
+                tracing::warn!(
+                    "Received action to cancel editing message without currently editing message"
+                );
+            }
+            *editing = false;
+        }
+        cx.focus_self(window);
+        cx.notify();
+    }
 }
 
 fn recompute_show_header_at(messages: &mut Arc<Vec<CachedTimelineItem>>, index: usize) {
@@ -476,7 +532,7 @@ fn recompute_datedivider_near(messages: &mut Arc<Vec<CachedTimelineItem>>, index
 
 fn apply_diff(
     messages: &mut Arc<Vec<CachedTimelineItem>>,
-    focused_message: &mut Option<usize>,
+    focused_message: &mut Option<(usize, bool)>,
     list_state: &ListState,
     diff: VectorDiff<Arc<TimelineItem>>,
     own_id: &UserId,
@@ -509,6 +565,7 @@ fn apply_diff(
         VectorDiff::Clear => {
             list_state.splice(0..messages.len(), 0);
             Arc::make_mut(messages).clear();
+            *focused_message = None; // Fix: Reset focus on clear
         }
         VectorDiff::PushFront { value } => {
             Arc::make_mut(messages).insert(0, cached_from_timeline_item(&value, own_id));
@@ -518,7 +575,7 @@ fn apply_diff(
                 current_item.recompute_datedivider_types(rest);
             }
 
-            if let Some(focused) = focused_message {
+            if let Some((focused, _)) = focused_message {
                 *focused += 1;
             }
 
@@ -542,9 +599,9 @@ fn apply_diff(
                 Arc::make_mut(messages).remove(0);
                 list_state.splice(0..1, 0);
 
-                if let Some(focused) = focused_message {
+                if let Some((focused, _)) = focused_message {
                     if *focused == 0 {
-                        *focused_message = None; // Focused item was popped
+                        *focused_message = None;
                     } else {
                         *focused -= 1;
                     }
@@ -558,8 +615,8 @@ fn apply_diff(
                 let len = messages.len();
                 list_state.splice(len..len + 1, 0);
 
-                if let Some(focused) = focused_message {
-                    if *focused == len - 1 {
+                if let Some((focused, _)) = focused_message {
+                    if *focused >= len {
                         *focused_message = None;
                     }
                 }
@@ -587,7 +644,7 @@ fn apply_diff(
                 recompute_pad_bottom_at(messages, index - 1);
             }
 
-            if let Some(focused) = focused_message {
+            if let Some((focused, _)) = focused_message {
                 if index <= *focused {
                     *focused += 1;
                 }
@@ -629,11 +686,11 @@ fn apply_diff(
             Arc::make_mut(messages).remove(index);
             list_state.splice(index..index + 1, 0);
 
-            if let Some(focused) = focused_message {
+            if let Some((focused, _)) = focused_message {
                 if index < *focused {
                     *focused -= 1;
                 } else if index == *focused {
-                    *focused_message = None; // Focused item was removed
+                    *focused_message = None;
                 }
             }
 
@@ -655,7 +712,7 @@ fn apply_diff(
             list_state.splice(length..messages.len(), 0);
             Arc::make_mut(messages).truncate(length);
 
-            if let Some(focused) = focused_message {
+            if let Some((focused, _)) = focused_message {
                 if *focused >= length {
                     *focused_message = None;
                 }
@@ -674,6 +731,7 @@ fn apply_diff(
                     .map(|item| cached_from_timeline_item(item, own_id))
                     .collect(),
             );
+            *focused_message = None;
 
             let len = messages.len();
             for i in 0..len {
@@ -711,17 +769,57 @@ impl Render for TimelineView {
         let state = self.state.clone();
 
         let toggle_reaction = self.toggle_reaction();
+        let user_id = self.user_id.clone();
+        let editing_message = self.editing_message.clone();
 
         tailwind_div!(size_full, paddings(structure.gap), py_0, flex, flex_col)
             .key_context("Chat")
             .track_focus(&self.focus_handle)
+            .on_action(cx.listener(|this, _: &SubmitEdit, window, cx| {
+                let Some((idx, _)) = &this.focused_message else {
+                    return;
+                };
+                let Some(message) = this.messages.get(*idx) else {
+                    return;
+                };
+                let Some(event_id) = message.owned_event_id() else {
+                    return;
+                };
+
+                let room = this.active_room.clone();
+                let text = this.editing_message.read(cx).text().to_string();
+
+                let task = this
+                    .tokio_rt
+                    .spawn(async move { room.edit_message(event_id, text).await });
+
+                cx.spawn_in(window, async move |this, cx| match task.await {
+                    Ok(Ok(_)) => {
+                        let _ = this.update_in(cx, |this, window, cx| {
+                            this.cancel_editing(window, cx);
+                        });
+                    }
+                    Ok(Err(err)) => {
+                        tracing::error!("Failed to edit message: {err:?}");
+                    }
+                    Err(err) => {
+                        tracing::error!("Task join error: {err:?}");
+                    }
+                })
+                .detach();
+            }))
+            .on_action(cx.listener(|this, _: &CancelEdit, window, cx| {
+                this.cancel_editing(window, cx);
+            }))
             .child({
                 let focused_message = self.focused_message;
                 list(self.list_state.clone(), move |ix, window, cx| {
                     let Some(current) = messages.get(ix) else {
                         return Empty.into_any_element();
                     };
-                    let focused = focused_message.is_some_and(|f| f == ix);
+                    let focused = focused_message.is_some_and(|f| f.0 == ix);
+                    let editing = focused_message
+                        .is_some_and(|f| focused && f.1 && current.is_sent_by(user_id.clone()));
 
                     current.render(
                         window,
@@ -732,6 +830,11 @@ impl Render for TimelineView {
                         &avatar_cache,
                         &image_cache,
                         focused,
+                        if editing {
+                            Some(editing_message.clone())
+                        } else {
+                            None
+                        },
                         &state,
                     )
                 })
@@ -750,7 +853,10 @@ actions!(
         FocusPrevious,
         UnfocusInput,
         FocusInput,
-        SendMessage
+        SendMessage,
+        EditMessage,
+        CancelEdit,
+        SubmitEdit,
     ]
 );
 

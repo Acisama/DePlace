@@ -27,7 +27,8 @@ mod message;
 mod timeline;
 
 pub use timeline::{
-    FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, ScrollOffset, UnfocusInput,
+    EditMessage, FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, ScrollOffset,
+    UnfocusInput,
 };
 
 pub type ChatTimelineCache = VisibleLruCache<OwnedRoomId, ChatView>;
@@ -51,6 +52,7 @@ impl ChatView {
             TimelineView::new(
                 state,
                 cx,
+                window,
                 tokio_rt.clone(),
                 avatar_cache,
                 image_cache,

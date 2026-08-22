@@ -25,7 +25,8 @@ use crate::{
     cache::{AvatarCache, ThumbnailCache},
     components::{
         chat::{
-            ChatTimelineCache, ChatView, FocusInput, FocusInputWithKey, ScrollOffset, UnfocusInput,
+            ChatTimelineCache, ChatView, EditMessage, FocusInput, FocusInputWithKey, ScrollOffset,
+            UnfocusInput,
         },
         floating_tile,
         header::HeaderView,
@@ -365,19 +366,30 @@ impl Render for HomeView {
                 cx.notify();
             }))
             // Focus & Chat Navigation Actions attached directly to root focus
+            .on_action(cx.listener(|this, _: &EditMessage, window, cx| {
+                tracing::debug!("Editing focused message");
+                this.chat.update(cx, |that, cx| {
+                    that.update_visible_timeline(cx, |timeline, cx| {
+                        if let Some((idx, _)) = timeline.focused_message {
+                            timeline.edit_message(window, cx, idx);
+                            cx.notify();
+                        }
+                    });
+                });
+            }))
             .on_action(cx.listener(|this, _: &FocusNext, window, cx| {
                 tracing::trace!("Focusing next message");
                 this.chat.update(cx, |that, cx| {
                     that.update_visible_timeline(cx, |timeline, cx| {
                         let mut new_focus = match timeline.focused_message {
-                            Some(focus) => focus + 1,
+                            Some(focus) => focus.0 + 1,
                             None if !timeline.messages.is_empty() => timeline.messages.len() - 1,
                             None => return,
                         };
 
                         while let Some(item) = timeline.messages.get(new_focus) {
                             if item.is_user_message() {
-                                timeline.focused_message = Some(new_focus);
+                                timeline.focused_message = Some((new_focus, false));
                                 timeline.list_state.set_follow_mode(FollowMode::Normal);
                                 timeline.list_state.scroll_to_reveal_item(new_focus);
                                 cx.notify();
@@ -394,7 +406,7 @@ impl Render for HomeView {
                 this.chat.update(cx, |that, cx| {
                     that.update_visible_timeline(cx, |timeline, cx| {
                         let mut new_focus = match timeline.focused_message {
-                            Some(focus) => focus.saturating_sub(1),
+                            Some((focus, _)) => focus.saturating_sub(1),
                             None if !timeline.messages.is_empty() => {
                                 timeline.messages.len().saturating_sub(1)
                             }
@@ -403,7 +415,7 @@ impl Render for HomeView {
 
                         while let Some(item) = timeline.messages.get(new_focus) {
                             if item.is_user_message() {
-                                timeline.focused_message = Some(new_focus);
+                                timeline.focused_message = Some((new_focus, false));
                                 timeline.list_state.set_follow_mode(FollowMode::Normal);
                                 timeline.list_state.scroll_to_reveal_item(new_focus);
                                 cx.notify();
