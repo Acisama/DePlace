@@ -401,7 +401,7 @@ impl TimelineView {
     pub fn check_pagination(&mut self, scroll_offset: ScrollOffset, cx: &mut Context<Self>) {
         const EDGE_THRESHOLD: usize = 10;
 
-        let length = self.list_state.item_count();
+        let length = self.messages.len();
 
         let upper_check: usize;
         let lower_check: usize;
