@@ -26,15 +26,23 @@
         }
     },
     {
+        "context": "EditMessage",
+        "bindings": {
+            "enter": "chat::SubmitEdit",
+            "escape": "chat::CancelEdit"
+        }
+    },
+    {
         "context": "Vim && !Input",
         "bindings": {
             "j": "chat::FocusNext",
             "k": "chat::FocusPrevious",
-            "i": "chat::FocusInput"
+            "i": "chat::FocusInput",
+            "e": "chat::EditMessage"
         }
     },
     {
-        "context": "(Home > Input) && !(Overlay > Input)",
+        "context": "(Home > Input) && !(Overlay > Input) && !EditMessage",
         "bindings": {
             "escape": "chat::UnfocusInput",
             "enter": "chat::SendMessage"
