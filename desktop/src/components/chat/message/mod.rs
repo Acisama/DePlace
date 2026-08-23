@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use deplace_core::settings::SystemMessageType;
 use enumset::EnumSet;
-use gpui::{AppContext, ElementId, Entity, ImageFormat, SharedString, StyleRefinement, Styled};
+use gpui::{ElementId, Entity, ImageFormat, SharedString, StyleRefinement, Styled};
 use gpui_component::input::InputState;
 use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
 
@@ -58,7 +58,7 @@ impl CachedTimelineItem {
         let Some(body) = &message.body else {
             return None;
         };
-        Some(cached_blocks_to_plain_text(&body))
+        Some(cached_blocks_to_plain_text(body))
     }
 
     pub fn id(&self) -> ElementId {

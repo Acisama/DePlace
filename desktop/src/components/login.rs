@@ -86,7 +86,7 @@ impl LoginView {
         cx.spawn(async move |this, cx| {
             let res = task.await;
 
-            let _ = this.update(cx, |view, cx| {
+            if let Err(e) = this.update(cx, |view, cx| {
                 if let Ok(Ok(response)) = res {
                     for flow in response.flows {
                         if let LoginType::Sso(sso) = flow {
@@ -99,7 +99,9 @@ impl LoginView {
                 }
                 view.login_types_loaded = true;
                 cx.notify();
-            });
+            }) {
+                tracing::error!("Failed to fetch login types: {e:?}");
+            }
         })
         .detach();
     }
@@ -159,7 +161,7 @@ impl LoginView {
             let result = task.await.unwrap_or_default();
 
             cx.update(|cx| {
-                let _ = this.update(cx, |view, cx| {
+                if let Err(e) = this.update(cx, |view, cx| {
                     view.current_request = None;
 
                     match &result {
@@ -181,7 +183,9 @@ impl LoginView {
                         }
                     }
                     cx.notify();
-                });
+                }) {
+                    tracing::error!("Failed to update login state: {e:?}");
+                }
             });
         })
         .detach();
@@ -222,7 +226,7 @@ impl LoginView {
             let result = task.await;
 
             cx.update(|cx| {
-                let _ = this.update(cx, |view, cx| {
+                if let Err(e) = this.update(cx, |view, cx| {
                     view.current_request = None;
 
                     match result {
@@ -249,7 +253,9 @@ impl LoginView {
                         }
                     }
                     cx.notify();
-                });
+                }) {
+                    tracing::error!("Failed to update login state: {e:?}");
+                };
             });
         })
         .detach();

@@ -1,6 +1,5 @@
 use anyhow::Result;
 use std::{collections::HashMap, io::ErrorKind, path::PathBuf};
-use tracing::info;
 
 use gpui::{Action, App};
 use serde::{Deserialize, Serialize};
@@ -178,7 +177,9 @@ fn default_keymap() -> Vec<KeymapSection> {
 }
 
 pub fn load_keymap_from_json(path: &PathBuf, cx: &mut App) {
-    let keymap_file: KeymapFile =
+    let keymap_file = if cfg!(debug_assertions) {
+        default_keymap()
+    } else {
         match std::fs::read_to_string(path).map(|s| serde_json::from_str(&s)) {
             Ok(Ok(map)) => map,
             Ok(Err(e)) => {
@@ -207,9 +208,8 @@ pub fn load_keymap_from_json(path: &PathBuf, cx: &mut App) {
                 tracing::error!("Failed to load keybinds: {e}");
                 default_keymap()
             }
-        };
-    #[cfg(debug_assertions)]
-    let keymap_file = default_keymap();
+        }
+    };
 
     let mut key_bindings = Vec::new();
 

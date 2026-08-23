@@ -9,12 +9,9 @@ use futures_util::StreamExt;
 use gpui::{
     App, AppContext, Context, Empty, Entity, EventEmitter, FocusHandle, Focusable, FollowMode,
     InteractiveElement, IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement,
-    Render, SharedString, Styled, Task, WeakEntity, Window, actions, list, px,
+    Render, SharedString, Styled, Task, Window, actions, list, px,
 };
-use gpui_component::{
-    StyledExt,
-    input::{self, InputState},
-};
+use gpui_component::{StyledExt, input::InputState};
 use macros::tailwind_div;
 use matrix_sdk::{
     Room,
@@ -91,9 +88,9 @@ pub struct TimelineView {
     /// Which message you are focusing and editing
     ///
     /// 1. `usize` is the index of the focused message
-    /// among the loaded messages
+    ///    among the loaded messages
     /// 2. `bool` is whether the focused message is being
-    /// edited
+    ///    edited
     pub focused_message: Option<(usize, bool)>,
     editing_message: Entity<InputState>,
     active_room: Room,
@@ -453,15 +450,11 @@ impl TimelineView {
         cx: &mut App,
         index: usize,
     ) -> Option<()> {
-        let Some(message) = self.messages.get(index) else {
-            return None;
-        };
+        let message = self.messages.get(index)?;
         if !message.is_sent_by(&self.user_id) {
             return None;
         }
-        let Some(text) = message.retrieve_text() else {
-            return None;
-        };
+        let text = message.retrieve_text()?;
         if let Some((_, editing)) = &mut self.focused_message {
             *editing = true
         };
@@ -623,10 +616,10 @@ fn apply_diff(
                 let len = messages.len();
                 list_state.splice(len..len + 1, 0);
 
-                if let Some((focused, _)) = focused_message {
-                    if *focused >= len {
-                        *focused_message = None;
-                    }
+                if let Some((focused, _)) = focused_message
+                    && *focused >= len
+                {
+                    *focused_message = None;
                 }
 
                 recompute_datedivider_near(messages, messages.len());
@@ -652,10 +645,10 @@ fn apply_diff(
                 recompute_pad_bottom_at(messages, index - 1);
             }
 
-            if let Some((focused, _)) = focused_message {
-                if index <= *focused {
-                    *focused += 1;
-                }
+            if let Some((focused, _)) = focused_message
+                && index <= *focused
+            {
+                *focused += 1;
             }
 
             recompute_show_header_at(messages, index);
@@ -720,10 +713,10 @@ fn apply_diff(
             list_state.splice(length..messages.len(), 0);
             Arc::make_mut(messages).truncate(length);
 
-            if let Some((focused, _)) = focused_message {
-                if *focused >= length {
-                    *focused_message = None;
-                }
+            if let Some((focused, _)) = focused_message
+                && *focused >= length
+            {
+                *focused_message = None;
             }
 
             recompute_datedivider_near(messages, length);
@@ -803,9 +796,11 @@ impl Render for TimelineView {
 
                 cx.spawn_in(window, async move |this, cx| match task.await {
                     Ok(Ok(_)) => {
-                        let _ = this.update_in(cx, |this, window, cx| {
+                        if let Err(e) = this.update_in(cx, |this, window, cx| {
                             this.cancel_editing(window, cx);
-                        });
+                        }) {
+                            tracing::error!("Failed to cancel editing: {e:?}");
+                        }
                     }
                     Ok(Err(err)) => {
                         tracing::error!("Failed to edit message: {err:?}");

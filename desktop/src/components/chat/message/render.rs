@@ -16,7 +16,7 @@ use gpui::{
 };
 use gpui_component::{
     StyledExt,
-    input::{self, Input, InputState},
+    input::{Input, InputState},
     red_600,
 };
 use macros::tailwind_div;
@@ -32,7 +32,6 @@ use crate::{
     cache::{AvatarCache, MediaState, ThumbnailCache},
     components::{
         CustomStyles,
-        chat::message::text::cached_blocks_to_plain_text,
         profiles::{MemberRenderer, render_icon},
     },
     saving::save_file,
