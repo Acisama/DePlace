@@ -374,14 +374,21 @@ impl Render for HomeView {
                         let Some(message) = timeline.get_focused_item() else {
                             return;
                         };
-                        chat.update_timeline(cx, |timeline, cx| {
+                        let replying_to = match message.try_into() {
+                            Ok(replying_to) => replying_to,
+                            Err(e) => {
+                                tracing::debug!("Can't reply to message: {}", e);
+                                return;
+                            }
+                        };
+                        chat.update_timeline(cx, |timeline, _| {
                             let Some(_) = timeline.try_reply_to_message() else {
                                 tracing::debug!("Can't reply to message");
                                 return;
                             };
                         });
-                        chat.update_input(cx, |input, cx| {
-                            input.reply_to(message);
+                        chat.update_input(cx, |input, _| {
+                            input.reply_to(replying_to);
                         });
                         window.focus(&chat.focus_handle(cx), cx);
                         cx.notify();

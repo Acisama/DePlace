@@ -265,7 +265,13 @@ pub fn cached_from_timeline_item(value: &Arc<TimelineItem>, own_id: &UserId) -> 
                     is_reactable: true,
                     is_deletable: event.is_own(),
                     is_editable: event.is_editable(),
-                    is_highlighted: event.is_highlighted(),
+                    is_highlighted: event.is_highlighted()
+                        || event
+                            .content()
+                            .as_message()
+                            .and_then(|m| m.mentions())
+                            .map(|m| m.user_ids.contains(own_id))
+                            .unwrap_or(false),
                     can_be_replied_to: event.can_be_replied_to(),
                     contains_only_emojis: event.contains_only_emojis(),
                 },
@@ -621,6 +627,42 @@ impl From<InReplyToDetails> for CachedReplyInfo {
         CachedReplyInfo {
             event_id: Arc::new(details.event_id),
             body,
+        }
+    }
+}
+
+impl From<CachedEventContent> for CachedReplyPreviewBody {
+    fn from(value: CachedEventContent) -> Self {
+        match value {
+            CachedEventContent::FailedToParseMessageLike(_) => {
+                CachedReplyPreviewBody::Error("Failed to parse message".into())
+            }
+            CachedEventContent::FailedToParseState(_) => {
+                CachedReplyPreviewBody::Error("Failed to parse state".into())
+            }
+            CachedEventContent::SystemMessage(sys) => {
+                CachedReplyPreviewBody::System(sys.text().unwrap_or_default())
+            }
+            CachedEventContent::UserMessage(msg) => match msg.msg_type {
+                CachedMessageType::Audio { .. } => CachedReplyPreviewBody::Audio,
+                CachedMessageType::Emote => CachedReplyPreviewBody::Emote(msg.text()),
+                CachedMessageType::Empty => CachedReplyPreviewBody::Text("".into()),
+                CachedMessageType::File { .. }
+                | CachedMessageType::Image { .. }
+                | CachedMessageType::Video { .. } => CachedReplyPreviewBody::Media,
+                CachedMessageType::Location(_) => CachedReplyPreviewBody::Location,
+                CachedMessageType::LiveLocation { .. } => CachedReplyPreviewBody::Location,
+                CachedMessageType::Notice
+                | CachedMessageType::ServerNotice { .. }
+                | CachedMessageType::Text => CachedReplyPreviewBody::Text(msg.text()),
+                CachedMessageType::Other { msg_type } => CachedReplyPreviewBody::System(msg_type),
+                CachedMessageType::Poll => CachedReplyPreviewBody::Poll,
+                CachedMessageType::Redacted => CachedReplyPreviewBody::Redacted,
+                CachedMessageType::Sticker => CachedReplyPreviewBody::Sticker,
+                CachedMessageType::UnableToDecrypt => {
+                    CachedReplyPreviewBody::Error("Unable to decrypt".into())
+                }
+            },
         }
     }
 }

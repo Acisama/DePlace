@@ -375,6 +375,27 @@ pub struct CachedReplyInfo {
     pub body: DetailState<CachedReplyPreview>,
 }
 
+impl TryFrom<CachedTimelineItem> for CachedReplyInfo {
+    type Error = anyhow::Error;
+
+    fn try_from(value: CachedTimelineItem) -> Result<Self, Self::Error> {
+        let CachedTimelineItemKind::Event(event) = value.kind else {
+            return Err(anyhow::anyhow!("Expected Event kind"));
+        };
+
+        let event_id = event
+            .event_id
+            .ok_or_else(|| anyhow::anyhow!("Expected event id"))?;
+
+        let body = DetailState::Ready(CachedReplyPreview {
+            sender_id: event.sender.clone(),
+            body: event.content.into(),
+        });
+
+        Ok(CachedReplyInfo { event_id, body })
+    }
+}
+
 #[derive(Clone)]
 enum CachedEventContent {
     SystemMessage(CachedSystemMessage),
@@ -410,6 +431,21 @@ struct CachedUserMessage {
     editing: Option<Entity<InputState>>,
 
     msg_type: CachedMessageType,
+}
+
+impl CachedUserMessage {
+    pub fn text(&self) -> SharedString {
+        self.body
+            .as_ref()
+            .map(|b| {
+                b.iter()
+                    .map(|c| c.to_plain_text())
+                    .collect::<Vec<_>>()
+                    .join("")
+                    .into()
+            })
+            .unwrap_or_default()
+    }
 }
 
 #[allow(dead_code)]

@@ -134,8 +134,6 @@ impl CachedTimelineEvent {
 
         let event_id = self.event_id.clone();
 
-        let show_highlight = self.flags.is_highlighted;
-
         let member = map.get(current_room_id).and_then(|m| m.get(&*self.sender));
 
         let sender_avatar =
@@ -216,14 +214,15 @@ impl CachedTimelineEvent {
 
         // Prioritize `replying_to` with a stronger white color gradient over `is_highlighted`
         let highlight_color = if replying_to {
-            Some(gpui::white().alpha(0.25))
+            Some(gpui::white())
         } else if self.flags.is_highlighted {
-            Some(theme.accent.alpha(0.1))
+            Some(theme.accent)
         } else {
             None
         };
+        let highlight_bg_color = highlight_color.map(|c| c.alpha(0.12));
 
-        let (bg, hover_bg) = if let Some(color) = highlight_color {
+        let (bg, hover_bg) = if let Some(color) = highlight_bg_color {
             (
                 linear_gradient(
                     90.0,
@@ -310,10 +309,22 @@ impl CachedTimelineEvent {
             bg(bg),
             hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
+            relative,
             flex_col,
             text_color(text_color),
             text_size(structure.chat.text_size),
         )
+        .when_some(highlight_color, |el, color| {
+            el.child(tailwind_div!(
+                absolute,
+                top(pre_col_space / 3.0),
+                left(pre_col_space / 3.0),
+                bottom(pre_col_space / 3.0),
+                w(pre_col_space / 3.0),
+                rounded(pre_col_space / 6.0),
+                bg(color),
+            ))
+        })
         .when(is_system_message, |el| el.pt(structure.small_gap / 1.5))
         .when(focused, |el| el.border_color(colors.error))
         .when(self.flags.contains_only_emojis, |el| {
@@ -321,7 +332,7 @@ impl CachedTimelineEvent {
         })
         .id(id.clone())
         .when_some(self.in_reply_to(), |el, reply| {
-            el.child(reply.render(theme, structure, smaller_member_avatar, member_name))
+            el.child(reply.render(theme, structure, smaller_member_avatar, member_name, true))
         })
         .when(!self.read_by.is_empty(), |el| {
             el.child(
@@ -957,12 +968,13 @@ fn render_reactions(
 }
 
 impl CachedReplyInfo {
-    fn render(
+    pub fn render(
         &self,
         theme: &AppTheme,
         structure: &Structure,
         sender_avatar: impl Fn(&UserId) -> AnyElement,
         sender_name: impl Fn(&UserId) -> AnyElement,
+        show_hook: bool,
     ) -> Div {
         let content = match &self.body {
             DetailState::Pending => {
@@ -1001,26 +1013,28 @@ impl CachedReplyInfo {
 
         let col_width = structure.chat_col_width();
 
-        tailwind_div!(
-            flex,
-            flex_row,
-            cursor_pointer,
-            pb(structure.small_gap / 2.0)
-        )
-        .child(
-            tailwind_div!(w(col_width), mb(structure.small_gap), relative).child(tailwind_div!(
-                absolute,
-                left(col_width / 2.0),
-                bottom(-structure.small_gap),
-                w(col_width / 2.0 - structure.small_gap / 2.0),
-                h((structure.chat.small_text_size * 1.2 + structure.small_gap * 1.5) / 2.0),
-                rounded_tl(structure.outer_border_radius),
-                border_l(structure.divider_width),
-                border_t(structure.divider_width),
-                border_color(theme.tile.border)
-            )),
-        )
-        .child(content)
+        tailwind_div!(flex, flex_row, cursor_pointer)
+            .when(show_hook, |el| {
+                el.pb(structure.small_gap / 2.0).child(
+                    tailwind_div!(w(col_width), mb(structure.small_gap), relative).child(
+                        tailwind_div!(
+                            absolute,
+                            left(col_width / 2.0),
+                            bottom(-structure.small_gap),
+                            w(col_width / 2.0 - structure.small_gap / 2.0),
+                            h(
+                                (structure.chat.small_text_size * 1.2 + structure.small_gap * 1.5)
+                                    / 2.0
+                            ),
+                            rounded_tl(structure.outer_border_radius),
+                            border_l(structure.divider_width),
+                            border_t(structure.divider_width),
+                            border_color(theme.tile.border)
+                        ),
+                    ),
+                )
+            })
+            .child(content)
     }
 }
 

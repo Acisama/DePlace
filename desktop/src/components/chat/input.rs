@@ -18,7 +18,10 @@ use gpui_component::{
     scroll::ScrollableElement,
 };
 use macros::tailwind_div;
-use matrix_sdk::{Room, ruma::OwnedEventId};
+use matrix_sdk::{
+    Room,
+    ruma::{OwnedEventId, UserId},
+};
 use mime_guess::from_path;
 use tokio::{
     fs::{self, File},
@@ -29,11 +32,11 @@ use uuid::Uuid;
 
 use crate::{
     attachments::{Attachment, AttachmentPreview, AttachmentState},
-    cache::{AvatarCache, ThumbnailCache},
+    cache::AvatarCache,
     components::{
         ByteSize, CustomStyles,
-        chat::{message::CachedTimelineItem, timeline::SendMessage},
-        profiles::render_icon,
+        chat::{message::CachedReplyInfo, timeline::SendMessage},
+        profiles::{MemberRenderer, render_icon},
     },
     helpers::file_color,
     things::DeplaceThings,
@@ -42,7 +45,7 @@ use crate::{
 
 pub struct ChatInputView {
     pub chat_input: Entity<InputState>,
-    _membership_map: Receiver<MembershipMap>,
+    membership_map: Receiver<MembershipMap>,
 
     attachments: HashMap<Uuid, Attachment>,
 
@@ -50,12 +53,10 @@ pub struct ChatInputView {
 
     hovered_button: Option<&'static str>,
 
-    replying_to: Option<CachedTimelineItem>,
-    state: AppState,
+    replying_to: Option<CachedReplyInfo>,
     active_room: Room,
 
     avatar_cache: AvatarCache,
-    image_cache: ThumbnailCache,
 }
 
 impl ChatInputView {
@@ -66,7 +67,6 @@ impl ChatInputView {
         active_room: Room,
         // TODO: Move this into state
         avatar_cache: AvatarCache,
-        image_cache: ThumbnailCache,
     ) -> Self {
         let membership_map = state.membership_map();
         let data_size_unit = state.settings().watch_data_size_unit();
@@ -83,24 +83,23 @@ impl ChatInputView {
 
         notify_on_change(data_size_unit.clone(), cx);
         notify_on_change(membership_map.clone(), cx);
+        notify_on_change(avatar_cache.subscribe(), cx);
 
         Self {
             chat_input: chat_input.clone(),
-            _membership_map: membership_map.clone(),
+            membership_map: membership_map.clone(),
             data_size_unit: data_size_unit.clone(),
 
             attachments: HashMap::new(),
 
             hovered_button: None,
             replying_to: None,
-            state: state.clone(),
             active_room,
             avatar_cache,
-            image_cache,
         }
     }
 
-    pub fn reply_to(&mut self, replying_to: CachedTimelineItem) {
+    pub fn reply_to(&mut self, replying_to: CachedReplyInfo) {
         self.replying_to = Some(replying_to);
     }
 
@@ -141,7 +140,7 @@ impl gpui::EventEmitter<SendEvent> for ChatInputView {}
 
 impl Render for ChatInputView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.app_theme().clone();
+        let theme = cx.app_theme();
         let structure = cx.structure().clone();
 
         let input_focus_handle = self.chat_input.read(cx).focus_handle(cx);
@@ -162,23 +161,26 @@ impl Render for ChatInputView {
         // Pre-render to drop borrow of cx
         let rendered_reply = self.replying_to.as_ref().map(|replying_to| {
             let room_id = self.active_room.room_id();
-            let membership_map = self._membership_map.borrow();
+            let membership_map = &self.membership_map.borrow();
             let avatar_cache = &self.avatar_cache;
-            let image_cache = &self.image_cache;
 
-            replying_to.render(
-                window,
-                cx,
-                |_: Arc<OwnedEventId>, _: SharedString| {},
-                room_id,
-                &membership_map,
-                avatar_cache,
-                image_cache,
-                false,
-                None,
-                false,
-                &self.state,
-            )
+            let member_name = move |id: &UserId| {
+                let member = &membership_map.get(room_id).and_then(|m| m.get(id));
+                member.render_name(structure.chat.small_text_size, &theme.colors)
+            };
+
+            let smaller_member_avatar = move |id: &UserId| {
+                let member = &membership_map.get(room_id).and_then(|m| m.get(id));
+                member.render_avatar(
+                    structure.chat.small_text_size * 1.2,
+                    structure.chat.small_text_size * 1.2 / 2.0,
+                    theme,
+                    avatar_cache,
+                    None,
+                )
+            };
+
+            replying_to.render(theme, &structure, member_name, smaller_member_avatar, false)
         });
 
         let view = tailwind_div!(w_full, flex, flex_col)
@@ -190,7 +192,7 @@ impl Render for ChatInputView {
                         items_center,
                         justify_between,
                         gap(structure.small_gap),
-                        paddings(structure.small_gap),
+                        px(structure.small_gap),
                         bg(input_bg),
                         border_1,
                         border_b_0,
@@ -495,7 +497,7 @@ impl Render for ChatInputView {
                     return;
                 }
 
-                let in_reply_to = this.replying_to.as_ref().and_then(|r| r.owned_event_id());
+                let in_reply_to = this.replying_to.as_ref().map(|r| (*r.event_id).clone());
 
                 cx.emit(SendEvent::SendMessage {
                     text,

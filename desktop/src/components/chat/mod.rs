@@ -60,9 +60,7 @@ impl ChatView {
             )
         });
 
-        let input = cx.new(|cx| {
-            ChatInputView::new(state, window, cx, room.clone(), avatar_cache, image_cache)
-        });
+        let input = cx.new(|cx| ChatInputView::new(state, window, cx, room.clone(), avatar_cache));
 
         cx.subscribe_in(&input, window, move |this, _, event: &SendEvent, _, cx| {
             let SendEvent::SendMessage {
