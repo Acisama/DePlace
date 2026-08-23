@@ -85,13 +85,16 @@ impl std::fmt::Display for ScrollDirection {
 pub struct TimelineView {
     pub messages: Arc<Vec<CachedTimelineItem>>,
 
-    /// Which message you are focusing and editing
+    /// Which message you are focusing and editing and replying to
     ///
     /// 1. `usize` is the index of the focused message
     ///    among the loaded messages
     /// 2. `bool` is whether the focused message is being
     ///    edited
-    pub focused_message: Option<(usize, bool)>,
+    /// 3. `bool`is whether the focused message is being replied to
+    ///
+    /// TODO: Change this into a struct, this is getting too big
+    pub focused_message: Option<(usize, bool, bool)>,
     editing_message: Entity<InputState>,
     active_room: Room,
     timeline: Option<Arc<Timeline>>,
@@ -455,7 +458,7 @@ impl TimelineView {
             return None;
         }
         let text = message.retrieve_text()?;
-        if let Some((_, editing)) = &mut self.focused_message {
+        if let Some((_, editing, _)) = &mut self.focused_message {
             *editing = true
         };
         self.editing_message.update(cx, |this, cx| {
@@ -469,7 +472,7 @@ impl TimelineView {
     /// Resets the editing flag and restores focus to chat
     fn cancel_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         tracing::debug!("Canceling editing message");
-        if let Some((_, editing)) = &mut self.focused_message {
+        if let Some((_, editing, _)) = &mut self.focused_message {
             if !*editing {
                 tracing::warn!(
                     "Received action to cancel editing message without currently editing message"
@@ -479,6 +482,23 @@ impl TimelineView {
         }
         cx.focus_self(window);
         cx.notify();
+    }
+
+    pub fn get_focused_item(&self) -> Option<CachedTimelineItem> {
+        let Some((index, _, _)) = self.focused_message else {
+            return None;
+        };
+        self.messages.get(index).cloned()
+    }
+
+    pub fn try_reply_to_message(&mut self) -> Option<()> {
+        let Some((_, _, replying)) = &mut self.focused_message else {
+            return None;
+        };
+
+        *replying = true;
+
+        Some(())
     }
 }
 
@@ -533,7 +553,7 @@ fn recompute_datedivider_near(messages: &mut Arc<Vec<CachedTimelineItem>>, index
 
 fn apply_diff(
     messages: &mut Arc<Vec<CachedTimelineItem>>,
-    focused_message: &mut Option<(usize, bool)>,
+    focused_message: &mut Option<(usize, bool, bool)>,
     list_state: &ListState,
     diff: VectorDiff<Arc<TimelineItem>>,
     own_id: &UserId,
@@ -576,7 +596,7 @@ fn apply_diff(
                 current_item.recompute_datedivider_types(rest);
             }
 
-            if let Some((focused, _)) = focused_message {
+            if let Some((focused, _, _)) = focused_message {
                 *focused += 1;
             }
 
@@ -600,7 +620,7 @@ fn apply_diff(
                 Arc::make_mut(messages).remove(0);
                 list_state.splice(0..1, 0);
 
-                if let Some((focused, _)) = focused_message {
+                if let Some((focused, _, _)) = focused_message {
                     if *focused == 0 {
                         *focused_message = None;
                     } else {
@@ -616,7 +636,7 @@ fn apply_diff(
                 let len = messages.len();
                 list_state.splice(len..len + 1, 0);
 
-                if let Some((focused, _)) = focused_message
+                if let Some((focused, _, _)) = focused_message
                     && *focused >= len
                 {
                     *focused_message = None;
@@ -645,7 +665,7 @@ fn apply_diff(
                 recompute_pad_bottom_at(messages, index - 1);
             }
 
-            if let Some((focused, _)) = focused_message
+            if let Some((focused, _, _)) = focused_message
                 && index <= *focused
             {
                 *focused += 1;
@@ -687,7 +707,7 @@ fn apply_diff(
             Arc::make_mut(messages).remove(index);
             list_state.splice(index..index + 1, 0);
 
-            if let Some((focused, _)) = focused_message {
+            if let Some((focused, _, _)) = focused_message {
                 if index < *focused {
                     *focused -= 1;
                 } else if index == *focused {
@@ -713,7 +733,7 @@ fn apply_diff(
             list_state.splice(length..messages.len(), 0);
             Arc::make_mut(messages).truncate(length);
 
-            if let Some((focused, _)) = focused_message
+            if let Some((focused, _, _)) = focused_message
                 && *focused >= length
             {
                 *focused_message = None;
@@ -777,7 +797,7 @@ impl Render for TimelineView {
             .key_context("Chat")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(|this, _: &SubmitEdit, window, cx| {
-                let Some((idx, _)) = &this.focused_message else {
+                let Some((idx, _, _)) = &this.focused_message else {
                     return;
                 };
                 let Some(message) = this.messages.get(*idx) else {
@@ -823,6 +843,7 @@ impl Render for TimelineView {
                     let focused = focused_message.is_some_and(|f| f.0 == ix);
                     let editing = focused_message
                         .is_some_and(|f| focused && f.1 && current.is_sent_by(&user_id));
+                    let replying_to = focused_message.is_some_and(|f| focused && f.2);
 
                     current.render(
                         window,
@@ -838,6 +859,7 @@ impl Render for TimelineView {
                         } else {
                             None
                         },
+                        replying_to,
                         &state,
                     )
                 })
@@ -860,6 +882,7 @@ actions!(
         EditMessage,
         CancelEdit,
         SubmitEdit,
+        ReplyToMessage,
     ]
 );
 

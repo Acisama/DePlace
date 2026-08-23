@@ -19,6 +19,7 @@ use gpui_component::{
     input::{Input, InputState},
     red_600,
 };
+// use gpui_video::video;
 use macros::tailwind_div;
 use matrix_sdk::ruma::{OwnedEventId, RoomId, UserId};
 
@@ -51,6 +52,7 @@ impl CachedTimelineItem {
         image_cache: &ThumbnailCache,
         focused: bool,
         editing: Option<Entity<InputState>>,
+        replying_to: bool,
         state: &AppState,
     ) -> AnyElement {
         let structure = cx.structure();
@@ -101,6 +103,7 @@ impl CachedTimelineItem {
                 image_cache,
                 focused,
                 editing,
+                replying_to,
                 state,
             ),
         }
@@ -121,6 +124,7 @@ impl CachedTimelineEvent {
         image_cache: &ThumbnailCache,
         focused: bool,
         editing: Option<Entity<InputState>>,
+        replying_to: bool,
         state: &AppState,
     ) -> AnyElement {
         let theme = &cx.app_theme().clone();
@@ -201,6 +205,7 @@ impl CachedTimelineEvent {
                 member_name_color,
                 state,
                 editing,
+                replying_to,
                 move |reaction: SharedString| {
                     if let Some(event_id) = event_id.clone() {
                         toggle_reaction(event_id, reaction);
@@ -209,14 +214,16 @@ impl CachedTimelineEvent {
             ),
         };
 
-        let highlight_color = if show_highlight {
-            Some(theme.accent)
+        // Prioritize `replying_to` with a stronger white color gradient over `is_highlighted`
+        let highlight_color = if replying_to {
+            Some(gpui::white().alpha(0.25))
+        } else if self.flags.is_highlighted {
+            Some(theme.accent.alpha(0.1))
         } else {
             None
         };
 
         let (bg, hover_bg) = if let Some(color) = highlight_color {
-            let color = color.alpha(0.1);
             (
                 linear_gradient(
                     90.0,
@@ -458,6 +465,7 @@ impl CachedUserMessage {
         member_name_color: impl Fn(&UserId) -> (SharedString, Hsla),
         state: &AppState,
         editing: Option<Entity<InputState>>,
+        replying_to: bool,
         toggle_reaction: impl Fn(SharedString) + Clone + 'static,
     ) -> Div {
         let theme = cx.app_theme();
@@ -852,7 +860,20 @@ impl CachedUserMessage {
                 .child("Unable to decrypt message")
                 .cursor_text()
                 .into_any(),
-            _ => tailwind_div!(text_color(theme.text.normal)).into_any(),
+            CachedMessageType::Video {
+                source,
+                filename,
+                width,
+                height,
+                size,
+                duration,
+                mime_type,
+                blurhash,
+            } => {
+                let _ = 1 + 1;
+                // div().child(video(video))
+                div().into_any()
+            }
         };
 
         tailwind_div!(line_height(relative(1.0)), flex, flex_col)

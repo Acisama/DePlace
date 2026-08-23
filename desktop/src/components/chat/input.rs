@@ -10,7 +10,7 @@ use gpui::{
     AppContext, ClickEvent, Context, Entity, FocusHandle, Focusable, ImageFormat,
     InteractiveElement, IntoElement, MouseButton, MouseClickEvent, MouseDownEvent, ParentElement,
     PathPromptOptions, Render, SharedString, StatefulInteractiveElement, Styled, TextOverflow,
-    Window, prelude::FluentBuilder,
+    Window, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     StyledExt,
@@ -29,7 +29,12 @@ use uuid::Uuid;
 
 use crate::{
     attachments::{Attachment, AttachmentPreview, AttachmentState},
-    components::{ByteSize, CustomStyles, chat::timeline::SendMessage, profiles::render_icon},
+    cache::{AvatarCache, ThumbnailCache},
+    components::{
+        ByteSize, CustomStyles,
+        chat::{message::CachedTimelineItem, timeline::SendMessage},
+        profiles::render_icon,
+    },
     helpers::file_color,
     things::DeplaceThings,
     watch_bridge::notify_on_change,
@@ -44,6 +49,13 @@ pub struct ChatInputView {
     data_size_unit: Receiver<DataSizeUnit>,
 
     hovered_button: Option<&'static str>,
+
+    replying_to: Option<CachedTimelineItem>,
+    state: AppState,
+    active_room: Room,
+
+    avatar_cache: AvatarCache,
+    image_cache: ThumbnailCache,
 }
 
 impl ChatInputView {
@@ -52,6 +64,9 @@ impl ChatInputView {
         window: &mut Window,
         cx: &mut Context<Self>,
         active_room: Room,
+        // TODO: Move this into state
+        avatar_cache: AvatarCache,
+        image_cache: ThumbnailCache,
     ) -> Self {
         let membership_map = state.membership_map();
         let data_size_unit = state.settings().watch_data_size_unit();
@@ -77,6 +92,28 @@ impl ChatInputView {
             attachments: HashMap::new(),
 
             hovered_button: None,
+            replying_to: None,
+            state: state.clone(),
+            active_room,
+            avatar_cache,
+            image_cache,
+        }
+    }
+
+    pub fn reply_to(&mut self, replying_to: CachedTimelineItem) {
+        self.replying_to = Some(replying_to);
+    }
+
+    /// Stop replying
+    ///
+    /// This returns `true` if a reply was removed, otherwise not
+    pub fn remove_reply(&mut self) -> bool {
+        match self.replying_to {
+            None => false,
+            Some(_) => {
+                self.replying_to = None;
+                true
+            }
         }
     }
 }
@@ -104,8 +141,8 @@ impl gpui::EventEmitter<SendEvent> for ChatInputView {}
 
 impl Render for ChatInputView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.app_theme();
-        let structure = cx.structure();
+        let theme = cx.app_theme().clone();
+        let structure = cx.structure().clone();
 
         let input_focus_handle = self.chat_input.read(cx).focus_handle(cx);
         let input_focused = input_focus_handle.is_focused(window);
@@ -117,6 +154,176 @@ impl Render for ChatInputView {
         };
 
         let icon_size = structure.chat.input_height - structure.small_gap * 2.0;
+
+        let attachments = (!self.attachments.is_empty()).then_some(self.attachments.clone());
+        let has_reply = self.replying_to.is_some();
+        let has_attachments = attachments.is_some();
+
+        // Pre-render to drop borrow of cx
+        let rendered_reply = self.replying_to.as_ref().map(|replying_to| {
+            let room_id = self.active_room.room_id();
+            let membership_map = self._membership_map.borrow();
+            let avatar_cache = &self.avatar_cache;
+            let image_cache = &self.image_cache;
+
+            replying_to.render(
+                window,
+                cx,
+                |_: Arc<OwnedEventId>, _: SharedString| {},
+                room_id,
+                &membership_map,
+                avatar_cache,
+                image_cache,
+                false,
+                None,
+                false,
+                &self.state,
+            )
+        });
+
+        let view = tailwind_div!(w_full, flex, flex_col)
+            .when_some(rendered_reply, |el, rendered_reply| {
+                el.child(
+                    tailwind_div!(
+                        flex,
+                        flex_row,
+                        items_center,
+                        justify_between,
+                        gap(structure.small_gap),
+                        paddings(structure.small_gap),
+                        bg(input_bg),
+                        border_1,
+                        border_b_0,
+                        border_color(theme.tile.border),
+                        rounded_t(structure.inner_border_radius),
+                        w_full,
+                        overflow_hidden
+                    )
+                    .child(
+                        tailwind_div!(
+                            flex,
+                            flex_row,
+                            items_center,
+                            gap(structure.small_gap),
+                            overflow_hidden,
+                            flex_1
+                        )
+                        .child(
+                            tailwind_div!(
+                                text_color(theme.text.dim),
+                                text_size(structure.chat.small_text_size),
+                                flex_shrink_0
+                            )
+                            .child("Replying to:"),
+                        )
+                        .child(
+                            tailwind_div!(max_h(px(80.0)), overflow_y_hidden, flex_1)
+                                .child(rendered_reply),
+                        ),
+                    )
+                    .child(
+                        tailwind_div!(
+                            w(icon_size),
+                            h(icon_size),
+                            flex,
+                            items_center,
+                            justify_center,
+                            rounded(structure.semi_border_radius()),
+                            cursor_pointer,
+                            text_color(theme.text.dim),
+                            hover(text_color(theme.text.normal))
+                        )
+                        .id("cancel_reply_button")
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.remove_reply();
+                            cx.notify();
+                        }))
+                        .child(render_icon(
+                            phosphor_svgs::icon::x::REGULAR,
+                            icon_size - structure.small_gap * 2.0,
+                        )),
+                    ),
+                )
+            })
+            .when_some(attachments, |el, attachments| {
+                let (at_w, at_h) = structure.chat.attachment_preview_dimensions;
+
+                el.child(
+                    tailwind_div!(
+                        flex,
+                        flex_row,
+                        gap(structure.small_gap),
+                        paddings(structure.small_gap),
+                        bg(input_bg),
+                        border_1,
+                        border_b_0,
+                        border_color(theme.tile.border),
+                        overflow_x_scrollbar
+                    )
+                    .when(!has_reply, |el| el.rounded_t(structure.inner_border_radius))
+                    .children(attachments.iter().map(|(id, a)| {
+                        tailwind_div!(
+                            rounded(structure.semi_border_radius()),
+                            border_1,
+                            border_color(theme.tile.border),
+                            cursor_pointer,
+                            w(at_w),
+                            overflow_hidden,
+                            bg(theme.solid_bg),
+                            hover(bg(theme.solid_hover_bg))
+                        )
+                        .child(
+                            tailwind_div!(
+                                w_full,
+                                h(at_h),
+                                border_b_1,
+                                border_color(theme.tile.border),
+                                overflow_hidden,
+                                text_size(structure.chat.text_size * 1.5),
+                                font_extrabold,
+                            )
+                            .child(
+                                a.render_preview(&theme.clone(), structure.semi_border_radius()),
+                            ),
+                        )
+                        .child(
+                            tailwind_div!(
+                                paddings(structure.small_gap),
+                                flex,
+                                flex_col,
+                                w_full,
+                                truncate,
+                                text_overflow(TextOverflow::Truncate("...".into())),
+                                text_size(structure.chat.small_text_size)
+                            )
+                            .child(tailwind_div!(text_color(theme.text.dim)).child(a.name.clone()))
+                            .child(
+                                tailwind_div!(text_color(theme.text.muted))
+                                    .child(a.size.get(&self.data_size_unit.borrow())),
+                            ),
+                        )
+                        .id(id.to_string())
+                        .on_aux_click(cx.listener({
+                            let id = *id;
+                            move |view, ev, _, cx| {
+                                if matches!(
+                                    ev,
+                                    ClickEvent::Mouse(MouseClickEvent {
+                                        down: MouseDownEvent {
+                                            button: MouseButton::Middle,
+                                            ..
+                                        },
+                                        ..
+                                    })
+                                ) && view.attachments.remove(&id).is_some()
+                                {
+                                    cx.notify();
+                                }
+                            }
+                        }))
+                    })),
+                )
+            });
 
         let chat_input_button = |svg: &'static str, id: &'static str| {
             let hovered = self.hovered_button == Some(id);
@@ -246,151 +453,78 @@ impl Render for ChatInputView {
             .child(render_icon(svg, icon_size - structure.small_gap * 2.0))
         };
 
-        let attachments = (!self.attachments.is_empty()).then_some(self.attachments.clone());
-
-        tailwind_div!(w_full, flex, flex_col)
-            .when_some(attachments.clone(), |el, attachments| {
-                let (at_w, at_h) = structure.chat.attachment_preview_dimensions;
-
-                el.child(
-                    tailwind_div!(
-                        flex,
-                        flex_row,
-                        gap(structure.small_gap),
-                        paddings(structure.small_gap),
-                        bg(input_bg),
-                        border_1,
-                        border_b_0,
-                        border_color(theme.tile.border),
-                        rounded_t(structure.inner_border_radius),
-                        overflow_x_scrollbar
-                    )
-                    .children(attachments.iter().map(|(id, a)| {
-                        tailwind_div!(
-                            rounded(structure.semi_border_radius()),
-                            border_1,
-                            border_color(theme.tile.border),
-                            cursor_pointer,
-                            w(at_w),
-                            overflow_hidden,
-                            bg(theme.solid_bg),
-                            hover(bg(theme.solid_hover_bg))
-                        )
-                        .child(
-                            tailwind_div!(
-                                w_full,
-                                h(at_h),
-                                border_b_1,
-                                border_color(theme.tile.border),
-                                overflow_hidden,
-                                text_size(structure.chat.text_size * 1.5),
-                                font_extrabold,
-                            )
-                            .child(a.render_preview(theme, structure.semi_border_radius())),
-                        )
-                        .child(
-                            tailwind_div!(
-                                paddings(structure.small_gap),
-                                flex,
-                                flex_col,
-                                w_full,
-                                truncate,
-                                text_overflow(TextOverflow::Truncate("...".into())),
-                                text_size(structure.chat.small_text_size)
-                            )
-                            .child(tailwind_div!(text_color(theme.text.dim)).child(a.name.clone()))
-                            .child(
-                                tailwind_div!(text_color(theme.text.muted))
-                                    .child(a.size.get(&self.data_size_unit.borrow())),
-                            ),
-                        )
-                        .id(id.to_string())
-                        .on_aux_click(cx.listener({
-                            let id = *id;
-                            move |view, ev, _, cx| {
-                                if matches!(
-                                    ev,
-                                    ClickEvent::Mouse(MouseClickEvent {
-                                        down: MouseDownEvent {
-                                            button: MouseButton::Middle,
-                                            ..
-                                        },
-                                        ..
-                                    })
-                                ) && view.attachments.remove(&id).is_some()
-                                {
-                                    cx.notify();
-                                }
-                            }
-                        }))
-                    })),
-                )
-            })
-            .child(
-                tailwind_div!(
-                    min_h(structure.chat.input_height),
-                    flex,
-                    flex_row,
-                    items_center,
-                    w_full,
-                    rounded_b(structure.inner_border_radius),
-                    paddings(structure.small_gap),
-                    text_size(structure.chat.text_size),
-                    gap(structure.small_gap),
-                    border_1,
-                    border_color(input_border),
-                    bg(input_bg)
-                )
-                .when(attachments.is_none_or(|a| a.is_empty()), |el| {
-                    el.rounded_t(structure.inner_border_radius)
-                })
-                .track_focus(&input_focus_handle)
-                .on_action(cx.listener(|this, _event: &SendMessage, _window, cx| {
-                    let text = this.chat_input.read(cx).text().to_string();
-                    let attachments: Vec<MatrixAttachment> = this
-                        .attachments
-                        .values()
-                        .cloned()
-                        .filter_map(|a| {
-                            if let AttachmentState::Loaded(bytes) = a.state {
-                                Some(MatrixAttachment {
-                                    filename: a.name.into(),
-                                    mime_type: (*a.mime_type).clone(),
-                                    data: (*bytes).clone(),
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-
-                    if text.trim().is_empty() && attachments.is_empty() {
-                        return;
-                    }
-
-                    cx.emit(SendEvent::SendMessage {
-                        text,
-                        attachments,
-                        in_reply_to: None,
-                    });
-
-                    this.chat_input.update(cx, |input, cx| {
-                        input.set_value("", _window, cx);
-                    });
-                    this.attachments.clear();
-                    cx.notify();
-                }))
-                .child(chat_input_button(
-                    phosphor_svgs::icon::plus::REGULAR,
-                    "chat_file_icon",
-                ))
-                .child(
-                    Input::new(&self.chat_input)
-                        .p_0()
-                        .bg_transparent()
-                        .border_transparent()
-                        .text_color(theme.text.normal),
-                ),
+        view.child(
+            tailwind_div!(
+                min_h(structure.chat.input_height),
+                flex,
+                flex_row,
+                items_center,
+                w_full,
+                rounded_b(structure.inner_border_radius),
+                paddings(structure.small_gap),
+                text_size(structure.chat.text_size),
+                gap(structure.small_gap),
+                border_1,
+                border_color(input_border),
+                bg(input_bg)
             )
+            .when(!has_reply && !has_attachments, |el| {
+                el.rounded_t(structure.inner_border_radius)
+            })
+            .track_focus(&input_focus_handle)
+            .on_action(cx.listener(|this, _event: &SendMessage, _window, cx| {
+                let text = this.chat_input.read(cx).text().to_string();
+                let attachments: Vec<MatrixAttachment> = this
+                    .attachments
+                    .values()
+                    .cloned()
+                    .filter_map(|a| {
+                        if let AttachmentState::Loaded(bytes) = a.state {
+                            Some(MatrixAttachment {
+                                filename: a.name.into(),
+                                mime_type: (*a.mime_type).clone(),
+                                data: (*bytes).clone(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                if text.trim().is_empty() && attachments.is_empty() {
+                    return;
+                }
+
+                let in_reply_to = this
+                    .replying_to
+                    .as_ref()
+                    .map(|r| r.owned_event_id())
+                    .flatten();
+
+                cx.emit(SendEvent::SendMessage {
+                    text,
+                    attachments,
+                    in_reply_to,
+                });
+
+                this.chat_input.update(cx, |input, cx| {
+                    input.set_value("", _window, cx);
+                });
+                this.attachments.clear();
+                this.remove_reply();
+                cx.notify();
+            }))
+            .child(chat_input_button(
+                phosphor_svgs::icon::plus::REGULAR,
+                "chat_file_icon",
+            ))
+            .child(
+                Input::new(&self.chat_input)
+                    .p_0()
+                    .bg_transparent()
+                    .border_transparent()
+                    .text_color(theme.text.normal),
+            ),
+        )
     }
 }

@@ -38,7 +38,8 @@
             "j": "chat::FocusNext",
             "k": "chat::FocusPrevious",
             "i": "chat::FocusInput",
-            "e": "chat::EditMessage"
+            "e": "chat::EditMessage",
+            "r": "chat::ReplyToMessage"
         }
     },
     {

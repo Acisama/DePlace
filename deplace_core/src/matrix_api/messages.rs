@@ -16,7 +16,6 @@ use ruma::{
     OwnedEventId, OwnedUserId,
     events::{
         AnyMessageLikeEventContent, Mentions,
-        message::{MessageEventContent, MessageEventContentWithoutRelation},
         room::message::{
             AddMentions, Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
         },
@@ -43,11 +42,6 @@ pub trait RoomSendingExt {
         attachment: MatrixAttachment,
         replies_to: Option<OwnedEventId>,
     ) -> impl Future<Output = Result<()>>;
-    fn reply_to_message(
-        &self,
-        replying_to: OwnedEventId,
-        html: String,
-    ) -> impl Future<Output = Result<()>>;
     fn edit_message(&self, message: OwnedEventId, html: String)
     -> impl Future<Output = Result<()>>;
 }
@@ -65,31 +59,21 @@ impl RoomSendingExt for Room {
             return Ok(());
         }
 
-        if let Some(reply_to_id) = replies_to {
-            let content: MessageEventContentWithoutRelation =
-                if let Some(formatted_body) = formatted_body {
-                    MessageEventContent::html(body, formatted_body).into()
-                } else {
-                    MessageEventContent::plain(body).into()
-                };
-
-            // content.url_previews = get_link_previews(&client, &urls).await;
-
-            let content = content.with_relation(Some(Relation::Reply(
-                matrix_sdk::ruma::events::relation::Reply::with_event_id(reply_to_id),
-            )));
-            queue.send(content.into()).await?;
+        let mut message_content = if let Some(formatted_body) = formatted_body {
+            RoomMessageEventContent::text_html(body, formatted_body)
         } else {
-            let mut message_content = if let Some(formatted_body) = formatted_body {
-                RoomMessageEventContent::text_html(body, formatted_body)
-            } else {
-                RoomMessageEventContent::text_plain(body)
-            };
-            message_content.mentions = Some(mentions.clone());
+            RoomMessageEventContent::text_plain(body)
+        };
+        message_content.mentions = Some(mentions);
 
-            let content = AnyMessageLikeEventContent::RoomMessage(message_content);
-            queue.send(content).await?;
+        if let Some(reply_to_id) = replies_to {
+            message_content.relates_to = Some(Relation::Reply(
+                matrix_sdk::ruma::events::relation::Reply::with_event_id(reply_to_id),
+            ));
         }
+
+        let content = AnyMessageLikeEventContent::RoomMessage(message_content);
+        queue.send(content).await?;
 
         Ok(())
     }
@@ -166,10 +150,6 @@ impl RoomSendingExt for Room {
             .await?;
 
         Ok(())
-    }
-
-    async fn reply_to_message(&self, replying_to: OwnedEventId, html: String) -> Result<()> {
-        todo!()
     }
 
     async fn edit_message(&self, message: OwnedEventId, html: String) -> Result<()> {

@@ -144,6 +144,7 @@ fn default_keymap() -> Vec<KeymapSection> {
                 ("k".to_string(), serde_json::json!("chat::FocusPrevious")),
                 ("i".to_string(), serde_json::json!("chat::FocusInput")),
                 ("e".to_string(), serde_json::json!("chat::EditMessage")),
+                ("r".to_string(), serde_json::json!("chat::ReplyToMessage")),
             ]),
         },
         KeymapSection {

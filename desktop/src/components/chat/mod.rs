@@ -27,8 +27,8 @@ mod message;
 mod timeline;
 
 pub use timeline::{
-    EditMessage, FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, ScrollOffset,
-    UnfocusInput,
+    EditMessage, FocusInput, FocusInputWithKey, FocusNext, FocusPrevious, ReplyToMessage,
+    ScrollOffset, UnfocusInput,
 };
 
 pub type ChatTimelineCache = VisibleLruCache<OwnedRoomId, ChatView>;
@@ -54,15 +54,17 @@ impl ChatView {
                 cx,
                 window,
                 tokio_rt.clone(),
-                avatar_cache,
-                image_cache,
+                avatar_cache.clone(),
+                image_cache.clone(),
                 room.clone(),
             )
         });
 
-        let input = cx.new(|cx| ChatInputView::new(state, window, cx, room.clone()));
+        let input = cx.new(|cx| {
+            ChatInputView::new(state, window, cx, room.clone(), avatar_cache, image_cache)
+        });
 
-        cx.subscribe_in(&input, window, move |_, _, event: &SendEvent, _, _cx| {
+        cx.subscribe_in(&input, window, move |this, _, event: &SendEvent, _, cx| {
             let SendEvent::SendMessage {
                 text,
                 attachments,
@@ -72,6 +74,12 @@ impl ChatView {
                 tracing::debug!("Ignoring non-send chat input event");
                 return;
             };
+
+            this.timeline.update(cx, |timeline, _cx| {
+                if let Some((_, _, replying)) = &mut timeline.focused_message {
+                    *replying = false
+                }
+            });
 
             let room = room.clone();
             let attachments_empty = attachments.is_empty();
@@ -120,6 +128,26 @@ impl ChatView {
             });
         });
     }
+
+    pub fn read_timeline<'a>(&'a self, cx: &'a mut Context<Self>) -> &'a TimelineView {
+        self.timeline.read(cx)
+    }
+
+    pub fn update_input(
+        &self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut ChatInputView, &mut Context<ChatInputView>),
+    ) {
+        self.input.update(cx, update)
+    }
+
+    pub fn update_timeline(
+        &self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut TimelineView, &mut Context<TimelineView>),
+    ) {
+        self.timeline.update(cx, update)
+    }
 }
 
 impl Focusable for ChatView {
@@ -147,7 +175,9 @@ impl Render for ChatView {
     }
 }
 
+/// Convenience functions for updating the visible elements
 impl ChatTimelineCache {
+    /// Update the currently visible timeline
     pub fn update_visible_timeline(
         &self,
         cx: &mut impl AppContext,
@@ -157,5 +187,36 @@ impl ChatTimelineCache {
             return;
         };
         visible.update(cx, |chat, cx| chat.timeline.update(cx, update))
+    }
+
+    /// Update the currently visible chat input
+    pub fn update_visible_chat_input(
+        &self,
+        cx: &mut impl AppContext,
+        update: impl FnOnce(&mut ChatInputView, &mut Context<ChatInputView>),
+    ) {
+        let Some(visible) = self.visible() else {
+            return;
+        };
+        visible.update(cx, |chat, cx| chat.input.update(cx, update))
+    }
+
+    /// Update the currently visible chat
+    pub fn update_visible_chat(
+        &self,
+        cx: &mut impl AppContext,
+        update: impl FnOnce(&mut ChatView, &mut Context<ChatView>),
+    ) {
+        let Some(visible) = self.visible() else {
+            return;
+        };
+        visible.update(cx, update)
+    }
+
+    pub fn read_visible_chat_input<'a>(&'a self, cx: &'a mut App) -> Option<&'a ChatInputView> {
+        let Some(visible) = self.visible() else {
+            return None;
+        };
+        Some(visible.read(cx).input.read(cx))
     }
 }

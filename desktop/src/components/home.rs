@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::components::chat::{FocusNext, FocusPrevious};
+use crate::components::chat::{FocusNext, FocusPrevious, ReplyToMessage};
 
 use deplace_core::{
     APP_HUMAN_NAME, NameExt, get_other_member,
@@ -366,11 +366,33 @@ impl Render for HomeView {
                 cx.notify();
             }))
             // Focus & Chat Navigation Actions attached directly to root focus
+            .on_action(cx.listener(|this, _: &ReplyToMessage, window, cx| {
+                tracing::debug!("Replying to Message");
+                this.chat.update(cx, |that, cx| {
+                    that.update_visible_chat(cx, |chat, cx| {
+                        let timeline = chat.read_timeline(cx);
+                        let Some(message) = timeline.get_focused_item() else {
+                            return;
+                        };
+                        chat.update_timeline(cx, |timeline, cx| {
+                            let Some(_) = timeline.try_reply_to_message() else {
+                                tracing::debug!("Can't reply to message");
+                                return;
+                            };
+                        });
+                        chat.update_input(cx, |input, cx| {
+                            input.reply_to(message);
+                        });
+                        window.focus(&chat.focus_handle(cx), cx);
+                        cx.notify();
+                    });
+                })
+            }))
             .on_action(cx.listener(|this, _: &EditMessage, window, cx| {
                 tracing::debug!("Editing focused message");
                 this.chat.update(cx, |that, cx| {
                     that.update_visible_timeline(cx, |timeline, cx| {
-                        if let Some((idx, _)) = timeline.focused_message {
+                        if let Some((idx, _, _)) = timeline.focused_message {
                             if timeline.try_edit_message(window, cx, idx).is_none() {
                                 tracing::debug!("Failed to start editing message")
                             } else {
@@ -392,7 +414,7 @@ impl Render for HomeView {
 
                         while let Some(item) = timeline.messages.get(new_focus) {
                             if item.is_user_message() {
-                                timeline.focused_message = Some((new_focus, false));
+                                timeline.focused_message = Some((new_focus, false, false));
                                 timeline.list_state.set_follow_mode(FollowMode::Normal);
                                 timeline.list_state.scroll_to_reveal_item(new_focus);
                                 cx.notify();
@@ -409,7 +431,7 @@ impl Render for HomeView {
                 this.chat.update(cx, |that, cx| {
                     that.update_visible_timeline(cx, |timeline, cx| {
                         let mut new_focus = match timeline.focused_message {
-                            Some((focus, _)) => focus.saturating_sub(1),
+                            Some((focus, _, _)) => focus.saturating_sub(1),
                             None if !timeline.messages.is_empty() => {
                                 timeline.messages.len().saturating_sub(1)
                             }
@@ -418,7 +440,7 @@ impl Render for HomeView {
 
                         while let Some(item) = timeline.messages.get(new_focus) {
                             if item.is_user_message() {
-                                timeline.focused_message = Some((new_focus, false));
+                                timeline.focused_message = Some((new_focus, false, false));
                                 timeline.list_state.set_follow_mode(FollowMode::Normal);
                                 timeline.list_state.scroll_to_reveal_item(new_focus);
                                 cx.notify();
@@ -451,8 +473,21 @@ impl Render for HomeView {
                 }
             }))
             .on_action(cx.listener(|this, _: &UnfocusInput, window, cx| {
-                tracing::debug!("Restoring focus to Chat or Home View");
-                window.focus(&this.focus, cx);
+                this.chat.update(cx, |that, cx| {
+                    that.update_visible_chat_input(cx, |input, cx| {
+                        if input.remove_reply() {
+                            tracing::debug!("Removing reply from input instead of unfocusing input")
+                        } else {
+                            tracing::debug!("Restoring focus to Chat or Home View");
+                            window.focus(&this.focus, cx);
+                        }
+                    });
+                    that.update_visible_timeline(cx, |timeline, cx| {
+                        if let Some((_, _, replying)) = &mut timeline.focused_message {
+                            *replying = false
+                        }
+                    })
+                });
             }))
             .flex()
             .flex_row()
