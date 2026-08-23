@@ -485,9 +485,7 @@ impl TimelineView {
     }
 
     pub fn get_focused_item(&self) -> Option<CachedTimelineItem> {
-        let Some((index, _, _)) = self.focused_message else {
-            return None;
-        };
+        let (index, _, _) = self.focused_message?;
         self.messages.get(index).cloned()
     }
 

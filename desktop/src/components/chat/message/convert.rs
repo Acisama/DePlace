@@ -34,7 +34,7 @@ use super::{
     CachedUserMessage, DetailState, EventFlags, ReactionInfo,
     text::{CachedBlock, convert_formatted_body},
 };
-use crate::components::{ByteSize, blurhash_to_image};
+use crate::components::{ByteSize, blurhash_to_image, chat::message::CachedThumbnail};
 
 impl From<&EventSendState> for CachedSendState {
     fn from(state: &EventSendState) -> Self {
@@ -431,6 +431,8 @@ fn cached_from_timeline_item_content(
 
                             let format =
                                 info.mimetype.and_then(|m| ImageFormat::from_mime_type(&m));
+                            let thumbnail =
+                                info.thumbnail_source.clone().map(CachedThumbnail::from);
 
                             (
                                 (filename != content.body).then_some(convert_to_formatted(
@@ -441,6 +443,7 @@ fn cached_from_timeline_item_content(
                                     filename: filename.into(),
                                     source: Arc::new(content.source.clone()),
                                     source_key: content.source.unique_key().into(),
+                                    thumbnail,
                                     width: info.width.map(|w| u64::from(w) as f32),
                                     height: info.height.map(|h| u64::from(h) as f32),
                                     size: info.size.map(|s| ByteSize::new(s.into())),
@@ -489,20 +492,29 @@ fn cached_from_timeline_item_content(
                             let info = content.info.clone().unwrap_or_default();
                             let filename = content.filename();
 
+                            let format =
+                                info.mimetype.and_then(|m| ImageFormat::from_mime_type(&m));
+                            let thumbnail =
+                                info.thumbnail_source.clone().map(CachedThumbnail::from);
+
                             (
                                 (filename != content.body).then_some(convert_to_formatted(
                                     &content.body,
                                     content.formatted.as_ref(),
                                 )),
                                 CachedMessageType::Video {
-                                    source: content.source.clone().into(),
                                     filename: filename.into(),
-                                    width: info.width.map(|w| w.into()),
-                                    height: info.height.map(|h| h.into()),
+                                    source: content.source.clone().into(),
+                                    source_key: content.source.unique_key().into(),
+                                    thumbnail,
+                                    width: info.width.map(|w| u64::from(w) as f32),
+                                    height: info.height.map(|h| u64::from(h) as f32),
                                     duration: info.duration.map(|d| d.as_secs()),
-                                    size: info.size.map(|s| s.into()),
-                                    mime_type: info.mimetype.map(|m| m.into()),
-                                    blurhash: info.blurhash.map(|h| h.into()),
+                                    size: info.size.map(|s| ByteSize::new(s.into())),
+                                    format,
+                                    blurhash_image: info
+                                        .blurhash
+                                        .and_then(|h| blurhash_to_image(&h)),
                                 },
                             )
                         }

@@ -4,7 +4,10 @@ use deplace_core::settings::SystemMessageType;
 use enumset::EnumSet;
 use gpui::{ElementId, Entity, ImageFormat, SharedString, StyleRefinement, Styled};
 use gpui_component::input::InputState;
-use matrix_sdk::ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource};
+use matrix_sdk::{
+    media::UniqueKey,
+    ruma::{OwnedEventId, OwnedUserId, events::room::MediaSource},
+};
 
 pub(super) mod convert;
 pub(super) mod render;
@@ -418,6 +421,21 @@ struct CachedBeaconInfo {
 }
 
 #[derive(Clone)]
+struct CachedThumbnail {
+    source: Arc<MediaSource>,
+    source_key: SharedString,
+}
+
+impl From<MediaSource> for CachedThumbnail {
+    fn from(source: MediaSource) -> Self {
+        Self {
+            source_key: source.unique_key().into(),
+            source: Arc::new(source),
+        }
+    }
+}
+
+#[derive(Clone)]
 enum CachedMessageType {
     Audio {
         _source: Arc<MediaSource>,
@@ -436,6 +454,7 @@ enum CachedMessageType {
         filename: SharedString,
         source: Arc<MediaSource>,
         source_key: SharedString,
+        thumbnail: Option<CachedThumbnail>,
         width: Option<f32>,
         height: Option<f32>,
         size: Option<ByteSize>,
@@ -449,14 +468,16 @@ enum CachedMessageType {
     },
     Text,
     Video {
-        source: Arc<MediaSource>,
         filename: SharedString,
-        width: Option<u64>,
-        height: Option<u64>,
-        size: Option<u64>,
+        source: Arc<MediaSource>,
+        source_key: SharedString,
+        thumbnail: Option<CachedThumbnail>,
+        width: Option<f32>,
+        height: Option<f32>,
         duration: Option<u64>,
-        mime_type: Option<SharedString>,
-        blurhash: Option<SharedString>,
+        size: Option<ByteSize>,
+        format: Option<ImageFormat>,
+        blurhash_image: Option<Arc<gpui::RenderImage>>,
     },
     LiveLocation {
         locations: Vec<CachedBeaconInfo>,

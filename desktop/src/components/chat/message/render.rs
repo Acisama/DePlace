@@ -636,11 +636,24 @@ impl CachedUserMessage {
                 filename,
                 source,
                 source_key,
+                thumbnail,
                 width,
                 height,
                 size,
                 format: _mime_type,
                 blurhash_image,
+            }
+            | CachedMessageType::Video {
+                filename,
+                source,
+                source_key,
+                thumbnail,
+                width,
+                height,
+                size,
+                format: _mime_type,
+                blurhash_image,
+                ..
             } => {
                 let max_width = chat.max_media_width.as_f32();
                 let max_height = chat.max_media_height.as_f32();
@@ -665,7 +678,10 @@ impl CachedUserMessage {
                     min_width,
                 );
 
-                let image = media_cache.get(source, source_key, width as u64, height as u64);
+                let image = thumbnail
+                    .as_ref()
+                    .map(|t| media_cache.get(&t.source, &t.source_key, width as u64, height as u64))
+                    .unwrap_or(media_cache.get(source, source_key, width as u64, height as u64));
 
                 const FADE_DURATION: Duration = Duration::from_millis(400);
                 let loaded_elapsed =
@@ -860,20 +876,20 @@ impl CachedUserMessage {
                 .child("Unable to decrypt message")
                 .cursor_text()
                 .into_any(),
-            CachedMessageType::Video {
-                source,
-                filename,
-                width,
-                height,
-                size,
-                duration,
-                mime_type,
-                blurhash,
-            } => {
-                let _ = 1 + 1;
-                // div().child(video(video))
-                div().into_any()
-            }
+            // CachedMessageType::Video {
+            //     source,
+            //     filename,
+            //     width,
+            //     height,
+            //     size,
+            //     duration,
+            //     mime_type,
+            //     blurhash,
+            // } => {
+            //     let _ = 1 + 1;
+            //     // div().child(video(video))
+            //     div().into_any()
+            // }
         };
 
         tailwind_div!(line_height(relative(1.0)), flex, flex_col)

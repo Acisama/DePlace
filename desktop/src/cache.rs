@@ -223,7 +223,7 @@ fn guess_image_format(bytes: &[u8]) -> Option<gpui::ImageFormat> {
     match image::guess_format(bytes) {
         Ok(format) => Some(gpui_format_from(format)),
         Err(e) => {
-            tracing::error!("Failed to guess image format: {:?}", e);
+            tracing::error!("Failed to guess image format: {e}");
             None
         }
     }
