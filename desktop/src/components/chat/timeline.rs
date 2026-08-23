@@ -442,20 +442,28 @@ impl TimelineView {
 
     /// Mark the message at the index for editing
     ///
-    /// Also sets the value of the editing inputstate to the
-    /// text of the message
+    /// This produces `None` if editing could not be started
     ///
-    /// This also subscribes to the Enter or Escape actions
+    /// Also sets the value of the editing inputstate to the
+    /// text of the message and  subscribes to the Enter or Escape actions
     /// of the input in order to easily terminate.
-    pub fn edit_message(&mut self, window: &mut Window, cx: &mut App, index: usize) -> Option<()> {
-        if let Some((_, editing)) = &mut self.focused_message {
-            *editing = true
-        };
+    pub fn try_edit_message(
+        &mut self,
+        window: &mut Window,
+        cx: &mut App,
+        index: usize,
+    ) -> Option<()> {
         let Some(message) = self.messages.get(index) else {
             return None;
         };
+        if !message.is_sent_by(&self.user_id) {
+            return None;
+        }
         let Some(text) = message.retrieve_text() else {
             return None;
+        };
+        if let Some((_, editing)) = &mut self.focused_message {
+            *editing = true
         };
         self.editing_message.update(cx, |this, cx| {
             this.set_value(text, window, cx);
@@ -819,7 +827,7 @@ impl Render for TimelineView {
                     };
                     let focused = focused_message.is_some_and(|f| f.0 == ix);
                     let editing = focused_message
-                        .is_some_and(|f| focused && f.1 && current.is_sent_by(user_id.clone()));
+                        .is_some_and(|f| focused && f.1 && current.is_sent_by(&user_id));
 
                     current.render(
                         window,

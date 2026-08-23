@@ -34,9 +34,9 @@ impl CachedTimelineItem {
         }
     }
 
-    pub fn is_sent_by(&self, sender: OwnedUserId) -> bool {
+    pub fn is_sent_by(&self, sender: &OwnedUserId) -> bool {
         match &self.kind {
-            CachedTimelineItemKind::Event(event) => *event.sender == sender,
+            CachedTimelineItemKind::Event(event) => *event.sender == *sender,
             _ => false,
         }
     }

@@ -371,8 +371,11 @@ impl Render for HomeView {
                 this.chat.update(cx, |that, cx| {
                     that.update_visible_timeline(cx, |timeline, cx| {
                         if let Some((idx, _)) = timeline.focused_message {
-                            timeline.edit_message(window, cx, idx);
-                            cx.notify();
+                            if let None = timeline.try_edit_message(window, cx, idx) {
+                                tracing::debug!("Failed to start editing message")
+                            } else {
+                                cx.notify();
+                            };
                         }
                     });
                 });
