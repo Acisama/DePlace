@@ -307,7 +307,6 @@ impl CachedTimelineEvent {
             rounded(pre_col_space / 2.0),
             group("message"),
             bg(bg),
-            hover(border_color(theme.tile.border), bg(hover_bg)),
             flex,
             relative,
             flex_col,
@@ -326,7 +325,11 @@ impl CachedTimelineEvent {
             ))
         })
         .when(is_system_message, |el| el.pt(structure.small_gap / 1.5))
-        .when(focused, |el| el.border_color(colors.error))
+        .when_else(
+            focused,
+            |el| el.hover(|s| s.bg(hover_bg)).border_color(colors.error),
+            |el| el.hover(|s| s.border_color(theme.tile.border).bg(hover_bg)),
+        )
         .when(self.flags.contains_only_emojis, |el| {
             el.text_size(structure.chat.text_size * 2.0)
         })
