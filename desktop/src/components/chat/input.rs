@@ -495,11 +495,7 @@ impl Render for ChatInputView {
                     return;
                 }
 
-                let in_reply_to = this
-                    .replying_to
-                    .as_ref()
-                    .map(|r| r.owned_event_id())
-                    .flatten();
+                let in_reply_to = this.replying_to.as_ref().and_then(|r| r.owned_event_id());
 
                 cx.emit(SendEvent::SendMessage {
                     text,

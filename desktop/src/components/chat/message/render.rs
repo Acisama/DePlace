@@ -641,7 +641,7 @@ impl CachedUserMessage {
                 height,
                 size,
                 format: _mime_type,
-                blurhash_image,
+                hash_image: blurhash_image,
             }
             | CachedMessageType::Video {
                 filename,
@@ -652,7 +652,7 @@ impl CachedUserMessage {
                 height,
                 size,
                 format: _mime_type,
-                blurhash_image,
+                hash_image: blurhash_image,
                 ..
             } => {
                 let max_width = chat.max_media_width.as_f32();

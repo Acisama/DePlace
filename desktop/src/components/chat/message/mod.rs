@@ -459,7 +459,7 @@ enum CachedMessageType {
         height: Option<f32>,
         size: Option<ByteSize>,
         format: Option<ImageFormat>,
-        blurhash_image: Option<Arc<gpui::RenderImage>>,
+        hash_image: Option<Arc<gpui::RenderImage>>,
     },
     Location(CachedBeaconInfo),
     Notice,
@@ -477,7 +477,7 @@ enum CachedMessageType {
         duration: Option<u64>,
         size: Option<ByteSize>,
         format: Option<ImageFormat>,
-        blurhash_image: Option<Arc<gpui::RenderImage>>,
+        hash_image: Option<Arc<gpui::RenderImage>>,
     },
     LiveLocation {
         locations: Vec<CachedBeaconInfo>,

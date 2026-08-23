@@ -13,6 +13,7 @@ use gpui_component::{
 };
 use image::{Frame, ImageBuffer, Rgba};
 use macros::tailwind_div;
+use matrix_sdk::ruma::serde::Base64;
 use smallvec::SmallVec;
 use std::sync::Arc;
 
@@ -126,7 +127,7 @@ pub fn blurhash_to_image(hash: &str) -> Option<Arc<RenderImage>> {
     let mut pixels = match decode(hash, width, height, 1.2) {
         Ok(pixels) => pixels,
         Err(e) => {
-            eprintln!("Failed to decode blurhash: {:?}", e);
+            tracing::error!("Failed to decode blurhash: {:?}", e);
             return None;
         }
     };
@@ -138,7 +139,34 @@ pub fn blurhash_to_image(hash: &str) -> Option<Arc<RenderImage>> {
     let buf = match ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels) {
         Some(buf) => buf,
         None => {
-            eprintln!("Failed to construct ImageBuffer");
+            tracing::error!("Failed to construct ImageBuffer");
+            return None;
+        }
+    };
+
+    Some(Arc::new(RenderImage::new(SmallVec::from_elem(
+        Frame::new(buf),
+        1,
+    ))))
+}
+
+pub fn thumbhash_to_image(hash: &Base64) -> Option<Arc<RenderImage>> {
+    let (width, height, mut pixels) = match thumbhash::thumb_hash_to_rgba(hash.as_bytes()) {
+        Ok(decoded) => decoded,
+        Err(_) => {
+            tracing::error!("Failed to decode thumbhash");
+            return None;
+        }
+    };
+
+    for chunk in pixels.chunks_exact_mut(4) {
+        chunk.swap(0, 2);
+    }
+
+    let buf = match ImageBuffer::<Rgba<u8>, _>::from_raw(width as u32, height as u32, pixels) {
+        Some(buf) => buf,
+        None => {
+            tracing::error!("Failed to construct ImageBuffer");
             return None;
         }
     };

@@ -34,7 +34,9 @@ use super::{
     CachedUserMessage, DetailState, EventFlags, ReactionInfo,
     text::{CachedBlock, convert_formatted_body},
 };
-use crate::components::{ByteSize, blurhash_to_image, chat::message::CachedThumbnail};
+use crate::components::{
+    ByteSize, blurhash_to_image, chat::message::CachedThumbnail, thumbhash_to_image,
+};
 
 impl From<&EventSendState> for CachedSendState {
     fn from(state: &EventSendState) -> Self {
@@ -433,6 +435,13 @@ fn cached_from_timeline_item_content(
                                 info.mimetype.and_then(|m| ImageFormat::from_mime_type(&m));
                             let thumbnail =
                                 info.thumbnail_source.clone().map(CachedThumbnail::from);
+                            let hash_image = info
+                                .thumbhash
+                                .as_ref()
+                                .and_then(thumbhash_to_image)
+                                .or_else(|| {
+                                    info.blurhash.as_ref().and_then(|h| blurhash_to_image(h))
+                                });
 
                             (
                                 (filename != content.body).then_some(convert_to_formatted(
@@ -448,9 +457,7 @@ fn cached_from_timeline_item_content(
                                     height: info.height.map(|h| u64::from(h) as f32),
                                     size: info.size.map(|s| ByteSize::new(s.into())),
                                     format,
-                                    blurhash_image: info
-                                        .blurhash
-                                        .and_then(|h| blurhash_to_image(&h)),
+                                    hash_image,
                                 },
                             )
                         }
@@ -496,6 +503,13 @@ fn cached_from_timeline_item_content(
                                 info.mimetype.and_then(|m| ImageFormat::from_mime_type(&m));
                             let thumbnail =
                                 info.thumbnail_source.clone().map(CachedThumbnail::from);
+                            let hash_image = info
+                                .thumbhash
+                                .as_ref()
+                                .and_then(thumbhash_to_image)
+                                .or_else(|| {
+                                    info.blurhash.as_ref().and_then(|h| blurhash_to_image(h))
+                                });
 
                             (
                                 (filename != content.body).then_some(convert_to_formatted(
@@ -512,9 +526,7 @@ fn cached_from_timeline_item_content(
                                     duration: info.duration.map(|d| d.as_secs()),
                                     size: info.size.map(|s| ByteSize::new(s.into())),
                                     format,
-                                    blurhash_image: info
-                                        .blurhash
-                                        .and_then(|h| blurhash_to_image(&h)),
+                                    hash_image,
                                 },
                             )
                         }
