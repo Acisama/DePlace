@@ -483,7 +483,10 @@ impl Render for HomeView {
                 this.chat.update(cx, |that, cx| {
                     that.update_visible_chat_input(cx, |input, cx| {
                         if input.remove_reply() {
-                            tracing::debug!("Removing reply from input instead of unfocusing input")
+                            tracing::debug!(
+                                "Removing reply from input instead of unfocusing input"
+                            );
+                            cx.notify();
                         } else {
                             tracing::debug!("Restoring focus to Chat or Home View");
                             window.focus(&this.focus, cx);
