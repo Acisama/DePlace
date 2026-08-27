@@ -10,12 +10,14 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     ruma::{MxcUri, OwnedMxcUri, UInt, events::room::MediaSource},
 };
+use mime_guess::Mime;
 use tokio::{runtime::Runtime, sync::watch};
 
 /// Meant to be cloned and passed around
 pub type AvatarCache = MediaCache<OwnedMxcUri, gpui::Image>;
 // pub type FileCache = MediaCache<String, Vec<u8>>;
 pub type ThumbnailCache = MediaCache<(gpui::SharedString, u64, u64), gpui::Image>;
+pub type VideoCache = MediaCache<OwnedMxcUri, gpui_video_player::Video>;
 
 #[derive(Clone, Default)]
 pub enum MediaState<C> {
@@ -154,6 +156,62 @@ impl AvatarCache {
 //     }
 // }
 
+impl VideoCache {
+    /// Get a video by mxc uri
+    ///
+    /// The video will be requested from the client, preferably using the cache.
+    ///
+    /// # Arguments
+    ///
+    /// - `uri`: I wonder what this could possibly mean
+    ///
+    /// - `source`: I actually have no clue
+    ///
+    /// - `size`: Size of the video being requested, this is part of the event.
+    ///
+    /// The size is used to determine whether the video should be loaded direcly
+    /// into memory or saved as file
+    pub fn get(
+        &self,
+        uri: OwnedMxcUri,
+        source: &MediaSource,
+        size: u64,
+    ) -> MediaState<gpui_video_player::Video> {
+        let request = MediaRequestParameters {
+            source: source.clone(),
+            format: MediaFormat::File,
+        };
+        let client = self.client.clone();
+        self.tokio_rt.spawn(async move {
+            let res = client
+                .media()
+                .get_media_content(request, true)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to get media: {e}");
+                })
+                .ok();
+            let state: gpui_video_player::Video = res
+                .and_then(|bytes| {
+                    let video = gpui_video_player::Video::new(uri);
+                    MediaState::Loaded(Arc::new(video))
+                }) // TODO: directly take the bytes, this here won't work
+                .unwrap_or_default();
+
+            if matches!(state, MediaState::Loaded(_)) {
+                store.loaded_at.insert(key.clone(), Instant::now());
+            }
+
+            store.cache.insert(key, state);
+            if let Err(e) = store.changed.send(()) {
+                tracing::error!("Failed to send cache change notification: {e}");
+            }
+        });
+
+        MediaState::Loading
+    }
+}
+
 impl ThumbnailCache {
     pub fn get(
         &self,
@@ -189,7 +247,7 @@ impl ThumbnailCache {
                 .get_media_content(&request, true)
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to fetch media: {e}");
+                    tracing::error!("Failed to get media: {e}");
                 })
                 .ok();
 

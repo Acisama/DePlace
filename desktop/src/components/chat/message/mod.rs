@@ -512,7 +512,7 @@ enum CachedMessageType {
         height: Option<f32>,
         duration: Option<u64>,
         size: Option<ByteSize>,
-        format: Option<ImageFormat>,
+        format: Option<mime_guess::Mime>,
         hash_image: Option<Arc<gpui::RenderImage>>,
     },
     LiveLocation {

@@ -16,7 +16,7 @@ gpui.workspace = true
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 gpui-platform = { package = "gpui_platform", git = "https://github.com/zed-industries/zed", features = ["wayland", "x11"] }
-# gpui-video = { git = "https://github.com/mavun17/gpui-video.git" }
+gpui-video-player = "0.1.2"
 image.workspace = true
 infer.workspace = true
 interprocess.workspace = true

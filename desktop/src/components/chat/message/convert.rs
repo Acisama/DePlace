@@ -505,8 +505,7 @@ fn cached_from_timeline_item_content(
                             let info = content.info.clone().unwrap_or_default();
                             let filename = content.filename();
 
-                            let format =
-                                info.mimetype.and_then(|m| ImageFormat::from_mime_type(&m));
+                            let format = info.mimetype.and_then(|m| &m.parse::<mime_guess::Mime>());
                             let thumbnail =
                                 info.thumbnail_source.clone().map(CachedThumbnail::from);
                             let hash_image = info
