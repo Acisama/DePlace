@@ -337,6 +337,8 @@ impl TimelineView {
         });
         *current_scroll = Some(task.abort_handle());
 
+        let prior_message_amount = self.messages.len();
+
         cx.spawn(async move |this, cx| {
             let result: Result<
                 Result<bool, matrix_sdk_ui::timeline::Error>,
@@ -357,10 +359,22 @@ impl TimelineView {
             }
             match result {
                 Ok(Ok(direction_end)) => {
-                    if let Err(e) = this.update(cx, |view, _| match direction {
-                        ScrollDirection::Up => view.pagination_state.reached_end = direction_end,
-                        ScrollDirection::Down => {
-                            view.pagination_state.reached_start = direction_end
+                    if let Err(e) = this.update(cx, |view, cx| {
+                        tracing::trace!("Updating Pagination state");
+                        match direction {
+                            ScrollDirection::Up => {
+                                view.pagination_state.reached_end = direction_end
+                            }
+                            ScrollDirection::Down => {
+                                view.pagination_state.reached_start = direction_end
+                            }
+                        }
+                        cx.notify();
+                        // there is a bug where the first scroll might complete successfully
+                        // but there are no new items added, so we repeat until something new
+                        // happens
+                        if view.messages.len() <= prior_message_amount && !direction_end {
+                            view.scroll(cx, direction);
                         }
                     }) {
                         tracing::error!("Failed to update pagination state: {}", e);
@@ -445,7 +459,7 @@ impl TimelineView {
     /// This produces `None` if editing could not be started
     ///
     /// Also sets the value of the editing inputstate to the
-    /// text of the message and  subscribes to the Enter or Escape actions
+    /// text of the message and subscribes to the Enter or Escape actions
     /// of the input in order to easily terminate.
     pub fn try_edit_message(
         &mut self,
