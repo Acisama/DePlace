@@ -645,6 +645,20 @@ impl CachedUserMessage {
                     ),
             )
             .into_any(),
+
+            // TODO: Implement video messages
+            CachedMessageType::Video {
+                filename,
+                source,
+                source_key,
+                thumbnail,
+                width,
+                height,
+                size,
+                format: _mime_type,
+                hash_image: blurhash_image,
+                ..
+            } => div().into_any(),
             // TODO: Implement text based files
             CachedMessageType::Image {
                 filename,
@@ -656,18 +670,6 @@ impl CachedUserMessage {
                 size,
                 format: _mime_type,
                 hash_image: blurhash_image,
-            }
-            | CachedMessageType::Video {
-                filename,
-                source,
-                source_key,
-                thumbnail,
-                width,
-                height,
-                size,
-                format: _mime_type,
-                hash_image: blurhash_image,
-                ..
             } => {
                 let max_width = chat.max_media_width.as_f32();
                 let max_height = chat.max_media_height.as_f32();

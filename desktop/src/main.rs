@@ -184,8 +184,8 @@ fn run_ui(_: mpsc::UnboundedReceiver<()>) {
 
             let tokio_rt = Arc::clone(&tokio_rt);
 
-            cx.observe_keystrokes(|e, _, _| tracing::trace!("{:?}", e.context_stack))
-                .detach();
+            // cx.observe_keystrokes(|e, _, _| tracing::trace!("{:?}", e.context_stack))
+            // .detach();
 
             if let Err(e) = cx.open_window(options, |window, cx| {
                 let root_view = cx.new(|cx| RootView::new(tokio_rt, window, cx));

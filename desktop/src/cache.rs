@@ -10,7 +10,6 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     ruma::{MxcUri, OwnedMxcUri, UInt, events::room::MediaSource},
 };
-use mime_guess::Mime;
 use tokio::{runtime::Runtime, sync::watch};
 
 /// Meant to be cloned and passed around
@@ -177,32 +176,45 @@ impl VideoCache {
         source: &MediaSource,
         size: u64,
     ) -> MediaState<gpui_video_player::Video> {
-        let request = MediaRequestParameters {
-            source: source.clone(),
-            format: MediaFormat::File,
-        };
+        if let Some(state) = self.cache.get(&uri) {
+            return state.clone();
+        }
+
         let client = self.client.clone();
+        let store = self.clone();
+        let uri = uri.clone();
+        let source = source.clone();
         self.tokio_rt.spawn(async move {
+            let request = MediaRequestParameters {
+                source: source.clone(),
+                format: MediaFormat::File,
+            };
+
             let res = client
                 .media()
-                .get_media_content(request, true)
+                .get_media_content(&request, true)
                 .await
                 .map_err(|e| {
                     tracing::error!("Failed to get media: {e}");
                 })
                 .ok();
-            let state: gpui_video_player::Video = res
+
+            let state = res
                 .and_then(|bytes| {
-                    let video = gpui_video_player::Video::new(uri);
-                    MediaState::Loaded(Arc::new(video))
+                    gpui_video_player::Video::new(&bytes.into())
+                        .map(|video| MediaState::Loaded(Arc::new(video)))
+                        .map_err(|e| {
+                            tracing::error!("Failed to create video: {e}");
+                        })
+                        .ok()
                 }) // TODO: directly take the bytes, this here won't work
                 .unwrap_or_default();
 
             if matches!(state, MediaState::Loaded(_)) {
-                store.loaded_at.insert(key.clone(), Instant::now());
+                store.loaded_at.insert(uri.clone(), Instant::now());
             }
 
-            store.cache.insert(key, state);
+            store.cache.insert(uri, state);
             if let Err(e) = store.changed.send(()) {
                 tracing::error!("Failed to send cache change notification: {e}");
             }

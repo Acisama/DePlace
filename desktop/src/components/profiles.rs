@@ -85,7 +85,7 @@ pub fn render_icon(svg_content: &'static str, size: impl Clone + Into<Length>) -
         .flex()
         .items_center()
         .justify_center()
-        .child(svg().source(svg_content.as_bytes()).size(size))
+        .child(svg().data(svg_content.as_bytes()).size(size))
         .into_any()
 }
 

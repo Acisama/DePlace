@@ -11,12 +11,13 @@ dashmap.workspace = true
 deplace_core = { workspace = true, features = ["desktop"] }
 dirs.workspace = true
 enumset.workspace = true
+futures.workspace = true
 futures-util.workspace = true
 gpui.workspace = true
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 gpui-platform = { package = "gpui_platform", git = "https://github.com/zed-industries/zed", features = ["wayland", "x11"] }
-gpui-video-player = "0.1.2"
+gpui-video-player.workspace = true
 image.workspace = true
 infer.workspace = true
 interprocess.workspace = true
@@ -40,7 +41,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 webbrowser = "1.2.4"
-futures.workspace = true
 
 [lints.clippy]
 exit = "warn"

@@ -14,7 +14,7 @@ use gpui::{
 };
 use gpui_component::{
     StyledExt,
-    input::{Input, InputState},
+    input::{Textarea, TextareaState},
     scroll::ScrollableElement,
 };
 use macros::tailwind_div;
@@ -44,7 +44,7 @@ use crate::{
 };
 
 pub struct ChatInputView {
-    pub chat_input: Entity<InputState>,
+    pub chat_input: Entity<TextareaState>,
     membership_map: Receiver<MembershipMap>,
 
     attachments: HashMap<Uuid, Attachment>,
@@ -72,8 +72,7 @@ impl ChatInputView {
         let data_size_unit = state.settings().watch_data_size_unit();
 
         let chat_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
+            TextareaState::new(window, cx)
                 .auto_grow(1, 10)
                 .placeholder(format!(
                     "Message {} ...",
@@ -517,7 +516,7 @@ impl Render for ChatInputView {
                 "chat_file_icon",
             ))
             .child(
-                Input::new(&self.chat_input)
+                Textarea::new(&self.chat_input)
                     .p_0()
                     .bg_transparent()
                     .border_transparent()
