@@ -5,6 +5,7 @@ use deplace_core::{
     matrix_api::messages::RoomSendingExt,
     state::{AppState, MembershipMap},
 };
+use futures::{SinkExt, channel::oneshot};
 use futures_util::StreamExt;
 use gpui::{
     App, AppContext, Context, Empty, Entity, EventEmitter, FocusHandle, Focusable, FollowMode,
@@ -31,7 +32,7 @@ use tokio::{
     sync::watch::Receiver,
     task::{AbortHandle, JoinHandle},
 };
-use tracing::error;
+use tracing::{Instrument, error, instrument};
 
 use crate::{
     cache::{AvatarCache, ThumbnailCache},
@@ -124,13 +125,12 @@ impl TimelineView {
     ///
     /// # Cross-Runtime Bug Reference
     ///
-    ///
-    /// * Polling Tokio primitives or using `tokio::sync::mpsc` receivers inside
+    /// * Polling Tokio futures or using `tokio::sync::mpsc` receivers inside
     ///   GPUI's `cx.spawn` can orphan task wakers.  This causes updates to freeze
     ///   silently without errors, panics, or task cancellation.
     /// * The Fix: The Matrix stream collection loop runs entirely within the dedicated
-    ///   Tokio runtime (`tokio_rt`), utilizing a runtime-agnostic `async_channel` to safely
-    ///   bridge updates across to GPUI's UI thread via `weak_self.update`.
+    ///   Tokio runtime (`tokio_rt`), utilizing a runtime-agnostic `futures::channel` to safely
+    ///   bridge updates across to GPUI's UI thread via `rx.await`.
     pub fn new(
         state: &AppState,
         cx: &mut Context<Self>,
@@ -166,7 +166,7 @@ impl TimelineView {
         tracing::debug!("Loading timeline for room {}", room_id);
 
         // Use async_channel
-        let (tx, rx) = async_channel::bounded(100);
+        let (mut tx, mut rx) = futures::channel::mpsc::channel(100);
         let room_id_tokio = room_id.clone();
 
         let timeline_builder = TimelineBuilder::new(&active_room)
@@ -207,7 +207,7 @@ impl TimelineView {
                 return;
             }
 
-            // poll the Matrix stream and forward via async_channel
+            // poll the Matrix stream and forward via channel
             while let Some(diffs) = update_stream.next().await {
                 if let Err(e) = tx.send(TimelineMessagePayload::Diffs(diffs)).await {
                     error!("{}", e);
@@ -221,7 +221,7 @@ impl TimelineView {
         let room_id_gpui = room_id.clone();
 
         // consume items cleanly on gpui's foreground thread pool completely distinct
-        // from tokios runtime via the runtime agnostic async_channel
+        // from tokios runtime via the runtime agnostic channel
         let updates_task = cx.spawn(async move |_this, cx| {
             while let Ok(payload) = rx.recv().await {
                 let updated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -470,16 +470,18 @@ impl TimelineView {
     }
 
     /// Resets the editing flag and restores focus to chat
+    #[instrument(skip_all, level = "trace")]
     fn cancel_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        tracing::debug!("Canceling editing message");
+        tracing::debug!("Canceling editing message.");
         if let Some((_, editing, _)) = &mut self.focused_message {
             if !*editing {
                 tracing::warn!(
-                    "Received action to cancel editing message without currently editing message"
+                    "Received action to cancel editing message without currently editing message."
                 );
             }
             *editing = false;
         }
+        tracing::debug!("Restoring focus to timeline.");
         cx.focus_self(window);
         cx.notify();
     }
@@ -795,6 +797,8 @@ impl Render for TimelineView {
             .key_context("Chat")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(|this, _: &SubmitEdit, window, cx| {
+                let span = tracing::info_span!("submit_edit");
+
                 let Some((idx, _, _)) = &this.focused_message else {
                     return;
                 };
@@ -808,23 +812,28 @@ impl Render for TimelineView {
                 let room = this.active_room.clone();
                 let text = this.editing_message.read(cx).text().to_string();
 
-                let task = this
-                    .tokio_rt
-                    .spawn(async move { room.edit_message(event_id, text).await });
+                let (tx, rx) = oneshot::channel();
 
-                cx.spawn_in(window, async move |this, cx| match task.await {
-                    Ok(Ok(_)) => {
-                        if let Err(e) = this.update_in(cx, |this, window, cx| {
+                // spawn tokio task and send the result using the oneshot channel
+                this.tokio_rt.spawn(
+                    async move {
+                        let res = room.edit_message(event_id, text).await;
+                        let _ = tx.send(res);
+                    }
+                    .instrument(span.clone()),
+                );
+
+                cx.spawn_in(window, async move |this, cx| {
+                    // await the result of the tokio task using the receiver of the oneshot channel
+                    let Ok(res) = rx.await else {
+                        tracing::error!(parent: &span, "Background task dropped before sending result");
+                        return;
+                    };
+
+                    if let Ok(_) = res {
+                        let _ = this.update_in(cx, |this, window, cx| {
                             this.cancel_editing(window, cx);
-                        }) {
-                            tracing::error!("Failed to cancel editing: {e:?}");
-                        }
-                    }
-                    Ok(Err(err)) => {
-                        tracing::error!("Failed to edit message: {err:?}");
-                    }
-                    Err(err) => {
-                        tracing::error!("Task join error: {err:?}");
+                        });
                     }
                 })
                 .detach();
