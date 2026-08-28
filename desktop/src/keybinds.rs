@@ -148,7 +148,7 @@ fn default_keymap() -> Vec<KeymapSection> {
             ]),
         },
         KeymapSection {
-            context: Some("EditMessage".to_string()),
+            context: Some("EditMessage > Input".to_string()),
             bindings: HashMap::from([
                 ("escape".to_string(), serde_json::json!("chat::CancelEdit")),
                 ("enter".to_string(), serde_json::json!("chat::SubmitEdit")),

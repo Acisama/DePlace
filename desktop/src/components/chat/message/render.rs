@@ -16,7 +16,7 @@ use gpui::{
 };
 use gpui_component::{
     StyledExt,
-    input::{Input, InputState},
+    input::{Textarea, TextareaState},
     red_600,
 };
 // use gpui_video::video;
@@ -51,7 +51,7 @@ impl CachedTimelineItem {
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
         focused: bool,
-        editing: Option<Entity<InputState>>,
+        editing: Option<Entity<TextareaState>>,
         replying_to: bool,
         state: &AppState,
     ) -> AnyElement {
@@ -123,7 +123,7 @@ impl CachedTimelineEvent {
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
         focused: bool,
-        editing: Option<Entity<InputState>>,
+        editing: Option<Entity<TextareaState>>,
         replying_to: bool,
         state: &AppState,
     ) -> AnyElement {
@@ -478,7 +478,7 @@ impl CachedUserMessage {
         member_avatar: impl Fn(&UserId) -> AnyElement,
         member_name_color: impl Fn(&UserId) -> (SharedString, Hsla),
         state: &AppState,
-        editing: Option<Entity<InputState>>,
+        editing: Option<Entity<TextareaState>>,
         replying_to: bool,
         toggle_reaction: impl Fn(SharedString) + Clone + 'static,
     ) -> Div {
@@ -513,7 +513,6 @@ impl CachedUserMessage {
                     items_center,
                     w_full,
                     rounded(structure.inner_border_radius),
-                    paddings(structure.small_gap),
                     text_size(structure.chat.text_size),
                     gap(structure.small_gap),
                     border_1,
@@ -523,7 +522,9 @@ impl CachedUserMessage {
                 .key_context("EditMessage")
                 .track_focus(&input_focus_handle)
                 .child(
-                    Input::new(&input_state)
+                    Textarea::new(&input_state)
+                        .appearance(false)
+                        .bordered(false)
                         .p_0()
                         .bg_transparent()
                         .border_transparent()

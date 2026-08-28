@@ -12,7 +12,7 @@ use gpui::{
     InteractiveElement, IntoElement, ListAlignment, ListScrollEvent, ListState, ParentElement,
     Render, SharedString, Styled, Task, Window, actions, list, px,
 };
-use gpui_component::{StyledExt, input::InputState};
+use gpui_component::{StyledExt, input::TextareaState};
 use macros::tailwind_div;
 use matrix_sdk::{
     Room,
@@ -96,7 +96,7 @@ pub struct TimelineView {
     ///
     /// TODO: Change this into a struct, this is getting too big
     pub focused_message: Option<(usize, bool, bool)>,
-    editing_message: Entity<InputState>,
+    editing_message: Entity<TextareaState>,
     active_room: Room,
     timeline: Option<Arc<Timeline>>,
 
@@ -290,7 +290,7 @@ impl TimelineView {
             messages: Arc::new(Vec::new()),
             state: state.clone(),
             focused_message: None,
-            editing_message: cx.new(|cx| InputState::new(window, cx)),
+            editing_message: cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 10)),
             avatar_cache,
             image_cache,
             membership_map,
@@ -832,22 +832,34 @@ impl Render for TimelineView {
                 this.tokio_rt.spawn(
                     async move {
                         let res = room.edit_message(event_id, text).await;
-                        let _ = tx.send(res);
+                        if let Err(e) = tx.send(res) {
+                            tracing::error!("Failed to send result: {:?}", e);
+                        }
                     }
                     .instrument(span.clone()),
                 );
 
                 cx.spawn_in(window, async move |this, cx| {
                     // await the result of the tokio task using the receiver of the oneshot channel
-                    let Ok(res) = rx.await else {
-                        tracing::error!(parent: &span, "Background task dropped before sending result");
-                        return;
+                    match rx.await {
+                        Ok(Ok(res)) => res,
+                        Err(e) => {
+                            tracing::error!(
+                                "Background task dropped before sending result: {:?}",
+                                e
+                            );
+                            return;
+                        }
+                        Ok(Err(e)) => {
+                            tracing::error!("Background task failed: {:?}", e);
+                            return;
+                        }
                     };
 
-                    if let Ok(_) = res {
-                        let _ = this.update_in(cx, |this, window, cx| {
-                            this.cancel_editing(window, cx);
-                        });
+                    if let Err(e) = this.update_in(cx, |this, window, cx| {
+                        this.cancel_editing(window, cx);
+                    }) {
+                        tracing::error!("Failed to cancel editing: {:?}", e);
                     }
                 })
                 .detach();
