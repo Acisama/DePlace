@@ -464,7 +464,6 @@ impl Render for ChatInputView {
                 rounded_b(structure.inner_border_radius),
                 paddings(structure.small_gap),
                 text_size(structure.chat.text_size),
-                gap(structure.small_gap),
                 border_1,
                 border_color(input_border),
                 bg(input_bg)
@@ -517,6 +516,9 @@ impl Render for ChatInputView {
             ))
             .child(
                 Textarea::new(&self.chat_input)
+                    .appearance(false)
+                    .bordered(false)
+                    .text_size(structure.font_size)
                     .p_0()
                     .bg_transparent()
                     .border_transparent()
