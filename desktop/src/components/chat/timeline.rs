@@ -159,6 +159,7 @@ impl TimelineView {
         notify_on_change(membership_map.clone(), cx);
         notify_on_change(avatar_cache.subscribe(), cx);
         notify_on_change(image_cache.subscribe(), cx);
+        notify_on_change(video_cache.subscribe(), cx);
 
         notify_on_change(settings.watch_data_size_unit(), cx);
         notify_on_change(settings.watch_system_messages_to_show(), cx);
