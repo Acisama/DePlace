@@ -10,7 +10,7 @@ use matrix_sdk::{Room, ruma::OwnedRoomId};
 use tokio::runtime::Runtime;
 
 use crate::{
-    cache::{AvatarCache, ThumbnailCache},
+    cache::{AvatarCache, ThumbnailCache, VideoCache},
     components::{
         chat::{
             input::{ChatInputView, SendEvent},
@@ -46,6 +46,7 @@ impl ChatView {
         tokio_rt: Arc<Runtime>,
         avatar_cache: AvatarCache,
         image_cache: ThumbnailCache,
+        video_cache: VideoCache,
         room: Room,
     ) -> Self {
         let timeline = cx.new(|cx| {
@@ -56,6 +57,7 @@ impl ChatView {
                 tokio_rt.clone(),
                 avatar_cache.clone(),
                 image_cache.clone(),
+                video_cache,
                 room.clone(),
             )
         });

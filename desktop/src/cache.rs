@@ -12,6 +12,8 @@ use matrix_sdk::{
 };
 use tokio::{runtime::Runtime, sync::watch};
 
+use crate::components::ByteSize;
+
 /// Meant to be cloned and passed around
 pub type AvatarCache = MediaCache<OwnedMxcUri, gpui::Image>;
 // pub type FileCache = MediaCache<String, Vec<u8>>;
@@ -172,17 +174,22 @@ impl VideoCache {
     /// into memory or saved as file
     pub fn get(
         &self,
-        uri: OwnedMxcUri,
+        // uri: OwnedMxcUri,
         source: &MediaSource,
-        size: u64,
+        size: &Option<ByteSize>,
     ) -> MediaState<gpui_video_player::Video> {
+        let uri = match source {
+            MediaSource::Plain(uri) => uri,
+            MediaSource::Encrypted(enc) => &enc.url,
+        }
+        .clone();
+
         if let Some(state) = self.cache.get(&uri) {
             return state.clone();
         }
 
         let client = self.client.clone();
         let store = self.clone();
-        let uri = uri.clone();
         let source = source.clone();
         self.tokio_rt.spawn(async move {
             let request = MediaRequestParameters {
@@ -202,7 +209,11 @@ impl VideoCache {
             let state = res
                 .and_then(|bytes| {
                     gpui_video_player::Video::new(&bytes.into())
-                        .map(|video| MediaState::Loaded(Arc::new(video)))
+                        .map(|video| {
+                            video.set_paused(true);
+                            video.set_looping(true);
+                            MediaState::Loaded(Arc::new(video))
+                        })
                         .map_err(|e| {
                             tracing::error!("Failed to create video: {e}");
                         })

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::components::chat::{FocusNext, FocusPrevious, ReplyToMessage};
+use crate::{
+    cache::VideoCache,
+    components::chat::{FocusNext, FocusPrevious, ReplyToMessage},
+};
 
 use deplace_core::{
     APP_HUMAN_NAME, NameExt, get_other_member,
@@ -56,6 +59,7 @@ pub struct HomeView {
 
     avatar_cache: AvatarCache,
     image_cache: ThumbnailCache,
+    video_cache: VideoCache,
 
     overlay: Entity<Overlay>,
     overlay_subscription: Option<Subscription>, // keep subscription unique instead of detaching
@@ -145,6 +149,7 @@ impl HomeView {
         window.focus(&focus_handle, cx);
         let avatar_cache = AvatarCache::new(state.client(), tokio_rt.clone());
         let image_cache = ThumbnailCache::new(state.client(), tokio_rt.clone());
+        let video_cache = VideoCache::new(state.client(), tokio_rt.clone());
 
         let server_list = cx.new(|cx| {
             ServerListView::new(state.clone(), cx, tokio_rt.clone(), avatar_cache.clone())
@@ -222,6 +227,7 @@ impl HomeView {
 
             avatar_cache,
             image_cache,
+            video_cache,
 
             focus: focus_handle,
             overlay,
@@ -276,6 +282,7 @@ impl HomeView {
                                 self.tokio_rt.clone(),
                                 self.avatar_cache.clone(),
                                 self.image_cache.clone(),
+                                self.video_cache.clone(),
                                 room,
                             )
                         }),

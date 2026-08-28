@@ -35,7 +35,7 @@ use tokio::{
 use tracing::{Instrument, error, instrument};
 
 use crate::{
-    cache::{AvatarCache, ThumbnailCache},
+    cache::{AvatarCache, ThumbnailCache, VideoCache},
     components::chat::{
         input::SendEvent,
         message::{CachedTimelineItem, CachedTimelineItemKind, cached_from_timeline_item},
@@ -102,6 +102,7 @@ pub struct TimelineView {
 
     avatar_cache: AvatarCache,
     image_cache: ThumbnailCache,
+    video_cache: VideoCache,
 
     state: AppState,
     pagination_state: PaginationState,
@@ -138,6 +139,7 @@ impl TimelineView {
         tokio_rt: Arc<Runtime>,
         avatar_cache: AvatarCache,
         image_cache: ThumbnailCache,
+        video_cache: VideoCache,
         active_room: Room,
     ) -> Self {
         let list_state = ListState::new(0, ListAlignment::Bottom, px(500.));
@@ -293,6 +295,7 @@ impl TimelineView {
             editing_message: cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 10)),
             avatar_cache,
             image_cache,
+            video_cache,
             membership_map,
             tokio_rt,
             timeline: None,
@@ -798,6 +801,7 @@ impl Render for TimelineView {
         let messages = self.messages.clone();
         let avatar_cache = self.avatar_cache.clone();
         let image_cache = self.image_cache.clone();
+        let video_cache = self.video_cache.clone();
 
         let map = self.membership_map.borrow().clone();
 
@@ -886,6 +890,7 @@ impl Render for TimelineView {
                         &map,
                         &avatar_cache,
                         &image_cache,
+                        &video_cache,
                         focused,
                         if editing {
                             Some(editing_message.clone())

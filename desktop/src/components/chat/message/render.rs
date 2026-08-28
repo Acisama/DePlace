@@ -21,7 +21,7 @@ use gpui_component::{
 };
 // use gpui_video::video;
 use macros::tailwind_div;
-use matrix_sdk::ruma::{OwnedEventId, RoomId, UserId};
+use matrix_sdk::ruma::{OwnedEventId, RoomId, UserId, events::room::MediaSource};
 
 use super::{
     CachedEventContent, CachedMessageType, CachedReplyInfo, CachedSendState, CachedSystemMessage,
@@ -30,7 +30,7 @@ use super::{
     text::{CachedBlock, CachedLink, CachedPill, CachedRichText},
 };
 use crate::{
-    cache::{AvatarCache, MediaState, ThumbnailCache},
+    cache::{AvatarCache, MediaState, ThumbnailCache, VideoCache},
     components::{
         CustomStyles,
         profiles::{MemberRenderer, render_icon},
@@ -50,6 +50,7 @@ impl CachedTimelineItem {
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
+        video_cache: &VideoCache,
         focused: bool,
         editing: Option<Entity<TextareaState>>,
         replying_to: bool,
@@ -101,6 +102,7 @@ impl CachedTimelineItem {
                 map,
                 avatar_cache,
                 image_cache,
+                video_cache,
                 focused,
                 editing,
                 replying_to,
@@ -122,6 +124,7 @@ impl CachedTimelineEvent {
         map: &MembershipMap,
         avatar_cache: &AvatarCache,
         image_cache: &ThumbnailCache,
+        video_cache: &VideoCache,
         focused: bool,
         editing: Option<Entity<TextareaState>>,
         replying_to: bool,
@@ -199,6 +202,7 @@ impl CachedTimelineEvent {
                 window,
                 cx,
                 image_cache,
+                video_cache,
                 member_avatar,
                 member_name_color,
                 state,
@@ -475,6 +479,7 @@ impl CachedUserMessage {
         window: &Window,
         cx: &mut App,
         media_cache: &ThumbnailCache,
+        video_cache: &VideoCache,
         member_avatar: impl Fn(&UserId) -> AnyElement,
         member_name_color: impl Fn(&UserId) -> (SharedString, Hsla),
         state: &AppState,
@@ -652,15 +657,181 @@ impl CachedUserMessage {
                 filename,
                 source,
                 source_key,
-                thumbnail,
+                thumbnail: _thumbnail,
                 width,
                 height,
                 size,
                 format: _mime_type,
                 hash_image: blurhash_image,
                 ..
-            } => div().into_any(),
-            // TODO: Implement text based files
+            } => {
+                let max_width = chat.max_media_width.as_f32();
+                let max_height = chat.max_media_height.as_f32();
+
+                // Compute aspect-fitted display size based on max bounds
+                let (display_width, display_height) = match (*width, *height) {
+                    (Some(w), Some(h)) if w > 0.0 && h > 0.0 => {
+                        let scale = (max_width / w).min(max_height / h).min(1.0);
+                        (w * scale, h * scale)
+                    }
+                    (Some(w), _) if w > 0.0 => (w.min(max_width), max_height),
+                    (_, Some(h)) if h > 0.0 => (max_width, h.min(max_height)),
+                    _ => (max_width, max_height),
+                };
+
+                let label_text = match size {
+                    Some(size) => format!("{filename} ({})", size.get(data_size_unit)),
+                    None => filename.to_string(),
+                };
+                let label_run = base_text_style.clone().to_run(label_text.len());
+                let label_text_width = window
+                    .text_system()
+                    .layout_line(&label_text, chat.text_size, &[label_run], None)
+                    .width;
+
+                let min_width = (label_text_width + structure.small_gap * 4.0).as_f32();
+
+                let (width, height) = fit_dimensions(
+                    width.unwrap_or(max_width),
+                    height.unwrap_or(max_height),
+                    max_width,
+                    max_height,
+                    min_width,
+                );
+
+                let video = video_cache.get(source, size);
+
+                const FADE_DURATION: Duration = Duration::from_millis(400);
+                let uri = match source.as_ref() {
+                    MediaSource::Plain(uri) => uri,
+                    MediaSource::Encrypted(enc) => &enc.url,
+                }
+                .clone();
+                let loaded_elapsed = video_cache.loaded_elapsed(&uri);
+
+                let w = Pixels::from(width);
+                let h = Pixels::from(height);
+
+                let rounding = structure.inner_border_radius;
+
+                let error_bg = theme.solid_bg.blend(error.alpha(0.05));
+                let error_text_size = chat.text_size * 1.5;
+                let error_fallback = move || {
+                    tailwind_div!(
+                        size_full,
+                        bg(error_bg),
+                        text_color(error),
+                        outer_gradient(error, px(2.0)),
+                        flex,
+                        items_center,
+                        justify_center,
+                        text_size(error_text_size),
+                        text_center,
+                        rounded(rounding)
+                    )
+                    .child("Failed to load video")
+                    .into_any()
+                };
+
+                let content = match video {
+                    MediaState::Loading => {
+                        if blurhash_image.is_some() {
+                            div().size_full().into_any()
+                        } else {
+                            tailwind_div!(
+                                size_full,
+                                border_1,
+                                bg(theme.solid_bg),
+                                border_color(theme.tile.border)
+                            )
+                            .into_any()
+                        }
+                    }
+                    MediaState::Loaded(video) => {
+                        let video_clone = video.clone();
+                        div()
+                            .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
+                                video_clone.set_paused(!video_clone.paused());
+                            })
+                            .child(
+                                gpui_video_player::video((*video).clone())
+                                    .size(px(display_width), px(display_height)),
+                            )
+                            .into_any()
+                    }
+                    MediaState::Failed => error_fallback().into_any(),
+                };
+
+                let blurhash_overlay = blurhash_image.clone().and_then(|blurhash| {
+                    let el = img(blurhash)
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .object_fit(ObjectFit::Cover)
+                        .rounded(rounding);
+
+                    match loaded_elapsed {
+                        None => Some(el.into_any()),
+                        Some(elapsed) if elapsed < FADE_DURATION => {
+                            let start_opacity =
+                                1.0 - elapsed.as_secs_f32() / FADE_DURATION.as_secs_f32();
+                            Some(
+                                el.with_animation(
+                                    ElementId::Name(format!("{filename}-blurhash-fade-out").into()),
+                                    Animation::new(
+                                        FADE_DURATION.checked_sub(elapsed).unwrap_or_default(),
+                                    ),
+                                    move |el, delta| el.opacity(start_opacity * (1.0 - delta)),
+                                )
+                                .into_any(),
+                            )
+                        }
+                        Some(_) => None,
+                    }
+                });
+
+                tailwind_div!(flex, flex_col, gap(structure.small_gap))
+                    .when_some(self.body.as_ref(), |el, text| {
+                        el.child(render_body(text.clone()))
+                    })
+                    .child(
+                        tailwind_div!(
+                            w(w),
+                            h(h),
+                            overflow_hidden,
+                            rounded(structure.inner_border_radius)
+                        )
+                        .group(filename)
+                        .relative()
+                        .when_some(blurhash_overlay, |el, overlay| el.child(overlay))
+                        .child(content)
+                        .child(
+                            tailwind_div!(
+                                absolute,
+                                bottom(structure.small_gap),
+                                left(structure.small_gap),
+                                paddings(structure.small_gap),
+                                rounded(
+                                    (structure.smaller_border_radius
+                                        + structure.inner_border_radius)
+                                        / 2.0
+                                ),
+                                border_1,
+                                border_color(theme.tile.border),
+                                opacity(0.0),
+                                bg(theme.solid_bg),
+                                flex,
+                                items_center,
+                            )
+                            .group_hover(filename, |style| style.opacity(1.0))
+                            .child(filename.clone())
+                            .when_some(size.clone(), |el, size| {
+                                el.child(" (").child(size.get(data_size_unit)).child(")")
+                            }),
+                        ),
+                    )
+                    .into_any()
+            }
             CachedMessageType::Image {
                 filename,
                 source,
