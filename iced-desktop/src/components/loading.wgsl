@@ -12,7 +12,7 @@ var<uniform> u: Uniforms;
 const k_loading_speed_mult: f32 = 15.0;
 const k_normal_speed_mult: f32 = 1.0;
 const k_state_transition_seconds: f32 = 0.5;
-const k_state_count: f32 = 4.0;
+const k_state_count: f32 = 5.0;
 const k_state_max: f32 = k_state_count - 1.0;
 const k_speed_drop_pow: f32 = 2.0;
 const k_speed_state_pow: f32 = 0.2;

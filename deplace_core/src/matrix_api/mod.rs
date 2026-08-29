@@ -45,16 +45,14 @@ pub async fn test_server(url: Url) -> Option<Client> {
 }
 
 pub enum LoginResult {
-    ValidCredentials(AppState),
+    Success(AppState),
     InvalidCredentials,
     Error(String),
-    BackToDiscovery,
 }
 
 pub enum EncryptionUpgradeResult {
     Verified,
-    Error,
-    Canceled,
+    Error(String),
 }
 
 impl Default for LoginResult {
@@ -66,17 +64,17 @@ impl Default for LoginResult {
 /// Upgrades the clients encryption using the recovery key.
 pub async fn recover_client_encryption(
     state: AppState,
-    recovery_key: &str,
+    recovery_key: String,
 ) -> EncryptionUpgradeResult {
     let Ok(_) = state
         .client()
         .encryption()
         .recovery()
-        .recover(recovery_key)
+        .recover(&recovery_key)
         .await
     else {
         tracing::error!("Recovery failed");
-        return EncryptionUpgradeResult::Error;
+        return EncryptionUpgradeResult::Error("Recovery failed".to_string());
     };
 
     tracing::info!("Restored encryption");
@@ -224,7 +222,7 @@ where
     let state = AppState::new(client.clone(), device.clone(), settings).await;
     spawn_room_sync(&client, &state);
 
-    LoginResult::ValidCredentials(state)
+    LoginResult::Success(state)
 }
 
 pub fn save_session(client: &Client) {

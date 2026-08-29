@@ -3,18 +3,26 @@ use iced::{Task, window};
 use matrix_sdk::Client;
 use tracing_subscriber::EnvFilter;
 
-use crate::components::{Root, authentification::DiscoveryMessage};
+use crate::components::{
+    Root,
+    authentification::{
+        discovery::DiscoveryMessage, login::LoginMessage, verification::VerificationMessage,
+    },
+};
 
 mod components;
+mod things;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AppMessage {
     Start(window::Id),
     Discovery(DiscoveryMessage),
+    Login(LoginMessage),
+    Verification(VerificationMessage),
     Restored(RestoreResult),
     Tick,
+    TabPressed { shift: bool },
     GoToLoading,
-    GoToDiscovery(Client),
     GoToLogin(Client),
     GoToHome { state: Box<AppState> },
 }

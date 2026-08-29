@@ -22,12 +22,12 @@ pub struct DiscoveryView {
     tokio_rt: Arc<tokio::runtime::Runtime>,
     pub state: GenericState,
     server_input: Entity<InputState>,
-    valid_result: Option<(Client, Url)>,
+    valid_result: Option<Client>,
     current_request: Option<tokio::task::AbortHandle>,
     _subscriptions: Vec<Subscription>,
 }
 
-impl EventEmitter<Option<(Client, Url)>> for DiscoveryView {}
+impl EventEmitter<Option<Client>> for DiscoveryView {}
 
 impl DiscoveryView {
     pub fn new(
@@ -113,7 +113,7 @@ impl DiscoveryView {
         self.state = GenericState::Loading;
         cx.notify();
 
-        let task = tokio_rt.spawn(async move { test_server(url.to_string()).await });
+        let task = tokio_rt.spawn(async move { test_server(url).await });
         self.current_request = Some(task.abort_handle());
 
         cx.spawn(async move |this, cx| {
