@@ -24,20 +24,24 @@ use crate::{
     state::{AppState, UserDevice},
 };
 
-pub async fn test_server(server_name_or_url: String) -> Option<(Client, Url)> {
-    tracing::trace!("Testing server: {server_name_or_url}");
-    let client = Client::builder()
-        .server_name_or_homeserver_url(&server_name_or_url)
+pub async fn test_server(url: Url) -> Option<Client> {
+    tracing::trace!("Testing server: {url}");
+
+    match Client::builder()
+        .server_name_or_homeserver_url(url.as_str())
         .request_config(RequestConfig::short_retry())
         .build()
         .await
-        .ok()?;
-
-    let homeserver = client.homeserver();
-
-    tracing::debug!("Valid homeserver: {homeserver}");
-
-    Some((client, homeserver))
+    {
+        Ok(client) => {
+            tracing::debug!("Valid homeserver: {}", url);
+            Some(client)
+        }
+        Err(_) => {
+            tracing::trace!("Invalid homeserver: {url}");
+            None
+        }
+    }
 }
 
 pub enum LoginResult {

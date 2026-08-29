@@ -7,11 +7,12 @@ edition = "2024"
 bytemuck = { version = "1", features = ["derive"] }
 deplace_core.workspace = true
 iced.workspace = true
-iced_devtools.workspace = true
 matrix-sdk.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+url.workspace = true
+url-macro.workspace = true
 
 [dev-dependencies]
 naga = "27"

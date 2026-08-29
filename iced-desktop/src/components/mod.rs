@@ -8,19 +8,19 @@ use iced::{
 };
 use matrix_sdk::Room;
 
-use crate::AppMessage;
+use crate::{
+    AppMessage,
+    components::authentification::{DiscoveryAction, DiscoveryMessage},
+};
 use authentification::{Discovery, Login};
 use home::Home;
 
-mod authentification;
+pub(crate) mod authentification;
 mod home;
 pub(crate) mod shader;
 mod sidebar;
 
-#[derive(Default)]
 pub enum GenericState<T> {
-    #[default]
-    Unchecked,
     Checking,
     Success(T),
     Error(String),
@@ -41,21 +41,37 @@ enum RoomChange {
 }
 
 impl Screen {
-    fn update(&mut self, message: AppMessage) {
+    fn update(&mut self, message: AppMessage) -> Task<AppMessage> {
         match message {
+            AppMessage::Discovery(msg) if let Screen::Discovery(discovery) = self => {
+                match discovery.update(msg) {
+                    DiscoveryAction::None => {}
+                    DiscoveryAction::Run(task) => {
+                        return task.map(|res| AppMessage::Discovery(DiscoveryMessage::from(res)));
+                    }
+                    DiscoveryAction::SelectedClient(client) => {
+                        *self = Screen::Login(Login::new(client));
+                    }
+                };
+            }
             AppMessage::GoToLoading => *self = Screen::Loading,
-            AppMessage::GoToDiscovery(client) => *self = Screen::Discovery(Discovery::new(client)),
+            AppMessage::GoToDiscovery(client) => *self = Screen::Discovery(Discovery::from(client)),
             AppMessage::GoToLogin(client) => *self = Screen::Login(Login::new(client)),
             AppMessage::GoToHome { state } => *self = Screen::Home(Home::new(*state)),
             AppMessage::Restored(result) => {
                 *self = match result {
                     RestoreResult::NeedsLogin(client) => Screen::Login(Login::new(client)),
-                    RestoreResult::NoSession => Screen::Loading,
-                    RestoreResult::Success(state) => Screen::Home(Home::new(*state)),
+                    RestoreResult::NoSession | RestoreResult::Success(_) => {
+                        let (discovery, task) = Discovery::new();
+                        *self = Screen::Discovery(discovery);
+                        return task.map(|res| AppMessage::Discovery(DiscoveryMessage::from(res)));
+                    } // RestoreResult::Success(state) => Screen::Home(Home::new(*state)),
                 }
             }
             _ => {}
         };
+
+        Task::none()
     }
 
     /// Index fed to the loading shader's `u_state`/`u_prev_state` uniforms.
@@ -65,6 +81,15 @@ impl Screen {
             Screen::Discovery(_) => 1.0,
             Screen::Login(_) => 2.0,
             Screen::Home(_) => 3.0,
+        }
+    }
+
+    fn view(&self) -> Element<'_, AppMessage> {
+        match self {
+            Screen::Loading => "loading".into(),
+            Screen::Discovery(discovery) => discovery.view().map(AppMessage::Discovery),
+            Screen::Login { .. } => "login".into(),
+            Screen::Home { .. } => "home".into(),
         }
     }
 }
@@ -77,10 +102,9 @@ pub struct Root {
 
 impl Root {
     pub fn update(&mut self, message: AppMessage) -> Task<AppMessage> {
-        self.screen.update(message);
         self.loading.transition_to(self.screen.state_index());
 
-        Task::none()
+        self.screen.update(message)
     }
 
     pub fn subscription(&self) -> Subscription<AppMessage> {
@@ -89,13 +113,10 @@ impl Root {
 
     pub fn view(&self, _window: window::Id) -> Element<'_, AppMessage> {
         let background = Shader::new(self.loading).width(Fill).height(Fill);
-        let content: Element<'_, AppMessage> = match &self.screen {
-            Screen::Loading => "loading".into(),
-            Screen::Discovery { .. } => "discovery".into(),
-            Screen::Login { .. } => "login".into(),
-            Screen::Home { .. } => "home".into(),
-        };
 
-        Stack::new().push(background).push(content).into()
+        Stack::new()
+            .push(background)
+            .push(self.screen.view())
+            .into()
     }
 }

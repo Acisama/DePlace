@@ -3,13 +3,14 @@ use iced::{Task, window};
 use matrix_sdk::Client;
 use tracing_subscriber::EnvFilter;
 
-use crate::components::Root;
+use crate::components::{Root, authentification::DiscoveryMessage};
 
 mod components;
 
 #[derive(Debug)]
 pub enum AppMessage {
     Start(window::Id),
+    Discovery(DiscoveryMessage),
     Restored(RestoreResult),
     Tick,
     GoToLoading,
@@ -22,7 +23,7 @@ fn main() -> iced::Result {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
             EnvFilter::new(
-                "warn,desktop=trace,deplace_core=trace,matrix_sdk::http_client=off,zbus=error",
+                "warn,iced_desktop=trace,deplace_core=trace,matrix_sdk::http_client=off,zbus=error",
             )
         }))
         .with_target(true)
