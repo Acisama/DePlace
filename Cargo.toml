@@ -2,11 +2,11 @@
 resolver = "2"
 members = [
   "deplace_core",
-  "desktop",
+  "desktop", "iced-desktop",
   "macros",
 ]
 
-default-members = ["desktop"]
+default-members = ["iced-desktop"]
 
 [workspace.dependencies]
 deplace_core = { path = "deplace_core" }
