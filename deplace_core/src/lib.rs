@@ -42,6 +42,7 @@ const DEVICE_DISPLAY_NAME: &str = formatcp!("DePlace on {PLATFORM}");
 
 pub use state::RoomMap;
 
+#[derive(Debug)]
 pub enum RestoreResult {
     Success(Box<AppState>),
     NoSession,

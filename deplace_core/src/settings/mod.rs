@@ -57,7 +57,7 @@ impl EnumVariants for chrono_tz::Tz {
     }
 }
 
-#[derive(Clone, PartialEq, Deserialize, Serialize, EnumVariants)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, EnumVariants)]
 pub enum HourFormat {
     #[serde(rename = "12-hour")]
     TwelveHour,
@@ -65,7 +65,7 @@ pub enum HourFormat {
     TwentyFourHour,
 }
 
-#[derive(Clone, PartialEq, Deserialize, Serialize, EnumVariants)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, EnumVariants)]
 pub enum DateFormat {
     #[serde(rename = "DD/MM/YYYY")]
     DayMonthYear,
@@ -75,7 +75,7 @@ pub enum DateFormat {
     YearMonthDay,
 }
 
-#[derive(Clone, PartialEq, Deserialize, Serialize, EnumVariants)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, EnumVariants)]
 pub enum DayOfWeek {
     #[serde(rename = "Monday")]
     Monday,
@@ -93,7 +93,7 @@ pub enum DayOfWeek {
     Sunday,
 }
 
-#[derive(Clone, Default, PartialEq, Deserialize, Serialize, EnumVariants)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize, EnumVariants)]
 pub enum DataSizeUnit {
     #[default]
     Bytes,
@@ -101,7 +101,7 @@ pub enum DataSizeUnit {
     Mibibytes,
 }
 
-#[derive(Deserialize, Serialize, EnumVariants, EnumConstVec, Hash, EnumSetType)]
+#[derive(Debug, Deserialize, Serialize, EnumVariants, EnumConstVec, Hash, EnumSetType)]
 #[enumset(serialize_repr = "list")]
 pub enum SystemMessageType {
     CallInvite,

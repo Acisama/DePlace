@@ -7,9 +7,11 @@ use crate::components::Root;
 
 mod components;
 
+#[derive(Debug)]
 pub enum AppMessage {
     Start(window::Id),
     Restored(RestoreResult),
+    Tick,
     GoToLoading,
     GoToDiscovery(Client),
     GoToLogin(Client),
@@ -51,5 +53,6 @@ fn main() -> iced::Result {
         Root::update,
         Root::view,
     )
+    .subscription(Root::subscription)
     .run()
 }

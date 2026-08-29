@@ -21,7 +21,7 @@ use crate::{
     settings::Settings,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UserDevice {
     pub user_id: OwnedUserId,
     pub device_id: OwnedDeviceId,
@@ -34,11 +34,12 @@ pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
 /// Cheaply clonable AppState since the data is all
 /// wrapped in an `Arc`. Access only over functions,
 /// no direct field access.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AppState {
     inner: Arc<AppStateInner>,
 }
 
+#[derive(Debug)]
 struct AppStateInner {
     pub client: Client,
     pub user_device: UserDevice,

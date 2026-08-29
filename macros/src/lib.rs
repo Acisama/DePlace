@@ -410,7 +410,7 @@ fn convert_settings(mut item: ItemStruct) -> TokenStream {
         use crate::APP_MATRIX_NAME;
         use std::str::FromStr;
 
-        #[derive(Clone)]
+        #[derive(Clone, Debug)]
         #item
 
         impl #struct_name {
