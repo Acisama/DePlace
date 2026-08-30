@@ -183,3 +183,15 @@ impl NameExt for Room {
         self.get_name().chars().next().unwrap_or('?')
     }
 }
+
+impl NameExt for Option<Room> {
+    fn get_name(&self) -> String {
+        self.as_ref()
+            .map(|r| r.get_name())
+            .unwrap_or("Unknown Room".to_string())
+    }
+
+    fn initial(&self) -> char {
+        self.as_ref().map(|r| r.initial()).unwrap_or('?')
+    }
+}

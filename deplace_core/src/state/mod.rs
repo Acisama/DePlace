@@ -53,6 +53,9 @@ struct AppStateInner {
     /// Monotonically increasing room version counter, gets increased if anything notable changes in any room
     pub room_version: Sender<u64>,
 
+    pub active_room_version: Sender<u64>,
+    pub active_server_version: Sender<u64>,
+
     parent_to_children: Sender<ParentToChildrenOrderStr>,
     parent_to_all_children: Sender<ParentToChildren>,
 
@@ -117,6 +120,8 @@ impl AppState {
         let (server_order, _) = watch::channel(server_order_data.servers);
 
         let (room_version, _) = watch::channel(0);
+        let (active_room_version, _) = watch::channel(0);
+        let (active_server_version, _) = watch::channel(0);
 
         Self {
             inner: Arc::new(AppStateInner {
@@ -131,6 +136,8 @@ impl AppState {
                 single_rooms,
                 server_rooms,
                 room_version,
+                active_room_version,
+                active_server_version,
 
                 parent_to_children,
                 parent_to_all_children,
@@ -154,6 +161,14 @@ impl AppState {
 
     pub fn room_version(&self) -> Ref<'_, u64> {
         self.inner.room_version.borrow()
+    }
+
+    pub fn active_room_version(&self) -> Ref<'_, u64> {
+        self.inner.active_room_version.borrow()
+    }
+
+    pub fn active_server_version(&self) -> Ref<'_, u64> {
+        self.inner.active_server_version.borrow()
     }
 
     pub fn bump_room_version(&self) {
@@ -282,6 +297,7 @@ impl AppState {
     /// Sets the active server. Also sets the active room to the server's room if `change_room` is true.
     pub async fn set_active_server(&self, server: Option<Room>, change_room: bool) {
         let mut server_changed = false;
+        self.inner.active_server_version.send_modify(|v| *v += 1);
 
         // change the server
         self.inner.active_server.send_if_modified(|cur| {
@@ -342,6 +358,8 @@ impl AppState {
     ///
     /// Returns the new server if it changed
     pub async fn set_active_room(&self, room: Option<Room>, change_server: bool) -> Option<Room> {
+        self.inner.active_room_version.send_modify(|v| *v += 1);
+
         let mut room_changed = false;
         let mut new_server = None;
 

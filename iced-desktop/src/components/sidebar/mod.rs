@@ -33,6 +33,9 @@ pub struct Sidebar {
     server_rooms: Receiver<RoomMap>,
     server_order: Receiver<Vec<OwnedRoomId>>,
 
+    active_room: Receiver<Option<Room>>,
+    active_server: Receiver<Option<Room>>,
+
     /// Used to check if any avatars the sidebar depends on changed
     avatar_states_for_hash: BTreeSet<OwnedMxcUri>,
 }
@@ -40,6 +43,9 @@ pub struct Sidebar {
 impl Hash for Sidebar {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.state.room_version().hash(state);
+        self.state.active_room_version().hash(state);
+        self.state.active_server_version().hash(state);
+
         for uri in &self.avatar_states_for_hash {
             if let MediaState::Loading = self.state.avatar_cache().get(uri).unwrap_or_default() {
                 0.hash(state)
@@ -53,6 +59,9 @@ impl Sidebar {
         Self {
             server_rooms: state.server_rooms(),
             server_order: state.server_order(),
+
+            active_room: state.active_room(),
+            active_server: state.active_server(),
 
             state,
             avatar_states_for_hash: BTreeSet::new(),
@@ -93,6 +102,9 @@ impl Sidebar {
     }
 
     pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, SidebarMessage> {
+        let active_room = self.active_room.borrow().clone();
+        let active_server = self.active_server.borrow().clone();
+
         let rooms_map = self.server_rooms.borrow().clone();
         let ordered_server_ids_vec = self.server_order.clone();
 
@@ -122,7 +134,7 @@ impl Sidebar {
         w::row![
             render_server_column(theme, structure, sorted_rooms, self.state.avatar_cache()),
             Space::new().width(structure.small_gap),
-            floating_tile(theme, structure, "test")
+            floating_tile(theme, structure, text(active_room.get_name()))
         ]
         .into()
     }
@@ -140,7 +152,10 @@ fn render_server_column(
     let icon_size = structure.server_column.icon_size;
 
     let mut column = w::column![
-        svg(icon_handle).width(icon_size).height(icon_size),
+        w::button(svg(icon_handle).width(icon_size).height(icon_size))
+            .padding(0)
+            .style(|_, _| w::button::Style::default())
+            .on_press(SidebarMessage::ActiveServerChange(None)),
         container(
             Space::new()
                 .width(icon_size)
@@ -158,7 +173,12 @@ fn render_server_column(
     .spacing(structure.gap);
 
     for room in sorted_rooms {
-        column = column.push(room.render_icon(icon_size, avatar_cache));
+        column = column.push(
+            w::button(room.render_icon(icon_size, avatar_cache))
+                .padding(0)
+                .style(|_, _| w::button::Style::default())
+                .on_press(SidebarMessage::ActiveServerChange(Some(room))),
+        );
     }
 
     floating_tile(theme, structure, column)
