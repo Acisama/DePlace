@@ -197,6 +197,6 @@ impl Discovery {
             .padding(structure.gap),
         );
 
-        container(tile).center(Fill).into()
+        w::container(tile).center(Fill).into()
     }
 }

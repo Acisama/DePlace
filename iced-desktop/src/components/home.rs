@@ -15,7 +15,7 @@ pub enum HomeAction {
 
 pub struct Home {
     state: AppState,
-    sidebar: Sidebar,
+    sidebar: Arc<Sidebar>,
 }
 
 impl Hash for Home {
@@ -27,14 +27,14 @@ impl Hash for Home {
 impl Home {
     pub fn new(state: AppState) -> Self {
         Self {
-            sidebar: Sidebar::new(state.clone()),
+            sidebar: Arc::new(Sidebar::new(state.clone())),
             state,
         }
     }
 
     pub fn update(&mut self, message: HomeMessage) -> HomeAction {
         match message {
-            HomeMessage::Sidebar(msg) => match self.sidebar.update(msg) {
+            HomeMessage::Sidebar(msg) => match Arc::make_mut(&mut self.sidebar).update(msg) {
                 SidebarAction::Run(task) => return HomeAction::EmptyRun(task),
                 SidebarAction::None => {}
             },
@@ -44,11 +44,12 @@ impl Home {
     }
 
     pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, HomeMessage> {
-        container(w::row![
-            self.sidebar
-                .view(theme, structure)
-                .map(HomeMessage::Sidebar)
-        ])
+        w::container(
+            w::row![w::lazy(self.sidebar.clone(), move |sidebar| {
+                sidebar.view(theme, structure).map(HomeMessage::Sidebar)
+            })]
+            .height(Fill),
+        )
         .padding(structure.gap)
         .width(Fill)
         .height(Fill)

@@ -8,7 +8,7 @@ use matrix_sdk::{
     room::RoomMember,
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
 };
-use ruma::events::presence::PresenceEventContent;
+use ruma::{RoomId, events::presence::PresenceEventContent};
 use tokio::sync::watch::{self, Ref, Sender};
 
 use crate::{
@@ -32,6 +32,66 @@ pub type MembershipMap = HashMap<OwnedRoomId, HashMap<OwnedUserId, RoomMember>>;
 pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
 
 pub mod cache;
+
+#[derive(Clone, Debug)]
+pub enum ActiveServer {
+    Dms,
+    Server(Room),
+}
+
+impl From<Option<Room>> for ActiveServer {
+    fn from(room: Option<Room>) -> Self {
+        match room {
+            Some(room) => ActiveServer::Server(room),
+            None => ActiveServer::Dms,
+        }
+    }
+}
+
+impl ActiveServer {
+    pub fn id(&self) -> ActiveServerId {
+        match self {
+            ActiveServer::Dms => ActiveServerId::Dms,
+            ActiveServer::Server(room) => ActiveServerId::Server(room.room_id().to_owned()),
+        }
+    }
+
+    pub fn is_dms(&self) -> bool {
+        matches!(self, ActiveServer::Dms)
+    }
+
+    pub fn is_server(&self, server_id: &RoomId) -> bool {
+        matches!(self, ActiveServer::Server(room) if room.room_id() == server_id)
+    }
+}
+
+impl PartialEq for ActiveServer {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ActiveServer::Dms, ActiveServer::Dms) => true,
+            (ActiveServer::Server(room1), ActiveServer::Server(room2)) => {
+                room1.room_id() == room2.room_id()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl ActiveServerId {
+    pub fn is_dms(&self) -> bool {
+        matches!(self, ActiveServerId::Dms)
+    }
+
+    pub fn is_server(&self, server_id: &RoomId) -> bool {
+        matches!(self, ActiveServerId::Server(id) if id == server_id)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Hash)]
+pub enum ActiveServerId {
+    Dms,
+    Server(OwnedRoomId),
+}
 
 /// Cheaply clonable AppState since the data is all
 /// wrapped in an `Arc`. Access only over functions,
@@ -60,7 +120,7 @@ struct AppStateInner {
     parent_to_all_children: Sender<ParentToChildren>,
 
     active_room: Sender<Option<Room>>,
-    active_server: Sender<Option<Room>>,
+    active_server: Sender<ActiveServer>,
     membership_map: Sender<MembershipMap>,
     presence_map: Sender<PresenceMap>,
 
@@ -111,7 +171,8 @@ impl AppState {
         let (parent_to_all_children, _) = watch::channel(response.parent_to_all_children);
 
         let (active_room, _) = watch::channel(last_room_id.and_then(|id| client.get_room(&id)));
-        let (active_server, _) = watch::channel(last_server.and_then(|id| client.get_room(&id)));
+        let (active_server, _) =
+            watch::channel(last_server.and_then(|id| client.get_room(&id)).into());
 
         let (membership_map, _) = watch::channel(MembershipMap::default());
         let (presence_map, _) = watch::channel(PresenceMap::default());
@@ -211,7 +272,7 @@ impl AppState {
         self.inner.active_room.subscribe()
     }
 
-    pub fn active_server(&self) -> watch::Receiver<Option<Room>> {
+    pub fn active_server(&self) -> watch::Receiver<ActiveServer> {
         self.inner.active_server.subscribe()
     }
 
@@ -295,13 +356,13 @@ impl AppState {
     }
 
     /// Sets the active server. Also sets the active room to the server's room if `change_room` is true.
-    pub async fn set_active_server(&self, server: Option<Room>, change_room: bool) {
+    pub async fn set_active_server(&self, server: ActiveServer, change_room: bool) {
         let mut server_changed = false;
         self.inner.active_server_version.send_modify(|v| *v += 1);
 
         // change the server
         self.inner.active_server.send_if_modified(|cur| {
-            let changed = cur.as_ref().map(|r| r.room_id()) != server.as_ref().map(|r| r.room_id());
+            let changed = cur != &server;
             if changed {
                 *cur = server.clone();
                 server_changed = true;
@@ -311,20 +372,17 @@ impl AppState {
 
         // if the server was changed, also change the room
         if server_changed {
-            let server_id = server.as_ref().map(|r| r.room_id());
+            let server_id = server.id();
             let breadcrumbs = self.breadcrumbs();
 
-            let new_room_id = if let Some(server_id) = server_id {
-                breadcrumbs
-                    .last_space_ids
-                    .get(server_id)
-                    .cloned()
-                    .or_else(|| {
+            let new_room_id = match server_id {
+                ActiveServerId::Server(id) => {
+                    breadcrumbs.last_space_ids.get(&id).cloned().or_else(|| {
                         let mut children: Vec<(Room, Option<String>)> = self
                             .inner
                             .parent_to_children
                             .borrow()
-                            .get(server_id)
+                            .get(&id)
                             .cloned()
                             .unwrap_or_default()
                             .values()
@@ -336,15 +394,15 @@ impl AppState {
                         });
                         children.first().map(|(r, _)| r.room_id().to_owned())
                     })
-            } else {
-                breadcrumbs.last_dm_id.clone().or_else(|| {
+                }
+                ActiveServerId::Dms => breadcrumbs.last_dm_id.clone().or_else(|| {
                     self.inner
                         .dm_rooms
                         .borrow()
                         .values()
                         .next()
                         .map(|r| r.room_id().to_owned())
-                })
+                }),
             };
 
             if change_room {
@@ -357,11 +415,11 @@ impl AppState {
     /// Set the currently focused room. This function als takes care of updating the breadcrumbs and active server
     ///
     /// Returns the new server if it changed
-    pub async fn set_active_room(&self, room: Option<Room>, change_server: bool) -> Option<Room> {
+    pub async fn set_active_room(&self, room: Option<Room>, change_server: bool) -> ActiveServer {
         self.inner.active_room_version.send_modify(|v| *v += 1);
 
         let mut room_changed = false;
-        let mut new_server = None;
+        let mut new_server = ActiveServer::Dms;
 
         self.inner.active_room.send_if_modified(|cur| {
             let changed = cur.as_ref().map(|r| r.room_id()) != room.as_ref().map(|r| r.room_id());
@@ -385,17 +443,11 @@ impl AppState {
                 .find(|(_, v)| v.contains_key(&room_id))
                 .map(|(k, _)| k);
 
-            let active_server = active_server_id
-                .and_then(|id| self.server_rooms().borrow().clone().get(&id).cloned());
+            let active_server: ActiveServer = active_server_id
+                .and_then(|id| self.server_rooms().borrow().clone().get(&id).cloned())
+                .into();
 
-            if change_server
-                && self
-                    .active_server()
-                    .borrow()
-                    .clone()
-                    .map(|s| s.room_id().to_owned())
-                    != active_server.as_ref().map(|s| s.room_id().to_owned())
-            {
+            if change_server && self.active_server().borrow().clone() != active_server {
                 new_server = active_server.clone();
             }
 
@@ -407,13 +459,16 @@ impl AppState {
                 // Truncate to 25
                 breadcrumbs.recent_rooms.truncate(25);
 
-                if let Some(active_server) = active_server {
-                    breadcrumbs
-                        .last_space_ids
-                        .insert(active_server.room_id().to_owned(), room_id);
-                } else {
-                    breadcrumbs.last_dm_id = Some(room_id);
-                    breadcrumbs.dms_last = true;
+                match active_server {
+                    ActiveServer::Dms => {
+                        breadcrumbs.last_dm_id = Some(room_id);
+                        breadcrumbs.dms_last = true;
+                    }
+                    ActiveServer::Server(room) => {
+                        breadcrumbs
+                            .last_space_ids
+                            .insert(room.room_id().to_owned(), room_id);
+                    }
                 }
             });
 
