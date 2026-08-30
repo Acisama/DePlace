@@ -64,6 +64,7 @@ async fn run_sync_stream(client: Client, state: AppState) {
 async fn run_room_classification(client: Client, state: AppState) {
     let mut updates = client.room_info_notable_update_receiver();
     while updates.recv().await.is_ok() {
+        state.bump_room_version();
         let response = reclassify_rooms(&client).await;
 
         state.set_dm_rooms(response.dm_rooms);

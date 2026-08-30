@@ -2,10 +2,7 @@ use std::{path::PathBuf, time::Duration};
 
 use anyhow::Result;
 use deplace_core::APP_NAME;
-use iced::{
-    Color,
-    theme::{Palette, palette::Extended},
-};
+use iced::Color;
 
 fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
@@ -66,21 +63,21 @@ impl ColorExt for Color {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Text {
     pub muted: Color,
     pub dim: Color,
     pub normal: Color,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct InputTheme {
     pub background: Color,
     pub focus_background: Color,
     pub focused_border: Color,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Colors {
     pub _red: Color,
     pub _green: Color,
@@ -115,7 +112,7 @@ impl Colors {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ChatSidebarWidth {
     pub member: f32,
     pub search: f32,
@@ -123,19 +120,19 @@ pub struct ChatSidebarWidth {
     pub members: f32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ServerColumn {
-    pub icon_width: f32,
+    pub icon_size: f32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Sidebar {
     pub width: f32,
     pub dm_icon_height: f32,
     pub channel_icon_height: f32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Header {
     pub height: f32,
     pub icon_size: f32,
@@ -147,7 +144,7 @@ impl Header {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Chat {
     pub icon_size: f32,
     pub text_size: f32,
@@ -159,7 +156,7 @@ pub struct Chat {
     pub attachment_preview_dimensions: (f32, f32),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Settings {
     pub section_column_width: f32,
     pub full_width: f32,
@@ -169,12 +166,12 @@ pub struct Settings {
     pub dropdown_width: f32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Authentification {
     pub width: f32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Structure {
     pub server_column: ServerColumn,
     pub chat_sidebar_width: ChatSidebarWidth,
@@ -234,7 +231,7 @@ impl Structure {
                 dm_icon_height: 30.0,
                 channel_icon_height: 20.0,
             },
-            server_column: ServerColumn { icon_width: 40.0 },
+            server_column: ServerColumn { icon_size: 40.0 },
             chat_sidebar_width: ChatSidebarWidth {
                 member: 320.0,
                 search: 480.0,
@@ -262,11 +259,11 @@ impl Structure {
     }
 
     pub fn server_column_width(&self) -> f32 {
-        self.server_column.icon_width + 4.0 * self.small_gap
+        self.server_column.icon_size + 3.0 * self.small_gap
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Theme {
     pub accent: Color,
     pub blur: f32,

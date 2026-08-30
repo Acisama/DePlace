@@ -114,12 +114,12 @@ impl KeyAquiryView {
                 // Execute the Matrix SDK code on Tokio, then await the JoinHandle!
                 let result = tokio_rt
                     .spawn(async move {
-                        recover_client_encryption(state, recovery_key.as_str()).await
+                        recover_client_encryption(state, recovery_key).await
                     })
                     .await
                     .unwrap_or_else(|e| {
                         tracing::error!("Tokio task failed or panicked: {:?}", e);
-                        EncryptionUpgradeResult::Error
+                        EncryptionUpgradeResult::Error(e.to_string())
                     });
 
                 tracing::info!("Recovered encryption for this client");
@@ -131,14 +131,11 @@ impl KeyAquiryView {
                             EncryptionUpgradeResult::Verified => {
                                 cx.emit(KeyAquiryEvent::Verified);
                             }
-                            EncryptionUpgradeResult::Error => {
+                            EncryptionUpgradeResult::Error(_) => {
                                 view.error_message = Some(
                                     "Failed to recover encryption. Please check your key and try again."
                                         .to_string(),
                                 );
-                            }
-                            EncryptionUpgradeResult::Canceled => {
-                                cx.emit(KeyAquiryEvent::Canceled);
                             }
                         }
                         cx.notify();

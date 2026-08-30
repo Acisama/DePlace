@@ -1,11 +1,15 @@
+use std::hash::Hash;
+
 use deplace_core::matrix_api::test_server;
-use iced::{
-    Border, Element,
-    Length::Fill,
-    Task,
-    widget::{self as w, Id, Space, button::Status, column, container, text},
-};
-use matrix_sdk::Client;
+use iced::widget::{Id, button::Status};
+// use iced::{
+//     Border, Element,
+//     Length::Fill,
+//     Task,
+//     widget::{self as w, Id, Space, button::Status, column, container, text},
+// };
+// use matrix_sdk::Client;
+use crate::common::*;
 use url::Url;
 
 use crate::{
@@ -44,6 +48,13 @@ pub struct Discovery {
     // Aborts the in-flight `test_server` check (if any) when replaced or dropped,
     // so at most one check is ever running at a time.
     current_check: Option<iced::task::Handle>,
+}
+
+impl Hash for Discovery {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.homeserver_url.hash(state);
+        self.state.hash(state);
+    }
 }
 
 const SERVER_INPUT_ID: Id = Id::new("discovery-input");
@@ -124,12 +135,8 @@ impl Discovery {
         }
     }
 
-    pub fn view<'a>(
-        &'a self,
-        theme: &'a Theme,
-        structure: &'a Structure,
-    ) -> Element<'a, DiscoveryMessage> {
-        let input: iced::widget::TextInput<'_, DiscoveryMessage> = text_input(
+    pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, DiscoveryMessage> {
+        let input: iced::widget::TextInput<'static, DiscoveryMessage> = text_input(
             "https://matrix.example.org",
             &self.homeserver_url,
             theme,
@@ -140,9 +147,9 @@ impl Discovery {
         .on_input(DiscoveryMessage::UrlChanged)
         .on_submit_maybe(self.state.success().map(DiscoveryMessage::ClientSelected));
 
-        let status: iced::widget::text::Rich<'_, (), DiscoveryMessage> =
+        let status: iced::widget::text::Rich<'static, (), DiscoveryMessage> =
             self.state
-                .text("Homeserver is valid", "", &theme.colors, structure);
+                .text("Homeserver is valid", "", &theme.colors, &structure);
 
         let continue_button = w::button(text("Continue").width(Fill).center())
             .width(Fill)
@@ -169,13 +176,13 @@ impl Discovery {
         let tile = floating_tile(
             theme,
             structure,
-            column![
+            w::column![
                 weighted_text("Discovery", iced::font::Weight::ExtraBold)
                     .size(structure.large_font_size)
                     .color(theme.accent)
                     .width(Fill)
                     .center(),
-                column![
+                w::column![
                     text("Homeserver")
                         .size(structure.font_size)
                         .color(theme.text.dim),

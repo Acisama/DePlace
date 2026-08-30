@@ -10,11 +10,13 @@ use crate::components::{
     },
 };
 
-mod components;
+pub(crate) mod common;
+pub(crate) mod components;
 mod things;
 
 #[derive(Debug, Clone)]
 pub enum AppMessage {
+    None,
     Start(window::Id),
     Discovery(DiscoveryMessage),
     Login(LoginMessage),

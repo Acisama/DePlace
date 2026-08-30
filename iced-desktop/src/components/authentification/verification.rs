@@ -1,18 +1,6 @@
-use deplace_core::{
-    matrix_api::{EncryptionUpgradeResult, recover_client_encryption},
-    state::AppState,
-};
-use iced::{
-    Border, Element,
-    Length::Fill,
-    Task,
-    widget::{self as w, Space, button::Status, column, container, text},
-};
-
-use crate::{
-    components::{GenericState, floating_tile, text_input, weighted_text},
-    things::{Structure, Theme},
-};
+use crate::common::*;
+use deplace_core::matrix_api::{EncryptionUpgradeResult, recover_client_encryption};
+use iced::widget::button::Status;
 
 #[derive(Debug, Clone)]
 pub enum VerificationMessage {
@@ -45,6 +33,13 @@ pub struct Verification {
     state: GenericState<AppState>,
 
     current_check: Option<iced::task::Handle>,
+}
+
+impl Hash for Verification {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.recovery_key.hash(state);
+        self.state.hash(state);
+    }
 }
 
 impl Verification {
@@ -118,23 +113,23 @@ impl Verification {
         }
     }
 
-    pub fn view<'a>(
-        &'a self,
-        theme: &'a Theme,
-        structure: &'a Structure,
-    ) -> Element<'a, VerificationMessage> {
-        let input: iced::widget::TextInput<'_, VerificationMessage> =
+    pub fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+    ) -> Element<'static, VerificationMessage> {
+        let input: iced::widget::TextInput<'static, VerificationMessage> =
             text_input("Es9X xxxx xxxx...", &self.recovery_key, theme, structure)
                 .width(Fill)
                 .secure(true)
                 .on_input(VerificationMessage::RecoveryKeyChanged)
                 .on_submit(VerificationMessage::Submit);
 
-        let status: iced::widget::text::Rich<'_, (), VerificationMessage> = self.state.text(
+        let status: iced::widget::text::Rich<'static, (), VerificationMessage> = self.state.text(
             "Successfully verified",
             "Key is formatted correctly",
             &theme.colors,
-            structure,
+            &structure,
         );
 
         let recovery_button = w::button(text("Log in").width(Fill).center())
@@ -157,13 +152,13 @@ impl Verification {
         let tile = floating_tile(
             theme,
             structure,
-            column![
+            w::column![
                 weighted_text("Verification", iced::font::Weight::ExtraBold)
                     .size(structure.large_font_size)
                     .color(theme.accent)
                     .width(Fill)
                     .center(),
-                column![
+                w::column![
                     text("Recovery Key")
                         .size(structure.font_size)
                         .color(theme.text.dim),

@@ -165,7 +165,7 @@ impl LoginView {
                     view.current_request = None;
 
                     match &result {
-                        LoginResult::ValidCredentials(_) => {
+                        LoginResult::Success(_) => {
                             view.state = GenericState::Success;
                             cx.emit(result);
                         }
@@ -176,11 +176,10 @@ impl LoginView {
                         LoginResult::Error(err) => {
                             view.state = GenericState::Error(err.clone());
                             cx.emit(result);
-                        }
-                        LoginResult::BackToDiscovery => {
-                            view.state = GenericState::Default;
-                            cx.emit(result);
-                        }
+                        } // LoginResult::BackToDiscovery => {
+                          //     view.state = GenericState::Default;
+                          //     cx.emit(result);
+                          // }
                     }
                     cx.notify();
                 }) {
@@ -231,7 +230,7 @@ impl LoginView {
 
                     match result {
                         Ok(login_result) => match &login_result {
-                            LoginResult::ValidCredentials(_) => {
+                            LoginResult::Success(_) => {
                                 view.state = GenericState::Success;
                                 cx.emit(login_result);
                             }
@@ -242,11 +241,10 @@ impl LoginView {
                             LoginResult::Error(err) => {
                                 view.state = GenericState::Error(err.clone());
                                 cx.emit(login_result);
-                            }
-                            LoginResult::BackToDiscovery => {
-                                view.state = GenericState::Default;
-                                cx.emit(login_result);
-                            }
+                            } // LoginResult::BackToDiscovery => {
+                              //     view.state = GenericState::Default;
+                              //     cx.emit(login_result);
+                              // }
                         },
                         Err(_cancelled) => {
                             view.state = GenericState::Default;
@@ -262,7 +260,7 @@ impl LoginView {
     }
 
     fn on_back_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(LoginResult::BackToDiscovery);
+        // cx.emit(LoginResult::BackToDiscovery);
     }
 
     fn render_login_form(

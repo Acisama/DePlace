@@ -9,7 +9,7 @@ use matrix_sdk::{
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
 };
 use ruma::events::presence::PresenceEventContent;
-use tokio::sync::watch::{self, Sender};
+use tokio::sync::watch::{self, Ref, Sender};
 
 use crate::{
     matrix_api::{
@@ -44,9 +44,12 @@ struct AppStateInner {
     pub client: Client,
     pub user_device: UserDevice,
     pub settings: Settings,
+
     dm_rooms: Sender<RoomMap>,
     single_rooms: Sender<RoomMap>,
     server_rooms: Sender<RoomMap>,
+    /// Monotonically increasing room version counter, gets increased if anything notable changes in any room
+    pub room_version: Sender<u64>,
 
     parent_to_children: Sender<ParentToChildrenOrderStr>,
     parent_to_all_children: Sender<ParentToChildren>,
@@ -108,14 +111,18 @@ impl AppState {
         let server_order_data = get_account_data::<ServerOrderContent>(&client).await;
         let (server_order, _) = watch::channel(server_order_data.servers);
 
+        let (room_version, _) = watch::channel(0);
+
         Self {
             inner: Arc::new(AppStateInner {
                 client,
                 user_device,
                 settings,
+
                 dm_rooms,
                 single_rooms,
                 server_rooms,
+                room_version,
 
                 parent_to_children,
                 parent_to_all_children,
@@ -132,7 +139,13 @@ impl AppState {
         }
     }
 
-    // Direct access where state is further arc'd
+    pub fn room_version(&self) -> Ref<'_, u64> {
+        self.inner.room_version.borrow()
+    }
+
+    pub fn bump_room_version(&self) {
+        self.inner.room_version.send_modify(|v| *v += 1);
+    }
 
     /// Retrieves the `matrix-sdk::Client` of the app
     pub fn client(&self) -> Client {
@@ -143,8 +156,6 @@ impl AppState {
     pub fn settings(&self) -> Settings {
         self.inner.settings.clone()
     }
-
-    // Direct access to constant state
 
     pub fn user_device(&self) -> &UserDevice {
         &self.inner.user_device

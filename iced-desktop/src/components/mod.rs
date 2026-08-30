@@ -1,7 +1,9 @@
+use std::hash::Hash;
+
 use deplace_core::RestoreResult;
 use iced::Font;
 use iced::widget::text::Rich;
-use iced::widget::{self as w, Text, rich_text, span, text};
+use iced::widget::{self as w, rich_text, span};
 use iced::{
     Border, Element,
     Length::Fill,
@@ -35,8 +37,22 @@ pub enum GenericState<T: Clone> {
     Error(String),
 }
 
-pub fn weighted_text<T>(text: &str, weight: iced::font::Weight) -> Rich<'_, (), T> {
-    rich_text([span(text).font(Font {
+impl<T: Clone> Hash for GenericState<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            GenericState::Ready => 0.hash(state),
+            GenericState::Checking => 1.hash(state),
+            GenericState::Success(_) => 2.hash(state),
+            GenericState::Error(e) => e.hash(state),
+        }
+    }
+}
+
+pub fn weighted_text<T>(
+    text: impl Into<String>,
+    weight: iced::font::Weight,
+) -> Rich<'static, (), T> {
+    rich_text([span(text.into()).font(Font {
         weight,
         ..Default::default()
     })])
@@ -54,18 +70,18 @@ impl<T: Clone> GenericState<T> {
         matches!(self, GenericState::Ready)
     }
 
-    pub fn text<'a, V>(
-        &'a self,
-        success: &'a str,
-        ready: &'a str,
+    pub fn text<V>(
+        &self,
+        success: &str,
+        ready: &str,
         colors: &Colors,
         structure: &Structure,
-    ) -> Rich<'a, (), V> {
+    ) -> Rich<'static, (), V> {
         let (text, color) = match self {
-            GenericState::Ready => (ready, colors.success),
-            GenericState::Success(_) => (success, colors.success),
-            GenericState::Error(e) => (e.as_str(), colors.error),
-            GenericState::Checking => ("Checking...", colors.offline),
+            GenericState::Ready => (ready.to_string(), colors.success),
+            GenericState::Success(_) => (success.to_string(), colors.success),
+            GenericState::Error(e) => (e.clone(), colors.error),
+            GenericState::Checking => ("Checking...".to_string(), colors.offline),
         };
 
         weighted_text(text, iced::font::Weight::Semibold)
@@ -74,7 +90,7 @@ impl<T: Clone> GenericState<T> {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Hash)]
 enum Screen {
     #[default]
     Loading,
@@ -143,11 +159,14 @@ impl Screen {
                     *self = Screen::Login(login);
                     return task.map(AppMessage::Login);
                 }
-                RestoreResult::NoSession | RestoreResult::Success(_) => {
+                RestoreResult::NoSession => {
                     let (discovery, task) = Discovery::new();
                     *self = Screen::Discovery(discovery);
                     return task.map(|res| AppMessage::Discovery(DiscoveryMessage::from(res)));
-                } // RestoreResult::Success(state) => Screen::Home(Home::new(*state)),
+                }
+                RestoreResult::Success(state) => {
+                    *self = Screen::Home(Home::new(*state));
+                }
             },
             _ => {}
         };
@@ -166,7 +185,8 @@ impl Screen {
         }
     }
 
-    fn view<'a>(&'a self, theme: &'a Theme, structure: &'a Structure) -> Element<'a, AppMessage> {
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, AppMessage> {
+        tracing::trace!("Rerendering Screen");
         match self {
             Screen::Loading => "loading".into(),
             Screen::Discovery(discovery) => {
@@ -176,7 +196,7 @@ impl Screen {
             Screen::Verification(verification) => verification
                 .view(theme, structure)
                 .map(AppMessage::Verification),
-            Screen::Home { .. } => "home".into(),
+            Screen::Home(home) => home.view(theme, structure).map(|_| AppMessage::None),
         }
     }
 }
@@ -232,22 +252,23 @@ impl Root {
 
     pub fn view(&self, _window: window::Id) -> Element<'_, AppMessage> {
         let background = Shader::new(self.loading).width(Fill).height(Fill);
+        let theme = self.theme;
+        let structure = self.structure;
 
         Stack::new()
             .push(background)
-            .push(self.screen.view(&self.theme, &self.structure))
+            .push(w::lazy(&self.screen, move |screen| {
+                screen.view(theme, structure)
+            }))
             .into()
     }
 }
 
-pub fn floating_tile<'a, 'b, T>(
-    theme: &'a Theme,
-    structure: &'a Structure,
-    content: impl Into<Element<'b, T>>,
-) -> Container<'b, T>
-where
-    'a: 'b,
-{
+pub fn floating_tile<'a, T>(
+    theme: Theme,
+    structure: Structure,
+    content: impl Into<Element<'a, T>>,
+) -> Container<'a, T> {
     use w::container::Style;
     w::container(content).style(move |_theme| Style {
         background: Some(theme.background.into()),
@@ -260,14 +281,13 @@ where
     })
 }
 
-pub fn text_input<'a, 'b, T>(
-    placeholder: &'a str,
-    value: &'a str,
-    theme: &'a Theme,
-    structure: &'a Structure,
-) -> w::text_input::TextInput<'b, T>
+pub fn text_input<'a, T>(
+    placeholder: &str,
+    value: &str,
+    theme: Theme,
+    structure: Structure,
+) -> w::text_input::TextInput<'a, T>
 where
-    'a: 'b,
     T: Clone,
 {
     use w::text_input::{Status, Style};

@@ -1,16 +1,15 @@
+use crate::common::*;
 use std::future::Ready;
 
-use deplace_core::{
-    matrix_api::{LoginResult, login},
-    state::AppState,
-};
-use iced::{
-    Border, Element,
-    Length::Fill,
-    Task,
-    widget::{self as w, Id, Space, button::Status, column, container, text},
-};
-use matrix_sdk::Client;
+use deplace_core::matrix_api::{LoginResult, login};
+use iced::widget::{Id, button::Status};
+// use iced::{
+//     Border, Element,
+//     Length::Fill,
+//     Task,
+//     widget::{self as w, Id, Space, button::Status, column, container, text},
+// };
+// use matrix_sdk::Client;
 
 use crate::{
     components::{GenericState, floating_tile, text_input, weighted_text},
@@ -55,6 +54,14 @@ pub struct Login {
     state: GenericState<AppState>,
 
     current_check: Option<iced::task::Handle>,
+}
+
+impl Hash for Login {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.username.hash(state);
+        self.password.hash(state);
+        self.state.hash(state);
+    }
 }
 
 type DummyFut = Ready<matrix_sdk::Result<()>>;
@@ -134,33 +141,29 @@ impl Login {
         }
     }
 
-    pub fn view<'a>(
-        &'a self,
-        theme: &'a Theme,
-        structure: &'a Structure,
-    ) -> Element<'a, LoginMessage> {
-        let username_input: iced::widget::TextInput<'_, LoginMessage> =
+    pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, LoginMessage> {
+        let username_input: iced::widget::TextInput<'static, LoginMessage> =
             text_input("luke", &self.username, theme, structure)
                 .id(USERNAME_ID)
                 .width(Fill)
                 .on_input(LoginMessage::UsernameChanged)
                 .on_submit(LoginMessage::Submit);
 
-        let password_input: iced::widget::TextInput<'_, LoginMessage> =
+        let password_input: iced::widget::TextInput<'static, LoginMessage> =
             text_input("•••••••••••", &self.password, theme, structure)
                 .secure(true)
                 .width(Fill)
                 .on_input(LoginMessage::PasswordChanged)
                 .on_submit(LoginMessage::Submit);
 
-        let status: iced::widget::text::Rich<'_, (), LoginMessage> = self.state.text(
+        let status: iced::widget::text::Rich<'static, (), LoginMessage> = self.state.text(
             "Successfully logged in",
             "Ready to log in",
             &theme.colors,
-            structure,
+            &structure,
         );
 
-        let back_button: iced::widget::text::Rich<'_, (), LoginMessage> =
+        let back_button: iced::widget::text::Rich<'static, (), LoginMessage> =
             w::rich_text([w::span("← back").link(())])
                 .size(structure.font_size)
                 .color(theme.text.dim)
@@ -189,21 +192,21 @@ impl Login {
         let tile = floating_tile(
             theme,
             structure,
-            column![
+            w::column![
                 back_button,
                 weighted_text("Login", iced::font::Weight::ExtraBold)
                     .size(structure.large_font_size)
                     .color(theme.accent)
                     .width(Fill)
                     .center(),
-                column![
+                w::column![
                     text("Username")
                         .size(structure.font_size)
                         .color(theme.text.dim),
                     Space::new().height(structure.small_gap),
                     username_input,
                 ],
-                column![
+                w::column![
                     text("Password")
                         .size(structure.font_size)
                         .color(theme.text.dim),
