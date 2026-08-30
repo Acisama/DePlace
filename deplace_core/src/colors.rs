@@ -26,8 +26,12 @@ impl Color {
 
     #[cfg(feature = "desktop")]
     pub fn to_gpui(&self) -> gpui::Hsla {
-        let [h, s, l, a] = self.0.to_hsla();
-        gpui::hsla(h / 360.0, s, l, a)
+        self.into()
+    }
+
+    #[cfg(feature = "iced_desktop")]
+    pub fn to_iced(&self) -> iced::Color {
+        self.into()
     }
 }
 
@@ -62,9 +66,16 @@ impl ColorExt for Room {
 }
 
 #[cfg(feature = "desktop")]
-impl From<Color> for gpui::Hsla {
-    fn from(val: Color) -> Self {
+impl From<&Color> for gpui::Hsla {
+    fn from(val: &Color) -> Self {
         let [h, s, l, a] = val.0.to_hsla();
         gpui::hsla(h / 360.0, s, l, a)
+    }
+}
+
+#[cfg(feature = "iced_desktop")]
+impl From<&Color> for iced::Color {
+    fn from(val: &Color) -> Self {
+        iced::Color::from_rgba(val.0.r, val.0.g, val.0.b, val.0.a)
     }
 }

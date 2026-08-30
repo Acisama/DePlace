@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
-deplace_core.workspace = true
+deplace_core = { workspace = true, features = ["iced_desktop"] }
 dirs.workspace = true
 iced.workspace = true
 matrix-sdk.workspace = true

@@ -1,10 +1,16 @@
 use crate::{
     common::*,
-    components::sidebar::{Sidebar, SidebarMessage},
+    components::sidebar::{Sidebar, SidebarAction, SidebarMessage},
 };
 
+#[derive(Clone, Debug)]
 pub enum HomeMessage {
     Sidebar(SidebarMessage),
+}
+
+pub enum HomeAction {
+    EmptyRun(Task<()>),
+    None,
 }
 
 pub struct Home {
@@ -26,13 +32,15 @@ impl Home {
         }
     }
 
-    pub fn update(&mut self, message: HomeMessage) {
+    pub fn update(&mut self, message: HomeMessage) -> HomeAction {
         match message {
-            HomeMessage::Sidebar(sidebar) => match sidebar {
-                SidebarMessage::ActiveRoomChange(room) => self.state.set_active_room(room),
-                SidebarMessage::ActiveServerChange(server) => self.state.set_active_server(server),
+            HomeMessage::Sidebar(msg) => match self.sidebar.update(msg) {
+                SidebarAction::Run(task) => return HomeAction::EmptyRun(task),
+                SidebarAction::None => {}
             },
         }
+
+        HomeAction::None
     }
 
     pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, HomeMessage> {

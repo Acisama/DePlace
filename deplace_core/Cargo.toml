@@ -20,6 +20,7 @@ futures-util.workspace = true
 getrandom.workspace = true
 gpui = { workspace = true, optional = true }
 hex = "0.4.3"
+iced = { workspace = true, optional = true }
 image.workspace = true
 imbl.workspace = true
 keyring-core = "1.0.0"
@@ -38,7 +39,7 @@ tokio.workspace = true
 tokio-util.workspace = true
 toml_edit.workspace = true
 tracing.workspace = true
-url = "2.5.8"
+url.workspace = true
 uuid.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -55,6 +56,7 @@ windows-native-keyring-store = "1.0"
 
 [features]
 desktop = ["gpui"]
+iced_desktop = ["iced"]
 
 [lints.clippy]
 exit = "warn"

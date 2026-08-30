@@ -1,12 +1,14 @@
 pub use crate::{
-    components::{GenericState, floating_tile, text_input, weighted_text},
+    components::{
+        GenericState, IconExt, NeedsAvatarExt, floating_tile, on_appear, text_input, weighted_text,
+    },
     things::{Structure, Theme},
 };
-pub use deplace_core::{settings::Settings, state::AppState};
+pub use deplace_core::{NameExt, settings::Settings, state::AppState};
 pub use iced::{
-    Border, Element,
+    Border, Color, Element,
     Length::Fill,
-    Task,
+    Shadow, Task,
     widget::{self as w, Space, container, text},
 };
 pub use matrix_sdk::{Client, Room};

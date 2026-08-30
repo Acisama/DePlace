@@ -31,6 +31,8 @@ pub type RoomMap = HashMap<OwnedRoomId, Room>;
 pub type MembershipMap = HashMap<OwnedRoomId, HashMap<OwnedUserId, RoomMember>>;
 pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
 
+pub mod cache;
+
 /// Cheaply clonable AppState since the data is all
 /// wrapped in an `Arc`. Access only over functions,
 /// no direct field access.
@@ -64,6 +66,9 @@ struct AppStateInner {
     /// Last accessed servers and rooms, since the data is only
     /// needed as snapshots, it is held in a mutex
     breadcrumbs: Mutex<BreadcrumbsContent>,
+
+    #[cfg(feature = "iced_desktop")]
+    avatar_cache: cache::AvatarCache,
 }
 
 impl AppState {
@@ -115,6 +120,9 @@ impl AppState {
 
         Self {
             inner: Arc::new(AppStateInner {
+                #[cfg(feature = "iced_desktop")]
+                avatar_cache: cache::AvatarCache::new(client.clone()),
+
                 client,
                 user_device,
                 settings,
@@ -137,6 +145,11 @@ impl AppState {
                 breadcrumbs,
             }),
         }
+    }
+
+    #[cfg(feature = "iced_desktop")]
+    pub fn avatar_cache(&self) -> &cache::AvatarCache {
+        &self.inner.avatar_cache
     }
 
     pub fn room_version(&self) -> Ref<'_, u64> {
@@ -266,9 +279,8 @@ impl AppState {
         f(&mut guard);
     }
 
-    /// Sets the active server and the new active room. Calling `set_active_room` after
-    /// this is redundant.
-    pub fn set_active_server(&self, server: Option<Room>) {
+    /// Sets the active server. Also sets the active room to the server's room if `change_room` is true.
+    pub async fn set_active_server(&self, server: Option<Room>, change_room: bool) {
         let mut server_changed = false;
 
         // change the server
@@ -319,15 +331,19 @@ impl AppState {
                 })
             };
 
-            let new_room = new_room_id.and_then(|id| self.client().get_room(&id));
-            self.set_active_room(new_room);
+            if change_room {
+                let new_room = new_room_id.and_then(|id| self.client().get_room(&id));
+                self.set_active_room(new_room, false).await;
+            }
         }
     }
 
-    /// Set the currently focused room. This function als takes care of updating
-    /// the breadcrumbs and active server
-    pub fn set_active_room(&self, room: Option<Room>) {
+    /// Set the currently focused room. This function als takes care of updating the breadcrumbs and active server
+    ///
+    /// Returns the new server if it changed
+    pub async fn set_active_room(&self, room: Option<Room>, change_server: bool) -> Option<Room> {
         let mut room_changed = false;
+        let mut new_server = None;
 
         self.inner.active_room.send_if_modified(|cur| {
             let changed = cur.as_ref().map(|r| r.room_id()) != room.as_ref().map(|r| r.room_id());
@@ -354,14 +370,15 @@ impl AppState {
             let active_server = active_server_id
                 .and_then(|id| self.server_rooms().borrow().clone().get(&id).cloned());
 
-            if self
-                .active_server()
-                .borrow()
-                .clone()
-                .map(|s| s.room_id().to_owned())
-                != active_server.as_ref().map(|s| s.room_id().to_owned())
+            if change_server
+                && self
+                    .active_server()
+                    .borrow()
+                    .clone()
+                    .map(|s| s.room_id().to_owned())
+                    != active_server.as_ref().map(|s| s.room_id().to_owned())
             {
-                self.set_active_server(active_server.clone());
+                new_server = active_server.clone();
             }
 
             self.update_breadcrumbs(|breadcrumbs| {
@@ -384,8 +401,11 @@ impl AppState {
 
             let client = self.client();
             let breadcrumbs = self.breadcrumbs();
-            tokio::spawn(async move { set_account_data(&client, breadcrumbs).await });
+
+            set_account_data(&client, breadcrumbs).await;
         }
+
+        new_server
     }
 
     pub fn set_server_order(&self, server_order: Vec<OwnedRoomId>) {

@@ -1,9 +1,12 @@
 use std::hash::Hash;
 
-use deplace_core::RestoreResult;
-use iced::Font;
+use deplace_core::colors::ColorExt;
+use deplace_core::state::cache::{AvatarCache, MediaState};
+use deplace_core::{NameExt, RestoreResult};
+use iced::font::Weight;
+use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::widget::text::Rich;
-use iced::widget::{self as w, rich_text, span};
+use iced::widget::{self as w, Canvas, canvas, image, rich_text, span};
 use iced::{
     Border, Element,
     Length::Fill,
@@ -11,12 +14,15 @@ use iced::{
     widget::{Container, Shader, Stack},
     window,
 };
+use iced::{Color, ContentFit, Font, Point, Renderer, Size};
 use matrix_sdk::Room;
+use matrix_sdk::ruma::OwnedMxcUri;
 
 use crate::components::authentification::login::{LoginAction, LoginMessage};
 use crate::components::authentification::verification::{
     Verification, VerificationAction, VerificationMessage,
 };
+use crate::components::home::HomeAction;
 use crate::things::{Colors, Theme};
 use crate::{AppMessage, things::Structure};
 use authentification::{
@@ -26,9 +32,12 @@ use authentification::{
 use home::Home;
 
 pub(crate) mod authentification;
-mod home;
+pub(crate) mod home;
+mod on_appear;
 pub(crate) mod shader;
 mod sidebar;
+
+pub use on_appear::on_appear;
 
 pub enum GenericState<T: Clone> {
     Ready,
@@ -48,10 +57,10 @@ impl<T: Clone> Hash for GenericState<T> {
     }
 }
 
-pub fn weighted_text<T>(
+pub fn weighted_text<'a, T>(
     text: impl Into<String>,
     weight: iced::font::Weight,
-) -> Rich<'static, (), T> {
+) -> Rich<'a, (), T> {
     rich_text([span(text.into()).font(Font {
         weight,
         ..Default::default()
@@ -100,14 +109,17 @@ enum Screen {
     Home(Home),
 }
 
-enum RoomChange {
-    ActiveRoom(Option<Room>),
-    ActiveServer(Option<Room>),
-}
-
 impl Screen {
     fn update(&mut self, message: AppMessage) -> Task<AppMessage> {
         match message {
+            AppMessage::Home(msg) if let Screen::Home(home) = self => {
+                match home.update(msg) {
+                    HomeAction::None => {}
+                    HomeAction::EmptyRun(task) => {
+                        return task.map(|_| AppMessage::None);
+                    }
+                };
+            }
             AppMessage::Discovery(msg) if let Screen::Discovery(discovery) = self => {
                 match discovery.update(msg) {
                     DiscoveryAction::None => {}
@@ -186,7 +198,6 @@ impl Screen {
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> Element<'static, AppMessage> {
-        tracing::trace!("Rerendering Screen");
         match self {
             Screen::Loading => "loading".into(),
             Screen::Discovery(discovery) => {
@@ -196,7 +207,7 @@ impl Screen {
             Screen::Verification(verification) => verification
                 .view(theme, structure)
                 .map(AppMessage::Verification),
-            Screen::Home(home) => home.view(theme, structure).map(|_| AppMessage::None),
+            Screen::Home(home) => home.view(theme, structure).map(AppMessage::Home),
         }
     }
 }
@@ -311,4 +322,130 @@ where
             selection: theme.text.muted,
             value: theme.text.normal,
         })
+}
+
+struct InsetShadow {
+    radius: f32,
+    color: Color,
+    depth: f32,
+    layers: usize,
+}
+
+impl InsetShadow {
+    fn new(radius: f32, color: Color, depth: f32, layers: usize) -> Self {
+        Self {
+            radius,
+            color,
+            depth,
+            layers,
+        }
+    }
+}
+
+impl<Message> canvas::Program<Message> for InsetShadow {
+    type State = ();
+
+    fn draw(
+        &self,
+        _: &Self::State,
+        renderer: &Renderer,
+        _: &iced::Theme,
+        bounds: iced::Rectangle,
+        _: iced::advanced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry<Renderer>> {
+        let mut frame = Frame::new(renderer, bounds.size());
+
+        for i in 0..self.layers {
+            let t = i as f32 / self.layers as f32; // 0.0 at the edge, 1.0 at `depth`
+            let inset = t * self.depth;
+            let alpha = self.color.a * (1.0 - t).powf(2.0); // falls off quadratically inward
+
+            let path = Path::rounded_rectangle(
+                Point::new(inset, inset),
+                Size::new(bounds.width - inset * 2.0, bounds.height - inset * 2.0),
+                (self.radius - inset).max(0.0).into(), // shrink the radius as we inset, same as the outer shape
+            );
+
+            frame.stroke(
+                &path,
+                Stroke::default()
+                    .with_color(Color {
+                        a: alpha,
+                        ..self.color
+                    })
+                    .with_width(self.depth / self.layers as f32 * 1.5),
+            );
+        }
+
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn text_icon<'a, T: 'a>(
+    text: impl Into<String> + iced::advanced::text::IntoFragment<'a>,
+    size: f32,
+    rounding: f32,
+    color: Color,
+) -> Element<'a, T> {
+    Stack::new()
+        .push(
+            w::container(weighted_text(text, Weight::Bold).size(size / 2.0))
+                .width(size)
+                .height(size)
+                .center(size)
+                .style(move |_| w::container::Style {
+                    background: Some(color.scale_alpha(0.2).into()),
+                    text_color: Some(color),
+                    border: Border {
+                        color,
+                        width: 0.0,
+                        radius: rounding.into(),
+                    },
+                    ..Default::default()
+                }),
+        )
+        .push(
+            Canvas::new(InsetShadow::new(size / 4.0, color, size / 8.0, 8))
+                .width(size)
+                .height(size),
+        )
+        .into()
+}
+
+/// A trait for messages which have a NeedAvatar variant
+pub trait NeedsAvatarExt {
+    fn needs_avatar(uri: OwnedMxcUri) -> Self;
+}
+
+pub trait IconExt {
+    fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
+        &self,
+        size: f32,
+        avatar_cache: &AvatarCache,
+    ) -> Element<'a, T>;
+}
+
+impl IconExt for Room {
+    fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
+        &self,
+        size: f32,
+        avatar_cache: &AvatarCache,
+    ) -> Element<'a, T> {
+        let fallback = move || text_icon(self.initial(), size, size / 4.0, self.color().to_iced());
+
+        let Some(avatar_url) = self.avatar_url() else {
+            return fallback();
+        };
+
+        match avatar_cache.get(&avatar_url) {
+            Some(MediaState::Failed) | Some(MediaState::Loading) => fallback(),
+            Some(MediaState::Loaded(avatar)) => image((*avatar).clone())
+                .width(size)
+                .height(size)
+                .content_fit(ContentFit::Cover)
+                .border_radius(size / 4.0)
+                .into(),
+            None => on_appear(fallback(), T::needs_avatar(avatar_url)).into(),
+        }
+    }
 }

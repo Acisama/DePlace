@@ -8,6 +8,7 @@ use crate::components::{
     authentification::{
         discovery::DiscoveryMessage, login::LoginMessage, verification::VerificationMessage,
     },
+    home::HomeMessage,
 };
 
 pub(crate) mod common;
@@ -21,6 +22,7 @@ pub enum AppMessage {
     Discovery(DiscoveryMessage),
     Login(LoginMessage),
     Verification(VerificationMessage),
+    Home(HomeMessage),
     Restored(RestoreResult),
     Tick,
     TabPressed { shift: bool },
