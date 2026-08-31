@@ -35,6 +35,7 @@ pub type MembershipMap = HashMap<OwnedRoomId, HashMap<OwnedUserId, RoomMember>>;
 pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
 
 pub mod cache;
+pub mod roles;
 
 #[derive(Clone, Debug)]
 pub enum ActiveServer {
@@ -71,6 +72,15 @@ impl ActiveServer {
         match self {
             ActiveServer::Server(room) => Some(room),
             ActiveServer::Dms => None,
+        }
+    }
+}
+
+impl std::hash::Hash for ActiveServer {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            ActiveServer::Dms => 0.hash(state),
+            ActiveServer::Server(server) => server.room_id().hash(state),
         }
     }
 }
@@ -128,14 +138,11 @@ struct AppStateInner {
     pub membership_version: Sender<u64>,
     pub presence_version: Sender<u64>,
 
-    pub active_room_version: Sender<u64>,
-    pub active_server_version: Sender<u64>,
-
     parent_to_children: Sender<ParentToChildrenOrderStr>,
     parent_to_all_children: Sender<ParentToChildren>,
 
-    active_room: Sender<Option<Room>>,
-    active_server: Sender<ActiveServer>,
+    pub active_room: Sender<Option<Room>>,
+    pub active_server: Sender<ActiveServer>,
     presence_map: Sender<PresenceMap>,
     membership_map: Sender<MembershipMap>,
 
@@ -199,9 +206,6 @@ impl AppState {
         let (membership_version, _) = watch::channel(0);
         let (presence_version, _) = watch::channel(0);
 
-        let (active_room_version, _) = watch::channel(0);
-        let (active_server_version, _) = watch::channel(0);
-
         let (window_title, _) = watch::channel(window_title(
             active_room.borrow().clone(),
             active_server.borrow().clone(),
@@ -224,8 +228,6 @@ impl AppState {
                 room_version,
                 membership_version,
                 presence_version,
-                active_room_version,
-                active_server_version,
 
                 parent_to_children,
                 parent_to_all_children,
@@ -261,14 +263,6 @@ impl AppState {
 
     pub fn presence_version(&self) -> Ref<'_, u64> {
         self.inner.presence_version.borrow()
-    }
-
-    pub fn active_room_version(&self) -> Ref<'_, u64> {
-        self.inner.active_room_version.borrow()
-    }
-
-    pub fn active_server_version(&self) -> Ref<'_, u64> {
-        self.inner.active_server_version.borrow()
     }
 
     pub fn bump_room_version(&self) {
@@ -408,7 +402,6 @@ impl AppState {
     /// Sets the active server. Also sets the active room to the server's room if `change_room` is true.
     pub async fn set_active_server(&self, server: ActiveServer, change_room: bool) {
         let mut server_changed = false;
-        self.inner.active_server_version.send_modify(|v| *v += 1);
 
         // change the server
         self.inner.active_server.send_if_modified(|cur| {
@@ -468,8 +461,6 @@ impl AppState {
     ///
     /// Returns the new server if it changed
     pub async fn set_active_room(&self, room: Option<Room>) -> ActiveServer {
-        self.inner.active_room_version.send_modify(|v| *v += 1);
-
         let mut room_changed = false;
         let mut new_server = ActiveServer::Dms;
 

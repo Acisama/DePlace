@@ -1,6 +1,7 @@
 use crate::common::*;
 use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 
+mod header;
 mod sidebar;
 
 #[derive(Clone, Debug)]

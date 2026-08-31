@@ -1,10 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use deplace_core::{
     matrix_api::sync::ParentToChildren,
     state::{ActiveServer, ActiveServerId},
 };
 use iced::widget::svg;
+use macros::iced_cache;
 
 use super::pill::PillCanvas;
 use crate::common::*;
@@ -29,7 +30,7 @@ pub enum ServerColumnAction {
     None,
 }
 
-#[derive(Clone)]
+#[iced_cache]
 pub struct ServerColumn {
     state: AppState,
 
@@ -37,28 +38,12 @@ pub struct ServerColumn {
     server_order: Receiver<Vec<OwnedRoomId>>,
     parent_to_all_children: Receiver<ParentToChildren>,
 
+    #[hash]
     hovered_server: Option<ActiveServerId>,
 
     active_server: Receiver<ActiveServer>,
-    avatar_states_for_hash: HashSet<OwnedMxcUri>,
 
     avatar_cache: AvatarCache,
-}
-
-impl Hash for ServerColumn {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.state.room_version().hash(state);
-        self.state.active_server_version().hash(state);
-        self.hovered_server.hash(state);
-
-        for uri in &self.avatar_states_for_hash {
-            self.state
-                .avatar_cache()
-                .get(uri)
-                .unwrap_or_default()
-                .hash(state)
-        }
-    }
 }
 
 impl ServerColumn {
@@ -73,7 +58,7 @@ impl ServerColumn {
 
             avatar_cache: state.avatar_cache().clone(),
 
-            avatar_states_for_hash: HashSet::new(),
+            avatar_states_for_hash: BTreeSet::new(),
 
             state: state.clone(),
         }

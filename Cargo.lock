@@ -3502,6 +3502,7 @@ dependencies = [
  "deplace_core",
  "dirs",
  "iced",
+ "macros",
  "matrix-sdk",
  "naga 27.0.3",
  "phosphor-svgs",
@@ -4595,6 +4596,7 @@ dependencies = [
 name = "macros"
 version = "0.1.0"
 dependencies = [
+ "proc-macro2",
  "quote",
  "syn 3.0.4",
 ]
