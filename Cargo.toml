@@ -39,6 +39,7 @@ matrix-sdk = { version = "0.18.0", features = ["anyhow", "bundled-sqlite", "e2e-
 matrix-sdk-ui = "0.18.0"
 mime_guess = "2.0.5"
 nucleo = "0.5.0"
+phosphor-svgs = "0.3.0"
 rayon = "1.12.0"
 ruma = { version = "0.16.0", features = ["unstable-msc4095"] }
 ruma-html = { version = "0.8.0", features = ["matrix"] }

@@ -208,7 +208,7 @@ impl Structure {
             smaller_border_radius,
             font_size: 15.0,
             small_font_size: 11.0,
-            large_font_size: 21.0,
+            large_font_size: 19.0,
             divider_width: 2.0,
             border_thickness: 1.0,
 

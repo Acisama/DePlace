@@ -5,7 +5,7 @@ use deplace_core::{
 };
 use iced::widget::text::Alignment;
 
-use crate::common::*;
+use crate::{common::*, components::context_room_icon};
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
@@ -204,7 +204,10 @@ fn render_channel(
             other_member.get_name(),
         )
     } else {
-        (room.render_icon(icon_size, avatar_cache), room.get_name())
+        (
+            context_room_icon(room, icon_size, avatar_cache),
+            room.get_name(),
+        )
     };
 
     w::button(

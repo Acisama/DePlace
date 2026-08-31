@@ -11,6 +11,7 @@ deplace_core = { workspace = true, features = ["iced_desktop"] }
 dirs.workspace = true
 iced.workspace = true
 matrix-sdk.workspace = true
+phosphor-svgs.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

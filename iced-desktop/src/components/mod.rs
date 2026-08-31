@@ -3,10 +3,12 @@ use std::hash::Hash;
 use deplace_core::colors::ColorExt;
 use deplace_core::state::cache::{AvatarCache, MediaState};
 use deplace_core::{NameExt, RestoreResult};
+use iced::advanced::svg::Renderer as SvgRenderer;
+use iced::advanced::{Widget, layout};
 use iced::font::Weight;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::widget::text::Rich;
-use iced::widget::{self as w, Canvas, canvas, image, rich_text, span};
+use iced::widget::{self as w, Canvas, canvas, image, rich_text, span, svg};
 use iced::{
     Border, Element,
     Length::Fill,
@@ -314,4 +316,93 @@ impl IcedColorExt for iced::Color {
     fn scale_lightness(&self, factor: f32) -> Self {
         iced::Color::from_rgba(self.r * factor, self.g * factor, self.b * factor, self.a)
     }
+}
+
+pub struct PhosphorIcon {
+    handle: svg::Handle,
+    size: f32,
+    color: Option<Color>, // explicit override; None = inherit
+}
+
+impl PhosphorIcon {
+    pub fn new(svg_content: &'static str, size: f32) -> Self {
+        Self {
+            handle: svg::Handle::from_memory(svg_content.as_bytes()),
+            size,
+            color: None,
+        }
+    }
+
+    pub fn color(mut self, color: Color) -> Self {
+        self.color = Some(color);
+        self
+    }
+}
+
+impl<Message, Theme, R: SvgRenderer> Widget<Message, Theme, R> for PhosphorIcon {
+    fn size(&self) -> Size<iced::Length> {
+        Size::new(self.size.into(), self.size.into())
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut iced::advanced::widget::Tree,
+        _renderer: &R,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        layout::Node::new(limits.resolve(self.size, self.size, Size::new(self.size, self.size)))
+    }
+
+    fn draw(
+        &self,
+        _tree: &iced::advanced::widget::Tree,
+        renderer: &mut R,
+        _theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: layout::Layout<'_>,
+        _cursor: iced::advanced::mouse::Cursor,
+        viewport: &iced::Rectangle,
+    ) {
+        renderer.draw_svg(
+            iced::advanced::svg::Svg::new(self.handle.clone())
+                .color(self.color.unwrap_or(style.text_color)),
+            layout.bounds(),
+            *viewport,
+        );
+    }
+}
+
+impl<'a, Message, Theme, R> From<PhosphorIcon> for Element<'a, Message, Theme, R>
+where
+    Message: 'a,
+    Theme: 'a,
+    R: SvgRenderer + 'a,
+{
+    fn from(icon: PhosphorIcon) -> Self {
+        Element::new(icon)
+    }
+}
+
+pub fn phosphor_icon<'a>(svg_content: &'static str, size: f32) -> PhosphorIcon {
+    PhosphorIcon::new(svg_content, size)
+}
+
+fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
+    room: &Room,
+    size: f32,
+    avatar_cache: &AvatarCache,
+) -> Element<'a, T> {
+    if room.is_dm() {
+        return room.render_icon(size, avatar_cache);
+    }
+
+    phosphor_icon(
+        if room.is_call() {
+            phosphor_svgs::icon::speaker_high::FILL
+        } else {
+            phosphor_svgs::icon::hash::BOLD
+        },
+        size,
+    )
+    .into()
 }

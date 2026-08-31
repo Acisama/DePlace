@@ -3504,6 +3504,7 @@ dependencies = [
  "iced",
  "matrix-sdk",
  "naga 27.0.3",
+ "phosphor-svgs",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -6119,6 +6120,12 @@ dependencies = [
  "siphasher",
  "uncased",
 ]
+
+[[package]]
+name = "phosphor-svgs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91f4fc28573fcceb80ada601606da3ba4ccc664f9de401e05db2b942061194b6"
 
 [[package]]
 name = "pico-args"

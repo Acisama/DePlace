@@ -24,6 +24,7 @@ pub use iced::{
         button::{self, Style as ButtonStyle},
         canvas,
         container::{self, Style as ContainerStyle},
+        svg::{self, Style as SvgStyle},
         text::{self, Style as TextStyle},
     },
     window,
@@ -32,6 +33,7 @@ pub use matrix_sdk::{
     Client, Room,
     ruma::{MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId},
 };
+use phosphor_svgs as icons;
 
 pub use std::hash::Hash;
 pub use std::sync::Arc;
