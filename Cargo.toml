@@ -18,6 +18,7 @@ base64 = "0.23.0"
 blurhash = "0.2.3"
 chrono = "0.4.45"
 chrono-tz = { version = "0.10.4", features = ["serde"] }
+const_format = "0.2.36"
 csscolorparser = "0.8.3"
 dashmap = "7.0.0-rc2"
 dirs = "6.0.0"

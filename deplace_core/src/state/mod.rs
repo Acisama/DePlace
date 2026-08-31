@@ -1,15 +1,17 @@
 use std::{
     collections::{HashMap, HashSet},
+    hash::Hash,
     sync::{Arc, Mutex},
 };
 
+use futures::{Stream, stream};
 use matrix_sdk::{
     Client, Room,
     room::RoomMember,
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
 };
 use ruma::{RoomId, events::presence::PresenceEventContent};
-use tokio::sync::watch::{self, Ref, Sender};
+use tokio::sync::watch::{self, Receiver, Ref, Sender};
 
 use crate::{
     matrix_api::{
@@ -501,4 +503,26 @@ impl AppState {
             changed
         });
     }
+}
+
+// Identity only, for Subscription diffing - not content equality.
+// DO NOT use this for lazy/cache hashing.
+impl Hash for AppState {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (Arc::as_ptr(&self.inner) as usize).hash(state);
+    }
+}
+
+pub fn to_stream<T: Clone, V>(
+    rx: Receiver<T>,
+    convert: impl Fn(T) -> V + Clone,
+) -> impl Stream<Item = V> {
+    stream::unfold(rx, move |mut rx| {
+        let convert = convert.clone();
+        async move {
+            rx.changed().await.ok()?;
+            let value = convert(rx.borrow().clone());
+            Some((value, rx))
+        }
+    })
 }

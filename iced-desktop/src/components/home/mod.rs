@@ -1,7 +1,7 @@
-use crate::{
-    common::*,
-    components::sidebar::{Sidebar, SidebarAction, SidebarMessage},
-};
+use crate::common::*;
+use sidebar::{Sidebar, SidebarAction, SidebarMessage};
+
+mod sidebar;
 
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
@@ -30,6 +30,10 @@ impl Home {
             sidebar: Arc::new(Sidebar::new(state.clone())),
             state,
         }
+    }
+
+    pub fn subscription(&self) -> Subscription<HomeMessage> {
+        self.sidebar.subscription().map(HomeMessage::Sidebar)
     }
 
     pub fn update(&mut self, message: HomeMessage) -> HomeAction {

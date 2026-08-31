@@ -4,11 +4,11 @@ use matrix_sdk::Client;
 use tracing_subscriber::EnvFilter;
 
 use crate::components::{
-    Root,
     authentification::{
         discovery::DiscoveryMessage, login::LoginMessage, verification::VerificationMessage,
     },
     home::HomeMessage,
+    root::Root,
 };
 
 pub(crate) mod common;

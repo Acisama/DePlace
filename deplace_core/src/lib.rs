@@ -5,6 +5,7 @@ use matrix_sdk::{
     room::RoomMember,
 };
 use ruma::{RoomId, UserId};
+use state::ActiveServer;
 
 use crate::{
     keyring::init_keyring,
@@ -193,5 +194,21 @@ impl NameExt for Option<Room> {
 
     fn initial(&self) -> char {
         self.as_ref().map(|r| r.initial()).unwrap_or('?')
+    }
+}
+
+impl NameExt for ActiveServer {
+    fn get_name(&self) -> String {
+        match self {
+            ActiveServer::Dms => "Direct Messages".to_string(),
+            ActiveServer::Server(server) => server.get_name(),
+        }
+    }
+
+    fn initial(&self) -> char {
+        match self {
+            ActiveServer::Dms => 'D',
+            ActiveServer::Server(server) => server.initial(),
+        }
     }
 }

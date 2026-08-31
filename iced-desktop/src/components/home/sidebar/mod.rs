@@ -1,47 +1,30 @@
 use std::{
+    cmp::Reverse,
     collections::{BTreeSet, HashSet},
     time::{Duration, Instant},
 };
 
+use channels::render_channels;
 use deplace_core::{
     RoomMap,
-    state::{
-        ActiveServer, ActiveServerId,
-        cache::{AvatarCache, MediaState},
-    },
-};
-use iced::{
-    Padding,
-    widget::{MouseArea, svg},
+    matrix_api::sync::ParentToChildrenOrderStr,
+    state::{ActiveServer, ActiveServerId, to_stream},
 };
 use matrix_sdk::ruma::{OwnedMxcUri, OwnedRoomId};
+use server_column::render_server_column;
 use tokio::sync::watch::Receiver;
 
 use crate::common::*;
 
-#[derive(Clone, Copy)]
-struct PillAnimation {
-    from: f32,
-    to: f32,
-    start: Instant,
-}
-
-const PILL_ANIM: Duration = Duration::from_millis(150);
-
-impl PillAnimation {
-    fn height(&self, now: Instant) -> f32 {
-        let t = (now.duration_since(self.start).as_secs_f32() / PILL_ANIM.as_secs_f32())
-            .clamp(0.0, 1.0);
-        let eased = t * t * (3.0 - 2.0 * t); // same smoothstep you already use in loading.wgsl
-        self.from + (self.to - self.from) * eased
-    }
-}
+mod channels;
+mod pill;
+mod server_column;
 
 #[derive(Clone, Debug)]
 pub enum SidebarMessage {
     ChangeActiveRoom(Option<Room>),
     ChangeActiveServer(ActiveServer),
-    // ActiveServerChange(Option<Room>),
+    ActiveServerChange(ActiveServer),
     NeedAvatar(OwnedMxcUri),
     ServerHovered(ActiveServerId),
     ServerHoverEnded(ActiveServerId),
@@ -61,8 +44,12 @@ pub enum SidebarAction {
 #[derive(Clone)]
 pub struct Sidebar {
     state: AppState,
+
     server_rooms: Receiver<RoomMap>,
     server_order: Receiver<Vec<OwnedRoomId>>,
+    dm_rooms: Receiver<RoomMap>,
+
+    parent_to_children: Receiver<ParentToChildrenOrderStr>,
 
     active_room: Receiver<Option<Room>>,
     active_server: Receiver<ActiveServer>,
@@ -95,6 +82,9 @@ impl Sidebar {
         Self {
             server_rooms: state.server_rooms(),
             server_order: state.server_order(),
+            dm_rooms: state.dm_rooms(),
+
+            parent_to_children: state.parent_to_children(),
 
             active_room: state.active_room(),
             active_server: state.active_server(),
@@ -104,6 +94,14 @@ impl Sidebar {
             state,
             avatar_states_for_hash: BTreeSet::new(),
         }
+    }
+
+    pub fn subscription(&self) -> Subscription<SidebarMessage> {
+        Subscription::run_with(self.state.clone(), |state| {
+            to_stream(state.active_server(), |server| {
+                SidebarMessage::ActiveServerChange(server)
+            })
+        })
     }
 
     pub fn update(&mut self, message: SidebarMessage) -> SidebarAction {
@@ -146,6 +144,7 @@ impl Sidebar {
                 }
                 SidebarAction::None
             }
+            SidebarMessage::ActiveServerChange(new) => SidebarAction::None,
         }
     }
 
@@ -179,140 +178,46 @@ impl Sidebar {
         unsorted_rooms.sort_by_key(|r| r.room_id().to_string());
         sorted_rooms.extend(unsorted_rooms);
 
+        let channels = match &active_server {
+            ActiveServer::Dms => {
+                let mut rooms: Vec<Room> = self.dm_rooms.borrow().values().cloned().collect();
+                rooms.sort_by_key(|r| Reverse(r.latest_event_timestamp()));
+                rooms
+            }
+            ActiveServer::Server(server) => {
+                let mut children: Vec<(Room, Option<String>)> = self
+                    .parent_to_children
+                    .borrow()
+                    .get(server.room_id())
+                    .cloned()
+                    .unwrap_or_default()
+                    .values()
+                    .cloned()
+                    .collect();
+
+                children.sort_by(|(r1, o1), (r2, o2)| {
+                    let k1 = o1.as_deref().unwrap_or_else(|| r1.room_id().as_str());
+                    let k2 = o2.as_deref().unwrap_or_else(|| r2.room_id().as_str());
+                    k1.cmp(k2)
+                });
+
+                children.into_iter().map(|(room, _)| room).collect()
+            }
+        };
+
         w::row![
             render_server_column(
                 theme,
                 structure,
                 sorted_rooms,
-                active_server,
+                active_server.clone(),
                 &self.hovered_server,
                 self.state.avatar_cache()
             ),
             Space::new().width(structure.small_gap),
-            floating_tile(theme, structure, text(active_room.get_name()))
+            // floating_tile(theme, structure, text(active_room.get_name()))
+            render_channels(theme, structure, active_server, channels)
         ]
         .into()
     }
-}
-
-fn pill(
-    theme: Theme,
-    structure: Structure,
-    active: bool,
-    hovered: bool,
-    has_messages: bool,
-    content: MouseArea<'static, SidebarMessage>,
-) -> Stack<'static, SidebarMessage> {
-    let height = if active {
-        structure.server_column.icon_size
-    } else if hovered {
-        structure.server_column.icon_size / 2.0
-    } else if has_messages {
-        structure.small_gap / 2.0
-    } else {
-        return Stack::new().push(w::row![Space::new().width(structure.small_gap), content]);
-    };
-
-    let offset = (structure.server_column.icon_size - height) / 2.0;
-
-    Stack::new()
-        .push(w::row![Space::new().width(structure.small_gap), content])
-        .push(w::column![
-            Space::new().height(offset),
-            w::container(Space::new())
-                .width(structure.small_gap / 2.0)
-                .height(height)
-                .style(move |_| ContainerStyle {
-                    background: Some(theme.pill_color.into()),
-                    border: Border {
-                        radius: (structure.small_gap / 4.0).into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-        ])
-}
-
-fn render_server_column(
-    theme: Theme,
-    structure: Structure,
-    sorted_rooms: Vec<Room>,
-    active_server: ActiveServer,
-    hovered_server: &Option<ActiveServerId>,
-    avatar_cache: &AvatarCache,
-) -> Element<'static, SidebarMessage> {
-    let icon_handle = iced::advanced::svg::Handle::from_memory(include_bytes!(
-        "../../../../assets/deplace_icon.svg"
-    ));
-    let icon_size = structure.server_column.icon_size;
-
-    let mut column = w::column![
-        pill(
-            theme,
-            structure,
-            active_server.is_dms(),
-            hovered_server
-                .as_ref()
-                .map(|id| id.is_dms())
-                .unwrap_or(false),
-            false,
-            w::mouse_area(svg(icon_handle).width(icon_size).height(icon_size))
-                .interaction(Interaction::Pointer)
-                .on_press(SidebarMessage::ChangeActiveServer(ActiveServer::Dms))
-                .on_enter(SidebarMessage::ServerHovered(ActiveServerId::Dms))
-                .on_exit(SidebarMessage::ServerHoverEnded(ActiveServerId::Dms))
-        ),
-        w::row![
-            Space::new().width(structure.small_gap),
-            w::container(
-                Space::new()
-                    .width(icon_size)
-                    .height(structure.divider_width)
-            )
-            .style(move |_| w::container::Style {
-                background: Some(theme.border.into()),
-                border: Border {
-                    radius: (structure.small_gap / 2.0).into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-        ]
-    ]
-    .spacing(structure.gap);
-
-    for room in sorted_rooms {
-        let id = room.room_id().to_owned();
-
-        column = column.push(pill(
-            theme,
-            structure,
-            active_server.is_server(&id),
-            hovered_server
-                .as_ref()
-                .map(|sid| sid.is_server(&id))
-                .unwrap_or(false),
-            false,
-            w::mouse_area(room.render_icon(icon_size, avatar_cache))
-                .interaction(Interaction::Pointer)
-                .on_press(SidebarMessage::ChangeActiveServer(ActiveServer::Server(
-                    room,
-                )))
-                .on_enter(SidebarMessage::ServerHovered(ActiveServerId::Server(
-                    id.clone(),
-                )))
-                .on_exit(SidebarMessage::ServerHoverEnded(ActiveServerId::Server(id))),
-        ));
-    }
-
-    floating_tile(theme, structure, column)
-        .width(structure.server_column_width())
-        .height(Fill)
-        .padding(Padding {
-            top: structure.small_gap * 1.5,
-            bottom: structure.small_gap / 2.0,
-            left: structure.small_gap / 2.0,
-            right: structure.small_gap / 2.0,
-        })
-        .into()
 }
