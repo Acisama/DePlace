@@ -16,6 +16,7 @@ use iced::{
 };
 use iced::{Color, ContentFit, Font, Point, Renderer, Size};
 use matrix_sdk::Room;
+use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::OwnedMxcUri;
 
 use crate::components::authentification::login::{LoginAction, LoginMessage};
@@ -255,7 +256,9 @@ impl IconExt for Room {
         size: f32,
         avatar_cache: &AvatarCache,
     ) -> Element<'a, T> {
-        let fallback = move || text_icon(self.initial(), size, size / 4.0, self.color().to_iced());
+        let rounding = size / 4.0;
+
+        let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
 
         let Some(avatar_url) = self.avatar_url() else {
             return fallback();
@@ -267,9 +270,36 @@ impl IconExt for Room {
                 .width(size)
                 .height(size)
                 .content_fit(ContentFit::Cover)
-                .border_radius(size / 4.0)
+                .border_radius(rounding)
                 .into(),
             None => on_appear(fallback(), T::needs_avatar(avatar_url)).into(),
+        }
+    }
+}
+
+impl IconExt for RoomMember {
+    fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
+        &self,
+        size: f32,
+        avatar_cache: &AvatarCache,
+    ) -> Element<'a, T> {
+        let rounding = size / 2.0;
+
+        let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
+
+        let Some(avatar_url) = self.avatar_url() else {
+            return fallback();
+        };
+
+        match avatar_cache.get(&avatar_url.into()) {
+            Some(MediaState::Failed) | Some(MediaState::Loading) => fallback(),
+            Some(MediaState::Loaded(avatar)) => image((*avatar).clone())
+                .width(size)
+                .height(size)
+                .content_fit(ContentFit::Cover)
+                .border_radius(rounding)
+                .into(),
+            None => on_appear(fallback(), T::needs_avatar(avatar_url.to_owned())).into(),
         }
     }
 }

@@ -36,7 +36,7 @@ pub struct PillCanvas {
     pub radius: f32,
 }
 
-impl canvas::Program<SidebarMessage> for PillCanvas {
+impl<T> canvas::Program<T> for PillCanvas {
     type State = PillState;
 
     fn update(
@@ -45,7 +45,7 @@ impl canvas::Program<SidebarMessage> for PillCanvas {
         event: &canvas::Event,
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
-    ) -> Option<canvas::Action<SidebarMessage>> {
+    ) -> Option<canvas::Action<T>> {
         let canvas::Event::Window(window::Event::RedrawRequested(now)) = event else {
             return None;
         };

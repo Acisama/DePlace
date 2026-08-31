@@ -15,7 +15,9 @@ pub enum HomeAction {
 
 pub struct Home {
     state: AppState,
-    sidebar: Arc<Sidebar>,
+    sidebar: Sidebar,
+
+    window_title: Receiver<String>,
 }
 
 impl Hash for Home {
@@ -27,18 +29,20 @@ impl Hash for Home {
 impl Home {
     pub fn new(state: AppState) -> Self {
         Self {
-            sidebar: Arc::new(Sidebar::new(state.clone())),
-            state,
+            sidebar: Sidebar::new(&state),
+            window_title: state.window_title(),
+
+            state: state.clone(),
         }
     }
 
-    pub fn subscription(&self) -> Subscription<HomeMessage> {
-        self.sidebar.subscription().map(HomeMessage::Sidebar)
+    pub fn title(&self) -> String {
+        self.window_title.borrow().clone()
     }
 
     pub fn update(&mut self, message: HomeMessage) -> HomeAction {
         match message {
-            HomeMessage::Sidebar(msg) => match Arc::make_mut(&mut self.sidebar).update(msg) {
+            HomeMessage::Sidebar(msg) => match self.sidebar.update(msg) {
                 SidebarAction::Run(task) => return HomeAction::EmptyRun(task),
                 SidebarAction::None => {}
             },

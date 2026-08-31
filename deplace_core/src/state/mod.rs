@@ -21,6 +21,7 @@ use crate::{
         sync::{ParentToChildren, ParentToChildrenOrderStr, reclassify_rooms},
     },
     settings::Settings,
+    window_title,
 };
 
 #[derive(Clone, Debug)]
@@ -64,6 +65,13 @@ impl ActiveServer {
 
     pub fn is_server(&self, server_id: &RoomId) -> bool {
         matches!(self, ActiveServer::Server(room) if room.room_id() == server_id)
+    }
+
+    pub fn as_server(&self) -> Option<&Room> {
+        match self {
+            ActiveServer::Server(room) => Some(room),
+            ActiveServer::Dms => None,
+        }
     }
 }
 
@@ -109,11 +117,16 @@ struct AppStateInner {
     pub user_device: UserDevice,
     pub settings: Settings,
 
+    window_title: Sender<String>,
+
     dm_rooms: Sender<RoomMap>,
     single_rooms: Sender<RoomMap>,
     server_rooms: Sender<RoomMap>,
-    /// Monotonically increasing room version counter, gets increased if anything notable changes in any room
+
+    /// Monotonically increasing version counter, gets increased if anything notable changes in any room
     pub room_version: Sender<u64>,
+    pub membership_version: Sender<u64>,
+    pub presence_version: Sender<u64>,
 
     pub active_room_version: Sender<u64>,
     pub active_server_version: Sender<u64>,
@@ -123,8 +136,8 @@ struct AppStateInner {
 
     active_room: Sender<Option<Room>>,
     active_server: Sender<ActiveServer>,
-    membership_map: Sender<MembershipMap>,
     presence_map: Sender<PresenceMap>,
+    membership_map: Sender<MembershipMap>,
 
     server_order: Sender<Vec<OwnedRoomId>>,
 
@@ -174,7 +187,7 @@ impl AppState {
 
         let (active_room, _) = watch::channel(last_room_id.and_then(|id| client.get_room(&id)));
         let (active_server, _) =
-            watch::channel(last_server.and_then(|id| client.get_room(&id)).into());
+            watch::channel::<ActiveServer>(last_server.and_then(|id| client.get_room(&id)).into());
 
         let (membership_map, _) = watch::channel(MembershipMap::default());
         let (presence_map, _) = watch::channel(PresenceMap::default());
@@ -183,13 +196,23 @@ impl AppState {
         let (server_order, _) = watch::channel(server_order_data.servers);
 
         let (room_version, _) = watch::channel(0);
+        let (membership_version, _) = watch::channel(0);
+        let (presence_version, _) = watch::channel(0);
+
         let (active_room_version, _) = watch::channel(0);
         let (active_server_version, _) = watch::channel(0);
+
+        let (window_title, _) = watch::channel(window_title(
+            active_room.borrow().clone(),
+            active_server.borrow().clone(),
+        ));
 
         Self {
             inner: Arc::new(AppStateInner {
                 #[cfg(feature = "iced_desktop")]
                 avatar_cache: cache::AvatarCache::new(client.clone()),
+
+                window_title,
 
                 client,
                 user_device,
@@ -199,6 +222,8 @@ impl AppState {
                 single_rooms,
                 server_rooms,
                 room_version,
+                membership_version,
+                presence_version,
                 active_room_version,
                 active_server_version,
 
@@ -222,8 +247,20 @@ impl AppState {
         &self.inner.avatar_cache
     }
 
+    pub fn window_title(&self) -> Receiver<String> {
+        self.inner.window_title.subscribe()
+    }
+
     pub fn room_version(&self) -> Ref<'_, u64> {
         self.inner.room_version.borrow()
+    }
+
+    pub fn membership_version(&self) -> Ref<'_, u64> {
+        self.inner.membership_version.borrow()
+    }
+
+    pub fn presence_version(&self) -> Ref<'_, u64> {
+        self.inner.presence_version.borrow()
     }
 
     pub fn active_room_version(&self) -> Ref<'_, u64> {
@@ -252,6 +289,10 @@ impl AppState {
         &self.inner.user_device
     }
 
+    pub fn own_id(&self) -> OwnedUserId {
+        self.inner.user_device.user_id.clone()
+    }
+
     // Getters
 
     pub fn dm_rooms(&self) -> watch::Receiver<RoomMap> {
@@ -264,6 +305,10 @@ impl AppState {
 
     pub fn parent_to_children(&self) -> watch::Receiver<ParentToChildrenOrderStr> {
         self.inner.parent_to_children.subscribe()
+    }
+
+    pub fn parent_to_all_children(&self) -> watch::Receiver<ParentToChildren> {
+        self.inner.parent_to_all_children.subscribe()
     }
 
     pub fn single_rooms(&self) -> watch::Receiver<RoomMap> {
@@ -314,6 +359,7 @@ impl AppState {
     }
 
     pub(crate) fn set_membership_map(&self, membership_map: MembershipMap) {
+        self.inner.membership_version.send_modify(|v| *v += 1);
         self.inner.membership_map.send_if_modified(|cur| {
             *cur = membership_map;
             true
@@ -321,6 +367,7 @@ impl AppState {
     }
 
     pub(crate) fn add_membership(&self, room_id: OwnedRoomId, member: RoomMember) {
+        self.inner.membership_version.send_modify(|v| *v += 1);
         self.inner.membership_map.send_if_modified(|cur| {
             cur.entry(room_id)
                 .or_default()
@@ -330,6 +377,7 @@ impl AppState {
     }
 
     pub(crate) fn add_presences(&self, presences: PresenceMap) {
+        self.inner.presence_version.send_modify(|v| *v += 1);
         self.inner.presence_map.send_if_modified(|cur| {
             cur.extend(presences);
             true
@@ -374,6 +422,8 @@ impl AppState {
 
         // if the server was changed, also change the room
         if server_changed {
+            self.recalculate_title();
+
             let server_id = server.id();
             let breadcrumbs = self.breadcrumbs();
 
@@ -409,7 +459,7 @@ impl AppState {
 
             if change_room {
                 let new_room = new_room_id.and_then(|id| self.client().get_room(&id));
-                self.set_active_room(new_room, false).await;
+                self.set_active_room(new_room).await;
             }
         }
     }
@@ -417,7 +467,7 @@ impl AppState {
     /// Set the currently focused room. This function als takes care of updating the breadcrumbs and active server
     ///
     /// Returns the new server if it changed
-    pub async fn set_active_room(&self, room: Option<Room>, change_server: bool) -> ActiveServer {
+    pub async fn set_active_room(&self, room: Option<Room>) -> ActiveServer {
         self.inner.active_room_version.send_modify(|v| *v += 1);
 
         let mut room_changed = false;
@@ -449,9 +499,9 @@ impl AppState {
                 .and_then(|id| self.server_rooms().borrow().clone().get(&id).cloned())
                 .into();
 
-            if change_server && self.active_server().borrow().clone() != active_server {
-                new_server = active_server.clone();
-            }
+            self.recalculate_title();
+
+            new_server = active_server.clone();
 
             self.update_breadcrumbs(|breadcrumbs| {
                 // Remove duplicates
@@ -502,6 +552,16 @@ impl AppState {
             }
             changed
         });
+    }
+
+    /// Returns the window title for the current state, taking active server and room into account.
+    pub fn recalculate_title(&self) {
+        if let Err(e) = self.inner.window_title.send(window_title(
+            self.active_room().borrow().clone(),
+            self.active_server().borrow().clone(),
+        )) {
+            tracing::error!("Failed to send window title: {}", e);
+        }
     }
 }
 

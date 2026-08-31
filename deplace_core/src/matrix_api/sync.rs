@@ -18,7 +18,13 @@ use crate::{
     state::AppState,
 };
 
+use super::members::set_membership_map;
+
 pub fn spawn_room_sync(client: &Client, state: &AppState) {
+    if let Err(e) = client.event_cache().subscribe() {
+        tracing::error!("Failed to subscribe to event cache: {e}");
+    }
+
     tokio::spawn(run_sync_stream(client.clone(), state.clone()));
     tokio::spawn(run_keystore_save_stream(client.clone()));
     tokio::spawn(run_room_classification(client.clone(), state.clone()));
@@ -66,6 +72,8 @@ async fn run_room_classification(client: Client, state: AppState) {
     while updates.recv().await.is_ok() {
         state.bump_room_version();
         let response = reclassify_rooms(&client).await;
+
+        set_membership_map(client.rooms(), state.clone()).await;
 
         state.set_dm_rooms(response.dm_rooms);
         state.set_server_rooms(response.server_rooms);
@@ -198,6 +206,14 @@ pub async fn reclassify_rooms(client: &Client) -> ClasifiedRooms {
                 .entry(parent_id.clone())
                 .or_default()
                 .insert(child_id.clone(), child.clone());
+        }
+    }
+
+    let latest_events = client.latest_events().await;
+
+    for id in dm_rooms.keys() {
+        if let Err(e) = latest_events.listen_to_room(id).await {
+            tracing::error!("Failed to listen to room {}: {e}", id);
         }
     }
 

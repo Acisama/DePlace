@@ -8,7 +8,7 @@ pub use deplace_core::{
     NameExt,
     settings::Settings,
     state::{
-        AppState,
+        AppState, MembershipMap, RoomMap,
         cache::{AvatarCache, MediaState},
     },
 };
@@ -18,13 +18,19 @@ pub use iced::{
     Padding, Point, Rectangle, Renderer, Shadow, Size, Subscription, Task, Theme as IcedTheme,
     mouse::{self, Interaction},
     widget::{
-        self as w, Canvas, MouseArea, Space, Stack, canvas,
+        self as w, Canvas, Column, MouseArea, Row, Space, Stack,
+        button::{self, Style as ButtonStyle},
+        canvas,
         container::{self, Style as ContainerStyle},
         text,
     },
     window,
 };
-pub use matrix_sdk::{Client, Room};
+pub use matrix_sdk::{
+    Client, Room,
+    ruma::{MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId},
+};
 
 pub use std::hash::Hash;
 pub use std::sync::Arc;
+pub use tokio::sync::watch::Receiver;

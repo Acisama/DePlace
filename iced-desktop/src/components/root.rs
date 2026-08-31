@@ -104,13 +104,6 @@ impl Screen {
         Task::none()
     }
 
-    fn subscription(&self) -> Subscription<AppMessage> {
-        match self {
-            Screen::Home(home) => home.subscription().map(AppMessage::Home),
-            _ => Subscription::none(),
-        }
-    }
-
     /// Index fed to the loading shader's `u_state`/`u_prev_state` uniforms.
     fn state_index(&self) -> f32 {
         match self {
@@ -170,6 +163,13 @@ impl Root {
         self.screen.update(message)
     }
 
+    pub fn title(&self, _: window::Id) -> String {
+        if let Screen::Home(home) = &self.screen {
+            return home.title();
+        }
+        "DePlace".to_string()
+    }
+
     pub fn subscription(&self) -> Subscription<AppMessage> {
         Subscription::batch([
             window::frames().map(|_| AppMessage::Tick),
@@ -183,7 +183,6 @@ impl Root {
                 }),
                 _ => None,
             }),
-            self.screen.subscription(),
         ])
     }
 

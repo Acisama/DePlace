@@ -20,12 +20,12 @@ async fn handle_member_event(ev: OriginalSyncRoomMemberEvent, room: Room, state:
     state.add_membership(room.room_id().into(), member);
 }
 
-async fn set_membership_map(rooms: Vec<Room>, state: AppState) {
+pub async fn set_membership_map(rooms: Vec<Room>, state: AppState) {
     let mut membership_map = MembershipMap::default();
 
     for room in rooms {
         let members: HashMap<OwnedUserId, RoomMember> = room
-            .members(RoomMemberships::JOIN)
+            .members(RoomMemberships::ACTIVE)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to get room members: {:?}", e);

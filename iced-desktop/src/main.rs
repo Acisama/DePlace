@@ -66,6 +66,7 @@ fn main() -> iced::Result {
         Root::update,
         Root::view,
     )
+    .title(Root::title)
     .subscription(Root::subscription)
     .run()
 }
