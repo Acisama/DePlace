@@ -1,12 +1,6 @@
-use std::{cmp::Reverse, collections::BTreeSet};
-
 use channels::{ChannelsAction, ChannelsMessage, ServerChannels};
-use deplace_core::{
-    matrix_api::sync::ParentToChildrenOrderStr,
-    state::{ActiveServer, ActiveServerId},
-};
+use deplace_core::state::ActiveServer;
 use server_column::{ServerColumn, ServerColumnAction, ServerColumnMessage};
-use tokio::sync::watch::Receiver;
 
 use crate::common::*;
 

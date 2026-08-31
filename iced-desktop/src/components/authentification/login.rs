@@ -172,7 +172,7 @@ impl Login {
                     move |_| LoginMessage::BackToDiscovery(client.clone())
                 });
 
-        let login_button = w::button(text("Log in").width(Fill).center())
+        let login_button = w::button(w::text("Log in").width(Fill).center())
             .width(Fill)
             .style(move |_, status| w::button::Style {
                 background: Some(match status {
@@ -200,14 +200,14 @@ impl Login {
                     .width(Fill)
                     .center(),
                 w::column![
-                    text("Username")
+                    w::text("Username")
                         .size(structure.font_size)
                         .color(theme.text.dim),
                     Space::new().height(structure.small_gap),
                     username_input,
                 ],
                 w::column![
-                    text("Password")
+                    w::text("Password")
                         .size(structure.font_size)
                         .color(theme.text.dim),
                     Space::new().height(structure.small_gap),

@@ -18,8 +18,6 @@ use crate::{
     state::AppState,
 };
 
-use super::members::set_membership_map;
-
 pub fn spawn_room_sync(client: &Client, state: &AppState) {
     if let Err(e) = client.event_cache().subscribe() {
         tracing::error!("Failed to subscribe to event cache: {e}");
@@ -70,10 +68,16 @@ async fn run_sync_stream(client: Client, state: AppState) {
 async fn run_room_classification(client: Client, state: AppState) {
     let mut updates = client.room_info_notable_update_receiver();
     while updates.recv().await.is_ok() {
+        // room_info_notable_update fires once per room, and during initial
+        // sync many rooms settle in one burst. Drain the rest of that burst
+        // so we run one reclassification pass instead of one per room.
+        while tokio::time::timeout(Duration::from_millis(50), updates.recv())
+            .await
+            .is_ok_and(|r| r.is_ok())
+        {}
+
         state.bump_room_version();
         let response = reclassify_rooms(&client).await;
-
-        set_membership_map(client.rooms(), state.clone()).await;
 
         state.set_dm_rooms(response.dm_rooms);
         state.set_server_rooms(response.server_rooms);

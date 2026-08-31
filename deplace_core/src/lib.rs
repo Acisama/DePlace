@@ -218,9 +218,9 @@ pub fn window_title(room: Option<Room>, server: ActiveServer) -> String {
     let server_name = server.as_server().map(|s| s.get_name());
 
     match (room_name, server_name) {
-        (Some(room_name), Some(server_name)) => format!("{} | {}", room_name, server_name),
+        (Some(room_name), Some(server_name)) => format!("#{} | {}", room_name, server_name),
         (Some(room_name), None) => format!("@{} - {APP_HUMAN_NAME}", room_name),
-        (None, Some(server_name)) => format!("#{} - {APP_HUMAN_NAME}", server_name),
+        (None, Some(server_name)) => format!("{} - {APP_HUMAN_NAME}", server_name),
         (None, None) => APP_HUMAN_NAME.to_string(),
     }
 }

@@ -219,7 +219,7 @@ pub fn text_icon<'a, T: 'a>(
                 .height(size)
                 .center(size)
                 .style(move |_| w::container::Style {
-                    background: Some(color.scale_alpha(0.2).into()),
+                    background: Some(color.scale_lightness(0.2).into()),
                     text_color: Some(color),
                     border: Border {
                         color,
@@ -230,7 +230,7 @@ pub fn text_icon<'a, T: 'a>(
                 }),
         )
         .push(
-            Canvas::new(InsetShadow::new(size / 4.0, color, size / 8.0, 8))
+            Canvas::new(InsetShadow::new(rounding, color, size / 8.0, 8))
                 .width(size)
                 .height(size),
         )
@@ -301,5 +301,14 @@ impl IconExt for RoomMember {
                 .into(),
             None => on_appear(fallback(), T::needs_avatar(avatar_url.to_owned())).into(),
         }
+    }
+}
+
+pub trait IcedColorExt {
+    fn scale_lightness(&self, factor: f32) -> Self;
+}
+impl IcedColorExt for iced::Color {
+    fn scale_lightness(&self, factor: f32) -> Self {
+        iced::Color::from_rgba(self.r * factor, self.g * factor, self.b * factor, self.a)
     }
 }

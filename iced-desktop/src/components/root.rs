@@ -24,7 +24,7 @@ enum Screen {
     Discovery(Discovery),
     Login(Login),
     Verification(Verification),
-    Home(Home),
+    Home(Box<Home>),
 }
 
 impl Screen {
@@ -73,7 +73,7 @@ impl Screen {
                             .map(|res| AppMessage::Verification(VerificationMessage::from(res)));
                     }
                     VerificationAction::Success(state) => {
-                        *self = Screen::Home(Home::new(state));
+                        *self = Screen::Home(Box::new(Home::new(state)));
                     }
                 }
             }
@@ -95,7 +95,7 @@ impl Screen {
                     return task.map(|res| AppMessage::Discovery(DiscoveryMessage::from(res)));
                 }
                 RestoreResult::Success(state) => {
-                    *self = Screen::Home(Home::new(*state));
+                    *self = Screen::Home(Box::new(Home::new(*state)));
                 }
             },
             _ => {}
@@ -117,7 +117,7 @@ impl Screen {
 
     fn view(&self, theme: Theme, structure: Structure) -> Element<'static, AppMessage> {
         match self {
-            Screen::Loading => "loading".into(),
+            Screen::Loading => Space::new().into(),
             Screen::Discovery(discovery) => {
                 discovery.view(theme, structure).map(AppMessage::Discovery)
             }

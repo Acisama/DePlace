@@ -133,7 +133,13 @@ impl ServerChannels {
             theme,
             structure,
             w::column![
-                w::container(text(active_server.get_name()).size(structure.large_font_size)),
+                w::container(
+                    w::text(active_server.get_name())
+                        .size(structure.large_font_size)
+                        .style(move |_| TextStyle {
+                            color: Some(theme.text.normal)
+                        })
+                ),
                 w::container(Space::new())
                     .width(Fill)
                     .height(structure.border_thickness)
@@ -154,8 +160,12 @@ impl ServerChannels {
                         &self.own_id,
                     )
                 }))
+                .spacing(structure.divider_width)
+                .padding(structure.small_gap)
             ],
         )
+        .width(structure.sidebar.width)
+        .height(Fill)
         .into()
     }
 }
@@ -175,30 +185,40 @@ fn render_channel(
         .as_ref()
         .is_some_and(|id| id == room.room_id());
 
-    let icon = if room.is_dm()
+    let (icon, name) = if room.is_dm()
         && let Some(other_member) = get_other_member(own_id, membership_map, room.room_id())
     {
-        other_member.render_icon(icon_size, avatar_cache)
+        tracing::trace!("Dm room: {:?}", room.room_id());
+        (
+            other_member.render_icon(icon_size, avatar_cache),
+            other_member.get_name(),
+        )
     } else {
-        room.render_icon(icon_size, avatar_cache)
+        (room.render_icon(icon_size, avatar_cache), room.get_name())
     };
 
-    let id = room.room_id().to_owned();
-
-    w::button(w::row![icon])
-        .padding(
-            Padding::default()
-                .horizontal(structure.small_gap)
-                .vertical(structure.small_gap * 0.75),
-        )
-        .style(move |_, status| ButtonStyle {
+    w::button(
+        w::row![icon, w::text(name).height(icon_size).center()]
+            .spacing(structure.gap)
+            .width(Fill),
+    )
+    .padding(
+        Padding::default()
+            .horizontal(structure.small_gap)
+            .vertical(structure.small_gap * 0.75),
+    )
+    .style(move |_, status| {
+        let selected =
+            is_active || matches!(status, button::Status::Hovered | button::Status::Pressed);
+        ButtonStyle {
             background: is_active.then_some(theme.solid_hover_bg.into()),
+            text_color: if selected {
+                theme.text.normal
+            } else {
+                theme.text.dim
+            },
             border: Border {
-                color: if is_active
-                    || !matches!(
-                        status,
-                        button::Status::Hovered | button::Status::Active | button::Status::Pressed
-                    ) {
+                color: if selected {
                     theme.border
                 } else {
                     Default::default()
@@ -207,7 +227,8 @@ fn render_channel(
                 radius: structure.inner_border_radius.into(),
             },
             ..Default::default()
-        })
-        .on_press_maybe((!is_active).then_some(ChannelsMessage::SetActiveRoom(room.clone())))
-        .into()
+        }
+    })
+    .on_press_maybe((!is_active).then_some(ChannelsMessage::SetActiveRoom(room.clone())))
+    .into()
 }

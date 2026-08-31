@@ -1,6 +1,7 @@
 pub use crate::{
     components::{
-        GenericState, IconExt, NeedsAvatarExt, floating_tile, on_appear, text_input, weighted_text,
+        GenericState, IcedColorExt, IconExt, NeedsAvatarExt, floating_tile, on_appear, text_input,
+        weighted_text,
     },
     things::{Structure, Theme},
 };
@@ -22,7 +23,7 @@ pub use iced::{
         button::{self, Style as ButtonStyle},
         canvas,
         container::{self, Style as ContainerStyle},
-        text,
+        text::{self, Style as TextStyle},
     },
     window,
 };

@@ -132,7 +132,7 @@ impl Verification {
             &structure,
         );
 
-        let recovery_button = w::button(text("Log in").width(Fill).center())
+        let recovery_button = w::button(w::text("Log in").width(Fill).center())
             .width(Fill)
             .style(move |_, status| w::button::Style {
                 background: Some(match status {
@@ -159,7 +159,7 @@ impl Verification {
                     .width(Fill)
                     .center(),
                 w::column![
-                    text("Recovery Key")
+                    w::text("Recovery Key")
                         .size(structure.font_size)
                         .color(theme.text.dim),
                     Space::new().height(structure.small_gap),

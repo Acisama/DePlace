@@ -151,7 +151,7 @@ impl Discovery {
             self.state
                 .text("Homeserver is valid", "", &theme.colors, &structure);
 
-        let continue_button = w::button(text("Continue").width(Fill).center())
+        let continue_button = w::button(w::text("Continue").width(Fill).center())
             .width(Fill)
             .style(move |_, status| w::button::Style {
                 background: Some(match status {
@@ -183,7 +183,7 @@ impl Discovery {
                     .width(Fill)
                     .center(),
                 w::column![
-                    text("Homeserver")
+                    w::text("Homeserver")
                         .size(structure.font_size)
                         .color(theme.text.dim),
                     Space::new().height(structure.small_gap),
