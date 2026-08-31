@@ -3,6 +3,7 @@ use std::{cmp::Reverse, collections::BTreeSet};
 use deplace_core::{
     get_other_member, matrix_api::sync::ParentToChildrenOrderStr, state::ActiveServer,
 };
+use iced::widget::text::Alignment;
 
 use crate::common::*;
 
@@ -134,12 +135,22 @@ impl ServerChannels {
             structure,
             w::column![
                 w::container(
-                    w::text(active_server.get_name())
+                    weighted_text(active_server.get_name(), Weight::Bold)
                         .size(structure.large_font_size)
                         .style(move |_| TextStyle {
                             color: Some(theme.text.normal)
                         })
-                ),
+                        .wrapping(text::Wrapping::None)
+                        .center()
+                        .width(Fill)
+                        .align_x(Alignment::Left)
+                        .height(Fill)
+                )
+                .padding(
+                    Padding::default()
+                        .horizontal((structure.header.height - structure.large_font_size) / 2.0)
+                )
+                .height(structure.header.height),
                 w::container(Space::new())
                     .width(Fill)
                     .height(structure.border_thickness)
@@ -188,7 +199,6 @@ fn render_channel(
     let (icon, name) = if room.is_dm()
         && let Some(other_member) = get_other_member(own_id, membership_map, room.room_id())
     {
-        tracing::trace!("Dm room: {:?}", room.room_id());
         (
             other_member.render_icon(icon_size, avatar_cache),
             other_member.get_name(),

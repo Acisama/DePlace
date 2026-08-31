@@ -29,7 +29,6 @@ macros.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
 mime_guess.workspace = true
-reqwest.workspace = true
 ruma.workspace = true
 scraper = "0.27.0"
 serde.workspace = true

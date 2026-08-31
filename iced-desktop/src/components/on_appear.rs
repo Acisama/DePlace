@@ -1,7 +1,7 @@
 //! A wrapper widget that publishes a message once, the first time it is processed
 //! by the runtime, instead of in response to user interaction.
 use iced::advanced::widget::{Operation, Tree, tree};
-use iced::advanced::{Clipboard, Shell, Widget, layout, mouse, overlay, renderer};
+use iced::advanced::{Shell, Widget, layout, mouse, overlay, renderer};
 use iced::{Element, Event, Length, Rectangle, Size, Vector, advanced::Layout};
 
 pub struct OnAppear<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer> {
@@ -49,12 +49,8 @@ where
         tree::State::new(State::default())
     }
 
-    fn children(&self) -> Vec<Tree> {
-        vec![Tree::new(&self.content)]
-    }
-
-    fn diff(&self, tree: &mut Tree) {
-        tree.diff_children(std::slice::from_ref(&self.content));
+    fn diff(&mut self, tree: &mut Tree) {
+        tree.diff_children(&mut [&mut self.content]);
     }
 
     fn size(&self) -> Size<Length> {
@@ -91,7 +87,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -101,7 +96,6 @@ where
             layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             viewport,
         );

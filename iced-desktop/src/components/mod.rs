@@ -117,18 +117,18 @@ pub fn floating_tile<'a, T>(
     })
 }
 
-pub fn text_input<'a, T>(
-    placeholder: &str,
-    value: &str,
+pub fn text_input<T>(
+    placeholder: &'static str,
+    value: impl Into<String>,
     theme: Theme,
     structure: Structure,
-) -> w::text_input::TextInput<'a, T>
+) -> w::text_input::TextInput<'static, T>
 where
-    T: Clone,
+    T: Clone + 'static,
 {
     use w::text_input::{Status, Style};
 
-    w::text_input(placeholder, value)
+    w::text_input(placeholder, value.into())
         .size(structure.font_size)
         .padding(structure.small_gap)
         .style(move |_theme, status| Style {
@@ -143,7 +143,6 @@ where
                 radius: structure.inner_border_radius.into(),
             },
             placeholder: theme.text.muted,
-            icon: theme.text.muted,
             selection: theme.text.muted,
             value: theme.text.normal,
         })
@@ -182,7 +181,11 @@ impl<Message> canvas::Program<Message> for InsetShadow {
 
         for i in 0..self.layers {
             let t = i as f32 / self.layers as f32; // 0.0 at the edge, 1.0 at `depth`
-            let inset = t * self.depth;
+            // Start slightly inside the container's own clipped edge so the stroke
+            // (which straddles its path) never bleeds past the boundary and hits the
+            // degenerate radius == size/2 corner-arc case, which showed up as flattened
+            // poles on the outermost ring.
+            let inset = 1.0 + t * self.depth;
             let alpha = self.color.a * (1.0 - t).powf(2.0); // falls off quadratically inward
 
             let path = Path::rounded_rectangle(
