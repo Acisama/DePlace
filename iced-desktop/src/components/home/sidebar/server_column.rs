@@ -63,8 +63,10 @@ impl ServerColumn {
             state: state.clone(),
         }
     }
+}
 
-    pub fn update(&mut self, message: ServerColumnMessage) -> ServerColumnAction {
+impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
+    fn update(&mut self, message: ServerColumnMessage) -> ServerColumnAction {
         match message {
             ServerColumnMessage::ChangeActiveServer(server) => {
                 ServerColumnAction::SetActiveServer(server)
@@ -92,11 +94,7 @@ impl ServerColumn {
         }
     }
 
-    pub fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-    ) -> Element<'static, ServerColumnMessage> {
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, ServerColumnMessage> {
         let hovered_server = self.hovered_server.clone();
         let avatar_cache = &self.avatar_cache;
 

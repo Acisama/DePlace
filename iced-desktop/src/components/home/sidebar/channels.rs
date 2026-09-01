@@ -55,8 +55,10 @@ impl ServerChannels {
             state: state.clone(),
         }
     }
+}
 
-    pub fn update(&mut self, msg: ChannelsMessage) -> ChannelsAction {
+impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
+    fn update(&mut self, msg: ChannelsMessage) -> ChannelsAction {
         match msg {
             ChannelsMessage::NeedAvatar(uri) => {
                 self.avatar_states_for_hash.retain(|u| {
@@ -72,7 +74,7 @@ impl ServerChannels {
         }
     }
 
-    pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, ChannelsMessage> {
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, ChannelsMessage> {
         let active_server = self.active_server.borrow().clone();
         let active_room_id = self
             .active_room
@@ -172,7 +174,7 @@ fn render_channel(
         .is_some_and(|id| id == room.room_id());
 
     let (icon, name) = if room.is_dm()
-        && let Some(other_member) = room.get_other_member(&membership_map)
+        && let Some(other_member) = room.get_other_member(membership_map)
     {
         (
             other_member.render_icon(icon_size, avatar_cache),

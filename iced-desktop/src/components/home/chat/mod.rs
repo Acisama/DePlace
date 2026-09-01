@@ -1,4 +1,4 @@
-use header::{Header, HeaderMessage};
+use header::{Header, HeaderAction, HeaderMessage};
 use macros::iced_cache;
 
 use crate::common::*;
@@ -11,6 +11,7 @@ pub enum ChatMessage {
 
 pub enum ChatAction {
     Run(Task<()>),
+    None,
 }
 
 #[iced_cache]
@@ -25,8 +26,19 @@ impl Chat {
             header: Header::new(state, room),
         }
     }
+}
 
-    pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, ChatMessage> {
+impl IcedWidget<ChatMessage, ChatAction> for Chat {
+    fn update(&mut self, msg: ChatMessage) -> ChatAction {
+        match msg {
+            ChatMessage::Header(header_msg) => match self.header.update(header_msg) {
+                HeaderAction::None => ChatAction::None,
+                HeaderAction::Run(task) => ChatAction::Run(task),
+            },
+        }
+    }
+
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, ChatMessage> {
         w::container(
             w::column![w::lazy(self.header.clone(), move |header| {
                 header.view(theme, structure).map(ChatMessage::Header)

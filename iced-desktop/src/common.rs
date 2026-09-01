@@ -1,7 +1,7 @@
 pub use crate::{
     components::{
-        GenericState, IcedColorExt, IconExt, NeedsAvatarExt, floating_tile, on_appear, text_input,
-        weighted_text,
+        GenericState, IcedColorExt, IcedWidget, IconExt, NeedsAvatarExt, floating_tile, on_appear,
+        text_input, weighted_text,
     },
     things::{Structure, Theme},
 };

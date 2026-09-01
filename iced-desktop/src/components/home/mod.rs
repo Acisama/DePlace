@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::common::*;
-use chat::{Chat, ChatMessage, EmptyChat};
+use chat::{Chat, ChatAction, ChatMessage, EmptyChat};
 use macros::iced_cache;
 use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 
@@ -98,8 +98,10 @@ impl Home {
             .entry(id)
             .or_insert_with(|| Chat::new(&self.state, room));
     }
+}
 
-    pub fn update(&mut self, message: HomeMessage) -> HomeAction {
+impl IcedWidget<HomeMessage, HomeAction> for Home {
+    fn update(&mut self, message: HomeMessage) -> HomeAction {
         match message {
             HomeMessage::Sidebar(msg) => match self.sidebar.update(msg) {
                 SidebarAction::Run(task) => return HomeAction::EmptyRun(task),
@@ -107,13 +109,22 @@ impl Home {
             },
             HomeMessage::ActiveRoomChanged(Some(room)) => self.load_room(room),
             HomeMessage::ActiveRoomChanged(None) => {}
-            HomeMessage::Chat(msg) => {},
+            HomeMessage::Chat(msg) => {
+                if let Some(id) = &self.active_room_id
+                    && let Some(chat) = self.chats.get_mut(id)
+                {
+                    match chat.update(msg) {
+                        ChatAction::Run(task) => return HomeAction::EmptyRun(task),
+                        ChatAction::None => {}
+                    }
+                }
+            }
         }
 
         HomeAction::None
     }
 
-    pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, HomeMessage> {
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, HomeMessage> {
         let sidebar = w::lazy(self.sidebar.clone(), move |sidebar| {
             sidebar.view(theme, structure).map(HomeMessage::Sidebar)
         });

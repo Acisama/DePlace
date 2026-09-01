@@ -92,8 +92,10 @@ impl Login {
             self.state = GenericState::Ready;
         }
     }
+}
 
-    pub fn update(&mut self, message: LoginMessage) -> LoginAction {
+impl IcedWidget<LoginMessage, LoginAction> for Login {
+    fn update(&mut self, message: LoginMessage) -> LoginAction {
         match message {
             LoginMessage::UsernameChanged(username) => {
                 self.username = username;
@@ -141,7 +143,7 @@ impl Login {
         }
     }
 
-    pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, LoginMessage> {
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, LoginMessage> {
         let username_input: iced::widget::TextInput<'static, LoginMessage> =
             text_input("luke", &self.username, theme, structure)
                 .id(USERNAME_ID)

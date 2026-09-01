@@ -2,19 +2,28 @@ use std::collections::BTreeSet;
 
 use macros::iced_cache;
 
-use crate::{common::*, components::context_room_icon};
+use crate::{
+    common::*,
+    components::{RenderNameExt, context_room_icon},
+};
 
 #[derive(Debug, Clone)]
 pub enum HeaderMessage {
     TogglePins,
     ToggleSearch,
     NeedsAvatar(OwnedMxcUri),
+    None,
 }
 
 impl NeedsAvatarExt for HeaderMessage {
     fn needs_avatar(uri: OwnedMxcUri) -> Self {
         HeaderMessage::NeedsAvatar(uri)
     }
+}
+
+pub enum HeaderAction {
+    None,
+    Run(Task<()>),
 }
 
 #[iced_cache]
@@ -44,20 +53,60 @@ impl Header {
             avatar_states_for_hash: BTreeSet::new(),
         }
     }
+}
 
-    pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, HeaderMessage> {
+impl IcedWidget<HeaderMessage, HeaderAction> for Header {
+    fn update(&mut self, msg: HeaderMessage) -> HeaderAction {
+        match msg {
+            HeaderMessage::NeedsAvatar(uri) => {
+                self.avatar_states_for_hash.retain(|u| {
+                    !matches!(
+                        self.state.avatar_cache().get(u).unwrap_or_default(),
+                        MediaState::Failed | MediaState::Loaded(_)
+                    )
+                });
+                self.avatar_states_for_hash.insert(uri.clone());
+
+                let avatar_cache = self.avatar_cache.clone();
+                HeaderAction::Run(Task::future(async move {
+                    avatar_cache.load_avatar(&uri).await;
+                }))
+            }
+            _ => HeaderAction::None,
+        }
+    }
+
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, HeaderMessage> {
         let room = &self.room;
 
         let icon_size = structure.header.icon_size;
-        let icon = if room.is_dm()
+        let (icon, name) = if room.is_dm()
             && let Some(other_member) = room.get_other_member(&self.membership_map.borrow())
         {
-            other_member.render_icon(icon_size, &self.avatar_cache)
+            (
+                other_member
+                    .clone()
+                    .render_icon(icon_size, &self.avatar_cache),
+                other_member.render_name(structure.font_size),
+            )
         } else {
-            context_room_icon(room, icon_size, &self.avatar_cache)
+            (
+                w::container(context_room_icon(room, icon_size, &self.avatar_cache))
+                    .style(move |_| ContainerStyle {
+                        text_color: Some(theme.text.normal),
+                        ..Default::default()
+                    })
+                    .into(),
+                w::container(room.render_name(structure.font_size))
+                    .style(move |_| ContainerStyle {
+                        text_color: Some(theme.text.normal),
+                        ..Default::default()
+                    })
+                    .into(),
+            )
         };
 
-        floating_tile(theme, structure, w::row![icon, w::text(room.get_name())])
+        floating_tile(theme, structure, w::row![icon, name].spacing(structure.gap))
             .width(Fill)
             .padding(structure.header.icon_padding())
             .height(structure.header.height)

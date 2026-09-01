@@ -82,8 +82,10 @@ impl Discovery {
             w::operation::focus(SERVER_INPUT_ID).chain(Task::future(test_server(url))),
         )
     }
+}
 
-    pub fn update(&mut self, message: DiscoveryMessage) -> DiscoveryAction {
+impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
+    fn update(&mut self, message: DiscoveryMessage) -> DiscoveryAction {
         match message {
             DiscoveryMessage::ClientSelected(client) => DiscoveryAction::ClientSelected(client),
             DiscoveryMessage::UrlChanged(mut url) => {
@@ -135,7 +137,7 @@ impl Discovery {
         }
     }
 
-    pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, DiscoveryMessage> {
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, DiscoveryMessage> {
         let input: iced::widget::TextInput<'static, DiscoveryMessage> = text_input(
             "https://matrix.example.org",
             &self.homeserver_url,

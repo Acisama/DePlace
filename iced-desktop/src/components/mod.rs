@@ -393,3 +393,29 @@ fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
     )
     .into()
 }
+
+pub trait IcedWidget<T, V> {
+    fn update(&mut self, message: T) -> V;
+    fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, T>;
+}
+
+pub trait RenderNameExt {
+    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T>;
+}
+
+impl RenderNameExt for Room {
+    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T> {
+        weighted_text(self.get_name(), Weight::Semibold)
+            .size(size)
+            .into()
+    }
+}
+
+impl RenderNameExt for RoomMember {
+    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T> {
+        weighted_text(self.get_name(), Weight::Bold)
+            .size(size)
+            .color(self.color().to_iced())
+            .into()
+    }
+}

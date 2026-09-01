@@ -27,7 +27,7 @@ enum Screen {
     Home(Box<Home>),
 }
 
-impl Screen {
+impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
     fn update(&mut self, message: AppMessage) -> Task<AppMessage> {
         match message {
             AppMessage::Home(msg) if let Screen::Home(home) = self => {
@@ -108,17 +108,6 @@ impl Screen {
         Task::none()
     }
 
-    /// Index fed to the loading shader's `u_state`/`u_prev_state` uniforms.
-    fn state_index(&self) -> f32 {
-        match self {
-            Screen::Loading => 0.0,
-            Screen::Discovery(_) => 1.0,
-            Screen::Login(_) => 2.0,
-            Screen::Verification(_) => 3.0,
-            Screen::Home(_) => 4.0,
-        }
-    }
-
     fn view(&self, theme: Theme, structure: Structure) -> Element<'static, AppMessage> {
         match self {
             Screen::Loading => Space::new().into(),
@@ -130,6 +119,19 @@ impl Screen {
                 .view(theme, structure)
                 .map(AppMessage::Verification),
             Screen::Home(home) => home.view(theme, structure).map(AppMessage::Home),
+        }
+    }
+}
+
+impl Screen {
+    /// Index fed to the loading shader's `u_state`/`u_prev_state` uniforms.
+    fn state_index(&self) -> f32 {
+        match self {
+            Screen::Loading => 0.0,
+            Screen::Discovery(_) => 1.0,
+            Screen::Login(_) => 2.0,
+            Screen::Verification(_) => 3.0,
+            Screen::Home(_) => 4.0,
         }
     }
 }

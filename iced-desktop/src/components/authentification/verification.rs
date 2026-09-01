@@ -75,8 +75,10 @@ impl Verification {
         self.state = GenericState::Ready;
         true
     }
+}
 
-    pub fn update(&mut self, message: VerificationMessage) -> VerificationAction {
+impl IcedWidget<VerificationMessage, VerificationAction> for Verification {
+    fn update(&mut self, message: VerificationMessage) -> VerificationAction {
         match message {
             VerificationMessage::RecoveryKeyChanged(key) => {
                 self.recovery_key = key;
@@ -113,11 +115,7 @@ impl Verification {
         }
     }
 
-    pub fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-    ) -> Element<'static, VerificationMessage> {
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, VerificationMessage> {
         let input: iced::widget::TextInput<'static, VerificationMessage> =
             text_input("Es9X xxxx xxxx...", &self.recovery_key, theme, structure)
                 .width(Fill)
