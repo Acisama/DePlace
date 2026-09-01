@@ -146,7 +146,7 @@ impl Header {
 
 #[derive(Clone, Copy)]
 pub struct Chat {
-    pub icon_size: f32,
+    pub button_size: f32,
     pub text_size: f32,
     pub small_icon_size: f32,
     pub small_text_size: f32,
@@ -213,7 +213,7 @@ impl Structure {
             border_thickness: 1.0,
 
             chat: Chat {
-                icon_size: 40.0,
+                button_size: 40.0,
                 small_icon_size: 18.0,
                 text_size: 16.0,
                 small_text_size: 12.0,
@@ -255,7 +255,7 @@ impl Structure {
     }
 
     pub fn chat_col_width(&self) -> f32 {
-        self.chat.icon_size + 3.0 * self.small_gap
+        self.chat.button_size + 3.0 * self.small_gap
     }
 
     pub fn server_column_width(&self) -> f32 {

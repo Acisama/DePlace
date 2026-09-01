@@ -370,11 +370,11 @@ where
     }
 }
 
-pub fn phosphor_icon<'a>(svg_content: &'static str, size: f32) -> PhosphorIcon {
+pub fn phosphor_icon(svg_content: &'static str, size: f32) -> PhosphorIcon {
     PhosphorIcon::new(svg_content, size)
 }
 
-fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
+pub fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
     room: &Room,
     size: f32,
     avatar_cache: &AvatarCache,
@@ -417,5 +417,15 @@ impl RenderNameExt for RoomMember {
             .size(size)
             .color(self.color().to_iced())
             .into()
+    }
+}
+
+pub trait StatusExt {
+    fn active(&self) -> bool;
+}
+
+impl StatusExt for w::button::Status {
+    fn active(&self) -> bool {
+        matches!(self, Self::Hovered | Self::Pressed)
     }
 }

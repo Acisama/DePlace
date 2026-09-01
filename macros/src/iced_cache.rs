@@ -36,9 +36,10 @@ pub fn convert_iced(item: ItemStruct) -> TokenStream {
     for field in &fields.named {
         let field_name = field.ident.as_ref().unwrap().clone();
         let field_ty = field.ty.clone();
+        let field_vis = field.vis.clone();
 
         item_fields.push(quote! {
-            #field_name: #field_ty,
+            #field_vis #field_name: #field_ty,
         });
 
         for attr in &field.attrs {

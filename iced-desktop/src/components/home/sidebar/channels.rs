@@ -4,7 +4,7 @@ use deplace_core::{matrix_api::sync::ParentToChildrenOrderStr, state::ActiveServ
 use iced::widget::text::Alignment;
 use macros::iced_cache;
 
-use crate::{common::*, components::context_room_icon};
+use crate::common::*;
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
@@ -125,10 +125,9 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                         .align_x(Alignment::Left)
                         .height(Fill)
                 )
-                .padding(
-                    Padding::default()
-                        .horizontal((structure.header.height - structure.large_font_size) / 2.0)
-                )
+                .padding(padding::horizontal(
+                    (structure.header.height - structure.large_font_size) / 2.0
+                ))
                 .height(structure.header.height),
                 w::container(Space::new())
                     .width(Fill)
@@ -192,11 +191,7 @@ fn render_channel(
             .spacing(structure.gap)
             .width(Fill),
     )
-    .padding(
-        Padding::default()
-            .horizontal(structure.small_gap)
-            .vertical(structure.small_gap * 0.75),
-    )
+    .padding(padding::horizontal(structure.small_gap).vertical(structure.small_gap * 0.75))
     .style(move |_, status| {
         let selected =
             is_active || matches!(status, button::Status::Hovered | button::Status::Pressed);

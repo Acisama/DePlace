@@ -1,7 +1,7 @@
 pub use crate::{
     components::{
-        GenericState, IcedColorExt, IcedWidget, IconExt, NeedsAvatarExt, floating_tile, on_appear,
-        text_input, weighted_text,
+        GenericState, IcedColorExt, IcedWidget, IconExt, NeedsAvatarExt, StatusExt,
+        context_room_icon, floating_tile, on_appear, phosphor_icon, text_input, weighted_text,
     },
     things::{Structure, Theme},
 };
@@ -21,11 +21,12 @@ pub use iced::{
     Padding, Point, Rectangle, Renderer, Shadow, Size, Subscription, Task, Theme as IcedTheme,
     font::Weight,
     mouse::{self, Interaction},
+    padding,
     widget::{
         self as w, Canvas, Column, MouseArea, Row, Space, Stack,
         button::{self, Style as ButtonStyle},
         canvas,
-        container::{self, Style as ContainerStyle},
+        container::{self, Container, Style as ContainerStyle},
         svg::{self, Style as SvgStyle},
         text::{self, Style as TextStyle},
     },
@@ -33,9 +34,8 @@ pub use iced::{
 };
 pub use matrix_sdk::{
     Client, Room,
-    ruma::{MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId},
+    ruma::{MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId},
 };
-use phosphor_svgs as icons;
 pub use std::hash::Hash;
 pub use std::sync::Arc;
 pub use tokio::sync::watch::Receiver;

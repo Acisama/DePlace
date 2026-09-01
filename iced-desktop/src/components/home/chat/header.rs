@@ -43,11 +43,11 @@ impl ExtraHash for Header {
 }
 
 impl Header {
-    pub fn new(state: &AppState, room: Room) -> Self {
+    pub fn new(state: &AppState, room: &Room) -> Self {
         Self {
             avatar_cache: state.avatar_cache().clone(),
             membership_map: state.membership_map().clone(),
-            room,
+            room: room.clone(),
             state: state.clone(),
 
             avatar_states_for_hash: BTreeSet::new(),

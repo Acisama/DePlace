@@ -1,4 +1,5 @@
 use anyhow::Result;
+use matrix_sdk_ui::{Timeline, timeline::AttachmentSource};
 use std::io::Cursor;
 
 use ego_tree::NodeRef;
@@ -166,6 +167,124 @@ impl RoomSendingExt for Room {
         let event = self.make_edit_event(&message, body).await?;
 
         queue.send(event).await?;
+        Ok(())
+    }
+}
+
+impl RoomSendingExt for Timeline {
+    async fn send_message(&self, html: String, replies_to: Option<OwnedEventId>) -> Result<()> {
+        let mut mentions = Mentions::default();
+
+        let (body, formatted_body, _urls) = process_string_to_message(&html, &mut mentions);
+
+        if body.is_empty() || &body == "\n" {
+            tracing::warn!("Body is empty, not committing message");
+            return Ok(());
+        }
+
+        let mut message_content = if let Some(formatted_body) = formatted_body {
+            RoomMessageEventContent::text_html(body, formatted_body)
+        } else {
+            RoomMessageEventContent::text_plain(body)
+        };
+        message_content.mentions = Some(mentions);
+
+        if let Some(reply_to_id) = replies_to {
+            message_content.relates_to = Some(Relation::Reply(
+                matrix_sdk::ruma::events::relation::Reply::with_event_id(reply_to_id),
+            ));
+        }
+
+        let content = AnyMessageLikeEventContent::RoomMessage(message_content);
+        self.send(content).await?;
+
+        Ok(())
+    }
+
+    async fn send_deplace_attachment(
+        &self,
+        attachment: MatrixAttachment,
+        replies_to: Option<OwnedEventId>,
+    ) -> Result<()> {
+        let size = attachment.data.len() as u32;
+        let info = match attachment.mime_type.subtype() {
+            mime::IMAGE => {
+                let img = ImageReader::new(Cursor::new(&attachment.data))
+                    .with_guessed_format()
+                    .ok()
+                    .and_then(|r| r.decode().ok());
+
+                let dimensions = img.as_ref().map(|i| (i.width(), i.height()));
+
+                let bh = img.as_ref().and_then(|img| {
+                    let thumb = img.thumbnail(64, 64);
+                    let rgba = thumb.to_rgba8();
+                    blurhash::encode(4, 3, rgba.width(), rgba.height(), &rgba).ok()
+                });
+
+                let info = BaseImageInfo {
+                    width: dimensions.map(|(w, _)| w.into()),
+                    height: dimensions.map(|(_, h)| h.into()),
+                    size: Some(size.into()),
+                    blurhash: bh,
+                    is_animated: None,
+                };
+
+                AttachmentInfo::Image(info)
+            }
+            mime::VIDEO => {
+                let info = BaseVideoInfo {
+                    height: None,
+                    width: None,
+                    size: None,
+                    blurhash: None,
+                    duration: None,
+                };
+
+                AttachmentInfo::Video(info)
+            }
+            _ => AttachmentInfo::File(BaseFileInfo {
+                size: Some(size.into()),
+            }),
+        };
+
+        let config = matrix_sdk_ui::timeline::AttachmentConfig {
+            txn_id: None,
+            info: Some(info),
+            thumbnail: None,
+            caption: None,
+            in_reply_to: replies_to,
+            mentions: None,
+        };
+
+        self.send_attachment(
+            AttachmentSource::Data {
+                bytes: attachment.data,
+                filename: attachment.filename,
+            },
+            attachment.mime_type,
+            config,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn edit_message(&self, message: OwnedEventId, html: String) -> Result<()> {
+        if html.is_empty() || &html == "\n" {
+            tracing::warn!("Body is empty, not committing message");
+            return Ok(());
+        }
+
+        let body =
+            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(html));
+
+        self.edit(
+            &matrix_sdk_ui::timeline::TimelineEventItemId::EventId(message),
+            body,
+        )
+        .await?;
+
         Ok(())
     }
 }

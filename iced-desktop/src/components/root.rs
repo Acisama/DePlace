@@ -33,8 +33,20 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
             AppMessage::Home(msg) if let Screen::Home(home) = self => {
                 match home.update(msg) {
                     HomeAction::None => {}
-                    HomeAction::EmptyRun(task) => {
+                    HomeAction::Run(task) => {
                         return task.map(|_| AppMessage::None);
+                    }
+                    HomeAction::LoadTimeline(task) => {
+                        return task.map(|res| {
+                            if let Some((room_id, timeline)) = res {
+                                AppMessage::TimelineLoaded {
+                                    room_id,
+                                    timeline: Arc::new(timeline),
+                                }
+                            } else {
+                                AppMessage::None
+                            }
+                        });
                     }
                 };
             }
@@ -102,6 +114,9 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
                     return task.map(AppMessage::Home);
                 }
             },
+            AppMessage::TimelineLoaded { room_id, timeline } if let Screen::Home(home) = self => {
+                home.insert_timeline(room_id, timeline);
+            }
             _ => {}
         };
 

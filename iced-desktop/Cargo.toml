@@ -10,8 +10,10 @@ const_format.workspace = true
 deplace_core = { workspace = true, features = ["iced_desktop"] }
 dirs.workspace = true
 iced.workspace = true
+lru.workspace = true
 macros.workspace = true
 matrix-sdk.workspace = true
+matrix-sdk-ui.workspace = true
 phosphor-svgs.workspace = true
 tokio.workspace = true
 tracing.workspace = true

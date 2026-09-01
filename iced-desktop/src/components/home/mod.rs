@@ -1,8 +1,13 @@
 use std::collections::HashMap;
 
 use crate::common::*;
-use chat::{Chat, ChatAction, ChatMessage, EmptyChat};
-use macros::iced_cache;
+use chat::{
+    Chat, ChatAction, ChatMessage,
+    empty::{EmptyChat, EmptyChatMessage},
+};
+use lru::LruCache;
+use macros::{iced_cache, nonzero_usize};
+use matrix_sdk_ui::Timeline;
 use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 
 mod chat;
@@ -11,13 +16,15 @@ mod sidebar;
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
     Chat(ChatMessage),
+    EmptyChat(EmptyChatMessage),
     Sidebar(SidebarMessage),
     ActiveRoomChanged(Option<Room>),
 }
 
 pub enum HomeAction {
-    EmptyRun(Task<()>),
+    Run(Task<()>),
     None,
+    LoadTimeline(Task<Option<(OwnedRoomId, Timeline)>>),
 }
 
 #[iced_cache]
@@ -29,7 +36,7 @@ pub struct Home {
 
     active_room_id: Option<OwnedRoomId>,
 
-    chats: HashMap<OwnedRoomId, Chat>,
+    chats: LruCache<OwnedRoomId, Chat>,
     /// Used when active Room is None
     #[hash]
     empty_chat: EmptyChat,
@@ -42,7 +49,7 @@ impl ExtraHash for Home {
         if let Some(chat) = self
             .active_room_id
             .as_ref()
-            .and_then(move |id| self.chats.get(id))
+            .and_then(move |id| self.chats.peek(id))
         {
             chat.hash(state);
         } else {
@@ -63,7 +70,7 @@ impl Home {
                 .borrow()
                 .as_ref()
                 .map(|r| r.room_id().to_owned()),
-            chats: HashMap::default(),
+            chats: LruCache::new(nonzero_usize!(100)),
 
             empty_chat: EmptyChat::new(),
 
@@ -90,13 +97,26 @@ impl Home {
         self.window_title.borrow().clone()
     }
 
-    fn load_room(&mut self, room: Room) {
+    fn load_room(&mut self, room: Room) -> Option<Task<Option<(OwnedRoomId, Timeline)>>> {
         let id = room.room_id().to_owned();
         self.active_room_id = Some(id.clone());
 
-        self.chats
-            .entry(id)
-            .or_insert_with(|| Chat::new(&self.state, room));
+        if self.chats.promote(&id) {
+            return None;
+        }
+
+        let (chat, task) = Chat::new(&self.state, room);
+
+        self.chats.put(id.clone(), chat);
+        self.chats.promote(&id);
+
+        Some(task)
+    }
+
+    pub fn insert_timeline(&mut self, room_id: OwnedRoomId, timeline: Arc<Timeline>) {
+        if let Some(chat) = self.chats.get_mut(&room_id) {
+            chat.insert_timeline(timeline);
+        }
     }
 }
 
@@ -104,21 +124,27 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
     fn update(&mut self, message: HomeMessage) -> HomeAction {
         match message {
             HomeMessage::Sidebar(msg) => match self.sidebar.update(msg) {
-                SidebarAction::Run(task) => return HomeAction::EmptyRun(task),
+                SidebarAction::Run(task) => return HomeAction::Run(task),
                 SidebarAction::None => {}
             },
-            HomeMessage::ActiveRoomChanged(Some(room)) => self.load_room(room),
+            HomeMessage::ActiveRoomChanged(Some(room)) => {
+                if let Some(task) = self.load_room(room) {
+                    return HomeAction::LoadTimeline(task);
+                }
+            }
             HomeMessage::ActiveRoomChanged(None) => {}
             HomeMessage::Chat(msg) => {
                 if let Some(id) = &self.active_room_id
                     && let Some(chat) = self.chats.get_mut(id)
                 {
                     match chat.update(msg) {
-                        ChatAction::Run(task) => return HomeAction::EmptyRun(task),
+                        ChatAction::Run(task) => return HomeAction::Run(task),
                         ChatAction::None => {}
                     }
                 }
             }
+            // TODO: Implement empty chat
+            HomeMessage::EmptyChat(_) => tracing::warn!("Empty chat not yet implemented"),
         }
 
         HomeAction::None
@@ -132,13 +158,13 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
         let chat = match self
             .active_room_id
             .as_ref()
-            .and_then(|id| self.chats.get(id))
+            .and_then(|id| self.chats.peek(id))
         {
             Some(chat) => w::container(w::lazy(chat.clone(), move |chat| {
                 chat.view(theme, structure).map(HomeMessage::Chat)
             })),
             None => w::container(w::lazy(self.empty_chat.clone(), move |chat| {
-                chat.view(theme, structure).map(HomeMessage::Chat)
+                chat.view(theme, structure).map(HomeMessage::EmptyChat)
             }))
             .padding(structure.gap),
         }
