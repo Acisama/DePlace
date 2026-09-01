@@ -48,14 +48,7 @@ pub fn convert_iced(item: ItemStruct) -> TokenStream {
             match &attr.meta {
                 // bare `#[hash]`
                 syn::Meta::Path(_) => hashings.push(quote! { self.#field_name.hash(state); }),
-                // `#[hash(|v| ...)]`
-                syn::Meta::List(_) => {
-                    let closure = attr
-                        .parse_args::<syn::ExprClosure>()
-                        .expect("`#[hash(...)]` expects a closure, e.g. `|v| v`");
-                    hashings.push(quote! { (#closure)(&self.#field_name).hash(state); })
-                }
-                _ => panic!("`#[hash]` doesn't take `name = value` form"),
+                _ => panic!("`#[hash]` doesn't take arguments"),
             };
         }
 
@@ -156,6 +149,31 @@ pub fn convert_iced(item: ItemStruct) -> TokenStream {
             });
         }
     }
+
+    // Autoref specialization: fold in `self.extra_hash(state)` if `#struct_name`
+    // implements `ExtraHash`, and no-op otherwise. The struct/traits are scoped
+    // to this fn body so multiple `#[iced_cache]` structs in one file don't clash.
+    hashings.push(quote! {
+        {
+            struct ExtraHashWrap<'a, T>(&'a T);
+
+            trait ViaNoExtraHash {
+                fn maybe_extra_hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+            }
+            impl<'a, T> ViaNoExtraHash for ExtraHashWrap<'a, T> {}
+
+            trait ViaExtraHash {
+                fn maybe_extra_hash<H: std::hash::Hasher>(&self, state: &mut H);
+            }
+            impl<'a, T: ::deplace_core::state::roles::ExtraHash> ViaExtraHash for &ExtraHashWrap<'a, T> {
+                fn maybe_extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                    ::deplace_core::state::roles::ExtraHash::extra_hash(self.0, state);
+                }
+            }
+
+            (&&ExtraHashWrap(self)).maybe_extra_hash(state);
+        }
+    });
 
     let expanded = quote! {
         #[derive(Clone)]

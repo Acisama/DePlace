@@ -1,8 +1,6 @@
 use std::{cmp::Reverse, collections::BTreeSet};
 
-use deplace_core::{
-    get_other_member, matrix_api::sync::ParentToChildrenOrderStr, state::ActiveServer,
-};
+use deplace_core::{matrix_api::sync::ParentToChildrenOrderStr, state::ActiveServer};
 use iced::widget::text::Alignment;
 use macros::iced_cache;
 
@@ -28,7 +26,6 @@ pub enum ChannelsAction {
 #[iced_cache]
 pub struct ServerChannels {
     state: AppState,
-    own_id: OwnedUserId,
     avatar_cache: AvatarCache,
 
     dm_rooms: Receiver<RoomMap>,
@@ -55,7 +52,6 @@ impl ServerChannels {
 
             avatar_states_for_hash: BTreeSet::new(),
 
-            own_id: state.own_id(),
             state: state.clone(),
         }
     }
@@ -149,7 +145,6 @@ impl ServerChannels {
                         } else {
                             structure.sidebar.channel_icon_height
                         },
-                        &self.own_id,
                     )
                 }))
                 .spacing(structure.divider_width)
@@ -171,14 +166,13 @@ fn render_channel(
     avatar_cache: &AvatarCache,
     membership_map: &MembershipMap,
     icon_size: f32,
-    own_id: &UserId,
 ) -> Element<'static, ChannelsMessage> {
     let is_active = active_room_id
         .as_ref()
         .is_some_and(|id| id == room.room_id());
 
     let (icon, name) = if room.is_dm()
-        && let Some(other_member) = get_other_member(own_id, membership_map, room.room_id())
+        && let Some(other_member) = room.get_other_member(&membership_map)
     {
         (
             other_member.render_icon(icon_size, avatar_cache),

@@ -1,8 +1,8 @@
 use std::hash::Hash;
 
+use deplace_core::NameExt;
 use deplace_core::colors::ColorExt;
 use deplace_core::state::cache::{AvatarCache, MediaState};
-use deplace_core::{NameExt, RestoreResult};
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
 use iced::font::Weight;
@@ -11,28 +11,15 @@ use iced::widget::text::Rich;
 use iced::widget::{self as w, Canvas, canvas, image, rich_text, span, svg};
 use iced::{
     Border, Element,
-    Length::Fill,
-    Subscription, Task,
-    widget::{Container, Shader, Stack},
-    window,
+    widget::{Container, Stack},
 };
 use iced::{Color, ContentFit, Font, Point, Renderer, Size};
 use matrix_sdk::Room;
 use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::OwnedMxcUri;
 
-use crate::components::authentification::login::{LoginAction, LoginMessage};
-use crate::components::authentification::verification::{
-    Verification, VerificationAction, VerificationMessage,
-};
-use crate::components::home::HomeAction;
+use crate::things::Structure;
 use crate::things::{Colors, Theme};
-use crate::{AppMessage, things::Structure};
-use authentification::{
-    discovery::{Discovery, DiscoveryAction, DiscoveryMessage},
-    login::Login,
-};
-use home::Home;
 
 pub(crate) mod authentification;
 pub(crate) mod home;

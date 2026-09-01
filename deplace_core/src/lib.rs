@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 use crate::state::MembershipMap;
+use helpers::RoomExt;
 use matrix_sdk::{
     Client, Room, SessionMeta, SessionTokens, authentication::matrix::MatrixSession,
     room::RoomMember,
@@ -124,24 +125,10 @@ pub fn get_dm_room_name(room: &Room, map: &MembershipMap, own_id: &UserId) -> St
         return "Unknown Room".to_string();
     }
 
-    let room_id = room.room_id();
-
-    let other_member = get_other_member(own_id, map, room_id);
+    let other_member = room.get_other_member(map);
     other_member
         .map(|m| m.get_name())
         .unwrap_or("Unknown Room".to_string())
-}
-
-pub fn get_other_member(
-    own_id: &UserId,
-    map: &MembershipMap,
-    room_id: &RoomId,
-) -> Option<RoomMember> {
-    let members = map.get(room_id).cloned().unwrap_or_default();
-    members
-        .iter()
-        .find(|(id, _)| *id != own_id)
-        .map(|(_, m)| m.clone())
 }
 
 pub trait NameExt {

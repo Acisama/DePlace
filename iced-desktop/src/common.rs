@@ -7,10 +7,12 @@ pub use crate::{
 };
 pub use deplace_core::{
     NameExt,
+    helpers::RoomExt,
     settings::Settings,
     state::{
         AppState, MembershipMap, RoomMap,
         cache::{AvatarCache, MediaState},
+        roles::ExtraHash,
     },
 };
 pub use iced::{
@@ -34,7 +36,6 @@ pub use matrix_sdk::{
     ruma::{MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId},
 };
 use phosphor_svgs as icons;
-
 pub use std::hash::Hash;
 pub use std::sync::Arc;
 pub use tokio::sync::watch::Receiver;

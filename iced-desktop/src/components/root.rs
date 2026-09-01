@@ -73,7 +73,9 @@ impl Screen {
                             .map(|res| AppMessage::Verification(VerificationMessage::from(res)));
                     }
                     VerificationAction::Success(state) => {
-                        *self = Screen::Home(Box::new(Home::new(state)));
+                        let (home, task) = Home::new(state);
+                        *self = Screen::Home(Box::new(home));
+                        return task.map(AppMessage::Home);
                     }
                 }
             }
@@ -95,7 +97,9 @@ impl Screen {
                     return task.map(|res| AppMessage::Discovery(DiscoveryMessage::from(res)));
                 }
                 RestoreResult::Success(state) => {
-                    *self = Screen::Home(Box::new(Home::new(*state)));
+                    let (home, task) = Home::new(*state);
+                    *self = Screen::Home(Box::new(home));
+                    return task.map(AppMessage::Home);
                 }
             },
             _ => {}

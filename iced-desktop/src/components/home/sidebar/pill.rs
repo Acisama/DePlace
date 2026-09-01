@@ -4,8 +4,6 @@ use iced::widget::canvas::{Frame, Path};
 
 use crate::common::*;
 
-use super::SidebarMessage;
-
 const PILL_ANIM: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy)]
