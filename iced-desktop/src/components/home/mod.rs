@@ -61,15 +61,13 @@ impl ExtraHash for Home {
 impl Home {
     pub fn new(state: AppState) -> (Self, Task<HomeMessage>) {
         let active_room = state.active_room();
+        let initial_room = active_room.borrow().clone();
 
-        let mut home = Self {
+        let home = Self {
             sidebar: Sidebar::new(&state),
             window_title: state.window_title(),
 
-            active_room_id: active_room
-                .borrow()
-                .as_ref()
-                .map(|r| r.room_id().to_owned()),
+            active_room_id: initial_room.as_ref().map(|r| r.room_id().to_owned()),
             chats: LruCache::new(nonzero_usize!(100)),
 
             empty_chat: EmptyChat::new(),
@@ -77,11 +75,9 @@ impl Home {
             state: state.clone(),
         };
 
-        if let Some(room) = active_room.borrow().as_ref() {
-            home.load_room(room.clone());
-        }
+        let initial_load = Task::done(HomeMessage::ActiveRoomChanged(initial_room));
 
-        let task = Task::stream(iced::futures::stream::unfold(
+        let watch_task = Task::stream(iced::futures::stream::unfold(
             active_room,
             |mut rx| async move {
                 rx.changed().await.ok()?;
@@ -90,7 +86,7 @@ impl Home {
             },
         ));
 
-        (home, task)
+        (home, Task::batch([initial_load, watch_task]))
     }
 
     pub fn title(&self) -> String {

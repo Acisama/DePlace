@@ -19,6 +19,7 @@ pub use iced::{
     Border, Color, Element,
     Length::Fill,
     Padding, Point, Rectangle, Renderer, Shadow, Size, Subscription, Task, Theme as IcedTheme,
+    border,
     font::Weight,
     mouse::{self, Interaction},
     padding,

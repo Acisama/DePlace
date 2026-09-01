@@ -1,4 +1,5 @@
 use deplace_core::{helpers::RoomPlaceholderExt, matrix_api::messages::RoomSendingExt};
+use iced::{Length, widget::text_editor};
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
 
@@ -6,7 +7,8 @@ use crate::common::*;
 
 #[derive(Debug, Clone)]
 pub enum InputMessage {
-    TextChanged(String),
+    None,
+    TextAction(text_editor::Action),
     SendMessage,
     Cancel,
     RemoveReplying,
@@ -21,14 +23,14 @@ pub enum InputAction {
 #[iced_cache]
 pub struct ChatInput {
     pub timeline: Option<Arc<Timeline>>,
+
+    #[hash]
     room_id: OwnedRoomId,
 
     placeholder: String,
 
-    #[hash]
-    focused: bool,
-    #[hash]
-    text: String,
+    /// The `[crate::components::IcedWidget]` crate requires 'static lifetimes for caching, but `text_editor` requires a reference to the content since it stores the data internally.
+    content: *mut text_editor::Content,
     #[hash]
     replying_to: Option<OwnedEventId>,
 }
@@ -39,10 +41,9 @@ impl ChatInput {
             timeline: None,
             room_id: room.room_id().to_owned(),
 
-            placeholder: room.get_input_placeholder(),
+            placeholder: format!("Message {}", room.get_input_placeholder()),
 
-            focused: false,
-            text: String::new(),
+            content: Box::leak(Box::new(text_editor::Content::new())),
             replying_to: None,
         }
     }
@@ -50,14 +51,21 @@ impl ChatInput {
     pub fn set_replies_to(&mut self, id: OwnedEventId) {
         self.replying_to = Some(id);
     }
+
+    fn content(&self) -> &'static text_editor::Content {
+        // The pointer is never changed/freed, so this is safe
+        unsafe { &*self.content }
+    }
 }
 
 impl IcedWidget<InputMessage, InputAction> for ChatInput {
     fn update(&mut self, message: InputMessage) -> InputAction {
         match message {
+            InputMessage::None => {}
             InputMessage::UploadPressed => {}
-            InputMessage::TextChanged(text) => {
-                self.text = text;
+            InputMessage::TextAction(action) => {
+                // The rendered view is dropped before this is called, so there is only one (mutable) reference to `content` at a time
+                unsafe { &mut *self.content }.perform(action);
             }
             InputMessage::RemoveReplying => {
                 self.replying_to = None;
@@ -74,8 +82,13 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                     return InputAction::None;
                 };
 
-                let text = self.text.clone();
+                let text = self.content().text();
                 let replying_to = self.replying_to.clone();
+
+                let content = unsafe { &mut *self.content };
+                content.perform(text_editor::Action::SelectAll);
+                content.perform(text_editor::Action::Edit(text_editor::Edit::Backspace));
+                self.replying_to = None;
 
                 return InputAction::Run(Task::future(async move {
                     if let Err(e) = timeline.send_message(text, replying_to).await {
@@ -89,59 +102,72 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, InputMessage> {
-        let focused = self.focused;
+        let line_height = structure.font_size * 1.2;
 
-        let icon_size = structure.chat.input_height - structure.small_gap * 4.0;
+        let button_size = line_height + structure.small_gap * 2.0;
 
         let input_button = |svg: &'static str| {
-            w::button(phosphor_icon(svg, icon_size))
-                .style(move |_, status| ButtonStyle {
-                    text_color: if status.active() {
-                        theme.text.normal
-                    } else {
-                        theme.text.dim
-                    },
-                    background: status.active().then_some(theme.solid_hover_bg.into()),
-                    ..Default::default()
-                })
-                .on_press(InputMessage::UploadPressed)
-                .padding(structure.small_gap)
+            w::container(
+                w::button(phosphor_icon(svg, line_height))
+                    .style(move |_, status| ButtonStyle {
+                        text_color: if status.active() {
+                            theme.text.normal
+                        } else {
+                            theme.text.dim
+                        },
+                        background: status.active().then_some(theme.solid_hover_bg.into()),
+                        border: border::rounded(structure.semi_border_radius()),
+                        ..Default::default()
+                    })
+                    .on_press(InputMessage::UploadPressed)
+                    .padding(structure.small_gap),
+            )
+            .padding(structure.small_gap)
         };
 
-        w::container(
-            w::row![
-                input_button(phosphor_svgs::icon::plus::BOLD),
-                w::text_input(self.placeholder.clone(), self.text.clone())
-                    .on_input(InputMessage::TextChanged)
-                    .on_submit(InputMessage::SendMessage)
-                    .style(move |_, _| w::text_input::Style {
-                        background: theme.solid_bg.into(),
-                        border: Border {
-                            color: Color::TRANSPARENT,
-                            width: 0.0,
-                            radius: 0.0.into(),
+        let max_lines = 10.0;
+
+        w::stack![
+            w::text_editor(self.content())
+                .placeholder(self.placeholder.clone())
+                .padding(
+                    Padding::new(structure.small_gap * 2.0)
+                        .left(button_size + structure.small_gap * 2.0)
+                )
+                .on_action(InputMessage::TextAction)
+                .key_binding(|key| {
+                    if !key.modifiers.shift()
+                        && matches!(
+                            key.key,
+                            iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
+                        )
+                    {
+                        Some(text_editor::Binding::Custom(InputMessage::SendMessage))
+                    } else {
+                        text_editor::Binding::from_key_press(key)
+                    }
+                })
+                .wrapping(text::Wrapping::WordOrGlyph)
+                .line_height(text::LineHeight::Relative(1.0))
+                .height(Length::Fit.min(line_height).max(line_height * max_lines))
+                .style(move |_, status| w::text_editor::Style {
+                    background: theme.solid_bg.into(),
+                    border: Border {
+                        color: if status.active() {
+                            theme.accent
+                        } else {
+                            theme.border
                         },
-                        placeholder: theme.text.muted,
-                        selection: theme.accent,
-                        value: theme.text.normal
-                    })
-            ]
-            .width(Fill)
-            .height(Fill),
-        )
+                        width: 1.0,
+                        radius: structure.inner_border_radius.into(),
+                    },
+                    placeholder: theme.text.muted,
+                    selection: theme.accent,
+                    value: theme.text.normal
+                }),
+            input_button(phosphor_svgs::icon::plus::BOLD),
+        ]
         .width(Fill)
-        .height(structure.chat.input_height)
-        .style(move |_| ContainerStyle {
-            text_color: Some(theme.text.normal),
-            background: Some(theme.solid_bg.into()),
-            border: Border {
-                color: if focused { theme.accent } else { theme.border },
-                width: structure.border_thickness,
-                radius: structure.inner_border_radius.into(),
-            },
-            ..Default::default()
-        })
-        .padding(structure.small_gap)
         .into()
     }
 }

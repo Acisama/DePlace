@@ -31,7 +31,6 @@ pub struct Chat {
     header: Header,
     #[hash]
     timeline: ChatTimeline,
-    #[hash]
     input: ChatInput,
 }
 
@@ -57,7 +56,7 @@ impl Chat {
                 match builder.build().await {
                     Ok(timeline) => Some((room_id, timeline)),
                     Err(e) => {
-                        tracing::error!("{:?}", e);
+                        tracing::error!("Failed to build timeline: {:?}", e);
                         None
                     }
                 }

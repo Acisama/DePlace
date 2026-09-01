@@ -429,3 +429,15 @@ impl StatusExt for w::button::Status {
         matches!(self, Self::Hovered | Self::Pressed)
     }
 }
+
+impl StatusExt for w::text_input::Status {
+    fn active(&self) -> bool {
+        matches!(self, Self::Focused { .. })
+    }
+}
+
+impl StatusExt for w::text_editor::Status {
+    fn active(&self) -> bool {
+        matches!(self, Self::Focused { .. })
+    }
+}
