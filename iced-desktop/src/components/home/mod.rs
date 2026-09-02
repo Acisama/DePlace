@@ -104,7 +104,12 @@ impl Home {
 
         let (chat, task) = Chat::new(&self.state, room);
 
-        self.chats.put(id.clone(), chat);
+        // Use `push` instead of `put` in order to receive the old chat entry
+        // and manually drop the `text_input::Content` behind the raw pointer
+        // to avoid memory leaks
+        if let Some((_, chat)) = self.chats.push(id.clone(), chat) {
+            unsafe { std::mem::drop(Box::from_raw(chat.get_input_pointer())) };
+        };
         self.chats.promote(&id);
 
         Some(task)

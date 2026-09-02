@@ -2,6 +2,7 @@ use std::future;
 
 use header::{Header, HeaderAction, HeaderMessage};
 use iced::futures::{StreamExt, stream};
+use iced::widget::text_editor;
 use input::{ChatInput, InputAction, InputMessage};
 use macros::iced_cache;
 use matrix_sdk_ui::timeline::{
@@ -94,6 +95,10 @@ impl Chat {
             },
             Task::stream(stream).map(move |msg| (room_id.clone(), msg)),
         )
+    }
+
+    pub fn get_input_pointer(&self) -> *mut text_editor::Content {
+        self.input.get_raw_content_pointer()
     }
 }
 

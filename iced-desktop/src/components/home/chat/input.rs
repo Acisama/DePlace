@@ -56,6 +56,10 @@ impl ChatInput {
         // The pointer is never changed/freed, so this is safe
         unsafe { &*self.content }
     }
+
+    pub fn get_raw_content_pointer(&self) -> *mut text_editor::Content {
+        self.content
+    }
 }
 
 impl IcedWidget<InputMessage, InputAction> for ChatInput {
