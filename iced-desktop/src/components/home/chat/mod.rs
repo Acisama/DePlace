@@ -8,7 +8,7 @@ use macros::iced_cache;
 use matrix_sdk_ui::timeline::{
     DateDividerMode, TimelineBuilder, TimelineFocus, TimelineReadReceiptTracking,
 };
-use timeline::{ChatTimeline, TimelineAction};
+use timeline::{ChatTimeline, TimelineAction, ToTimelineItem};
 
 use crate::common::*;
 pub(super) mod empty;
@@ -51,6 +51,8 @@ impl Chat {
 
         let room_id = room.room_id().to_owned();
 
+        let avatar_cache = state.avatar_cache().clone();
+
         let room_id_log = room_id.clone();
         let stream = stream::once(async move {
             tracing::debug!("Building timeline for room {}", room_id_log);
@@ -81,6 +83,11 @@ impl Chat {
                 }
             }
 
+            let initial = initial
+                .into_iter()
+                .map(|m| m.convert(&avatar_cache))
+                .collect();
+
             stream::once(future::ready(TimelineMessage::Loaded { timeline, initial }))
                 .chain(updates.map(TimelineMessage::Diffs))
                 .right_stream()
@@ -90,7 +97,7 @@ impl Chat {
         (
             Self {
                 header: Header::new(state, &room),
-                timeline: ChatTimeline::new(&room),
+                timeline: ChatTimeline::new(&room, &state),
                 input: ChatInput::new(&room),
             },
             Task::stream(stream).map(move |msg| (room_id.clone(), msg)),

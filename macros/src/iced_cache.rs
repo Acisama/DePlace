@@ -42,15 +42,26 @@ pub fn convert_iced(item: ItemStruct) -> TokenStream {
             #field_vis #field_name: #field_ty,
         });
 
+        let mut ignore = false;
         for attr in &field.attrs {
-            if !attr.path().is_ident("hash") {
+            if !attr.path().is_ident("hash") && !attr.path().is_ident("ignore") {
                 continue;
             }
+
+            if attr.path().is_ident("ignore") {
+                ignore = true;
+                continue;
+            }
+
             match &attr.meta {
                 // bare `#[hash]`
                 syn::Meta::Path(_) => hashings.push(quote! { self.#field_name.hash(state); }),
                 _ => panic!("`#[hash]` doesn't take arguments"),
             };
+        }
+
+        if ignore {
+            continue;
         }
 
         if field_name.to_string().as_str() == "active_room"

@@ -394,9 +394,9 @@ pub fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
     .into()
 }
 
-pub trait IcedWidget<Message, Action> {
-    fn update(&mut self, message: Message) -> Action;
-    fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, Message>;
+pub trait IcedWidget<T, V> {
+    fn update(&mut self, message: T) -> V;
+    fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, T>;
 }
 
 pub trait RenderNameExt {

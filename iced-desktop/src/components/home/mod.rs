@@ -107,6 +107,7 @@ impl Home {
         // Use `push` instead of `put` in order to receive the old chat entry
         // and manually drop the `text_input::Content` behind the raw pointer
         // to avoid memory leaks
+        // TODO: Also implement this for the whole chat
         if let Some((_, chat)) = self.chats.push(id.clone(), chat) {
             unsafe { std::mem::drop(Box::from_raw(chat.get_input_pointer())) };
         };
