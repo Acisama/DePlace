@@ -24,3 +24,14 @@ url-macro.workspace = true
 
 [dev-dependencies]
 naga = "27"
+
+[lints.clippy]
+exit = "warn"
+let_underscore_must_use = "warn"
+panic_in_result_fn = "warn"
+string_slice = "warn"
+todo = "warn"
+unchecked_time_subtraction = "warn"
+unimplemented = "warn"
+unreachable = "warn"
+unwrap_used = "warn"

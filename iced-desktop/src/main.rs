@@ -18,6 +18,7 @@ mod things;
 #[derive(Debug, Clone)]
 pub enum AppMessage {
     None,
+    KeyboardEvent(iced::keyboard::Event),
     Start(window::Id),
     Discovery(DiscoveryMessage),
     Login(LoginMessage),
