@@ -5,7 +5,6 @@ use matrix_sdk::{
     Client, Room, SessionMeta, SessionTokens, authentication::matrix::MatrixSession,
     room::RoomMember,
 };
-use ruma::{RoomId, UserId};
 use state::ActiveServer;
 
 use crate::{
@@ -120,7 +119,7 @@ pub fn get_room_name_fallback(room: &Room, fallback: &str) -> String {
         .unwrap_or(fallback.to_string())
 }
 
-pub fn get_dm_room_name(room: &Room, map: &MembershipMap, own_id: &UserId) -> String {
+pub fn get_dm_room_name(room: &Room, map: &MembershipMap) -> String {
     if !room.is_dm() {
         return "Unknown Room".to_string();
     }

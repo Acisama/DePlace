@@ -1,9 +1,6 @@
-use std::sync::Arc;
-
-use deplace_core::{RestoreResult, state::AppState, try_restore};
-use iced::{Font, Length::Fill, Task, window};
-use matrix_sdk::{Client, ruma::OwnedRoomId};
-use matrix_sdk_ui::Timeline;
+use deplace_core::{RestoreResult, try_restore};
+use iced::{Task, window};
+use matrix_sdk::Client;
 use tracing_subscriber::EnvFilter;
 
 use crate::components::{
@@ -28,15 +25,9 @@ pub enum AppMessage {
     Home(HomeMessage),
     Restored(RestoreResult),
     Tick,
-    TabPressed {
-        shift: bool,
-    },
+    TabPressed { shift: bool },
     GoToLoading,
     GoToLogin(Client),
-    TimelineLoaded {
-        room_id: OwnedRoomId,
-        timeline: Arc<Timeline>,
-    },
 }
 
 fn main() -> iced::Result {

@@ -7,7 +7,7 @@ use crate::common::*;
 use crate::components::authentification::discovery::{DiscoveryAction, DiscoveryMessage};
 use crate::components::authentification::login::{LoginAction, LoginMessage};
 use crate::components::authentification::verification::{VerificationAction, VerificationMessage};
-use crate::components::home::HomeAction;
+use crate::components::home::{HomeAction, HomeMessage};
 use crate::components::shader;
 use crate::{
     AppMessage,
@@ -37,15 +37,8 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
                         return task.map(|_| AppMessage::None);
                     }
                     HomeAction::LoadTimeline(task) => {
-                        return task.map(|res| {
-                            if let Some((room_id, timeline)) = res {
-                                AppMessage::TimelineLoaded {
-                                    room_id,
-                                    timeline: Arc::new(timeline),
-                                }
-                            } else {
-                                AppMessage::None
-                            }
+                        return task.map(|(room_id, message)| {
+                            AppMessage::Home(HomeMessage::Timeline { room_id, message })
                         });
                     }
                 };
@@ -114,9 +107,6 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
                     return task.map(AppMessage::Home);
                 }
             },
-            AppMessage::TimelineLoaded { room_id, timeline } if let Screen::Home(home) = self => {
-                home.insert_timeline(room_id, timeline);
-            }
             _ => {}
         };
 

@@ -1,13 +1,10 @@
-use std::collections::HashMap;
-
 use crate::common::*;
 use chat::{
-    Chat, ChatAction, ChatMessage,
+    Chat, ChatAction, ChatMessage, TimelineMessage,
     empty::{EmptyChat, EmptyChatMessage},
 };
 use lru::LruCache;
 use macros::{iced_cache, nonzero_usize};
-use matrix_sdk_ui::Timeline;
 use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 
 mod chat;
@@ -16,6 +13,10 @@ mod sidebar;
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
     Chat(ChatMessage),
+    Timeline {
+        room_id: OwnedRoomId,
+        message: TimelineMessage,
+    },
     EmptyChat(EmptyChatMessage),
     Sidebar(SidebarMessage),
     ActiveRoomChanged(Option<Room>),
@@ -24,7 +25,7 @@ pub enum HomeMessage {
 pub enum HomeAction {
     Run(Task<()>),
     None,
-    LoadTimeline(Task<Option<(OwnedRoomId, Timeline)>>),
+    LoadTimeline(Task<(OwnedRoomId, TimelineMessage)>),
 }
 
 #[iced_cache]
@@ -93,7 +94,7 @@ impl Home {
         self.window_title.borrow().clone()
     }
 
-    fn load_room(&mut self, room: Room) -> Option<Task<Option<(OwnedRoomId, Timeline)>>> {
+    fn load_room(&mut self, room: Room) -> Option<Task<(OwnedRoomId, TimelineMessage)>> {
         let id = room.room_id().to_owned();
         self.active_room_id = Some(id.clone());
 
@@ -109,9 +110,18 @@ impl Home {
         Some(task)
     }
 
-    pub fn insert_timeline(&mut self, room_id: OwnedRoomId, timeline: Arc<Timeline>) {
-        if let Some(chat) = self.chats.get_mut(&room_id) {
-            chat.insert_timeline(timeline);
+    fn dispatch_to_chat(&mut self, room_id: &OwnedRoomId, msg: ChatMessage) -> HomeAction {
+        let Some(chat) = self.chats.get_mut(room_id) else {
+            tracing::warn!(
+                "Dropping message for room {}: no chat cached for it",
+                room_id
+            );
+            return HomeAction::None;
+        };
+
+        match chat.update(msg) {
+            ChatAction::Run(task) => HomeAction::Run(task),
+            ChatAction::None => HomeAction::None,
         }
     }
 }
@@ -130,14 +140,12 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             }
             HomeMessage::ActiveRoomChanged(None) => {}
             HomeMessage::Chat(msg) => {
-                if let Some(id) = &self.active_room_id
-                    && let Some(chat) = self.chats.get_mut(id)
-                {
-                    match chat.update(msg) {
-                        ChatAction::Run(task) => return HomeAction::Run(task),
-                        ChatAction::None => {}
-                    }
+                if let Some(id) = self.active_room_id.clone() {
+                    return self.dispatch_to_chat(&id, msg);
                 }
+            }
+            HomeMessage::Timeline { room_id, message } => {
+                return self.dispatch_to_chat(&room_id, ChatMessage::Timeline(message));
             }
             // TODO: Implement empty chat
             HomeMessage::EmptyChat(_) => tracing::warn!("Empty chat not yet implemented"),

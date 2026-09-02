@@ -1,17 +1,21 @@
+use std::future;
+
 use header::{Header, HeaderAction, HeaderMessage};
+use iced::futures::{StreamExt, stream};
 use input::{ChatInput, InputAction, InputMessage};
 use macros::iced_cache;
-use matrix_sdk_ui::{
-    Timeline,
-    timeline::{DateDividerMode, TimelineBuilder, TimelineFocus, TimelineReadReceiptTracking},
+use matrix_sdk_ui::timeline::{
+    DateDividerMode, TimelineBuilder, TimelineFocus, TimelineReadReceiptTracking,
 };
-use timeline::{ChatTimeline, TimelineAction, TimelineMessage};
+use timeline::{ChatTimeline, TimelineAction};
 
 use crate::common::*;
 pub(super) mod empty;
 mod header;
 mod input;
 mod timeline;
+
+pub use timeline::TimelineMessage;
 
 #[derive(Debug, Clone)]
 pub enum ChatMessage {
@@ -35,7 +39,7 @@ pub struct Chat {
 }
 
 impl Chat {
-    pub fn new(state: &AppState, room: Room) -> (Self, Task<Option<(OwnedRoomId, Timeline)>>) {
+    pub fn new(state: &AppState, room: Room) -> (Self, Task<(OwnedRoomId, TimelineMessage)>) {
         let builder = TimelineBuilder::new(&room)
             .with_date_divider_mode(DateDividerMode::Daily)
             .with_focus(TimelineFocus::Live {
@@ -46,27 +50,50 @@ impl Chat {
 
         let room_id = room.room_id().to_owned();
 
+        let room_id_log = room_id.clone();
+        let stream = stream::once(async move {
+            tracing::debug!("Building timeline for room {}", room_id_log);
+            let timeline = match builder.build().await {
+                Ok(t) => Arc::new(t),
+                Err(e) => {
+                    tracing::error!("Failed to build timeline for room {}: {:?}", room_id_log, e);
+                    return stream::pending().left_stream(); // never resolves; room stays empty
+                }
+            };
+            let (initial, updates) = timeline.subscribe().await;
+            tracing::debug!(
+                "Subscribed to timeline for room {} with {} initial items",
+                room_id_log,
+                initial.len()
+            );
+
+            if initial.is_empty() {
+                match timeline.paginate_backwards(30).await {
+                    Ok(reached_start) => tracing::debug!(
+                        "Paginated room {} backwards (reached_start={})",
+                        room_id_log,
+                        reached_start
+                    ),
+                    Err(e) => {
+                        tracing::warn!("Failed to paginate room {} backwards: {:?}", room_id_log, e)
+                    }
+                }
+            }
+
+            stream::once(future::ready(TimelineMessage::Loaded { timeline, initial }))
+                .chain(updates.map(TimelineMessage::Diffs))
+                .right_stream()
+        })
+        .flatten();
+
         (
             Self {
                 header: Header::new(state, &room),
                 timeline: ChatTimeline::new(&room),
                 input: ChatInput::new(&room),
             },
-            Task::future(async move {
-                match builder.build().await {
-                    Ok(timeline) => Some((room_id, timeline)),
-                    Err(e) => {
-                        tracing::error!("Failed to build timeline: {:?}", e);
-                        None
-                    }
-                }
-            }),
+            Task::stream(stream).map(move |msg| (room_id.clone(), msg)),
         )
-    }
-
-    pub fn insert_timeline(&mut self, timeline: Arc<Timeline>) {
-        self.timeline.timeline = Some(timeline.clone());
-        self.input.timeline = Some(timeline);
     }
 }
 
@@ -79,7 +106,6 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             },
             ChatMessage::Timeline(msg) => match self.timeline.update(msg) {
                 TimelineAction::None => ChatAction::None,
-                TimelineAction::Run(task) => ChatAction::Run(task),
                 TimelineAction::SetReplying(event_id) => {
                     self.input.set_replies_to(event_id);
                     ChatAction::None
