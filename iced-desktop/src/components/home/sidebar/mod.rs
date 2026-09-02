@@ -33,15 +33,10 @@ pub enum SidebarAction {
 pub struct Sidebar {
     state: AppState,
 
+    #[hash]
     server_column: ServerColumn,
+    #[hash]
     channels: ServerChannels,
-}
-
-impl Hash for Sidebar {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.server_column.hash(state);
-        self.channels.hash(state);
-    }
 }
 
 impl Sidebar {

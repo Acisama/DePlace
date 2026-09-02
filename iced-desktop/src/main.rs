@@ -48,10 +48,25 @@ fn main() -> iced::Result {
         default_hook(info);
     }));
 
+    let icon = match iced::window::icon::from_file_data(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../assets/deplace_icon.png"
+        )),
+        Some(image::ImageFormat::Png),
+    ) {
+        Ok(icon) => icon,
+        Err(e) => {
+            tracing::error!("Failed to load icon: {:?}", e);
+            return Err(iced::Error::WindowCreationFailed(Box::new(e)));
+        }
+    };
+
     iced::daemon(
         move || {
             let (_id, open_task) = window::open(window::Settings {
                 maximized: true,
+                icon: Some(icon.clone()),
                 ..Default::default()
             });
 
