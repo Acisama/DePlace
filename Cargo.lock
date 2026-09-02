@@ -3507,6 +3507,7 @@ dependencies = [
  "deplace_core",
  "dirs",
  "iced",
+ "image",
  "lru 0.18.3",
  "macros",
  "matrix-sdk",

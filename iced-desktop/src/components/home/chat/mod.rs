@@ -104,6 +104,10 @@ impl Chat {
 
 impl IcedWidget<ChatMessage, ChatAction> for Chat {
     fn update(&mut self, msg: ChatMessage) -> ChatAction {
+        if let ChatMessage::Timeline(TimelineMessage::Loaded { timeline, .. }) = &msg {
+            self.input.timeline = Some(timeline.clone())
+        }
+
         match msg {
             ChatMessage::Header(msg) => match self.header.update(msg) {
                 HeaderAction::None => ChatAction::None,

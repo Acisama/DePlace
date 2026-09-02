@@ -1,5 +1,6 @@
 use channels::{ChannelsAction, ChannelsMessage, ServerChannels};
 use deplace_core::state::ActiveServer;
+use macros::iced_cache;
 use server_column::{ServerColumn, ServerColumnAction, ServerColumnMessage};
 
 use crate::common::*;
@@ -28,7 +29,7 @@ pub enum SidebarAction {
     Run(Task<()>),
 }
 
-#[derive(Clone)]
+#[iced_cache]
 pub struct Sidebar {
     state: AppState,
 
@@ -73,8 +74,10 @@ impl Sidebar {
             async move { avatar_cache.load_avatar(&uri).await },
         ))
     }
+}
 
-    pub fn update(&mut self, message: SidebarMessage) -> SidebarAction {
+impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
+    fn update(&mut self, message: SidebarMessage) -> SidebarAction {
         match message {
             SidebarMessage::ChangeActiveRoom(room) => self.set_active_room_task(room),
             SidebarMessage::ChangeActiveServer(server) => self.set_active_server_task(server),
@@ -91,7 +94,7 @@ impl Sidebar {
         }
     }
 
-    pub fn view(&self, theme: Theme, structure: Structure) -> Element<'static, SidebarMessage> {
+    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, SidebarMessage> {
         w::row![
             w::lazy(self.server_column.clone(), move |server_column| {
                 server_column
