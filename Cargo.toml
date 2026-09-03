@@ -31,6 +31,7 @@ gpui-video-player = { git = "https://github.com/acisama/gpui-video-player" }
 iced = { git = "https://github.com/acisama/iced", version = "0.15.0-dev", features = ["advanced", "canvas", "debug", "image", "svg", "time-travel", "tokio"] }
 image = "0.25.10"
 imbl = "6.1.0"
+indexmap = "2.14.1"
 infer = "0.22.0"
 interprocess = { version = "2", features = ["tokio"] }
 # livekit = "0.8.1"

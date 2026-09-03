@@ -7,6 +7,9 @@ impl IsActiveServer for tokio::sync::watch::Receiver<crate::state::ActiveServer>
 pub trait IsAvatarCache {}
 impl IsAvatarCache for crate::state::cache::AvatarCache {}
 
+pub trait IsThumbnailCache {}
+impl IsThumbnailCache for crate::state::cache::ThumbnailCache {}
+
 pub trait IsMembershipMap {}
 impl IsMembershipMap for tokio::sync::watch::Receiver<crate::state::MembershipMap> {}
 

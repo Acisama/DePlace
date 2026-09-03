@@ -20,7 +20,7 @@ pub enum InputAction {
     None,
 }
 
-#[iced_cache]
+#[iced_cache(Clone)]
 pub struct ChatInput {
     pub timeline: Option<Arc<Timeline>>,
 

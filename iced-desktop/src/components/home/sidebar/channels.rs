@@ -20,10 +20,10 @@ impl NeedsAvatarExt for ChannelsMessage {
 
 pub enum ChannelsAction {
     SetActiveRoom(Room),
-    FetchAvatar(OwnedMxcUri),
+    Run(Task<()>),
 }
 
-#[iced_cache]
+#[iced_cache(Clone)]
 pub struct ServerChannels {
     state: AppState,
     avatar_cache: AvatarCache,
@@ -60,16 +60,7 @@ impl ServerChannels {
 impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
     fn update(&mut self, msg: ChannelsMessage) -> ChannelsAction {
         match msg {
-            ChannelsMessage::NeedAvatar(uri) => {
-                self.avatar_states_for_hash.retain(|u| {
-                    !matches!(
-                        self.state.avatar_cache().get(u).unwrap_or_default(),
-                        MediaState::Failed | MediaState::Loaded(_)
-                    )
-                });
-                self.avatar_states_for_hash.insert(uri.clone());
-                ChannelsAction::FetchAvatar(uri)
-            }
+            ChannelsMessage::NeedAvatar(uri) => ChannelsAction::Run(self.retain_avatar_hashes(uri)),
             ChannelsMessage::SetActiveRoom(room) => ChannelsAction::SetActiveRoom(room),
         }
     }

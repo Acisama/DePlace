@@ -10,7 +10,7 @@ pub enum EmptyChatAction {
     None,
 }
 
-#[iced_cache]
+#[iced_cache(Clone)]
 pub struct EmptyChat {}
 
 impl EmptyChat {

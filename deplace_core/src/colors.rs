@@ -1,5 +1,4 @@
 use csscolorparser::Color as CssColor;
-use matrix_sdk::{Room, room::RoomMember};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
@@ -46,22 +45,6 @@ impl From<&str> for Color {
 impl From<CssColor> for Color {
     fn from(color: CssColor) -> Self {
         Color(color)
-    }
-}
-
-pub trait ColorExt {
-    fn color(&self) -> Color;
-}
-
-impl ColorExt for RoomMember {
-    fn color(&self) -> Color {
-        self.user_id().as_str().into()
-    }
-}
-
-impl ColorExt for Room {
-    fn color(&self) -> Color {
-        self.room_id().as_str().into()
     }
 }
 

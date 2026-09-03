@@ -12,7 +12,7 @@ use ruma::events::{
     room::{MediaSource, member::Change},
 };
 
-use crate::{NameExt, state::MembershipMap};
+use crate::{ProfileLike, state::MembershipMap};
 
 pub fn format_message_long_date(date: DateTime<Local>) -> String {
     let hour_str = "%H:%M";

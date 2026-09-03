@@ -28,7 +28,7 @@ pub enum HomeAction {
     LoadTimeline(Task<(OwnedRoomId, TimelineMessage)>),
 }
 
-#[iced_cache]
+#[iced_cache(Clone)]
 pub struct Home {
     state: AppState,
 

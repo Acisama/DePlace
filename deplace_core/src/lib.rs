@@ -1,10 +1,12 @@
 #![recursion_limit = "256"]
 use crate::state::MembershipMap;
+use colors::Color;
 use helpers::RoomExt;
 use matrix_sdk::{
     Client, Room, SessionMeta, SessionTokens, authentication::matrix::MatrixSession,
     room::RoomMember,
 };
+use ruma::{OwnedMxcUri, RoomId, UserId, room_id, user_id};
 use state::ActiveServer;
 
 use crate::{
@@ -130,16 +132,29 @@ pub fn get_dm_room_name(room: &Room, map: &MembershipMap) -> String {
         .unwrap_or("Unknown Room".to_string())
 }
 
-pub trait NameExt {
-    fn get_name(&self) -> String;
-    fn initial(&self) -> char;
-}
+/// Used for anything which has a name, static id and avatar
+pub trait ProfileLike {
+    type Id<'a>: AsRef<str>
+    where
+        Self: 'a;
 
-impl NameExt for RoomMember {
+    const ICON_BORDER_RADIUS_RATIO: f32;
+
+    fn profile_name(&self) -> Option<String>;
+    fn profile_avatar(&self) -> Option<OwnedMxcUri>;
+    fn profile_id(&self) -> Self::Id<'_>;
+
     fn get_name(&self) -> String {
-        self.display_name()
-            .map(|n| n.to_string())
-            .unwrap_or(self.user_id().to_string())
+        self.profile_name()
+            .unwrap_or(self.profile_id().as_ref().to_string())
+    }
+
+    fn get_avatar(&self) -> Option<OwnedMxcUri> {
+        self.profile_avatar()
+    }
+
+    fn color(&self) -> Color {
+        self.profile_id().as_ref().into()
     }
 
     fn initial(&self) -> char {
@@ -147,55 +162,117 @@ impl NameExt for RoomMember {
     }
 }
 
-impl NameExt for Option<&RoomMember> {
-    fn get_name(&self) -> String {
+impl ProfileLike for RoomMember {
+    type Id<'a>
+        = &'a UserId
+    where
+        Self: 'a;
+
+    const ICON_BORDER_RADIUS_RATIO: f32 = 0.5;
+
+    fn profile_name(&self) -> Option<String> {
+        Some(self.name().to_string())
+    }
+
+    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+        self.avatar_url().map(|u| u.to_owned())
+    }
+
+    fn profile_id(&self) -> &UserId {
+        self.user_id()
+    }
+}
+
+impl ProfileLike for Option<RoomMember> {
+    type Id<'a>
+        = &'a UserId
+    where
+        Self: 'a;
+
+    const ICON_BORDER_RADIUS_RATIO: f32 = 0.5;
+
+    fn profile_name(&self) -> Option<String> {
+        self.as_ref().and_then(|m| m.profile_name())
+    }
+
+    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+        self.as_ref().and_then(|m| m.profile_avatar())
+    }
+
+    fn profile_id(&self) -> Self::Id<'_> {
         self.as_ref()
-            .map(|m| m.get_name())
-            .unwrap_or("Unknown".to_string())
-    }
-
-    fn initial(&self) -> char {
-        self.as_ref().map(|m| m.initial()).unwrap_or('?')
+            .map(|m| m.profile_id())
+            .unwrap_or(user_id!("@unknown:matrix.org"))
     }
 }
 
-impl NameExt for Room {
-    fn get_name(&self) -> String {
-        self.cached_display_name()
-            .map(|n| n.to_string())
-            .unwrap_or("Unknown Room".to_string())
+impl ProfileLike for Room {
+    type Id<'a>
+        = &'a RoomId
+    where
+        Self: 'a;
+
+    const ICON_BORDER_RADIUS_RATIO: f32 = 0.25;
+
+    fn profile_name(&self) -> Option<String> {
+        self.cached_display_name().map(|n| n.to_string())
     }
 
-    fn initial(&self) -> char {
-        self.get_name().chars().next().unwrap_or('?')
+    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+        self.avatar_url()
+    }
+
+    fn profile_id(&self) -> Self::Id<'_> {
+        self.room_id()
     }
 }
 
-impl NameExt for Option<Room> {
-    fn get_name(&self) -> String {
+impl ProfileLike for Option<Room> {
+    type Id<'a>
+        = &'a RoomId
+    where
+        Self: 'a;
+
+    const ICON_BORDER_RADIUS_RATIO: f32 = 0.25;
+
+    fn profile_name(&self) -> Option<String> {
+        self.as_ref().and_then(|r| r.profile_name())
+    }
+
+    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+        self.as_ref().and_then(|r| r.avatar_url())
+    }
+
+    fn profile_id(&self) -> Self::Id<'_> {
         self.as_ref()
-            .map(|r| r.get_name())
-            .unwrap_or("Unknown Room".to_string())
-    }
-
-    fn initial(&self) -> char {
-        self.as_ref().map(|r| r.initial()).unwrap_or('?')
+            .map(|r| r.profile_id())
+            .unwrap_or(room_id!("!unknown:matrix.org"))
     }
 }
 
-impl NameExt for ActiveServer {
-    fn get_name(&self) -> String {
+impl ProfileLike for ActiveServer {
+    type Id<'a>
+        = &'a RoomId
+    where
+        Self: 'a;
+
+    const ICON_BORDER_RADIUS_RATIO: f32 = 0.25;
+
+    fn profile_name(&self) -> Option<String> {
         match self {
-            ActiveServer::Dms => "Direct Messages".to_string(),
-            ActiveServer::Server(server) => server.get_name(),
+            ActiveServer::Dms => Some("Direct Messages".into()),
+            ActiveServer::Server(room) => room.profile_name(),
         }
     }
 
-    fn initial(&self) -> char {
-        match self {
-            ActiveServer::Dms => 'D',
-            ActiveServer::Server(server) => server.initial(),
-        }
+    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+        self.as_server().and_then(|s| s.avatar_url())
+    }
+
+    fn profile_id(&self) -> Self::Id<'_> {
+        self.as_server()
+            .map(|s| s.room_id())
+            .unwrap_or(room_id!("!unknown:matrix.org"))
     }
 }
 

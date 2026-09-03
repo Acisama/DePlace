@@ -25,12 +25,12 @@ impl NeedsAvatarExt for ServerColumnMessage {
 }
 
 pub enum ServerColumnAction {
-    NeedAvatar(OwnedMxcUri),
+    Run(Task<()>),
     SetActiveServer(ActiveServer),
     None,
 }
 
-#[iced_cache]
+#[iced_cache(Clone)]
 pub struct ServerColumn {
     state: AppState,
 
@@ -57,7 +57,6 @@ impl ServerColumn {
             active_server: state.active_server(),
 
             avatar_cache: state.avatar_cache().clone(),
-
             avatar_states_for_hash: BTreeSet::new(),
 
             state: state.clone(),
@@ -82,14 +81,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                 ServerColumnAction::None
             }
             ServerColumnMessage::NeedAvatar(uri) => {
-                self.avatar_states_for_hash.retain(|u| {
-                    !matches!(
-                        self.state.avatar_cache().get(u).unwrap_or_default(),
-                        MediaState::Failed | MediaState::Loaded(_)
-                    )
-                });
-                self.avatar_states_for_hash.insert(uri.clone());
-                ServerColumnAction::NeedAvatar(uri)
+                ServerColumnAction::Run(self.retain_avatar_hashes(uri))
             }
         }
     }

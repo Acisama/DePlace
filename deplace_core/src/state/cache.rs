@@ -5,8 +5,7 @@ use matrix_sdk::{
     Client,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
 };
-#[cfg(feature = "iced_desktop")]
-use ruma::OwnedMxcUri;
+use ruma::{OwnedMxcUri, UInt};
 use ruma::{events::room::MediaSource, uint};
 
 #[derive(Default, Debug)]
@@ -88,5 +87,37 @@ impl AvatarCache {
         };
 
         self.cache.insert(uri.clone(), res);
+    }
+}
+
+#[cfg(feature = "iced_desktop")]
+pub type ThumbnailCache = MediaCache<(String, u64, u64), iced::widget::image::Handle>;
+
+#[cfg(feature = "iced_desktop")]
+impl ThumbnailCache {
+    pub async fn load_thumbnail(&self, source: MediaSource, key: (String, u64, u64)) {
+        if self.cache.get(&key).is_some() {
+            return;
+        }
+
+        self.cache.insert(key.clone(), MediaState::Loading);
+
+        let request = MediaRequestParameters {
+            source,
+            format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                UInt::new_saturating(key.1),
+                UInt::new_saturating(key.2),
+            )),
+        };
+
+        let res = match self.client.media().get_media_content(&request, true).await {
+            Ok(bytes) => MediaState::loaded(iced::widget::image::Handle::from_bytes(bytes)),
+            Err(e) => {
+                tracing::error!("Failed to fetch media: {e}");
+                MediaState::Failed
+            }
+        };
+
+        self.cache.insert(key, res);
     }
 }

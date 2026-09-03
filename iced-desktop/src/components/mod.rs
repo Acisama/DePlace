@@ -1,7 +1,6 @@
 use std::hash::Hash;
 
-use deplace_core::NameExt;
-use deplace_core::colors::ColorExt;
+use deplace_core::ProfileLike;
 use deplace_core::state::cache::{AvatarCache, MediaState};
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
@@ -15,7 +14,6 @@ use iced::{
 };
 use iced::{Color, ContentFit, Font, Point, Renderer, Size};
 use matrix_sdk::Room;
-use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::OwnedMxcUri;
 
 use crate::things::Structure;
@@ -229,70 +227,73 @@ pub fn text_icon<'a, T: 'a>(
         .into()
 }
 
+pub fn unknown_icon<'a, T: 'a>(size: f32, rounding: f32, theme: Theme) -> Element<'a, T> {
+    text_icon('?', size, rounding, theme.colors.error)
+}
+
+pub fn loading_icon<'a, T: 'a>(size: f32, rounding: f32, theme: Theme) -> Element<'a, T> {
+    text_icon('#', size, rounding, theme.colors.offline)
+}
+
+pub fn render_avatar<'a, T: NeedsAvatarExt + Clone + 'a>(
+    uri: Option<OwnedMxcUri>,
+    size: f32,
+    rounding: f32,
+    fallback: impl FnOnce() -> Element<'a, T>,
+    avatar_cache: &AvatarCache,
+) -> Element<'a, T> {
+    let Some(avatar_url) = uri else {
+        return fallback();
+    };
+
+    match avatar_cache.get(&avatar_url) {
+        Some(MediaState::Failed) | Some(MediaState::Loading) => fallback(),
+        Some(MediaState::Loaded(avatar)) => image((*avatar).clone())
+            .width(size)
+            .height(size)
+            .content_fit(ContentFit::Cover)
+            .border_radius(rounding)
+            .into(),
+        None => on_appear(fallback(), T::needs_avatar(avatar_url)).into(),
+    }
+}
+
 /// A trait for messages which have a NeedAvatar variant
 pub trait NeedsAvatarExt {
     fn needs_avatar(uri: OwnedMxcUri) -> Self;
 }
 
-pub trait IconExt {
+pub trait ProfileRenderExt {
     fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
         &self,
         size: f32,
         avatar_cache: &AvatarCache,
     ) -> Element<'a, T>;
+
+    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T>;
 }
 
-impl IconExt for Room {
+impl<Profile: ProfileLike> ProfileRenderExt for Profile {
     fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
         &self,
         size: f32,
         avatar_cache: &AvatarCache,
     ) -> Element<'a, T> {
-        let rounding = size / 4.0;
+        let rounding = size * Self::ICON_BORDER_RADIUS_RATIO;
 
         let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
 
-        let Some(avatar_url) = self.avatar_url() else {
-            return fallback();
-        };
-
-        match avatar_cache.get(&avatar_url) {
-            Some(MediaState::Failed) | Some(MediaState::Loading) => fallback(),
-            Some(MediaState::Loaded(avatar)) => image((*avatar).clone())
-                .width(size)
-                .height(size)
-                .content_fit(ContentFit::Cover)
-                .border_radius(rounding)
-                .into(),
-            None => on_appear(fallback(), T::needs_avatar(avatar_url)).into(),
-        }
+        render_avatar(
+            self.profile_avatar(),
+            size,
+            rounding,
+            fallback,
+            avatar_cache,
+        )
     }
-}
 
-impl IconExt for RoomMember {
-    fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
-        &self,
-        size: f32,
-        avatar_cache: &AvatarCache,
-    ) -> Element<'a, T> {
-        let rounding = size / 2.0;
-
-        let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
-
-        let Some(avatar_url) = self.avatar_url() else {
-            return fallback();
-        };
-
-        match avatar_cache.get(&avatar_url.into()) {
-            Some(MediaState::Failed) | Some(MediaState::Loading) => fallback(),
-            Some(MediaState::Loaded(avatar)) => image((*avatar).clone())
-                .width(size)
-                .height(size)
-                .content_fit(ContentFit::Cover)
-                .border_radius(rounding)
-                .into(),
-            None => on_appear(fallback(), T::needs_avatar(avatar_url.to_owned())).into(),
-        }
+    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T> {
+        render_name(self.get_name(), size, self.color().to_iced())
     }
 }
 
@@ -399,25 +400,19 @@ pub trait IcedWidget<T, V> {
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, T>;
 }
 
-pub trait RenderNameExt {
-    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T>;
+pub fn render_name<'a, T: Clone + 'a>(name: String, size: f32, color: Color) -> Element<'a, T> {
+    weighted_text(name, Weight::Semibold)
+        .size(size)
+        .color(color)
+        .into()
 }
 
-impl RenderNameExt for Room {
-    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T> {
-        weighted_text(self.get_name(), Weight::Semibold)
-            .size(size)
-            .into()
-    }
+pub fn render_unknown_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
+    render_name("Unknown".to_string(), size, theme.colors.error)
 }
 
-impl RenderNameExt for RoomMember {
-    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T> {
-        weighted_text(self.get_name(), Weight::Bold)
-            .size(size)
-            .color(self.color().to_iced())
-            .into()
-    }
+pub fn render_loading_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
+    render_name("Loading...".to_string(), size, theme.colors.offline)
 }
 
 pub trait StatusExt {

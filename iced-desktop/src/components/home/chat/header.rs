@@ -2,10 +2,7 @@ use std::collections::BTreeSet;
 
 use macros::iced_cache;
 
-use crate::{
-    common::*,
-    components::{RenderNameExt, context_room_icon},
-};
+use crate::{common::*, components::context_room_icon};
 
 #[derive(Debug, Clone)]
 pub enum HeaderMessage {
@@ -26,7 +23,7 @@ pub enum HeaderAction {
     Run(Task<()>),
 }
 
-#[iced_cache]
+#[iced_cache(Clone)]
 pub struct Header {
     state: AppState,
     avatar_cache: AvatarCache,
@@ -58,20 +55,7 @@ impl Header {
 impl IcedWidget<HeaderMessage, HeaderAction> for Header {
     fn update(&mut self, msg: HeaderMessage) -> HeaderAction {
         match msg {
-            HeaderMessage::NeedsAvatar(uri) => {
-                self.avatar_states_for_hash.retain(|u| {
-                    !matches!(
-                        self.state.avatar_cache().get(u).unwrap_or_default(),
-                        MediaState::Failed | MediaState::Loaded(_)
-                    )
-                });
-                self.avatar_states_for_hash.insert(uri.clone());
-
-                let avatar_cache = self.avatar_cache.clone();
-                HeaderAction::Run(Task::future(async move {
-                    avatar_cache.load_avatar(&uri).await;
-                }))
-            }
+            HeaderMessage::NeedsAvatar(uri) => HeaderAction::Run(self.retain_avatar_hashes(uri)),
             _ => HeaderAction::None,
         }
     }

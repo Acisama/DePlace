@@ -30,7 +30,7 @@ pub enum ChatAction {
     None,
 }
 
-#[iced_cache]
+#[iced_cache(Clone)]
 pub struct Chat {
     #[hash]
     header: Header,
@@ -52,6 +52,7 @@ impl Chat {
         let room_id = room.room_id().to_owned();
 
         let avatar_cache = state.avatar_cache().clone();
+        let thumbnail_cache = state.thumbnail_cache().clone();
 
         let room_id_log = room_id.clone();
         let stream = stream::once(async move {
@@ -83,10 +84,17 @@ impl Chat {
                 }
             }
 
-            let initial = initial
-                .into_iter()
-                .map(|m| m.convert(&avatar_cache))
-                .collect();
+            let initial = Arc::new(
+                initial
+                    .into_iter()
+                    .map(|m| {
+                        (
+                            m.unique_id().0.clone(),
+                            m.convert(&avatar_cache, &thumbnail_cache),
+                        )
+                    })
+                    .collect(),
+            );
 
             stream::once(future::ready(TimelineMessage::Loaded { timeline, initial }))
                 .chain(updates.map(TimelineMessage::Diffs))
@@ -97,7 +105,7 @@ impl Chat {
         (
             Self {
                 header: Header::new(state, &room),
-                timeline: ChatTimeline::new(&room, &state),
+                timeline: ChatTimeline::new(&room, state),
                 input: ChatInput::new(&room),
             },
             Task::stream(stream).map(move |msg| (room_id.clone(), msg)),
@@ -126,6 +134,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     self.input.set_replies_to(event_id);
                     ChatAction::None
                 }
+                TimelineAction::Run(task) => ChatAction::Run(task),
             },
             ChatMessage::Input(msg) => match self.input.update(msg) {
                 InputAction::None => ChatAction::None,

@@ -154,6 +154,9 @@ struct AppStateInner {
 
     #[cfg(feature = "iced_desktop")]
     avatar_cache: cache::AvatarCache,
+
+    #[cfg(feature = "iced_desktop")]
+    thumbnail_cache: cache::ThumbnailCache,
 }
 
 impl AppState {
@@ -216,6 +219,9 @@ impl AppState {
                 #[cfg(feature = "iced_desktop")]
                 avatar_cache: cache::AvatarCache::new(client.clone()),
 
+                #[cfg(feature = "iced_desktop")]
+                thumbnail_cache: cache::ThumbnailCache::new(client.clone()),
+
                 window_title,
 
                 client,
@@ -247,6 +253,11 @@ impl AppState {
     #[cfg(feature = "iced_desktop")]
     pub fn avatar_cache(&self) -> &cache::AvatarCache {
         &self.inner.avatar_cache
+    }
+
+    #[cfg(feature = "iced_desktop")]
+    pub fn thumbnail_cache(&self) -> &cache::ThumbnailCache {
+        &self.inner.thumbnail_cache
     }
 
     pub fn window_title(&self) -> Receiver<String> {
@@ -462,7 +473,10 @@ impl AppState {
     ///
     /// Returns the new server if it changed
     pub async fn set_active_room(&self, room: Option<Room>) -> ActiveServer {
-        tracing::trace!("Setting active room: {:?}", room);
+        tracing::trace!(
+            "Setting active room: {:?}",
+            room.as_ref().map(|r| r.room_id().to_owned())
+        );
 
         let mut room_changed = false;
         let mut new_server = ActiveServer::Dms;

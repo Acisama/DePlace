@@ -1,6 +1,9 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{DeriveInput, Expr, ExprLit, Fields, Lit, parse_macro_input};
+use syn::{
+    DeriveInput, Expr, ExprLit, Fields, Lit, Path, parse_macro_input,
+    punctuated::Punctuated, Token,
+};
 use tailwind::StyleList;
 
 mod tailwind;
@@ -61,11 +64,11 @@ pub fn matrix_settings(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn iced_cache(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    assert!(_attr.is_empty());
+pub fn iced_cache(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let derives = parse_macro_input!(attr with Punctuated::<Path, Token![,]>::parse_terminated);
     let item_ast = syn::parse(item).unwrap();
 
-    iced_cache::convert_iced(item_ast)
+    iced_cache::convert_iced(item_ast, derives)
 }
 
 /// Safely creates a `NonZeroUsize` at compile time.

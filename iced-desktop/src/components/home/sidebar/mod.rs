@@ -29,7 +29,7 @@ pub enum SidebarAction {
     Run(Task<()>),
 }
 
-#[iced_cache]
+#[iced_cache(Clone)]
 pub struct Sidebar {
     state: AppState,
 
@@ -78,12 +78,12 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
             SidebarMessage::ChangeActiveServer(server) => self.set_active_server_task(server),
             SidebarMessage::NeedAvatar(uri) => self.fetch_avatar_task(uri),
             SidebarMessage::ServerColumn(msg) => match self.server_column.update(msg) {
-                ServerColumnAction::NeedAvatar(uri) => self.fetch_avatar_task(uri),
+                ServerColumnAction::Run(task) => SidebarAction::Run(task),
                 ServerColumnAction::SetActiveServer(server) => self.set_active_server_task(server),
                 ServerColumnAction::None => SidebarAction::None,
             },
             SidebarMessage::Channels(msg) => match self.channels.update(msg) {
-                ChannelsAction::FetchAvatar(uri) => self.fetch_avatar_task(uri),
+                ChannelsAction::Run(task) => SidebarAction::Run(task),
                 ChannelsAction::SetActiveRoom(room) => self.set_active_room_task(Some(room)),
             },
         }
