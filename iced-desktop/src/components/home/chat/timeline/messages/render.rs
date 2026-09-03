@@ -1,9 +1,11 @@
+use deplace_core::formatting::{fit_dimensions, format_bytes};
 use iced::never;
+use matrix_sdk::media::UniqueKey;
 use matrix_sdk_ui::timeline::TimelineDetails;
 
-use crate::{common::*, components::home::chat::TimelineMessage};
+use crate::{common::*, components::InsetShadow};
 
-use super::{MessageContent, MessageEvent, TimelineItem, TimelineItemKind, TimelineItemMessage};
+use super::{MessageContent, MessageEvent, TimelineItemMessage};
 
 impl MessageEvent {
     pub fn view(
@@ -19,7 +21,8 @@ impl MessageEvent {
 
         let show_header = true;
 
-        let (text_content, other_content) = render_message_kind(&self.content, &theme, &structure);
+        let (text_content, other_content) =
+            render_message_kind(&self.content, theme, structure, thumbnail_cache);
 
         let mut column = w::Column::new();
 
@@ -84,8 +87,9 @@ impl MessageEvent {
 
 fn render_message_kind(
     kind: &MessageContent,
-    theme: &Theme,
-    structure: &Structure,
+    theme: Theme,
+    structure: Structure,
+    thumbnail_cache: &ThumbnailCache,
 ) -> (
     Option<Element<'static, TimelineItemMessage>>,
     Option<Element<'static, TimelineItemMessage>>,
@@ -132,8 +136,133 @@ fn render_message_kind(
         ),
         MessageContent::Empty => itallic_text("Empty".to_string()),
         MessageContent::File { .. } => render_warning_text("File messages are not yet implemented"),
-        MessageContent::Image { .. } => {
-            render_warning_text("Image messages are not yet implemented")
+        MessageContent::Image {
+            caption,
+            formatted_caption,
+            blur_preview,
+            filename,
+            source,
+            info,
+        } => {
+            let max_width = structure.chat.max_media_width;
+            let max_height = structure.chat.max_media_height;
+
+            let label = format!(
+                "{filename}{}",
+                info.as_ref()
+                    .and_then(|i| i
+                        .size
+                        .map(|s| format_bytes(s, deplace_core::settings::DataSizeUnit::Bytes)))
+                    .unwrap_or_default()
+            );
+
+            // Just an overestimate to be sure
+            let min_width = label.len() as f32 * structure.chat.text_size;
+
+            let (width, height) = fit_dimensions(
+                info.as_ref()
+                    .and_then(|i| i.width.map(|w| w as f32))
+                    .unwrap_or(max_width),
+                info.as_ref()
+                    .and_then(|i| i.height.map(|h| h as f32))
+                    .unwrap_or(max_height),
+                max_width,
+                max_height,
+                min_width,
+            );
+
+            let thumbnail_source = info
+                .as_ref()
+                .and_then(|i| i.thumbnail_source.clone())
+                .unwrap_or_else(|| source.clone());
+
+            let thumbnail_key = (thumbnail_source.unique_key(), width as u64, height as u64);
+            let cached_image = thumbnail_cache.get(&thumbnail_key);
+            let image = cached_image.clone().unwrap_or_default();
+
+            let mut stack = Stack::new();
+
+            if let Some(image) = blur_preview {
+                stack = stack.push(
+                    w::image(image)
+                        .width(width)
+                        .height(height)
+                        .content_fit(iced::ContentFit::Fill)
+                        .border_radius(structure.inner_border_radius),
+                );
+            }
+
+            stack = match image {
+                MediaState::Failed => stack
+                    .push(
+                        w::container(
+                            weighted_text("Image failed to load", Weight::Bold)
+                                .size(structure.chat.text_size * 1.5),
+                        )
+                        .width(Fill)
+                        .height(Fill)
+                        .center(Fill)
+                        .style(move |_| w::container::Style {
+                            background: Some(theme.colors.error.scale_lightness(0.2).into()),
+                            text_color: Some(theme.colors.error),
+                            border: Border {
+                                color: theme.colors.error,
+                                width: 0.0,
+                                radius: 0.0.into(),
+                            },
+                            ..Default::default()
+                        }),
+                    )
+                    .push(
+                        Canvas::new(InsetShadow::new(
+                            structure.inner_border_radius,
+                            theme.colors.error,
+                            structure.chat.text_size / 2.0,
+                            8,
+                        ))
+                        .width(width)
+                        .height(height),
+                    ),
+                MediaState::Loaded(image) => stack.push(
+                    w::image((*image).clone())
+                        .width(width)
+                        .height(height)
+                        .border_radius(structure.inner_border_radius),
+                ),
+                _ => stack,
+            };
+
+            let media = w::mouse_area(w::container(stack).width(width).height(height).style(
+                move |_| ContainerStyle {
+                    border: Border {
+                        color: Color::TRANSPARENT,
+                        width: 0.0,
+                        radius: structure.inner_border_radius.into(),
+                    },
+                    ..Default::default()
+                },
+            ));
+
+            let media: Element<'static, TimelineItemMessage> = if cached_image.is_none() {
+                on_appear(
+                    media,
+                    TimelineItemMessage::NeedsThumbnail {
+                        source: thumbnail_source,
+                        width: width as u64,
+                        height: height as u64,
+                    },
+                )
+                .into()
+            } else {
+                media.into()
+            };
+
+            (
+                caption
+                    .as_ref()
+                    .map(|c| render_normal_text(c.clone()).into()),
+                Some(media),
+            )
         }
         MessageContent::LiveLocation => {
             render_warning_text("Live location messages are not yet implemented")

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
+blurhash.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 chrono.workspace = true
 const_format.workspace = true
@@ -19,6 +20,7 @@ matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
 phosphor-svgs.workspace = true
 serde_json.workspace = true
+thumbhash.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

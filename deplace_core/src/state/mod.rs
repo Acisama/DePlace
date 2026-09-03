@@ -412,7 +412,13 @@ impl AppState {
 
     /// Sets the active server. Also sets the active room to the server's room if `change_room` is true.
     pub async fn set_active_server(&self, server: ActiveServer, change_room: bool) {
-        tracing::trace!("Setting active server: {:?}", server);
+        tracing::trace!(
+            "Setting active server: {:?}",
+            server
+                .as_server()
+                .map(|r| r.room_id().as_str())
+                .unwrap_or("Dms")
+        );
         let mut server_changed = false;
 
         // change the server

@@ -1,4 +1,5 @@
 use std::hash::Hash;
+use std::sync::Arc;
 
 use deplace_core::ProfileLike;
 use deplace_core::state::cache::{AvatarCache, MediaState};
@@ -6,6 +7,7 @@ use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
 use iced::font::Weight;
 use iced::widget::canvas::{Frame, Path, Stroke};
+use iced::widget::image::Handle as ImageHandle;
 use iced::widget::text::Rich;
 use iced::widget::{self as w, Canvas, canvas, image, rich_text, span, svg};
 use iced::{
@@ -15,6 +17,7 @@ use iced::{
 use iced::{Color, ContentFit, Font, Point, Renderer, Size};
 use matrix_sdk::Room;
 use matrix_sdk::ruma::OwnedMxcUri;
+use matrix_sdk::ruma::serde::Base64;
 
 use crate::things::Structure;
 use crate::things::{Colors, Theme};
@@ -436,4 +439,31 @@ impl StatusExt for w::text_editor::Status {
     fn active(&self) -> bool {
         matches!(self, Self::Focused { .. })
     }
+}
+
+pub fn blurhash_to_image(hash: &str) -> Option<ImageHandle> {
+    let width = 32;
+    let height = 32;
+
+    let pixels = match blurhash::decode(hash, width, height, 1.2) {
+        Ok(pixels) => pixels,
+        Err(e) => {
+            tracing::error!("Failed to decode blurhash: {:?}", e);
+            return None;
+        }
+    };
+
+    Some(ImageHandle::from_rgba(width, height, pixels))
+}
+
+pub fn thumbhash_to_image(hash: &Base64) -> Option<ImageHandle> {
+    let (width, height, pixels) = match thumbhash::thumb_hash_to_rgba(hash.as_bytes()) {
+        Ok(decoded) => decoded,
+        Err(e) => {
+            tracing::error!("Failed to decode thumbhash: {:?}", e);
+            return None;
+        }
+    };
+
+    Some(ImageHandle::from_rgba(width as u32, height as u32, pixels))
 }

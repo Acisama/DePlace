@@ -30,6 +30,7 @@ pub use iced::{
         button::{self, Style as ButtonStyle},
         canvas,
         container::{self, Container, Style as ContainerStyle},
+        image::Handle as ImageHandle,
         svg::{self, Style as SvgStyle},
         text::{self, Style as TextStyle},
     },

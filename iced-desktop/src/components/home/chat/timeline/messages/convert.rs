@@ -3,11 +3,13 @@ use std::time::SystemTime;
 
 use crate::common::*;
 use crate::components::home::chat::timeline::messages::TimelineProfile;
+use crate::components::{blurhash_to_image, thumbhash_to_image};
 
-use super::{MessageContent, MessageEvent, SystemEvent, SystemMessage};
+use super::{MessageContent, MessageEvent, SystemEvent, SystemMessage, VisualInfo};
 use super::{TimelineItem, TimelineItemKind};
 
-use matrix_sdk::ruma::events::room::message::MessageType;
+use matrix_sdk::ruma::events::room::ImageInfo;
+use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
 use matrix_sdk_ui::timeline::TimelineItemKind as UiTimelineItemKind;
 use matrix_sdk_ui::timeline::VirtualTimelineItem;
 use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
@@ -166,9 +168,22 @@ impl From<&MsgLikeKind> for MessageContent {
                 MessageType::Image(image) => MessageContent::Image {
                     caption: image.caption().map(|s| s.to_string()),
                     formatted_caption: image.formatted_caption().cloned(),
+
+                    blur_preview: image.info.as_ref().and_then(|info| {
+                        info.thumbhash
+                            .as_ref()
+                            .map(|t| thumbhash_to_image(t))
+                            .unwrap_or_else(|| {
+                                info.blurhash
+                                    .as_ref()
+                                    .map(|b| blurhash_to_image(b))
+                                    .flatten()
+                            })
+                    }),
+
                     filename: image.filename().to_string(),
                     source: image.source.clone(),
-                    info: image.info.clone(),
+                    info: image.info.as_ref().map(|info| info.into()),
                 },
                 MessageType::Location(_) => MessageContent::Location,
                 MessageType::Notice(notice) => MessageContent::Notice {
@@ -190,9 +205,22 @@ impl From<&MsgLikeKind> for MessageContent {
                 MessageType::Video(video) => MessageContent::Video {
                     caption: video.caption().map(|s| s.to_string()),
                     formatted_caption: video.formatted_caption().cloned(),
+
+                    blur_preview: video.info.as_ref().and_then(|info| {
+                        info.thumbhash
+                            .as_ref()
+                            .map(|t| thumbhash_to_image(t))
+                            .unwrap_or_else(|| {
+                                info.blurhash
+                                    .as_ref()
+                                    .map(|b| blurhash_to_image(b))
+                                    .flatten()
+                            })
+                    }),
+
                     filename: video.filename().to_string(),
                     source: video.source.clone(),
-                    info: video.info.clone(),
+                    info: video.info.as_ref().map(|info| info.into()),
                 },
                 other => MessageContent::Other {
                     event_type: Arc::new(other.msgtype().to_string()),
@@ -206,6 +234,28 @@ impl From<&MsgLikeKind> for MessageContent {
             MsgLikeKind::Sticker(_) => MessageContent::Sticker,
             MsgLikeKind::UnableToDecrypt(_) => MessageContent::UnableToDecrypt,
             MsgLikeKind::Redacted => MessageContent::Redacted,
+        }
+    }
+}
+
+impl From<&Box<ImageInfo>> for VisualInfo {
+    fn from(value: &Box<ImageInfo>) -> Self {
+        Self {
+            width: value.width.map(|u| u.into()),
+            height: value.height.map(|u| u.into()),
+            size: value.size.map(|u| u.into()),
+            thumbnail_source: value.thumbnail_source.clone(),
+        }
+    }
+}
+
+impl From<&Box<VideoInfo>> for VisualInfo {
+    fn from(value: &Box<VideoInfo>) -> Self {
+        Self {
+            width: value.width.map(|u| u.into()),
+            height: value.height.map(|u| u.into()),
+            size: value.size.map(|u| u.into()),
+            thumbnail_source: value.thumbnail_source.clone(),
         }
     }
 }

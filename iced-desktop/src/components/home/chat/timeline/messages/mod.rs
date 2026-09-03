@@ -209,6 +209,26 @@ impl MessageEvent {
 }
 
 #[derive(Debug, Clone)]
+pub struct VisualInfo {
+    width: Option<u64>,
+    height: Option<u64>,
+    size: Option<u64>,
+    thumbnail_source: Option<MediaSource>,
+}
+
+impl Hash for VisualInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.width.hash(state);
+        self.height.hash(state);
+        self.size.hash(state);
+        self.thumbnail_source
+            .as_ref()
+            .map(|s| s.unique_key())
+            .hash(state);
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum MessageContent {
     Audio,
     Emote {
@@ -226,9 +246,12 @@ pub enum MessageContent {
     Image {
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
+
+        blur_preview: Option<ImageHandle>,
+
         filename: String,
         source: MediaSource,
-        info: Option<Box<ImageInfo>>,
+        info: Option<VisualInfo>,
     },
     Location,
     Notice {
@@ -246,9 +269,12 @@ pub enum MessageContent {
     Video {
         caption: Option<String>,
         formatted_caption: Option<FormattedBody>,
+
+        blur_preview: Option<ImageHandle>,
+
         filename: String,
         source: MediaSource,
-        info: Option<Box<VideoInfo>>,
+        info: Option<VisualInfo>,
     },
     /// Body is only present if the client doesn't support the key verification framework, this client doesn't support it
     VerificationRequest {
@@ -303,19 +329,13 @@ impl std::hash::Hash for MessageContent {
                 filename,
                 source,
                 info,
+                ..
             } => {
                 caption.hash(state);
                 formatted_caption.as_ref().map(|c| &c.body).hash(state);
                 filename.hash(state);
                 source.unique_key().hash(state);
-                if let Some(info) = info {
-                    info.width.hash(state);
-                    info.height.hash(state);
-                    info.thumbnail_source
-                        .as_ref()
-                        .map(UniqueKey::unique_key)
-                        .hash(state);
-                }
+                info.hash(state);
             }
             MessageContent::Notice {
                 body,
@@ -341,19 +361,13 @@ impl std::hash::Hash for MessageContent {
                 filename,
                 source,
                 info,
+                ..
             } => {
                 caption.hash(state);
                 formatted_caption.as_ref().map(|c| &c.body).hash(state);
                 filename.hash(state);
                 source.unique_key().hash(state);
-                if let Some(info) = info {
-                    info.width.hash(state);
-                    info.height.hash(state);
-                    info.thumbnail_source
-                        .as_ref()
-                        .map(UniqueKey::unique_key)
-                        .hash(state);
-                }
+                info.hash(state);
             }
             MessageContent::Other { event_type } => event_type.hash(state),
             _ => {}
