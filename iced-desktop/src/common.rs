@@ -8,8 +8,8 @@ pub use crate::{
     things::{Structure, Theme},
 };
 pub use deplace_core::{
-    ProfileLike,
-    helpers::RoomExt,
+    ProfileLike, get_change,
+    helpers::{DisplayString, EventChange, RoomExt, get_current_and_prev},
     settings::Settings,
     state::{
         AppState, MembershipMap, RoomMap,

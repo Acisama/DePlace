@@ -3,21 +3,26 @@ use std::time::SystemTime;
 
 use deplace_core::formatting::format_date_divider;
 use iced::Alignment;
-use iced::Length::Shrink;
 use macros::iced_cache;
 use matrix_sdk::{
     media::UniqueKey,
-    ruma::events::{
-        room::{
-            MediaSource,
-            message::{FileInfo, FormattedBody, UrlPreview},
+    ruma::{
+        OwnedRoomAliasId,
+        events::{
+            room::{
+                MediaSource,
+                guest_access::GuestAccess,
+                history_visibility::HistoryVisibility,
+                message::{FileInfo, FormattedBody, UrlPreview},
+            },
+            rtc::notification::CallIntent,
         },
-        rtc::notification::CallIntent,
+        room::JoinRule,
     },
 };
 use matrix_sdk_ui::timeline::{
-    EventSendState, MemberProfileChange, OtherState, Profile, ReactionsByKeyBySender,
-    RoomMembershipChange, TimelineDetails, TimelineEventShieldState,
+    EventSendState, MemberProfileChange, Profile, ReactionsByKeyBySender, RoomMembershipChange,
+    TimelineDetails, TimelineEventShieldState,
 };
 
 mod convert;
@@ -33,8 +38,8 @@ pub enum TimelineItemMessage {
         width: u64,
         height: u64,
     },
-    MessageEnter,
-    MessageExit,
+    EventEnter,
+    EventExit,
     MediaMouseEnter,
     MediaMouseLeave,
     None,
@@ -102,11 +107,11 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 msg.media_hovered = false;
                 TimelineItemAction::Update
             }
-            TimelineItemMessage::MessageEnter => {
+            TimelineItemMessage::EventEnter => {
                 self.is_hovered = true;
                 TimelineItemAction::Update
             }
-            TimelineItemMessage::MessageExit => {
+            TimelineItemMessage::EventExit => {
                 self.is_hovered = false;
                 TimelineItemAction::Update
             }
@@ -126,27 +131,31 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 w::container("")
                     .width(Fill)
                     .height(structure.divider_width)
-                    .style(move |_| ContainerStyle {
-                        background: Some(theme.border.into()),
-                        ..Default::default()
-                    }),
-                w::text(format_date_divider(date.clone(), chrono_tz::Tz::UTC)).color(theme.border),
+                    .style(move |_| ContainerStyle::default()
+                        .background(theme.border)
+                        .border(border::rounded(structure.divider_width / 2.0))),
+                w::text(format_date_divider(*date, chrono_tz::Tz::UTC)).color(theme.text.dim),
                 w::container("")
                     .width(Fill)
                     .height(structure.divider_width)
-                    .style(move |_| ContainerStyle {
-                        background: Some(theme.border.into()),
-                        ..Default::default()
-                    }),
+                    .style(move |_| ContainerStyle::default()
+                        .background(theme.border)
+                        .border(border::rounded(structure.divider_width / 2.0))),
             ]
             .align_y(Alignment::Center)
-            .spacing(structure.small_gap)
+            .spacing(structure.small_gap / 2.0)
             .into(),
             TimelineItemKind::FailedToParseMessageLike { .. } => fallback,
             TimelineItemKind::FailedToParseState { .. } => fallback,
-            TimelineItemKind::ReadMarker => fallback,
+            TimelineItemKind::ReadMarker => w::container("")
+                .width(Fill)
+                .height(structure.divider_width)
+                .style(move |_| ContainerStyle::default().background(theme.accent))
+                .into(),
             TimelineItemKind::TimelineStart => fallback,
-            TimelineItemKind::System(_) => fallback,
+            TimelineItemKind::System(sys) => {
+                sys.view(theme, structure, &self.avatar_cache, self.is_hovered)
+            }
             TimelineItemKind::Message(msg) => msg.view(
                 theme,
                 structure,
@@ -458,12 +467,34 @@ struct SystemEvent {
 
 #[derive(Debug)]
 enum SystemMessage {
-    MemberhipChange(RoomMembershipChange),
-    ProfileChange(MemberProfileChange),
-    OtherState(OtherState),
+    MemberhipChange(Box<RoomMembershipChange>),
+    ProfileChange(Box<MemberProfileChange>),
     CallInvite,
     RtcNotification {
         call_intent: Option<CallIntent>,
         declined_by: Vec<OwnedUserId>,
     },
+    Custom {
+        event_type: String,
+    },
+
+    PolicyRuleRoom,
+    PolicyRuleServer,
+    PolicyRuleUser,
+    RoomAvatar(EventChange<OwnedMxcUri>),
+    RoomCanonicalAlias(EventChange<OwnedRoomAliasId>),
+    RoomCreate,
+    RoomEncryption,
+    RoomGuestAccess(EventChange<GuestAccess>),
+    RoomHistoryVisibility(EventChange<HistoryVisibility>),
+    RoomJoinRules(EventChange<JoinRule>),
+    RoomName(EventChange<String>),
+    RoomPinnedEvents,
+    RoomPowerLevels,
+    RoomServerAcl,
+    RoomThirdPartyInvite,
+    RoomTombstone,
+    RoomTopic(EventChange<String>),
+    SpaceChild,
+    SpaceParent,
 }

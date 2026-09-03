@@ -1,5 +1,3 @@
-use std::hash::{DefaultHasher, Hasher};
-
 use crate::{
     common::*,
     components::overlay::{Overlay, OverlayMessage, QUICK_SELECT_INPUT_ID},
@@ -11,7 +9,7 @@ use chat::{
 };
 use iced::{
     keyboard::{Key, Modifiers},
-    widget::{operation::focus, stack, text_input},
+    widget::{operation::focus, stack},
 };
 use lru::LruCache;
 use macros::{iced_cache, nonzero_usize};
@@ -113,12 +111,12 @@ impl Home {
         self.window_title.borrow().clone()
     }
 
-    fn load_room(&mut self, room: Room) -> Option<Task<(OwnedRoomId, TimelineMessage)>> {
+    fn load_room(&mut self, room: Room) -> Task<(OwnedRoomId, TimelineMessage)> {
         let id = room.room_id().to_owned();
         self.active_room_id = Some(id.clone());
 
         if self.chats.promote(&id) {
-            return None;
+            return self.focus_input_task(&id);
         }
 
         let (chat, task) = Chat::new(&self.state, room);
@@ -132,7 +130,17 @@ impl Home {
         };
         self.chats.promote(&id);
 
-        Some(task)
+        Task::batch([task, self.focus_input_task(&id)])
+    }
+
+    fn focus_input_task(&self, id: &OwnedRoomId) -> Task<(OwnedRoomId, TimelineMessage)> {
+        let Some(chat) = self.chats.peek(id) else {
+            return Task::none();
+        };
+
+        let id = id.clone();
+        chat.focus_input()
+            .map(move |_| (id.clone(), TimelineMessage::None))
     }
 
     fn dispatch_to_chat(&mut self, room_id: &OwnedRoomId, msg: ChatMessage) -> HomeAction {
@@ -159,9 +167,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 SidebarAction::None => {}
             },
             HomeMessage::ActiveRoomChanged(Some(room)) => {
-                if let Some(task) = self.load_room(room) {
-                    return HomeAction::LoadTimeline(task);
-                }
+                return HomeAction::LoadTimeline(self.load_room(room));
             }
             HomeMessage::ActiveRoomChanged(None) => {}
             HomeMessage::Chat(msg) => {

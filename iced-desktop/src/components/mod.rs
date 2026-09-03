@@ -1,5 +1,4 @@
 use std::hash::Hash;
-use std::sync::Arc;
 
 use deplace_core::ProfileLike;
 use deplace_core::state::cache::{AvatarCache, MediaState};

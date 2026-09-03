@@ -10,8 +10,10 @@ use super::{TimelineItem, TimelineItemKind};
 
 use matrix_sdk::ruma::events::room::ImageInfo;
 use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
-use matrix_sdk_ui::timeline::TimelineItemKind as UiTimelineItemKind;
 use matrix_sdk_ui::timeline::VirtualTimelineItem;
+use matrix_sdk_ui::timeline::{
+    AnyOtherStateEventContentChange, TimelineItemKind as UiTimelineItemKind,
+};
 use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
 use matrix_sdk_ui::timeline::{TimelineDetails, TimelineItem as UiTimelineItem};
 
@@ -96,13 +98,94 @@ impl TimelineItemKind {
                         error: error.clone(),
                     },
                     TimelineItemContent::MembershipChange(c) => {
-                        system!(SystemMessage::MemberhipChange(c.clone()))
+                        system!(SystemMessage::MemberhipChange(Box::new(c.clone())))
                     }
-                    TimelineItemContent::OtherState(o) => {
-                        system!(SystemMessage::OtherState(o.clone()))
-                    }
+                    TimelineItemContent::OtherState(other) => match other.content() {
+                        AnyOtherStateEventContentChange::PolicyRuleRoom(_) => {
+                            system!(SystemMessage::PolicyRuleRoom)
+                        }
+                        AnyOtherStateEventContentChange::PolicyRuleServer(_) => {
+                            system!(SystemMessage::PolicyRuleServer)
+                        }
+                        AnyOtherStateEventContentChange::PolicyRuleUser(_) => {
+                            system!(SystemMessage::PolicyRuleUser)
+                        }
+                        AnyOtherStateEventContentChange::RoomAvatar(change) => {
+                            let change = get_change!(change, |c| c.url.clone());
+                            system!(SystemMessage::RoomAvatar(change))
+                        }
+                        AnyOtherStateEventContentChange::RoomCanonicalAlias(change) => {
+                            let change = get_change!(change, |c| c.alias.clone());
+                            system!(SystemMessage::RoomCanonicalAlias(change))
+                        }
+                        AnyOtherStateEventContentChange::RoomCreate(_) => {
+                            system!(SystemMessage::RoomCreate)
+                        }
+                        AnyOtherStateEventContentChange::RoomEncryption(_) => {
+                            system!(SystemMessage::RoomEncryption)
+                        }
+                        AnyOtherStateEventContentChange::RoomGuestAccess(change) => {
+                            let change = get_current_and_prev(
+                                change,
+                                |c| Some(c.guest_access.clone()),
+                                |c| c.guest_access.clone(),
+                            );
+                            system!(SystemMessage::RoomGuestAccess(change))
+                        }
+                        AnyOtherStateEventContentChange::RoomHistoryVisibility(change) => {
+                            let change =
+                                get_change!(change, |c| Some(c.history_visibility.clone()));
+                            system!(SystemMessage::RoomHistoryVisibility(change))
+                        }
+                        AnyOtherStateEventContentChange::RoomJoinRules(change) => {
+                            let change = get_change!(change, |c| Some(c.join_rule.clone()));
+                            system!(SystemMessage::RoomJoinRules(change))
+                        }
+                        AnyOtherStateEventContentChange::RoomName(change) => {
+                            let change = get_current_and_prev(
+                                change,
+                                |c| Some(c.name.clone()),
+                                |c| c.name.clone(),
+                            );
+                            system!(SystemMessage::RoomName(change))
+                        }
+                        AnyOtherStateEventContentChange::RoomPinnedEvents(_) => {
+                            system!(SystemMessage::RoomPinnedEvents)
+                        }
+                        AnyOtherStateEventContentChange::RoomPowerLevels(_) => {
+                            system!(SystemMessage::RoomPowerLevels)
+                        }
+                        AnyOtherStateEventContentChange::RoomServerAcl(_) => {
+                            system!(SystemMessage::RoomServerAcl)
+                        }
+                        AnyOtherStateEventContentChange::RoomThirdPartyInvite(_) => {
+                            system!(SystemMessage::RoomThirdPartyInvite)
+                        }
+                        AnyOtherStateEventContentChange::RoomTombstone(_) => {
+                            system!(SystemMessage::RoomTombstone)
+                        }
+                        AnyOtherStateEventContentChange::RoomTopic(change) => {
+                            let change = get_current_and_prev(
+                                change,
+                                |c| Some(c.topic.clone()),
+                                |c| c.topic.clone(),
+                            );
+                            system!(SystemMessage::RoomTopic(change))
+                        }
+                        AnyOtherStateEventContentChange::SpaceChild(_) => {
+                            system!(SystemMessage::SpaceChild)
+                        }
+                        AnyOtherStateEventContentChange::SpaceParent(_) => {
+                            system!(SystemMessage::SpaceParent)
+                        }
+                        other => {
+                            system!(SystemMessage::Custom {
+                                event_type: other.event_type().to_string()
+                            })
+                        }
+                    },
                     TimelineItemContent::ProfileChange(p) => {
-                        system!(SystemMessage::ProfileChange(p.clone()))
+                        system!(SystemMessage::ProfileChange(Box::new(p.clone())))
                     }
                     TimelineItemContent::RtcNotification {
                         call_intent,
@@ -174,12 +257,9 @@ impl From<&MsgLikeKind> for MessageContent {
                     blur_preview: image.info.as_ref().and_then(|info| {
                         info.thumbhash
                             .as_ref()
-                            .map(|t| thumbhash_to_image(t))
+                            .map(thumbhash_to_image)
                             .unwrap_or_else(|| {
-                                info.blurhash
-                                    .as_ref()
-                                    .map(|b| blurhash_to_image(b))
-                                    .flatten()
+                                info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
                             })
                     }),
 
@@ -211,12 +291,9 @@ impl From<&MsgLikeKind> for MessageContent {
                     blur_preview: video.info.as_ref().and_then(|info| {
                         info.thumbhash
                             .as_ref()
-                            .map(|t| thumbhash_to_image(t))
+                            .map(thumbhash_to_image)
                             .unwrap_or_else(|| {
-                                info.blurhash
-                                    .as_ref()
-                                    .map(|b| blurhash_to_image(b))
-                                    .flatten()
+                                info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
                             })
                     }),
 

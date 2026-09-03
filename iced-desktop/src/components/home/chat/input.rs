@@ -1,5 +1,8 @@
 use deplace_core::{helpers::RoomPlaceholderExt, matrix_api::messages::RoomSendingExt};
-use iced::{Length, widget::text_editor};
+use iced::{
+    Length,
+    widget::{Id, operation, text_editor},
+};
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
 
@@ -29,6 +32,8 @@ pub struct ChatInput {
 
     placeholder: String,
 
+    id: Id,
+
     /// The `[crate::components::IcedWidget]` crate requires 'static lifetimes for caching, but `text_editor` requires a reference to the content since it stores the data internally.
     content: *mut text_editor::Content,
     #[hash]
@@ -43,6 +48,7 @@ impl ChatInput {
 
             placeholder: format!("Message {}", room.get_input_placeholder()),
 
+            id: Id::unique(),
             content: Box::leak(Box::new(text_editor::Content::new())),
             replying_to: None,
         }
@@ -59,6 +65,10 @@ impl ChatInput {
 
     pub fn get_raw_content_pointer(&self) -> *mut text_editor::Content {
         self.content
+    }
+
+    pub fn focus(&self) -> Task<()> {
+        operation::focus(self.id.clone())
     }
 }
 
@@ -133,6 +143,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
 
         w::stack![
             w::text_editor(self.content())
+                .id(self.id.clone())
                 .placeholder(self.placeholder.clone())
                 .padding(
                     Padding::new(structure.small_gap * 2.0)

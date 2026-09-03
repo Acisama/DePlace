@@ -82,6 +82,7 @@ fn main() -> iced::Result {
     )
     .title(Root::title)
     .subscription(Root::subscription)
-    .default_font(iced::Font::MONOSPACE)
+    // Use monospace in specific things, not everywhere
+    // .default_font(iced::Font::MONOSPACE)
     .run()
 }

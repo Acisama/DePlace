@@ -93,6 +93,7 @@ impl DisplayString for MemberProfileChange {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum EventChange<T> {
     Unset(T),
     Set(T),
@@ -101,6 +102,14 @@ pub enum EventChange<T> {
 }
 
 impl<T> EventChange<T> {
+    /// The value the property was set to, if it currently has one.
+    pub fn current(&self) -> Option<&T> {
+        match self {
+            EventChange::Set(v) | EventChange::Changed { new: v, .. } => Some(v),
+            EventChange::Unset(_) | EventChange::Something => None,
+        }
+    }
+
     pub fn display_string_with_render_fn<C: Display>(
         &self,
         render_fn: impl Fn(&T) -> C,

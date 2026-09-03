@@ -115,6 +115,10 @@ impl Chat {
     pub fn get_input_pointer(&self) -> *mut text_editor::Content {
         self.input.get_raw_content_pointer()
     }
+
+    pub fn focus_input(&self) -> Task<()> {
+        self.input.focus()
+    }
 }
 
 impl IcedWidget<ChatMessage, ChatAction> for Chat {
