@@ -14,6 +14,7 @@ impl MessageEvent {
         structure: Structure,
         avatar_cache: &AvatarCache,
         thumbnail_cache: &ThumbnailCache,
+        is_hovered: bool,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let col_width = structure.chat_col_width();
         let pre_col_width = structure.small_gap * 1.5;
@@ -21,8 +22,13 @@ impl MessageEvent {
 
         let show_header = true;
 
-        let (text_content, other_content) =
-            render_message_kind(&self.content, theme, structure, thumbnail_cache);
+        let (text_content, other_content) = render_message_kind(
+            &self.content,
+            theme,
+            structure,
+            thumbnail_cache,
+            self.media_hovered,
+        );
 
         let mut column = w::Column::new();
 
@@ -57,30 +63,33 @@ impl MessageEvent {
             (None, None)
         };
 
-        w::button(w::row![
-            w::row![
-                Space::new().width(pre_col_width),
-                icon.unwrap_or(Space::new().into())
-            ]
-            .width(col_width),
-            w::column![name.unwrap_or(Space::new().into()), column]
-        ])
-        .padding(padding::vertical(structure.small_gap))
-        .style(move |_, status| ButtonStyle {
-            background: None,
-            border: Border {
-                color: if status.active() {
-                    theme.border
-                } else {
-                    Color::TRANSPARENT
+        w::mouse_area(
+            w::container(w::row![
+                w::row![
+                    Space::new().width(pre_col_width),
+                    icon.unwrap_or(Space::new().into())
+                ]
+                .width(col_width),
+                w::column![name.unwrap_or(Space::new().into()), column]
+            ])
+            .padding(padding::vertical(structure.small_gap))
+            .style(move |_| ContainerStyle {
+                background: None,
+                border: Border {
+                    color: if is_hovered {
+                        theme.border
+                    } else {
+                        Color::TRANSPARENT
+                    },
+                    width: structure.border_thickness,
+                    radius: structure.semi_border_radius().into(),
                 },
-                width: structure.border_thickness,
-                radius: structure.semi_border_radius().into(),
-            },
-            ..Default::default()
-        })
-        .width(Fill)
-        .on_press(TimelineItemMessage::None)
+                ..Default::default()
+            })
+            .width(Fill),
+        )
+        .on_enter(TimelineItemMessage::MessageEnter)
+        .on_exit(TimelineItemMessage::MessageExit)
         .into()
     }
 }
@@ -90,6 +99,7 @@ fn render_message_kind(
     theme: Theme,
     structure: Structure,
     thumbnail_cache: &ThumbnailCache,
+    media_hovered: bool,
 ) -> (
     Option<Element<'static, TimelineItemMessage>>,
     Option<Element<'static, TimelineItemMessage>>,
@@ -150,9 +160,10 @@ fn render_message_kind(
             let label = format!(
                 "{filename}{}",
                 info.as_ref()
-                    .and_then(|i| i
-                        .size
-                        .map(|s| format_bytes(s, deplace_core::settings::DataSizeUnit::Bytes)))
+                    .and_then(|i| i.size.map(|s| format!(
+                        " ({})",
+                        format_bytes(s, deplace_core::settings::DataSizeUnit::Bytes)
+                    )))
                     .unwrap_or_default()
             );
 
@@ -232,6 +243,29 @@ fn render_message_kind(
                 _ => stack,
             };
 
+            if media_hovered {
+                stack = stack.push(
+                    w::container(
+                        w::container(w::text(label).size(text_size).color(theme.text.normal))
+                            .style(move |_| ContainerStyle {
+                                background: Some(theme.solid_bg.into()),
+                                border: Border {
+                                    color: theme.border,
+                                    width: structure.border_thickness,
+                                    radius: ((structure.smaller_border_radius
+                                        + structure.inner_border_radius)
+                                        / 2.0)
+                                        .into(),
+                                },
+                                ..Default::default()
+                            })
+                            .padding(structure.small_gap / 2.0),
+                    )
+                    .padding(structure.small_gap / 2.0)
+                    .align_bottom(height),
+                )
+            }
+
             let media = w::mouse_area(w::container(stack).width(width).height(height).style(
                 move |_| ContainerStyle {
                     border: Border {
@@ -261,7 +295,13 @@ fn render_message_kind(
                 caption
                     .as_ref()
                     .map(|c| render_normal_text(c.clone()).into()),
-                Some(media),
+                Some(
+                    w::mouse_area(media)
+                        .on_enter(TimelineItemMessage::MediaMouseEnter)
+                        .on_exit(TimelineItemMessage::MediaMouseLeave)
+                        .interaction(Interaction::Pointer)
+                        .into(),
+                ),
             )
         }
         MessageContent::LiveLocation => {

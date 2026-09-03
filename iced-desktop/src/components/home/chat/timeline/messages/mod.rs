@@ -6,8 +6,8 @@ use matrix_sdk::{
     media::UniqueKey,
     ruma::events::{
         room::{
-            ImageInfo, MediaSource,
-            message::{FileInfo, FormattedBody, UrlPreview, VideoInfo},
+            MediaSource,
+            message::{FileInfo, FormattedBody, UrlPreview},
         },
         rtc::notification::CallIntent,
     },
@@ -30,6 +30,8 @@ pub enum TimelineItemMessage {
         width: u64,
         height: u64,
     },
+    MessageEnter,
+    MessageExit,
     MediaMouseEnter,
     MediaMouseLeave,
     None,
@@ -49,6 +51,7 @@ pub enum TimelineItemAction {
         height: u64,
     },
     None,
+    Update,
 }
 
 #[iced_cache(Debug, Clone)]
@@ -57,6 +60,9 @@ pub struct TimelineItem {
     pub id: String,
     #[hash]
     kind: TimelineItemKind,
+
+    #[hash]
+    is_hovered: bool,
 
     avatar_cache: AvatarCache,
     thumbnail_cache: ThumbnailCache,
@@ -67,7 +73,7 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
         match message {
             TimelineItemMessage::NeedsAvatar(uri) => {
                 self.retain_avatar_hashes_no_task(uri.clone());
-                return TimelineItemAction::NeedsAvatar(uri);
+                TimelineItemAction::NeedsAvatar(uri)
             }
             TimelineItemMessage::NeedsThumbnail {
                 source,
@@ -75,26 +81,34 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 height,
             } => {
                 self.retain_thumbnail_hashes_no_task((source.unique_key(), width, height).clone());
-                return TimelineItemAction::NeedsThumbnail {
+                TimelineItemAction::NeedsThumbnail {
                     source,
                     width,
                     height,
-                };
+                }
             }
             TimelineItemMessage::MediaMouseEnter
                 if let TimelineItemKind::Message(msg) = &mut self.kind =>
             {
                 msg.media_hovered = true;
+                TimelineItemAction::Update
             }
             TimelineItemMessage::MediaMouseLeave
                 if let TimelineItemKind::Message(msg) = &mut self.kind =>
             {
                 msg.media_hovered = false;
+                TimelineItemAction::Update
             }
-            _ => {}
-        };
-
-        TimelineItemAction::None
+            TimelineItemMessage::MessageEnter => {
+                self.is_hovered = true;
+                TimelineItemAction::Update
+            }
+            TimelineItemMessage::MessageExit => {
+                self.is_hovered = false;
+                TimelineItemAction::Update
+            }
+            _ => TimelineItemAction::None,
+        }
     }
 
     fn view(
@@ -111,9 +125,13 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
             TimelineItemKind::ReadMarker => fallback,
             TimelineItemKind::TimelineStart => fallback,
             TimelineItemKind::System(_) => fallback,
-            TimelineItemKind::Message(msg) => {
-                msg.view(theme, structure, &self.avatar_cache, &self.thumbnail_cache)
-            }
+            TimelineItemKind::Message(msg) => msg.view(
+                theme,
+                structure,
+                &self.avatar_cache,
+                &self.thumbnail_cache,
+                self.is_hovered,
+            ),
         }
     }
 }

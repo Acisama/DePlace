@@ -25,6 +25,8 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
             id: self.unique_id().0.clone(),
             kind: TimelineItemKind::from_ui(self.kind()),
 
+            is_hovered: false,
+
             avatar_cache: avatar_cache.clone(),
             avatar_states_for_hash: BTreeSet::new(),
             thumbnail_cache: thumbnail_cache.clone(),

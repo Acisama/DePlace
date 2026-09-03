@@ -86,6 +86,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 };
 
                 return match item.update(message) {
+                    TimelineItemAction::Update => {
+                        self.messages_version += 1;
+                        TimelineAction::None
+                    }
                     TimelineItemAction::None => TimelineAction::None,
                     TimelineItemAction::NeedsAvatar(uri) => {
                         TimelineAction::Run(self.retain_avatar_hashes(uri))
