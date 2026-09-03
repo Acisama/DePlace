@@ -1,3 +1,8 @@
+use std::time::SystemTime;
+
+use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
+
 use crate::settings::DataSizeUnit;
 
 pub fn format_bytes(bytes: u64, unit: DataSizeUnit) -> String {
@@ -20,6 +25,48 @@ pub fn format_bytes(bytes: u64, unit: DataSizeUnit) -> String {
     } else {
         format!("{:.2} {}", size, units[unit_index])
     }
+}
+
+pub fn format_message_long_date(date: SystemTime, timezone: Tz) -> String {
+    let hour_str = "%H:%M";
+    let date_str = "%d/%m/%Y";
+
+    let date = DateTime::<Utc>::from(date).with_timezone(&timezone);
+    let now = DateTime::<Utc>::from(SystemTime::now()).with_timezone(&timezone);
+
+    match (date.date_naive() - now.date_naive()).num_days() {
+        0 => date.format(&format!("Today, {}", hour_str)).to_string(),
+        -1 => date.format(&format!("Yesterday, {}", hour_str)).to_string(),
+        -6..-1 => date
+            .format(&format!("%a {}, {}", date_str, hour_str))
+            .to_string(),
+        _ => date
+            .format(&format!("{}, {}", date_str, hour_str))
+            .to_string(),
+    }
+}
+
+pub fn format_date_divider(date: SystemTime, timezone: Tz) -> String {
+    let now = DateTime::<Utc>::from(SystemTime::now()).with_timezone(&timezone);
+    let date = DateTime::<Utc>::from(date).with_timezone(&timezone);
+
+    let is_today = date.date_naive() == now.date_naive();
+    let is_yesterday = date.date_naive() == (now - chrono::Duration::days(1)).date_naive();
+    let is_week_ago = date > now - chrono::Duration::days(7);
+
+    if is_today {
+        "Today".to_string()
+    } else if is_yesterday {
+        "Yesterday".to_string()
+    } else {
+        date.format(&format!("{}%d %B %Y", if is_week_ago { "%a " } else { "" }))
+            .to_string()
+    }
+}
+
+pub fn format_message_short_date(date: SystemTime, timezone: Tz) -> String {
+    let date = DateTime::<Utc>::from(date).with_timezone(&timezone);
+    date.format("%H:%M").to_string()
 }
 
 /// Fits `(w, h)` into `(max_w, max_h)` preserving aspect ratio, then grows the result back up

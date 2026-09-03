@@ -8,6 +8,7 @@ anyhow.workspace = true
 blurhash.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 chrono.workspace = true
+chrono-tz.workspace = true
 const_format.workspace = true
 deplace_core = { workspace = true, features = ["iced_desktop"] }
 dirs.workspace = true

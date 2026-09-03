@@ -1,6 +1,9 @@
 use crate::common::*;
 use std::time::SystemTime;
 
+use deplace_core::formatting::format_date_divider;
+use iced::Alignment;
+use iced::Length::Shrink;
 use macros::iced_cache;
 use matrix_sdk::{
     media::UniqueKey,
@@ -119,7 +122,26 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
         let fallback = w::text(format!("{:?}", self)).into();
 
         match &self.kind {
-            TimelineItemKind::DateDivider(_) => fallback,
+            TimelineItemKind::DateDivider(date) => w::row![
+                w::container("")
+                    .width(Fill)
+                    .height(structure.divider_width)
+                    .style(move |_| ContainerStyle {
+                        background: Some(theme.border.into()),
+                        ..Default::default()
+                    }),
+                w::text(format_date_divider(date.clone(), chrono_tz::Tz::UTC)).color(theme.border),
+                w::container("")
+                    .width(Fill)
+                    .height(structure.divider_width)
+                    .style(move |_| ContainerStyle {
+                        background: Some(theme.border.into()),
+                        ..Default::default()
+                    }),
+            ]
+            .align_y(Alignment::Center)
+            .spacing(structure.small_gap)
+            .into(),
             TimelineItemKind::FailedToParseMessageLike { .. } => fallback,
             TimelineItemKind::FailedToParseState { .. } => fallback,
             TimelineItemKind::ReadMarker => fallback,
