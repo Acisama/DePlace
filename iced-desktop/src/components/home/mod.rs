@@ -1,7 +1,16 @@
-use crate::common::*;
+use std::hash::{DefaultHasher, Hasher};
+
+use crate::{
+    common::*,
+    components::overlay::{Overlay, OverlayMessage, QUICK_SELECT_INPUT_ID},
+};
 use chat::{
     Chat, ChatAction, ChatMessage, TimelineMessage,
     empty::{EmptyChat, EmptyChatMessage},
+};
+use iced::{
+    keyboard::{Key, Modifiers},
+    widget::{operation::focus, stack, text_input},
 };
 use lru::LruCache;
 use macros::{iced_cache, nonzero_usize};
@@ -20,6 +29,8 @@ pub enum HomeMessage {
     EmptyChat(EmptyChatMessage),
     Sidebar(SidebarMessage),
     ActiveRoomChanged(Option<Room>),
+    KeyboardEvent(iced::keyboard::Event),
+    Overlay(OverlayMessage),
 }
 
 pub enum HomeAction {
@@ -43,6 +54,9 @@ pub struct Home {
     empty_chat: EmptyChat,
 
     window_title: Receiver<String>,
+
+    #[hash]
+    overlay: Overlay,
 }
 
 impl ExtraHash for Home {
@@ -66,6 +80,8 @@ impl Home {
 
         let home = Self {
             sidebar: Sidebar::new(&state),
+            overlay: Overlay::None,
+
             window_title: state.window_title(),
 
             active_room_id: initial_room.as_ref().map(|r| r.room_id().to_owned()),
@@ -155,6 +171,32 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             }
             // TODO: Implement empty chat
             HomeMessage::EmptyChat(_) => tracing::warn!("Empty chat not yet implemented"),
+            HomeMessage::KeyboardEvent(event) => {
+                if !matches!(self.overlay, Overlay::None) {
+                    self.overlay.update(OverlayMessage::KeyboardEvent(event));
+                    return HomeAction::None;
+                }
+                let iced::keyboard::Event::KeyPressed {
+                    key,
+                    modifiers,
+                    repeat,
+                    ..
+                } = event
+                else {
+                    return HomeAction::None;
+                };
+                if !repeat
+                    && modifiers == Modifiers::CTRL
+                    && Key::Character("k".into()) == key
+                    && !matches!(self.overlay, Overlay::QuickSelect(_))
+                {
+                    self.overlay.open_quick_select(&self.state);
+                    return HomeAction::Run(focus(QUICK_SELECT_INPUT_ID));
+                }
+            }
+            HomeMessage::Overlay(msg) => {
+                self.overlay.update(msg);
+            }
         }
 
         HomeAction::None
@@ -181,10 +223,19 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
         .width(Fill)
         .height(Fill);
 
-        w::container(w::row![sidebar, chat].height(Fill).spacing(structure.gap))
+        let main_content = w::container(w::row![sidebar, chat].height(Fill).spacing(structure.gap))
             .padding(structure.gap)
             .width(Fill)
-            .height(Fill)
-            .into()
+            .height(Fill);
+
+        let mut stack = stack![main_content];
+
+        if !matches!(self.overlay, Overlay::None) {
+            let overlay = w::lazy(self.overlay.clone(), move |overlay| {
+                overlay.view(theme, structure).map(HomeMessage::Overlay)
+            });
+            stack = stack.push(overlay);
+        }
+        stack.into()
     }
 }

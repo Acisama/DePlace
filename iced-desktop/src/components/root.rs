@@ -107,6 +107,21 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
                     return task.map(AppMessage::Home);
                 }
             },
+            AppMessage::KeyboardEvent(event) => {
+                if let Screen::Home(home) = self {
+                    match home.update(HomeMessage::KeyboardEvent(event)) {
+                        HomeAction::None => {}
+                        HomeAction::Run(task) => {
+                            return task.map(|_| AppMessage::None);
+                        }
+                        HomeAction::LoadTimeline(task) => {
+                            return task.map(|(room_id, message)| {
+                                AppMessage::Home(HomeMessage::Timeline { room_id, message })
+                            });
+                        }
+                    };
+                }
+            }
             _ => {}
         };
 
@@ -183,7 +198,13 @@ impl Root {
 
     pub fn subscription(&self) -> Subscription<AppMessage> {
         Subscription::batch([
-            iced::keyboard::listen().map(AppMessage::KeyboardEvent),
+            iced::keyboard::listen().filter_map(|event| {
+                if matches!(event, iced::keyboard::Event::KeyPressed { .. }) {
+                    Some(AppMessage::KeyboardEvent(event))
+                } else {
+                    None
+                }
+            }),
             iced::keyboard::listen().filter_map(|event| match event {
                 iced::keyboard::Event::KeyPressed {
                     key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Tab),

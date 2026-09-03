@@ -22,6 +22,7 @@ use crate::things::{Colors, Theme};
 pub(crate) mod authentification;
 pub(crate) mod home;
 mod on_appear;
+pub(crate) mod overlay;
 pub(crate) mod root;
 pub(crate) mod shader;
 
