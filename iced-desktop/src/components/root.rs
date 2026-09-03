@@ -183,7 +183,6 @@ impl Root {
 
     pub fn subscription(&self) -> Subscription<AppMessage> {
         Subscription::batch([
-            window::frames().map(|_| AppMessage::Tick),
             iced::keyboard::listen().map(AppMessage::KeyboardEvent),
             iced::keyboard::listen().filter_map(|event| match event {
                 iced::keyboard::Event::KeyPressed {

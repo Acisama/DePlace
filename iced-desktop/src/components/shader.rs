@@ -1,5 +1,7 @@
+use iced::Event;
 use iced::Rectangle;
 use iced::wgpu;
+use iced::widget::Action;
 use iced::widget::shader::{self, Pipeline, Primitive, Viewport};
 
 #[repr(C)]
@@ -173,6 +175,16 @@ impl LoadingIndicator {
 impl<Message> shader::Program<Message> for LoadingIndicator {
     type State = ();
     type Primitive = LoadingPrimitive;
+
+    fn update(
+        &self,
+        _state: &mut Self::State,
+        _event: &Event,
+        _bounds: Rectangle,
+        _cursor: iced::advanced::mouse::Cursor,
+    ) -> Option<shader::Action<Message>> {
+        Some(Action::<Message>::request_redraw())
+    }
 
     fn draw(
         &self,

@@ -25,7 +25,6 @@ pub enum AppMessage {
     Verification(VerificationMessage),
     Home(HomeMessage),
     Restored(RestoreResult),
-    Tick,
     TabPressed { shift: bool },
     GoToLoading,
     GoToLogin(Client),
@@ -83,5 +82,6 @@ fn main() -> iced::Result {
     )
     .title(Root::title)
     .subscription(Root::subscription)
+    .default_font(iced::Font::MONOSPACE)
     .run()
 }
