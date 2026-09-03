@@ -18,7 +18,7 @@ pub use deplace_core::{
     },
 };
 pub use iced::{
-    Border, Color, Element,
+    Border, Color, Element, Font,
     Length::Fill,
     Padding, Point, Rectangle, Renderer, Shadow, Size, Subscription, Task, Theme as IcedTheme,
     border,
@@ -26,7 +26,7 @@ pub use iced::{
     mouse::{self, Interaction},
     padding,
     widget::{
-        self as w, Canvas, Column, MouseArea, Row, Space, Stack,
+        self as w, Canvas, Column, MouseArea, Row, Space, Stack, Text,
         button::{self, Style as ButtonStyle},
         canvas,
         container::{self, Container, Style as ContainerStyle},

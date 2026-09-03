@@ -4,10 +4,16 @@ use std::time::SystemTime;
 use macros::iced_cache;
 use matrix_sdk::{
     media::UniqueKey,
-    ruma::events::{room::MediaSource, rtc::notification::CallIntent},
+    ruma::events::{
+        room::{
+            ImageInfo, MediaSource,
+            message::{FileInfo, FormattedBody, UrlPreview, VideoInfo},
+        },
+        rtc::notification::CallIntent,
+    },
 };
 use matrix_sdk_ui::timeline::{
-    EventSendState, MemberProfileChange, MsgLikeKind, OtherState, Profile, ReactionsByKeyBySender,
+    EventSendState, MemberProfileChange, OtherState, Profile, ReactionsByKeyBySender,
     RoomMembershipChange, TimelineDetails, TimelineEventShieldState,
 };
 
@@ -24,6 +30,8 @@ pub enum TimelineItemMessage {
         width: u64,
         height: u64,
     },
+    MediaMouseEnter,
+    MediaMouseLeave,
     None,
 }
 
@@ -59,7 +67,7 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
         match message {
             TimelineItemMessage::NeedsAvatar(uri) => {
                 self.retain_avatar_hashes_no_task(uri.clone());
-                TimelineItemAction::NeedsAvatar(uri)
+                return TimelineItemAction::NeedsAvatar(uri);
             }
             TimelineItemMessage::NeedsThumbnail {
                 source,
@@ -67,14 +75,26 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 height,
             } => {
                 self.retain_thumbnail_hashes_no_task((source.unique_key(), width, height).clone());
-                TimelineItemAction::NeedsThumbnail {
+                return TimelineItemAction::NeedsThumbnail {
                     source,
                     width,
                     height,
-                }
+                };
             }
-            TimelineItemMessage::None => TimelineItemAction::None,
-        }
+            TimelineItemMessage::MediaMouseEnter
+                if let TimelineItemKind::Message(msg) = &mut self.kind =>
+            {
+                msg.media_hovered = true;
+            }
+            TimelineItemMessage::MediaMouseLeave
+                if let TimelineItemKind::Message(msg) = &mut self.kind =>
+            {
+                msg.media_hovered = false;
+            }
+            _ => {}
+        };
+
+        TimelineItemAction::None
     }
 
     fn view(
@@ -106,12 +126,12 @@ enum TimelineItemKind {
     Message(Box<MessageEvent>),
     System(Arc<SystemEvent>),
     FailedToParseMessageLike {
-        event_type: String,
+        event_type: Arc<String>,
         error: Arc<serde_json::Error>,
     },
     FailedToParseState {
-        event_type: String,
-        state_key: String,
+        event_type: Arc<String>,
+        state_key: Arc<String>,
         error: Arc<serde_json::Error>,
     },
 }
@@ -165,6 +185,9 @@ struct MessageEvent {
 
     reactions: ReactionsByKeyBySender,
 
+    #[hash]
+    media_hovered: bool,
+
     is_own: bool,
     is_editable: bool,
     is_highlighted: bool,
@@ -173,7 +196,8 @@ struct MessageEvent {
 
     shield: TimelineEventShieldState,
 
-    content: MsgLikeKind,
+    #[hash]
+    content: Arc<MessageContent>,
 
     send_state: Option<EventSendState>,
 }
@@ -181,6 +205,159 @@ struct MessageEvent {
 impl MessageEvent {
     fn is_local_echo(&self) -> bool {
         !matches!(self.send_state, Some(EventSendState::Sent { .. }))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum MessageContent {
+    Audio,
+    Emote {
+        body: Option<String>,
+        formatted_body: Option<FormattedBody>,
+    },
+    Empty,
+    File {
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+        filename: String,
+        source: MediaSource,
+        info: Option<Box<FileInfo>>,
+    },
+    Image {
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+        filename: String,
+        source: MediaSource,
+        info: Option<Box<ImageInfo>>,
+    },
+    Location,
+    Notice {
+        body: Option<String>,
+        formatted_body: Option<FormattedBody>,
+    },
+    ServerNotice {
+        body: Option<String>,
+    },
+    Text {
+        body: Option<String>,
+        formatted_body: Option<FormattedBody>,
+        _url_previews: Option<Vec<UrlPreview>>,
+    },
+    Video {
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+        filename: String,
+        source: MediaSource,
+        info: Option<Box<VideoInfo>>,
+    },
+    /// Body is only present if the client doesn't support the key verification framework, this client doesn't support it
+    VerificationRequest {
+        body: Option<String>,
+        formatted_body: Option<FormattedBody>,
+    },
+    Sticker,
+    Poll,
+    Redacted,
+    UnableToDecrypt,
+    Other {
+        event_type: Arc<String>,
+    },
+    LiveLocation,
+}
+
+impl std::hash::Hash for MessageContent {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            MessageContent::Emote {
+                body,
+                formatted_body,
+            } => {
+                body.hash(state);
+                formatted_body.as_ref().map(|c| &c.body).hash(state);
+            }
+            MessageContent::File {
+                caption,
+                formatted_caption,
+                filename,
+                source,
+                info,
+            } => {
+                caption.hash(state);
+                formatted_caption.as_ref().map(|c| &c.body).hash(state);
+                filename.hash(state);
+                source.unique_key().hash(state);
+                if let Some(info) = info {
+                    info.mimetype.hash(state);
+                    info.size.hash(state);
+                    info.thumbnail_source
+                        .as_ref()
+                        .map(UniqueKey::unique_key)
+                        .hash(state);
+                }
+            }
+            MessageContent::Image {
+                caption,
+                formatted_caption,
+                filename,
+                source,
+                info,
+            } => {
+                caption.hash(state);
+                formatted_caption.as_ref().map(|c| &c.body).hash(state);
+                filename.hash(state);
+                source.unique_key().hash(state);
+                if let Some(info) = info {
+                    info.width.hash(state);
+                    info.height.hash(state);
+                    info.thumbnail_source
+                        .as_ref()
+                        .map(UniqueKey::unique_key)
+                        .hash(state);
+                }
+            }
+            MessageContent::Notice {
+                body,
+                formatted_body,
+            } => {
+                body.hash(state);
+                formatted_body.as_ref().map(|c| &c.body).hash(state);
+            }
+            MessageContent::ServerNotice { body } => {
+                body.hash(state);
+            }
+            MessageContent::Text {
+                body,
+                formatted_body,
+                ..
+            } => {
+                body.hash(state);
+                formatted_body.as_ref().map(|c| &c.body).hash(state);
+            }
+            MessageContent::Video {
+                caption,
+                formatted_caption,
+                filename,
+                source,
+                info,
+            } => {
+                caption.hash(state);
+                formatted_caption.as_ref().map(|c| &c.body).hash(state);
+                filename.hash(state);
+                source.unique_key().hash(state);
+                if let Some(info) = info {
+                    info.width.hash(state);
+                    info.height.hash(state);
+                    info.thumbnail_source
+                        .as_ref()
+                        .map(UniqueKey::unique_key)
+                        .hash(state);
+                }
+            }
+            MessageContent::Other { event_type } => event_type.hash(state),
+            _ => {}
+        }
     }
 }
 

@@ -4,12 +4,13 @@ use std::time::SystemTime;
 use crate::common::*;
 use crate::components::home::chat::timeline::messages::TimelineProfile;
 
-use super::{MessageEvent, SystemEvent, SystemMessage};
+use super::{MessageContent, MessageEvent, SystemEvent, SystemMessage};
 use super::{TimelineItem, TimelineItemKind};
 
-use matrix_sdk_ui::timeline::TimelineItemContent;
+use matrix_sdk::ruma::events::room::message::MessageType;
 use matrix_sdk_ui::timeline::TimelineItemKind as UiTimelineItemKind;
 use matrix_sdk_ui::timeline::VirtualTimelineItem;
+use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
 use matrix_sdk_ui::timeline::{TimelineDetails, TimelineItem as UiTimelineItem};
 
 pub trait ToTimelineItem {
@@ -77,7 +78,7 @@ impl TimelineItemKind {
                     TimelineItemContent::CallInvite => system!(SystemMessage::CallInvite),
                     TimelineItemContent::FailedToParseMessageLike { event_type, error } => {
                         TimelineItemKind::FailedToParseMessageLike {
-                            event_type: event_type.to_string(),
+                            event_type: Arc::new(event_type.to_string()),
                             error: error.clone(),
                         }
                     }
@@ -86,8 +87,8 @@ impl TimelineItemKind {
                         state_key,
                         error,
                     } => TimelineItemKind::FailedToParseState {
-                        event_type: event_type.to_string(),
-                        state_key: state_key.to_string(),
+                        event_type: Arc::new(event_type.to_string()),
+                        state_key: Arc::new(state_key.to_string()),
                         error: error.clone(),
                     },
                     TimelineItemContent::MembershipChange(c) => {
@@ -114,6 +115,8 @@ impl TimelineItemKind {
                             sender,
                             sender_profile,
 
+                            media_hovered: false,
+
                             in_reply_to: Arc::new(Vec::new()),
 
                             reactions: m.reactions.clone(),
@@ -127,11 +130,82 @@ impl TimelineItemKind {
                             shield: event.get_shield(false),
                             send_state: event.send_state().cloned(),
 
-                            content: m.kind.clone(),
+                            content: Arc::new(MessageContent::from(&m.kind)),
                         }))
                     }
                 }
             }
+        }
+    }
+}
+
+fn string_to_option(s: &str) -> Option<String> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
+impl From<&MsgLikeKind> for MessageContent {
+    fn from(value: &MsgLikeKind) -> Self {
+        match value {
+            MsgLikeKind::Message(msg) => match msg.msgtype() {
+                MessageType::Audio(_) => MessageContent::Audio,
+                MessageType::Emote(emote) => MessageContent::Emote {
+                    body: string_to_option(&emote.body),
+                    formatted_body: emote.formatted.clone(),
+                },
+                MessageType::File(file) => MessageContent::File {
+                    caption: file.caption().map(|s| s.to_string()),
+                    formatted_caption: file.formatted_caption().cloned(),
+                    filename: file.filename().to_string(),
+                    source: file.source.clone(),
+                    info: file.info.clone(),
+                },
+                MessageType::Image(image) => MessageContent::Image {
+                    caption: image.caption().map(|s| s.to_string()),
+                    formatted_caption: image.formatted_caption().cloned(),
+                    filename: image.filename().to_string(),
+                    source: image.source.clone(),
+                    info: image.info.clone(),
+                },
+                MessageType::Location(_) => MessageContent::Location,
+                MessageType::Notice(notice) => MessageContent::Notice {
+                    body: string_to_option(&notice.body),
+                    formatted_body: notice.formatted.clone(),
+                },
+                MessageType::ServerNotice(server_notice) => MessageContent::ServerNotice {
+                    body: string_to_option(&server_notice.body),
+                },
+                MessageType::Text(text) => MessageContent::Text {
+                    body: string_to_option(&text.body),
+                    formatted_body: text.formatted.clone(),
+                    _url_previews: text.url_previews.clone(),
+                },
+                MessageType::VerificationRequest(request) => MessageContent::VerificationRequest {
+                    body: string_to_option(&request.body),
+                    formatted_body: request.formatted.clone(),
+                },
+                MessageType::Video(video) => MessageContent::Video {
+                    caption: video.caption().map(|s| s.to_string()),
+                    formatted_caption: video.formatted_caption().cloned(),
+                    filename: video.filename().to_string(),
+                    source: video.source.clone(),
+                    info: video.info.clone(),
+                },
+                other => MessageContent::Other {
+                    event_type: Arc::new(other.msgtype().to_string()),
+                },
+            },
+            MsgLikeKind::LiveLocation(_) => MessageContent::LiveLocation,
+            MsgLikeKind::Other(other) => MessageContent::Other {
+                event_type: Arc::new(other.event_type().to_string()),
+            },
+            MsgLikeKind::Poll(_) => MessageContent::Poll,
+            MsgLikeKind::Sticker(_) => MessageContent::Sticker,
+            MsgLikeKind::UnableToDecrypt(_) => MessageContent::UnableToDecrypt,
+            MsgLikeKind::Redacted => MessageContent::Redacted,
         }
     }
 }

@@ -402,7 +402,7 @@ pub trait IcedWidget<T, V> {
 }
 
 pub fn render_name<'a, T: Clone + 'a>(name: String, size: f32, color: Color) -> Element<'a, T> {
-    weighted_text(name, Weight::Semibold)
+    weighted_text(name, Weight::Bold)
         .size(size)
         .color(color)
         .into()

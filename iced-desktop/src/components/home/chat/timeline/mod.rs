@@ -201,24 +201,28 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, TimelineMessage> {
         w::container(
             w::scrollable(
-                w::keyed_column(self.messages.iter().map(|(id, item)| {
-                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                    id.hash(&mut hasher);
-                    let key = hasher.finish();
+                w::column![
+                    w::keyed_column(self.messages.iter().map(|(id, item)| {
+                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        id.hash(&mut hasher);
+                        let key = hasher.finish();
 
-                    let id = id.clone();
-                    let item = item.clone();
-                    let element = w::lazy(item.clone(), move |item| {
                         let id = id.clone();
-                        item.view(theme, structure)
-                            .map(move |msg| TimelineMessage::Item {
-                                id: id.clone(),
-                                message: msg,
-                            })
-                    });
-                    (key, element.into())
-                }))
-                .spacing(structure.small_gap)
+                        let item = item.clone();
+                        let element = w::lazy(item.clone(), move |item| {
+                            let id = id.clone();
+                            item.view(theme, structure)
+                                .map(move |msg| TimelineMessage::Item {
+                                    id: id.clone(),
+                                    message: msg,
+                                })
+                        });
+                        (key, element.into())
+                    }))
+                    .spacing(structure.small_gap)
+                    .width(Fill),
+                    Space::new().height(structure.gap * 3.0)
+                ]
                 .width(Fill),
             )
             .anchor_bottom()
