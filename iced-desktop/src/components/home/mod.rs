@@ -13,6 +13,7 @@ use iced::{
 };
 use lru::LruCache;
 use macros::{iced_cache, nonzero_usize};
+use matrix_sdk::media::UniqueKey;
 use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 
 mod chat;
@@ -30,11 +31,12 @@ pub enum HomeMessage {
     ActiveRoomChanged(Option<Room>),
     KeyboardEvent(iced::keyboard::Event),
     Overlay(OverlayMessage),
+    MediaLoaded(MediaLoaded),
 }
 
 pub enum HomeAction {
     Run(Task<()>),
-    None,
+    LoadMediaTask(Task<MediaLoaded>),
     LoadTimeline(Task<(OwnedRoomId, TimelineMessage)>),
 }
 
@@ -143,31 +145,80 @@ impl Home {
             .map(move |_| (id.clone(), TimelineMessage::None))
     }
 
-    fn dispatch_to_chat(&mut self, room_id: &OwnedRoomId, msg: ChatMessage) -> HomeAction {
+    fn load_media_task(&self, needs_media: NeedsMedia) -> Option<HomeAction> {
+        let state = self.state.clone();
+        Some(HomeAction::LoadMediaTask(Task::future(async move {
+            match needs_media {
+                NeedsMedia::Avatar { uri } => {
+                    let (media, success) = state.avatar_cache().load_avatar(uri.clone()).await;
+                    tracing::trace!(
+                        "Loading of avatar {uri} finished: {}",
+                        if success { "success" } else { "failure" }
+                    );
+                    media
+                }
+                NeedsMedia::Thumbnail { source, key } => {
+                    let (media, success) = state
+                        .thumbnail_cache()
+                        .load_thumbnail(source.clone(), key)
+                        .await;
+                    tracing::trace!(
+                        "Loading of thumbnail {} finished: {}",
+                        source.unique_key(),
+                        if success { "success" } else { "failure" }
+                    );
+                    media
+                }
+                NeedsMedia::Video { source, filename } => {
+                    let (media, success) = state
+                        .video_cache()
+                        .load_video(source, filename.clone())
+                        .await;
+                    tracing::trace!(
+                        "Loading of video {filename} finished: {}",
+                        if success { "success" } else { "failure" }
+                    );
+                    media
+                }
+            }
+        })))
+    }
+
+    fn dispatch_to_chat(&mut self, room_id: &OwnedRoomId, msg: ChatMessage) -> Option<HomeAction> {
         let Some(chat) = self.chats.get_mut(room_id) else {
             tracing::warn!(
                 "Dropping message for room {}: no chat cached for it",
                 room_id
             );
-            return HomeAction::None;
+            return None;
         };
 
-        match chat.update(msg) {
-            ChatAction::Run(task) => HomeAction::Run(task),
-            ChatAction::None => HomeAction::None,
+        if let Some(action) = chat.update(msg) {
+            match action {
+                ChatAction::Run(task) => Some(HomeAction::Run(task)),
+                ChatAction::NeedsMedia(needs_media) => self.load_media_task(needs_media),
+            }
+        } else {
+            None
         }
     }
 }
 
 impl IcedWidget<HomeMessage, HomeAction> for Home {
-    fn update(&mut self, message: HomeMessage) -> HomeAction {
+    fn update(&mut self, message: HomeMessage) -> Option<HomeAction> {
         match message {
-            HomeMessage::Sidebar(msg) => match self.sidebar.update(msg) {
-                SidebarAction::Run(task) => return HomeAction::Run(task),
-                SidebarAction::None => {}
-            },
+            HomeMessage::Sidebar(msg) => {
+                return if let Some(action) = self.sidebar.update(msg) {
+                    match action {
+                        SidebarAction::Run(task) => Some(HomeAction::Run(task)),
+                        SidebarAction::NeedsMedia(needs_media) => self.load_media_task(needs_media),
+                    }
+                } else {
+                    None
+                };
+            }
             HomeMessage::ActiveRoomChanged(Some(room)) => {
-                return HomeAction::LoadTimeline(self.load_room(room));
+                return Some(HomeAction::LoadTimeline(self.load_room(room)));
             }
             HomeMessage::ActiveRoomChanged(None) => {}
             HomeMessage::Chat(msg) => {
@@ -183,7 +234,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             HomeMessage::KeyboardEvent(event) => {
                 if !matches!(self.overlay, Overlay::None) {
                     self.overlay.update(OverlayMessage::KeyboardEvent(event));
-                    return HomeAction::None;
+                    return None;
                 }
                 let iced::keyboard::Event::KeyPressed {
                     key,
@@ -192,7 +243,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                     ..
                 } = event
                 else {
-                    return HomeAction::None;
+                    return None;
                 };
                 if !repeat
                     && modifiers == Modifiers::CTRL
@@ -200,15 +251,26 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                     && !matches!(self.overlay, Overlay::QuickSelect(_))
                 {
                     self.overlay.open_quick_select(&self.state);
-                    return HomeAction::Run(focus(QUICK_SELECT_INPUT_ID));
+                    return Some(HomeAction::Run(focus(QUICK_SELECT_INPUT_ID)));
                 }
             }
             HomeMessage::Overlay(msg) => {
                 self.overlay.update(msg);
             }
+            HomeMessage::MediaLoaded(media) => {
+                self.sidebar.load_media(&media);
+
+                if let Some(chat) = self
+                    .active_room_id
+                    .as_ref()
+                    .and_then(|id| self.chats.peek_mut(id))
+                {
+                    chat.load_media(&media);
+                }
+            }
         }
 
-        HomeAction::None
+        None
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> Element<'static, HomeMessage> {

@@ -41,7 +41,6 @@ impl From<LoginResult> for LoginMessage {
 
 #[derive(Debug)]
 pub enum LoginAction {
-    None,
     Run(Task<LoginResult>),
     BackToDiscovery(Client),
     LoginSuccess(AppState),
@@ -95,21 +94,21 @@ impl Login {
 }
 
 impl IcedWidget<LoginMessage, LoginAction> for Login {
-    fn update(&mut self, message: LoginMessage) -> LoginAction {
+    fn update(&mut self, message: LoginMessage) -> Option<LoginAction> {
         match message {
             LoginMessage::UsernameChanged(username) => {
                 self.username = username;
                 self.check_inputs();
-                LoginAction::None
+                None
             }
             LoginMessage::PasswordChanged(password) => {
                 self.password = password;
                 self.check_inputs();
-                LoginAction::None
+                None
             }
             LoginMessage::Checking => {
                 self.state = GenericState::Checking;
-                LoginAction::None
+                None
             }
             LoginMessage::Submit => {
                 self.state = GenericState::Checking;
@@ -129,17 +128,17 @@ impl IcedWidget<LoginMessage, LoginAction> for Login {
                 .abortable();
                 self.current_check = Some(handle.abort_on_drop());
 
-                LoginAction::Run(task)
+                Some(LoginAction::Run(task))
             }
             LoginMessage::LoginFailed(e) => {
                 self.state = GenericState::Error(e);
-                LoginAction::None
+                None
             }
             LoginMessage::LoginSuccess(state) => {
                 self.state = GenericState::Success(state.clone());
-                LoginAction::LoginSuccess(state)
+                Some(LoginAction::LoginSuccess(state))
             }
-            LoginMessage::BackToDiscovery(client) => LoginAction::BackToDiscovery(client),
+            LoginMessage::BackToDiscovery(client) => Some(LoginAction::BackToDiscovery(client)),
         }
     }
 

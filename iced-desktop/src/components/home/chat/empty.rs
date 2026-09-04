@@ -6,9 +6,7 @@ use crate::common::*;
 pub enum EmptyChatMessage {}
 
 #[derive(Debug, Clone)]
-pub enum EmptyChatAction {
-    None,
-}
+pub enum EmptyChatAction {}
 
 #[iced_cache(Clone)]
 pub struct EmptyChat {}
@@ -20,8 +18,8 @@ impl EmptyChat {
 }
 
 impl IcedWidget<EmptyChatMessage, EmptyChatAction> for EmptyChat {
-    fn update(&mut self, _msg: EmptyChatMessage) -> EmptyChatAction {
-        EmptyChatAction::None
+    fn update(&mut self, _msg: EmptyChatMessage) -> Option<EmptyChatAction> {
+        None
     }
 
     fn view(&self, _theme: Theme, _structure: Structure) -> Element<'static, EmptyChatMessage> {

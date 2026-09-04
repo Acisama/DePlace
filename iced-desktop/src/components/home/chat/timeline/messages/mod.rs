@@ -1,7 +1,7 @@
 use crate::common::*;
 use std::time::SystemTime;
 
-use deplace_core::formatting::format_date_divider;
+use deplace_core::{formatting::format_date_divider, state::cache::VideoCache};
 use iced::Alignment;
 use macros::iced_cache;
 use matrix_sdk::{
@@ -30,14 +30,11 @@ mod render;
 
 pub use convert::ToTimelineItem;
 
+/// The message an item in the timeline can receive
 #[derive(Debug, Clone)]
 pub enum TimelineItemMessage {
-    NeedsAvatar(OwnedMxcUri),
-    NeedsThumbnail {
-        source: MediaSource,
-        width: u64,
-        height: u64,
-    },
+    NeedsMedia(NeedsMedia),
+    MediaLoaded(MediaLoaded),
     EventEnter,
     EventExit,
     MediaMouseEnter,
@@ -47,21 +44,19 @@ pub enum TimelineItemMessage {
 
 impl NeedsAvatarExt for TimelineItemMessage {
     fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        TimelineItemMessage::NeedsAvatar(uri)
+        TimelineItemMessage::NeedsMedia(NeedsMedia::Avatar { uri })
     }
 }
 
 pub enum TimelineItemAction {
-    NeedsAvatar(OwnedMxcUri),
-    NeedsThumbnail {
-        source: MediaSource,
-        width: u64,
-        height: u64,
-    },
-    None,
     Update,
+    NeedsMedia(NeedsMedia),
 }
 
+/// An item in the timeline
+///
+/// This is the most abstract version, able to represent anything
+/// in the timeline.
 #[iced_cache(Debug, Clone)]
 pub struct TimelineItem {
     #[hash]
@@ -74,48 +69,71 @@ pub struct TimelineItem {
 
     avatar_cache: AvatarCache,
     thumbnail_cache: ThumbnailCache,
+    video_cache: VideoCache,
+}
+
+impl TimelineItem {
+    pub fn load_media(&mut self, media: &MediaLoaded) {
+        match media {
+            MediaLoaded::Avatar { uri } => {
+                self.avatar_states_for_hash.remove(uri);
+            }
+            MediaLoaded::Thumbnail { key } => {
+                self.thumbnail_states_for_hash.remove(key);
+            }
+            MediaLoaded::Video { key } => {
+                self.video_states_for_hash.remove(key);
+            }
+        }
+    }
 }
 
 impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
-    fn update(&mut self, message: TimelineItemMessage) -> TimelineItemAction {
+    fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
-            TimelineItemMessage::NeedsAvatar(uri) => {
-                self.retain_avatar_hashes_no_task(uri.clone());
-                TimelineItemAction::NeedsAvatar(uri)
-            }
-            TimelineItemMessage::NeedsThumbnail {
-                source,
-                width,
-                height,
-            } => {
-                self.retain_thumbnail_hashes_no_task((source.unique_key(), width, height).clone());
-                TimelineItemAction::NeedsThumbnail {
-                    source,
-                    width,
-                    height,
-                }
-            }
             TimelineItemMessage::MediaMouseEnter
                 if let TimelineItemKind::Message(msg) = &mut self.kind =>
             {
                 msg.media_hovered = true;
-                TimelineItemAction::Update
+                Some(TimelineItemAction::Update)
             }
             TimelineItemMessage::MediaMouseLeave
                 if let TimelineItemKind::Message(msg) = &mut self.kind =>
             {
                 msg.media_hovered = false;
-                TimelineItemAction::Update
+                Some(TimelineItemAction::Update)
             }
             TimelineItemMessage::EventEnter => {
                 self.is_hovered = true;
-                TimelineItemAction::Update
+                Some(TimelineItemAction::Update)
             }
             TimelineItemMessage::EventExit => {
                 self.is_hovered = false;
-                TimelineItemAction::Update
+                Some(TimelineItemAction::Update)
             }
-            _ => TimelineItemAction::None,
+            TimelineItemMessage::NeedsMedia(media) => {
+                match &media {
+                    NeedsMedia::Avatar { uri } => self.avatar_states_for_hash.insert(uri.clone()),
+                    NeedsMedia::Thumbnail { key, .. } => {
+                        self.thumbnail_states_for_hash.insert(key.clone())
+                    }
+                    NeedsMedia::Video { source, .. } => {
+                        self.video_states_for_hash.insert(source.unique_key())
+                    }
+                };
+                Some(TimelineItemAction::NeedsMedia(media))
+            }
+            TimelineItemMessage::MediaLoaded(media) => {
+                match media {
+                    MediaLoaded::Avatar { uri } => self.avatar_states_for_hash.remove(&uri),
+                    MediaLoaded::Thumbnail { key } => self.thumbnail_states_for_hash.remove(&key),
+                    MediaLoaded::Video { key } => self.video_states_for_hash.remove(&key),
+                };
+                None
+            }
+            TimelineItemMessage::None
+            | TimelineItemMessage::MediaMouseEnter
+            | TimelineItemMessage::MediaMouseLeave => None,
         }
     }
 
@@ -161,6 +179,7 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 structure,
                 &self.avatar_cache,
                 &self.thumbnail_cache,
+                &self.video_cache,
                 self.is_hovered,
             ),
         }
@@ -467,7 +486,7 @@ struct SystemEvent {
 
 #[derive(Debug)]
 enum SystemMessage {
-    MemberhipChange(Box<RoomMembershipChange>),
+    MembershipChange(Box<RoomMembershipChange>),
     ProfileChange(Box<MemberProfileChange>),
     CallInvite,
     RtcNotification {

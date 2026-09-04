@@ -1,7 +1,8 @@
 use std::{collections::BTreeSet, hash::Hasher};
 
+use deplace_core::state::cache::VideoCache;
 use macros::iced_cache;
-use matrix_sdk::ruma::events::room::MediaSource;
+use matrix_sdk::{media::UniqueKey, ruma::events::room::MediaSource};
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as UiTimelineItem};
 use messages::{TimelineItem, TimelineItemAction, TimelineItemMessage};
 
@@ -16,12 +17,6 @@ pub enum TimelineMessage {
         id: String,
         message: TimelineItemMessage,
     },
-    NeedsAvatar(OwnedMxcUri),
-    NeedsThumbnail {
-        source: MediaSource,
-        width: u64,
-        height: u64,
-    },
     Loaded {
         timeline: Arc<Timeline>,
         initial: Arc<IndexMap<String, TimelineItem>>,
@@ -31,16 +26,10 @@ pub enum TimelineMessage {
     None,
 }
 
-impl NeedsAvatarExt for TimelineMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        TimelineMessage::NeedsAvatar(uri)
-    }
-}
-
 pub enum TimelineAction {
+    NeedsMedia(NeedsMedia),
     SetReplying(OwnedEventId),
     Run(Task<()>),
-    None,
 }
 
 #[iced_cache(Clone)]
@@ -49,6 +38,7 @@ pub struct ChatTimeline {
 
     avatar_cache: AvatarCache,
     thumbnail_cache: ThumbnailCache,
+    video_cache: VideoCache,
 
     #[hash]
     room_id: OwnedRoomId,
@@ -70,46 +60,56 @@ impl ChatTimeline {
             thumbnail_cache: state.thumbnail_cache().clone(),
             thumbnail_states_for_hash: BTreeSet::new(),
 
+            video_cache: state.video_cache().clone(),
+            video_states_for_hash: BTreeSet::new(),
+
             messages: Arc::new(IndexMap::new()),
             messages_version: 0,
         }
     }
+
+    pub fn load_media(&mut self, media: &MediaLoaded) {
+        for (_, item) in Arc::make_mut(&mut self.messages).iter_mut() {
+            item.load_media(media);
+        }
+
+        match media {
+            MediaLoaded::Avatar { uri } => self.avatar_states_for_hash.remove(&uri.clone()),
+            MediaLoaded::Thumbnail { key } => self.thumbnail_states_for_hash.remove(&key.clone()),
+            MediaLoaded::Video { key } => self.video_states_for_hash.remove(&key.clone()),
+        };
+    }
 }
 
 impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
-    fn update(&mut self, message: TimelineMessage) -> TimelineAction {
+    fn update(&mut self, message: TimelineMessage) -> Option<TimelineAction> {
         match message {
             TimelineMessage::Item { id, message } => {
                 let Some(item) = Arc::make_mut(&mut self.messages).get_mut(&id) else {
                     tracing::warn!("No item found for id {}", id);
-                    return TimelineAction::None;
+                    return None;
                 };
-
                 return match item.update(message) {
-                    TimelineItemAction::Update => {
+                    Some(TimelineItemAction::Update) => {
                         self.messages_version += 1;
-                        TimelineAction::None
+                        None
                     }
-                    TimelineItemAction::None => TimelineAction::None,
-                    TimelineItemAction::NeedsAvatar(uri) => {
-                        TimelineAction::Run(self.retain_avatar_hashes(uri))
+                    Some(TimelineItemAction::NeedsMedia(needs_media)) => {
+                        match &needs_media {
+                            NeedsMedia::Avatar { uri } => {
+                                self.avatar_states_for_hash.insert(uri.clone())
+                            }
+                            NeedsMedia::Thumbnail { key, .. } => {
+                                self.thumbnail_states_for_hash.insert(key.clone())
+                            }
+                            NeedsMedia::Video { source, .. } => {
+                                self.video_states_for_hash.insert(source.unique_key())
+                            }
+                        };
+                        Some(TimelineAction::NeedsMedia(needs_media))
                     }
-                    TimelineItemAction::NeedsThumbnail {
-                        source,
-                        width,
-                        height,
-                    } => TimelineAction::Run(self.retain_thumbnail_hashes(source, width, height)),
+                    _ => None,
                 };
-            }
-            TimelineMessage::NeedsAvatar(uri) => {
-                return TimelineAction::Run(self.retain_avatar_hashes(uri));
-            }
-            TimelineMessage::NeedsThumbnail {
-                source,
-                width,
-                height,
-            } => {
-                return TimelineAction::Run(self.retain_thumbnail_hashes(source, width, height));
             }
             TimelineMessage::Loaded { timeline, initial } => {
                 tracing::debug!(
@@ -132,12 +132,13 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 let messages = Arc::make_mut(&mut self.messages);
                 let avatar_cache = &self.avatar_cache;
                 let thumbnail_cache = &self.thumbnail_cache;
+                let video_cache = &self.video_cache;
 
                 for diff in diffs.into_iter().map(|d| {
                     d.map(|m| {
                         (
                             m.unique_id().0.clone(),
-                            m.convert(avatar_cache, thumbnail_cache),
+                            m.convert(avatar_cache, thumbnail_cache, video_cache),
                         )
                     })
                 }) {
@@ -195,11 +196,13 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 }
                 self.messages_version += 1;
             }
-            TimelineMessage::SetReplying(event_id) => return TimelineAction::SetReplying(event_id),
+            TimelineMessage::SetReplying(event_id) => {
+                return Some(TimelineAction::SetReplying(event_id));
+            }
             TimelineMessage::None => {}
         };
 
-        TimelineAction::None
+        None
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, TimelineMessage> {

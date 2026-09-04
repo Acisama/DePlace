@@ -49,12 +49,10 @@ impl Overlay {
     }
 }
 
-pub enum OverlayAction {
-    None,
-}
+pub enum OverlayAction {}
 
 impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
-    fn update(&mut self, message: OverlayMessage) -> OverlayAction {
+    fn update(&mut self, message: OverlayMessage) -> Option<OverlayAction> {
         match message {
             OverlayMessage::Close => {
                 self.close_overlay();
@@ -62,7 +60,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
             OverlayMessage::QuickSelect(msg) => {
                 let Overlay::QuickSelect(qs) = self else {
                     tracing::warn!("Received quick select message without it being open");
-                    return OverlayAction::None;
+                    return None;
                 };
                 qs.update(msg);
             }
@@ -87,7 +85,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 }
             }
         }
-        OverlayAction::None
+        None
     }
 
     fn view(

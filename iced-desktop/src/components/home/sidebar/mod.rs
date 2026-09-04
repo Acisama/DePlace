@@ -15,18 +15,11 @@ pub enum SidebarMessage {
     Channels(ChannelsMessage),
     ChangeActiveRoom(Option<Room>),
     ChangeActiveServer(ActiveServer),
-    NeedAvatar(OwnedMxcUri),
-}
-
-impl NeedsAvatarExt for SidebarMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        SidebarMessage::NeedAvatar(uri)
-    }
 }
 
 pub enum SidebarAction {
-    None,
     Run(Task<()>),
+    NeedsMedia(NeedsMedia),
 }
 
 #[iced_cache(Clone)]
@@ -49,43 +42,58 @@ impl Sidebar {
         }
     }
 
-    pub fn set_active_server_task(&mut self, server: ActiveServer) -> SidebarAction {
+    pub fn load_media(&mut self, media: &MediaLoaded) {
+        self.server_column.load_media(media);
+        self.channels.load_media(media);
+    }
+
+    pub fn set_active_server_task(&mut self, server: ActiveServer) -> Option<SidebarAction> {
         let state = self.state.clone();
-        SidebarAction::Run(Task::future(async move {
+        Some(SidebarAction::Run(Task::future(async move {
             state.set_active_server(server, true).await;
-        }))
+        })))
     }
 
-    pub fn set_active_room_task(&mut self, room: Option<Room>) -> SidebarAction {
+    pub fn set_active_room_task(&mut self, room: Option<Room>) -> Option<SidebarAction> {
         let state = self.state.clone();
-        SidebarAction::Run(Task::future(async move {
+        Some(SidebarAction::Run(Task::future(async move {
             state.set_active_room(room).await;
-        }))
-    }
-
-    pub fn fetch_avatar_task(&mut self, uri: OwnedMxcUri) -> SidebarAction {
-        let avatar_cache = self.state.avatar_cache().clone();
-        SidebarAction::Run(Task::future(
-            async move { avatar_cache.load_avatar(&uri).await },
-        ))
+        })))
     }
 }
 
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
-    fn update(&mut self, message: SidebarMessage) -> SidebarAction {
+    fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
             SidebarMessage::ChangeActiveRoom(room) => self.set_active_room_task(room),
             SidebarMessage::ChangeActiveServer(server) => self.set_active_server_task(server),
-            SidebarMessage::NeedAvatar(uri) => self.fetch_avatar_task(uri),
-            SidebarMessage::ServerColumn(msg) => match self.server_column.update(msg) {
-                ServerColumnAction::Run(task) => SidebarAction::Run(task),
-                ServerColumnAction::SetActiveServer(server) => self.set_active_server_task(server),
-                ServerColumnAction::None => SidebarAction::None,
-            },
-            SidebarMessage::Channels(msg) => match self.channels.update(msg) {
-                ChannelsAction::Run(task) => SidebarAction::Run(task),
-                ChannelsAction::SetActiveRoom(room) => self.set_active_room_task(Some(room)),
-            },
+            SidebarMessage::ServerColumn(msg) => {
+                if let Some(action) = self.server_column.update(msg) {
+                    match action {
+                        ServerColumnAction::Run(task) => Some(SidebarAction::Run(task)),
+                        ServerColumnAction::SetActiveServer(server) => {
+                            self.set_active_server_task(server)
+                        }
+                        ServerColumnAction::NeedsMedia(media) => {
+                            Some(SidebarAction::NeedsMedia(media))
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+            SidebarMessage::Channels(msg) => {
+                if let Some(action) = self.channels.update(msg) {
+                    match action {
+                        ChannelsAction::SetActiveRoom(room) => {
+                            self.set_active_room_task(Some(room))
+                        }
+                        ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
+                    }
+                } else {
+                    None
+                }
+            }
         }
     }
 

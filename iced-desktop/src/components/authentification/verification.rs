@@ -22,7 +22,6 @@ impl From<EncryptionUpgradeResult> for VerificationMessage {
 
 #[derive(Debug)]
 pub enum VerificationAction {
-    None,
     Run(Task<EncryptionUpgradeResult>),
     Success(AppState),
 }
@@ -78,16 +77,16 @@ impl Verification {
 }
 
 impl IcedWidget<VerificationMessage, VerificationAction> for Verification {
-    fn update(&mut self, message: VerificationMessage) -> VerificationAction {
+    fn update(&mut self, message: VerificationMessage) -> Option<VerificationAction> {
         match message {
             VerificationMessage::RecoveryKeyChanged(key) => {
                 self.recovery_key = key;
                 self.check_key_format();
-                VerificationAction::None
+                None
             }
             VerificationMessage::Submit => {
                 if !self.check_key_format() {
-                    return VerificationAction::None;
+                    return None;
                 }
                 self.state = GenericState::Checking;
 
@@ -98,19 +97,19 @@ impl IcedWidget<VerificationMessage, VerificationAction> for Verification {
                     Task::future(recover_client_encryption(state, recovery_key)).abortable();
                 self.current_check = Some(handle.abort_on_drop());
 
-                VerificationAction::Run(task)
+                Some(VerificationAction::Run(task))
             }
             VerificationMessage::Checking => {
                 self.state = GenericState::Checking;
-                VerificationAction::None
+                None
             }
             VerificationMessage::VerificationFailed(error) => {
                 self.state = GenericState::Error(error);
-                VerificationAction::None
+                None
             }
             VerificationMessage::VerificationSucceeded => {
                 self.state = GenericState::Success(self.app_state.clone());
-                VerificationAction::Success(self.app_state.clone())
+                Some(VerificationAction::Success(self.app_state.clone()))
             }
         }
     }

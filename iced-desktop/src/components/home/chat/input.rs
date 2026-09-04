@@ -20,7 +20,6 @@ pub enum InputMessage {
 
 pub enum InputAction {
     Run(Task<()>),
-    None,
 }
 
 #[iced_cache(Clone)]
@@ -73,7 +72,7 @@ impl ChatInput {
 }
 
 impl IcedWidget<InputMessage, InputAction> for ChatInput {
-    fn update(&mut self, message: InputMessage) -> InputAction {
+    fn update(&mut self, message: InputMessage) -> Option<InputAction> {
         match message {
             InputMessage::None => {}
             InputMessage::UploadPressed => {}
@@ -93,7 +92,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         "Tried to send message in room {} without a timeline",
                         self.room_id
                     );
-                    return InputAction::None;
+                    return None;
                 };
 
                 let text = self.content().text();
@@ -104,15 +103,15 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 content.perform(text_editor::Action::Edit(text_editor::Edit::Backspace));
                 self.replying_to = None;
 
-                return InputAction::Run(Task::future(async move {
+                return Some(InputAction::Run(Task::future(async move {
                     if let Err(e) = timeline.send_message(text, replying_to).await {
                         tracing::warn!("Failed to send message: {}", e);
                     }
-                }));
+                })));
             }
         }
 
-        InputAction::None
+        None
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, InputMessage> {

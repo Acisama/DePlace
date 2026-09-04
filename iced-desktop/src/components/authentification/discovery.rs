@@ -37,7 +37,6 @@ impl From<Option<Client>> for DiscoveryMessage {
 }
 
 pub enum DiscoveryAction {
-    None,
     Run(Task<Option<Client>>),
     ClientSelected(Client),
 }
@@ -85,15 +84,17 @@ impl Discovery {
 }
 
 impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
-    fn update(&mut self, message: DiscoveryMessage) -> DiscoveryAction {
+    fn update(&mut self, message: DiscoveryMessage) -> Option<DiscoveryAction> {
         match message {
-            DiscoveryMessage::ClientSelected(client) => DiscoveryAction::ClientSelected(client),
+            DiscoveryMessage::ClientSelected(client) => {
+                Some(DiscoveryAction::ClientSelected(client))
+            }
             DiscoveryMessage::UrlChanged(mut url) => {
                 self.homeserver_url = url.clone();
 
                 if url.is_empty() {
                     self.state = GenericState::Error("Enter a valid URL".to_string());
-                    return DiscoveryAction::None;
+                    return None;
                 }
 
                 if !url.starts_with("https://") {
@@ -109,30 +110,32 @@ impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
                         let (task, handle) = Task::future(test_server(url)).abortable();
                         self.current_check = Some(handle.abort_on_drop());
 
-                        DiscoveryAction::Run(task)
+                        Some(DiscoveryAction::Run(task))
                     }
                     Err(_) => {
                         self.current_check = None;
                         self.state = GenericState::Error("Invalid URL".to_string());
-                        DiscoveryAction::None
+                        None
                     }
                 }
             }
             DiscoveryMessage::Checking => {
                 self.state = GenericState::Checking;
-                DiscoveryAction::None
+                None
             }
             DiscoveryMessage::ClientNotFound => {
                 self.state = GenericState::Error("Invalid homeserver URL".to_string());
-                DiscoveryAction::None
+                None
             }
             DiscoveryMessage::ClientFound(client) => {
                 self.state = GenericState::Success(client);
-                DiscoveryAction::None
+                None
             }
             DiscoveryMessage::Continue => match &self.state {
-                GenericState::Success(client) => DiscoveryAction::ClientSelected(client.clone()),
-                _ => DiscoveryAction::None,
+                GenericState::Success(client) => {
+                    Some(DiscoveryAction::ClientSelected(client.clone()))
+                }
+                _ => None,
             },
         }
     }

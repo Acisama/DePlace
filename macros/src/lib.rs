@@ -1,8 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    DeriveInput, Expr, ExprLit, Fields, Lit, Path, parse_macro_input,
-    punctuated::Punctuated, Token,
+    DeriveInput, Expr, ExprLit, Fields, Lit, Path, Token, parse_macro_input, punctuated::Punctuated,
 };
 use tailwind::StyleList;
 
@@ -63,6 +62,18 @@ pub fn matrix_settings(_attr: TokenStream, item: TokenStream) -> TokenStream {
     settings::convert_settings(item_ast)
 }
 
+/// Macro to derive hash on a state struct
+///
+/// Within a struct decorated with this macro, you can add the `#[hash]` attribute to a field, making it
+/// so that these fields are taken into consideration for the hash computed over the struct.
+///
+/// Hash is used extensivel in this crate with the lazy widget, which is why this this macro was created.
+///
+/// This will treat several fields in a special way, depending on the field name, for instance adding
+/// functions.
+/// Since the original author didn't bother documenting anything when creating this macro, you will have
+/// to read through the definition to find out what exactly is happening, and you will even have to read
+/// through the rest of the code to find out how the functions created by this macro are to be tied in.
 #[proc_macro_attribute]
 pub fn iced_cache(attr: TokenStream, item: TokenStream) -> TokenStream {
     let derives = parse_macro_input!(attr with Punctuated::<Path, Token![,]>::parse_terminated);

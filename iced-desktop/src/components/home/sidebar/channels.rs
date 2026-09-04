@@ -8,19 +8,19 @@ use crate::common::*;
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
-    NeedAvatar(OwnedMxcUri),
+    NeedsAvatar(OwnedMxcUri),
     SetActiveRoom(Room),
 }
 
 impl NeedsAvatarExt for ChannelsMessage {
     fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        Self::NeedAvatar(uri)
+        ChannelsMessage::NeedsAvatar(uri)
     }
 }
 
 pub enum ChannelsAction {
     SetActiveRoom(Room),
-    Run(Task<()>),
+    NeedsMedia(NeedsMedia),
 }
 
 #[iced_cache(Clone)]
@@ -55,13 +55,22 @@ impl ServerChannels {
             state: state.clone(),
         }
     }
+
+    pub fn load_media(&mut self, media: &MediaLoaded) {
+        if let MediaLoaded::Avatar { uri } = media {
+            self.avatar_states_for_hash.remove(uri);
+        }
+    }
 }
 
 impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
-    fn update(&mut self, msg: ChannelsMessage) -> ChannelsAction {
+    fn update(&mut self, msg: ChannelsMessage) -> Option<ChannelsAction> {
         match msg {
-            ChannelsMessage::NeedAvatar(uri) => ChannelsAction::Run(self.retain_avatar_hashes(uri)),
-            ChannelsMessage::SetActiveRoom(room) => ChannelsAction::SetActiveRoom(room),
+            ChannelsMessage::NeedsAvatar(uri) => {
+                self.avatar_states_for_hash.insert(uri.clone());
+                Some(ChannelsAction::NeedsMedia(NeedsMedia::avatar(uri)))
+            }
+            ChannelsMessage::SetActiveRoom(room) => Some(ChannelsAction::SetActiveRoom(room)),
         }
     }
 

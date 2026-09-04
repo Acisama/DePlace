@@ -9,7 +9,6 @@ pub enum HeaderMessage {
     TogglePins,
     ToggleSearch,
     NeedsAvatar(OwnedMxcUri),
-    None,
 }
 
 impl NeedsAvatarExt for HeaderMessage {
@@ -19,7 +18,7 @@ impl NeedsAvatarExt for HeaderMessage {
 }
 
 pub enum HeaderAction {
-    None,
+    NeedsMedia(NeedsMedia),
     Run(Task<()>),
 }
 
@@ -50,13 +49,23 @@ impl Header {
             avatar_states_for_hash: BTreeSet::new(),
         }
     }
+
+    pub fn load_media(&mut self, media: &MediaLoaded) {
+        if let MediaLoaded::Avatar { uri } = media {
+            self.avatar_states_for_hash.remove(uri);
+        }
+    }
 }
 
 impl IcedWidget<HeaderMessage, HeaderAction> for Header {
-    fn update(&mut self, msg: HeaderMessage) -> HeaderAction {
+    fn update(&mut self, msg: HeaderMessage) -> Option<HeaderAction> {
         match msg {
-            HeaderMessage::NeedsAvatar(uri) => HeaderAction::Run(self.retain_avatar_hashes(uri)),
-            _ => HeaderAction::None,
+            HeaderMessage::NeedsAvatar(uri) => {
+                self.avatar_states_for_hash.insert(uri.clone());
+                Some(HeaderAction::NeedsMedia(NeedsMedia::avatar(uri)))
+            }
+            HeaderMessage::TogglePins => todo!(),
+            HeaderMessage::ToggleSearch => todo!(),
         }
     }
 

@@ -40,6 +40,8 @@ toml_edit.workspace = true
 tracing.workspace = true
 url.workspace = true
 uuid.workspace = true
+iced_video_player.workspace = true
+mime.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1.0"

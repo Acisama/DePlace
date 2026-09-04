@@ -8,6 +8,7 @@ use crate::components::{blurhash_to_image, thumbhash_to_image};
 use super::{MessageContent, MessageEvent, SystemEvent, SystemMessage, VisualInfo};
 use super::{TimelineItem, TimelineItemKind};
 
+use deplace_core::state::cache::VideoCache;
 use matrix_sdk::ruma::events::room::ImageInfo;
 use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
 use matrix_sdk_ui::timeline::VirtualTimelineItem;
@@ -18,11 +19,21 @@ use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
 use matrix_sdk_ui::timeline::{TimelineDetails, TimelineItem as UiTimelineItem};
 
 pub trait ToTimelineItem {
-    fn convert(self, avatar_cache: &AvatarCache, thumbnail_cache: &ThumbnailCache) -> TimelineItem;
+    fn convert(
+        self,
+        avatar_cache: &AvatarCache,
+        thumbnail_cache: &ThumbnailCache,
+        video_cache: &VideoCache,
+    ) -> TimelineItem;
 }
 
 impl ToTimelineItem for Arc<UiTimelineItem> {
-    fn convert(self, avatar_cache: &AvatarCache, thumbnail_cache: &ThumbnailCache) -> TimelineItem {
+    fn convert(
+        self,
+        avatar_cache: &AvatarCache,
+        thumbnail_cache: &ThumbnailCache,
+        video_cache: &VideoCache,
+    ) -> TimelineItem {
         TimelineItem {
             id: self.unique_id().0.clone(),
             kind: TimelineItemKind::from_ui(self.kind()),
@@ -33,6 +44,8 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
             avatar_states_for_hash: BTreeSet::new(),
             thumbnail_cache: thumbnail_cache.clone(),
             thumbnail_states_for_hash: BTreeSet::new(),
+            video_cache: video_cache.clone(),
+            video_states_for_hash: BTreeSet::new(),
         }
     }
 }
@@ -98,7 +111,7 @@ impl TimelineItemKind {
                         error: error.clone(),
                     },
                     TimelineItemContent::MembershipChange(c) => {
-                        system!(SystemMessage::MemberhipChange(Box::new(c.clone())))
+                        system!(SystemMessage::MembershipChange(Box::new(c.clone())))
                     }
                     TimelineItemContent::OtherState(other) => match other.content() {
                         AnyOtherStateEventContentChange::PolicyRuleRoom(_) => {

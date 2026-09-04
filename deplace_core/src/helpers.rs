@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-use chrono::{DateTime, Local};
 use matrix_sdk::{
     Media, Room,
     media::{MediaFormat, MediaRequestParameters},

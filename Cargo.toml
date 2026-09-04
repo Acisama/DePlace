@@ -58,6 +58,8 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 url-macro = "0.2.4"
 uuid = { version = "1.24.0", features = ["v7"] }
+iced_video_player = { git = "https://codeberg.org/aosiuejhf/iced_video_player.git" }
+mime = "0.3.17"
 
 # [patch."https://github.com/acisama/iced"]
 # iced = { path = "/home/eriko/iced" }

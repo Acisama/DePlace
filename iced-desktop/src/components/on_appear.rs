@@ -4,8 +4,15 @@ use iced::advanced::widget::{Operation, Tree, tree};
 use iced::advanced::{Shell, Widget, layout, mouse, overlay, renderer};
 use iced::{Element, Event, Length, Rectangle, Size, Vector, advanced::Layout};
 
+/// A wrapper widget that publishes `Message` once, the first time it is processed
+/// by the runtime, without waiting for user interaction.
+///
+/// This was created to be used in the timeline, so that an image or video is
+/// only fetched by the client, when it is supposed to appear.
 pub struct OnAppear<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer> {
+    /// The content of the widget, that is dispalyed
     content: Element<'a, Message, Theme, Renderer>,
+    /// The Message that is emitted exactly once, on the first time the widget is being processed by the runtime.
     message: Message,
 }
 

@@ -26,8 +26,8 @@ pub enum ChatMessage {
 }
 
 pub enum ChatAction {
+    NeedsMedia(NeedsMedia),
     Run(Task<()>),
-    None,
 }
 
 #[iced_cache(Clone)]
@@ -53,6 +53,7 @@ impl Chat {
 
         let avatar_cache = state.avatar_cache().clone();
         let thumbnail_cache = state.thumbnail_cache().clone();
+        let video_cache = state.video_cache().clone();
 
         let room_id_log = room_id.clone();
         let stream = stream::once(async move {
@@ -90,7 +91,7 @@ impl Chat {
                     .map(|m| {
                         (
                             m.unique_id().0.clone(),
-                            m.convert(&avatar_cache, &thumbnail_cache),
+                            m.convert(&avatar_cache, &thumbnail_cache, &video_cache),
                         )
                     })
                     .collect(),
@@ -112,6 +113,11 @@ impl Chat {
         )
     }
 
+    pub fn load_media(&mut self, media: &MediaLoaded) {
+        self.timeline.load_media(media);
+        self.header.load_media(media);
+    }
+
     pub fn get_input_pointer(&self) -> *mut text_editor::Content {
         self.input.get_raw_content_pointer()
     }
@@ -122,27 +128,36 @@ impl Chat {
 }
 
 impl IcedWidget<ChatMessage, ChatAction> for Chat {
-    fn update(&mut self, msg: ChatMessage) -> ChatAction {
+    fn update(&mut self, msg: ChatMessage) -> Option<ChatAction> {
         if let ChatMessage::Timeline(TimelineMessage::Loaded { timeline, .. }) = &msg {
             self.input.timeline = Some(timeline.clone())
         }
 
         match msg {
-            ChatMessage::Header(msg) => match self.header.update(msg) {
-                HeaderAction::None => ChatAction::None,
-                HeaderAction::Run(task) => ChatAction::Run(task),
-            },
-            ChatMessage::Timeline(msg) => match self.timeline.update(msg) {
-                TimelineAction::None => ChatAction::None,
-                TimelineAction::SetReplying(event_id) => {
-                    self.input.set_replies_to(event_id);
-                    ChatAction::None
+            ChatMessage::Header(msg) => {
+                if let Some(action) = self.header.update(msg) {
+                    match action {
+                        HeaderAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
+                        HeaderAction::Run(task) => Some(ChatAction::Run(task)),
+                    }
+                } else {
+                    None
                 }
-                TimelineAction::Run(task) => ChatAction::Run(task),
+            }
+            ChatMessage::Timeline(msg) => match self.timeline.update(msg) {
+                None => None,
+                Some(TimelineAction::SetReplying(event_id)) => {
+                    self.input.set_replies_to(event_id);
+                    None
+                }
+                Some(TimelineAction::Run(task)) => Some(ChatAction::Run(task)),
+                Some(TimelineAction::NeedsMedia(needs_media)) => {
+                    Some(ChatAction::NeedsMedia(needs_media))
+                }
             },
             ChatMessage::Input(msg) => match self.input.update(msg) {
-                InputAction::None => ChatAction::None,
-                InputAction::Run(task) => ChatAction::Run(task),
+                None => None,
+                Some(InputAction::Run(task)) => Some(ChatAction::Run(task)),
             },
         }
     }

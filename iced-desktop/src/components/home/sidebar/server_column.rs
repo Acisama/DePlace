@@ -13,21 +13,21 @@ use crate::common::*;
 #[derive(Clone, Debug)]
 pub enum ServerColumnMessage {
     ChangeActiveServer(ActiveServer),
-    NeedAvatar(OwnedMxcUri),
+    NeedsAvatar(OwnedMxcUri),
     ServerHovered(ActiveServerId),
     ServerHoverEnded(ActiveServerId),
 }
 
 impl NeedsAvatarExt for ServerColumnMessage {
     fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        ServerColumnMessage::NeedAvatar(uri)
+        ServerColumnMessage::NeedsAvatar(uri)
     }
 }
 
 pub enum ServerColumnAction {
     Run(Task<()>),
     SetActiveServer(ActiveServer),
-    None,
+    NeedsMedia(NeedsMedia),
 }
 
 #[iced_cache(Clone)]
@@ -62,26 +62,33 @@ impl ServerColumn {
             state: state.clone(),
         }
     }
+
+    pub fn load_media(&mut self, media: &MediaLoaded) {
+        if let MediaLoaded::Avatar { uri } = media {
+            self.avatar_states_for_hash.remove(uri);
+        }
+    }
 }
 
 impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
-    fn update(&mut self, message: ServerColumnMessage) -> ServerColumnAction {
+    fn update(&mut self, message: ServerColumnMessage) -> Option<ServerColumnAction> {
         match message {
             ServerColumnMessage::ChangeActiveServer(server) => {
-                ServerColumnAction::SetActiveServer(server)
+                Some(ServerColumnAction::SetActiveServer(server))
             }
             ServerColumnMessage::ServerHovered(server) => {
                 self.hovered_server = Some(server);
-                ServerColumnAction::None
+                None
             }
             ServerColumnMessage::ServerHoverEnded(server) => {
                 if self.hovered_server == Some(server) {
                     self.hovered_server = None;
                 }
-                ServerColumnAction::None
+                None
             }
-            ServerColumnMessage::NeedAvatar(uri) => {
-                ServerColumnAction::Run(self.retain_avatar_hashes(uri))
+            ServerColumnMessage::NeedsAvatar(uri) => {
+                self.avatar_states_for_hash.insert(uri.clone());
+                Some(ServerColumnAction::NeedsMedia(NeedsMedia::avatar(uri)))
             }
         }
     }

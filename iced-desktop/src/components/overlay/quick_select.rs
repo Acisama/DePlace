@@ -19,18 +19,16 @@ pub enum QuickSelectMessage {
     Input(String),
 }
 
-pub enum QuickSelectAction {
-    None,
-}
+pub enum QuickSelectAction {}
 
 impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
-    fn update(&mut self, message: QuickSelectMessage) -> QuickSelectAction {
+    fn update(&mut self, message: QuickSelectMessage) -> Option<QuickSelectAction> {
         tracing::debug!("{:?}", message);
         match message {
             QuickSelectMessage::Input(input) => self.input = input,
         }
         tracing::debug!("{:?}", self.input);
-        QuickSelectAction::None
+        None
     }
     fn view(
         &self,

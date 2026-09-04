@@ -157,6 +157,9 @@ struct AppStateInner {
 
     #[cfg(feature = "iced_desktop")]
     thumbnail_cache: cache::ThumbnailCache,
+
+    #[cfg(feature = "iced_desktop")]
+    video_cache: cache::VideoCache,
 }
 
 impl AppState {
@@ -222,6 +225,9 @@ impl AppState {
                 #[cfg(feature = "iced_desktop")]
                 thumbnail_cache: cache::ThumbnailCache::new(client.clone()),
 
+                #[cfg(feature = "iced_desktop")]
+                video_cache: cache::VideoCache::new(client.clone()),
+
                 window_title,
 
                 client,
@@ -258,6 +264,11 @@ impl AppState {
     #[cfg(feature = "iced_desktop")]
     pub fn thumbnail_cache(&self) -> &cache::ThumbnailCache {
         &self.inner.thumbnail_cache
+    }
+
+    #[cfg(feature = "iced_desktop")]
+    pub fn video_cache(&self) -> &cache::VideoCache {
+        &self.inner.video_cache
     }
 
     pub fn window_title(&self) -> Receiver<String> {
