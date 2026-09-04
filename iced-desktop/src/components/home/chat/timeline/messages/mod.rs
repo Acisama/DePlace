@@ -64,9 +64,6 @@ pub struct TimelineItem {
     #[hash]
     kind: TimelineItemKind,
 
-    #[hash]
-    is_hovered: bool,
-
     avatar_cache: AvatarCache,
     thumbnail_cache: ThumbnailCache,
     video_cache: VideoCache,
@@ -86,31 +83,44 @@ impl TimelineItem {
             }
         }
     }
+
+    fn set_hovered(&mut self, new_hovered: bool) -> Option<TimelineItemAction> {
+        match &mut self.kind {
+            TimelineItemKind::Message { is_hovered, .. } => {
+                if *is_hovered != new_hovered {
+                    *is_hovered = new_hovered;
+                    return Some(TimelineItemAction::Update);
+                }
+            }
+            TimelineItemKind::System { is_hovered, .. } => {
+                if *is_hovered != new_hovered {
+                    *is_hovered = new_hovered;
+                    return Some(TimelineItemAction::Update);
+                }
+            }
+            _ => {}
+        }
+        None
+    }
 }
 
 impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
     fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
             TimelineItemMessage::MediaMouseEnter
-                if let TimelineItemKind::Message(msg) = &mut self.kind =>
+                if let TimelineItemKind::Message { event, .. } = &mut self.kind =>
             {
-                msg.media_hovered = true;
+                event.media_hovered = true;
                 Some(TimelineItemAction::Update)
             }
             TimelineItemMessage::MediaMouseLeave
-                if let TimelineItemKind::Message(msg) = &mut self.kind =>
+                if let TimelineItemKind::Message { event, .. } = &mut self.kind =>
             {
-                msg.media_hovered = false;
+                event.media_hovered = false;
                 Some(TimelineItemAction::Update)
             }
-            TimelineItemMessage::EventEnter => {
-                self.is_hovered = true;
-                Some(TimelineItemAction::Update)
-            }
-            TimelineItemMessage::EventExit => {
-                self.is_hovered = false;
-                Some(TimelineItemAction::Update)
-            }
+            TimelineItemMessage::EventEnter => self.set_hovered(true),
+            TimelineItemMessage::EventExit => self.set_hovered(false),
             TimelineItemMessage::NeedsMedia(media) => {
                 match &media {
                     NeedsMedia::Avatar { uri } => self.avatar_states_for_hash.insert(uri.clone()),
@@ -173,17 +183,70 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 .style(move |_| ContainerStyle::default().background(theme.accent))
                 .into(),
             TimelineItemKind::TimelineStart => fallback,
-            TimelineItemKind::System(sys) => {
-                sys.view(theme, structure, &self.avatar_cache, self.is_hovered)
+            TimelineItemKind::System { is_hovered, event } => {
+                let is_hovered = *is_hovered;
+                let avatar_cache = self.avatar_cache.clone();
+                let event = event.clone();
+                w::mouse_area(
+                    // System events are static and do not need to be updated
+                    w::container(w::lazy((), move |_| {
+                        event.view(theme, structure, avatar_cache.clone())
+                    }))
+                    .width(Fill)
+                    .style(move |_| {
+                        ContainerStyle::default().border(
+                            border::rounded(structure.inner_border_radius)
+                                .width(structure.border_thickness)
+                                .color(if is_hovered {
+                                    theme.border
+                                } else {
+                                    Color::TRANSPARENT
+                                }),
+                        )
+                    })
+                    .padding(structure.small_gap / 2.0),
+                )
+                .on_enter(TimelineItemMessage::EventEnter)
+                .on_exit(TimelineItemMessage::EventExit)
+                .into()
             }
-            TimelineItemKind::Message(msg) => msg.view(
-                theme,
-                structure,
-                &self.avatar_cache,
-                &self.thumbnail_cache,
-                &self.video_cache,
-                self.is_hovered,
-            ),
+            TimelineItemKind::Message { event, is_hovered } => {
+                let is_hovered = *is_hovered;
+                let avatar_cache = self.avatar_cache.clone();
+                let thumbnail_cache = self.thumbnail_cache.clone();
+                let video_cache = self.video_cache.clone();
+                w::mouse_area(
+                    w::container(w::lazy(event.clone(), move |event| {
+                        let avatar_cache = avatar_cache.clone();
+                        let thumbnail_cache = thumbnail_cache.clone();
+                        let video_cache = video_cache.clone();
+                        event.view(
+                            theme,
+                            structure,
+                            avatar_cache.clone(),
+                            thumbnail_cache.clone(),
+                            video_cache.clone(),
+                        )
+                    }))
+                    .style(move |_| ContainerStyle {
+                        background: None,
+                        border: Border {
+                            color: if is_hovered {
+                                theme.border
+                            } else {
+                                Color::TRANSPARENT
+                            },
+                            width: structure.border_thickness,
+                            radius: structure.semi_border_radius().into(),
+                        },
+                        ..Default::default()
+                    })
+                    .width(Fill),
+                )
+                .on_enter(TimelineItemMessage::EventEnter)
+                .on_exit(TimelineItemMessage::EventExit)
+                .into()
+            }
         }
     }
 }
@@ -193,8 +256,14 @@ enum TimelineItemKind {
     DateDivider(SystemTime),
     TimelineStart,
     ReadMarker,
-    Message(Box<MessageEvent>),
-    System(Arc<SystemEvent>),
+    Message {
+        event: Box<MessageEvent>,
+        is_hovered: bool,
+    },
+    System {
+        is_hovered: bool,
+        event: Arc<SystemEvent>,
+    },
     FailedToParseMessageLike {
         event_type: Arc<String>,
         error: Arc<serde_json::Error>,
@@ -209,8 +278,15 @@ enum TimelineItemKind {
 impl Hash for TimelineItemKind {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Other things are static, so hashing doesn't need to include them
-        if let TimelineItemKind::Message(msg) = self {
-            msg.hash(state);
+        match self {
+            TimelineItemKind::Message { event, is_hovered } => {
+                event.hash(state);
+                is_hovered.hash(state);
+            }
+            TimelineItemKind::System { is_hovered, .. } => {
+                is_hovered.hash(state);
+            }
+            _ => {}
         }
     }
 }
@@ -475,6 +551,7 @@ enum ReplyContent {
     CallInvite,
 }
 
+/// This has an empty hash implementation because it doesn't change
 #[iced_cache(Debug)]
 struct SystemEvent {
     timestamp: SystemTime,

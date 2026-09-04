@@ -32,10 +32,9 @@ impl MessageEvent {
         &self,
         theme: Theme,
         structure: Structure,
-        avatar_cache: &AvatarCache,
-        thumbnail_cache: &ThumbnailCache,
-        video_cache: &VideoCache,
-        is_hovered: bool,
+        avatar_cache: AvatarCache,
+        thumbnail_cache: ThumbnailCache,
+        video_cache: VideoCache,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let col_width = structure.chat_col_width();
         let pre_col_width = structure.small_gap * 1.5;
@@ -47,8 +46,8 @@ impl MessageEvent {
             &self.content,
             theme,
             structure,
-            thumbnail_cache,
-            video_cache,
+            &thumbnail_cache,
+            &video_cache,
             self.media_hovered,
         );
 
@@ -76,7 +75,7 @@ impl MessageEvent {
                         Some(render_loading_name(size, theme)),
                     ),
                     TimelineDetails::Ready(p) => (
-                        Some(p.render_icon(size, avatar_cache)),
+                        Some(p.render_icon(size, &avatar_cache)),
                         Some(p.render_name(text_size)),
                     ),
                 }
@@ -85,33 +84,16 @@ impl MessageEvent {
             (None, None)
         };
 
-        w::mouse_area(
-            w::container(w::row![
-                w::row![
-                    Space::new().width(pre_col_width),
-                    icon.unwrap_or(Space::new().into())
-                ]
-                .width(col_width),
-                w::column![name.unwrap_or(Space::new().into()), column]
-            ])
-            .padding(padding::vertical(structure.small_gap))
-            .style(move |_| ContainerStyle {
-                background: None,
-                border: Border {
-                    color: if is_hovered {
-                        theme.border
-                    } else {
-                        Color::TRANSPARENT
-                    },
-                    width: structure.border_thickness,
-                    radius: structure.semi_border_radius().into(),
-                },
-                ..Default::default()
-            })
-            .width(Fill),
-        )
-        .on_enter(TimelineItemMessage::EventEnter)
-        .on_exit(TimelineItemMessage::EventExit)
+        w::container(w::row![
+            w::row![
+                Space::new().width(pre_col_width),
+                icon.unwrap_or(Space::new().into())
+            ]
+            .width(col_width),
+            w::column![name.unwrap_or(Space::new().into()), column]
+        ])
+        .padding(padding::vertical(structure.small_gap))
+        .width(Fill)
         .into()
     }
 }
@@ -547,8 +529,7 @@ impl SystemEvent {
         &self,
         theme: Theme,
         structure: Structure,
-        _avatar_cache: &AvatarCache,
-        is_hovered: bool,
+        _avatar_cache: AvatarCache,
     ) -> Element<'static, TimelineItemMessage> {
         let (icon, icon_color) = self.content.icon(theme);
 
@@ -563,33 +544,14 @@ impl SystemEvent {
             TimelineDetails::Ready(p) => p.render_name(text_size),
         };
 
-        w::mouse_area(
-            w::container(
-                w::row![
-                    w::container(phosphor_icon(icon, structure.chat.text_size))
-                        .style(move |_| ContainerStyle::default().color(icon_color))
-                        .width(col_width)
-                        .center_x(col_width),
-                    self.content.render_content(theme, structure, sender_name)
-                ]
-                .align_y(Alignment::Center),
-            )
-            .width(Fill)
-            .style(move |_| {
-                ContainerStyle::default().border(
-                    border::rounded(structure.inner_border_radius)
-                        .width(structure.border_thickness)
-                        .color(if is_hovered {
-                            theme.border
-                        } else {
-                            Color::TRANSPARENT
-                        }),
-                )
-            })
-            .padding(structure.small_gap / 2.0),
-        )
-        .on_enter(TimelineItemMessage::EventEnter)
-        .on_exit(TimelineItemMessage::EventExit)
+        w::row![
+            w::container(phosphor_icon(icon, structure.chat.text_size))
+                .style(move |_| ContainerStyle::default().color(icon_color))
+                .width(col_width)
+                .center_x(col_width),
+            self.content.render_content(theme, structure, sender_name)
+        ]
+        .align_y(Alignment::Center)
         .into()
     }
 }

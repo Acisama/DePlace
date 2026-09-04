@@ -38,8 +38,6 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
             id: self.unique_id().0.clone(),
             kind: TimelineItemKind::from_ui(self.kind()),
 
-            is_hovered: false,
-
             avatar_cache: avatar_cache.clone(),
             avatar_states_for_hash: BTreeSet::new(),
             thumbnail_cache: thumbnail_cache.clone(),
@@ -83,13 +81,16 @@ impl TimelineItemKind {
                 // With a normal closure, there would be move problems
                 macro_rules! system {
                     ($content:expr) => {
-                        TimelineItemKind::System(Arc::new(SystemEvent {
-                            timestamp,
-                            event_id,
-                            sender,
-                            sender_profile,
-                            content: $content,
-                        }))
+                        TimelineItemKind::System {
+                            is_hovered: false,
+                            event: Arc::new(SystemEvent {
+                                timestamp,
+                                event_id,
+                                sender,
+                                sender_profile,
+                                content: $content,
+                            }),
+                        }
                     };
                 }
 
@@ -207,8 +208,8 @@ impl TimelineItemKind {
                         call_intent: call_intent.clone(),
                         declined_by: declined_by.clone(),
                     }),
-                    TimelineItemContent::MsgLike(m) => {
-                        TimelineItemKind::Message(Box::new(MessageEvent {
+                    TimelineItemContent::MsgLike(m) => TimelineItemKind::Message {
+                        event: Box::new(MessageEvent {
                             timestamp,
 
                             event_id,
@@ -231,8 +232,9 @@ impl TimelineItemKind {
                             send_state: event.send_state().cloned(),
 
                             content: Arc::new(MessageContent::from(&m.kind)),
-                        }))
-                    }
+                        }),
+                        is_hovered: false,
+                    },
                 }
             }
         }
