@@ -227,7 +227,11 @@ impl VideoCache {
                 let url = url::Url::from_file_path(file.path()).unwrap();
 
                 match iced_video_player::Video::new(&url) {
-                    Ok(video) => MediaState::Loaded(Arc::new((Arc::new(video), Arc::new(file)))),
+                    Ok(video) => {
+                        video.set_paused(true);
+                        video.set_looping(true);
+                        MediaState::Loaded(Arc::new((Arc::new(video), Arc::new(file))))
+                    }
                     Err(e) => {
                         tracing::error!("Failed to play video file: {e}");
                         success = false;

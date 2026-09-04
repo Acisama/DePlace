@@ -39,7 +39,7 @@ pub enum TimelineItemMessage {
     EventExit,
     MediaMouseEnter,
     MediaMouseLeave,
-    None,
+    ToggleVideoPause(Arc<iced_video_player::Video>),
 }
 
 impl NeedsAvatarExt for TimelineItemMessage {
@@ -131,9 +131,11 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 };
                 None
             }
-            TimelineItemMessage::None
-            | TimelineItemMessage::MediaMouseEnter
-            | TimelineItemMessage::MediaMouseLeave => None,
+            TimelineItemMessage::ToggleVideoPause(video) => {
+                video.set_paused(!video.paused());
+                None
+            }
+            TimelineItemMessage::MediaMouseEnter | TimelineItemMessage::MediaMouseLeave => None,
         }
     }
 

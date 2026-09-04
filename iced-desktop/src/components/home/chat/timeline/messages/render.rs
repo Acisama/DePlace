@@ -503,17 +503,21 @@ fn render_message_kind(
                 media.into()
             };
 
+            let mut mouse_area = w::mouse_area(media)
+                .on_enter(TimelineItemMessage::MediaMouseEnter)
+                .on_exit(TimelineItemMessage::MediaMouseLeave)
+                .interaction(Interaction::Pointer);
+
+            if let MediaState::Loaded(video_data) = &cached_video {
+                mouse_area = mouse_area
+                    .on_press(TimelineItemMessage::ToggleVideoPause(video_data.0.clone()));
+            }
+
             (
                 caption
                     .as_ref()
                     .map(|c| render_normal_text(c.clone()).into()),
-                Some(
-                    w::mouse_area(media)
-                        .on_enter(TimelineItemMessage::MediaMouseEnter)
-                        .on_exit(TimelineItemMessage::MediaMouseLeave)
-                        .interaction(Interaction::Pointer)
-                        .into(),
-                ),
+                Some(mouse_area.into()),
             )
         }
     }
