@@ -399,10 +399,6 @@ fn render_message_kind(
             let cached_video = video_cache.get(&source.unique_key()).unwrap_or_default();
             let mut stack = Stack::new();
 
-            if matches!(cached_video, MediaState::Loaded(_)) {
-                tracing::warn!("cached_video is loaded");
-            }
-
             if let Some(image) = blur_preview {
                 stack = stack.push(
                     w::image(image)
