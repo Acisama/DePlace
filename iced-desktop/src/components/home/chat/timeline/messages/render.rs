@@ -150,6 +150,7 @@ fn render_message_kind(
                     style: iced::font::Style::Italic,
                     ..Default::default()
                 })]
+                .color(theme.text.dim)
                 .on_link_click(never)
                 .size(text_size)
                 .into(),
@@ -341,7 +342,25 @@ fn render_message_kind(
             render_warning_text("Server notice messages are not yet implemented")
         }
         MessageContent::Poll => render_warning_text("Poll messages are not yet implemented"),
-        MessageContent::Redacted => itallic_text("Redacted".to_string()),
+        MessageContent::Redacted => (
+            Some(
+                w::row![
+                    w::container(phosphor_icon(icons::trash::BOLD, text_size))
+                        .style(move |_| ContainerStyle::default().color(theme.text.dim)),
+                    w::rich_text![w::span("Redacted").font(Font {
+                        style: iced::font::Style::Italic,
+                        ..Default::default()
+                    })]
+                    .color(theme.text.dim)
+                    .on_link_click(never)
+                    .size(text_size)
+                ]
+                .spacing(structure.small_gap / 2.0)
+                .align_y(Alignment::Center)
+                .into(),
+            ),
+            None,
+        ),
         MessageContent::Sticker => render_warning_text("Sticker messages are not yet implemented"),
         MessageContent::Text {
             body,

@@ -1,4 +1,3 @@
-#[cfg(feature = "iced_desktop")]
 use std::{hash::Hash, sync::Arc};
 
 use dashmap::DashMap;
@@ -139,7 +138,7 @@ impl AvatarCache {
 
         self.cache.insert(uri.clone(), res);
 
-        return (media_res, success);
+        (media_res, success)
     }
 }
 
@@ -183,7 +182,7 @@ impl ThumbnailCache {
 
         self.cache.insert(key, res);
 
-        return (media_res, success);
+        (media_res, success)
     }
 }
 
@@ -224,7 +223,13 @@ impl VideoCache {
             .await
         {
             Ok(file) => {
-                let url = url::Url::from_file_path(file.path()).unwrap();
+                let url = match url::Url::from_file_path(file.path()) {
+                    Ok(url) => url,
+                    Err(_) => {
+                        tracing::error!("Failed to parse video file path");
+                        return (media_res, false);
+                    }
+                };
 
                 match iced_video_player::Video::new(&url) {
                     Ok(video) => {
@@ -248,6 +253,6 @@ impl VideoCache {
 
         self.cache.insert(key.clone(), res);
 
-        return (media_res, success);
+        (media_res, success)
     }
 }
