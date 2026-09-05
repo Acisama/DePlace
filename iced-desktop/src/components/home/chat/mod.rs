@@ -79,7 +79,7 @@ impl Chat {
                 initial.len()
             );
 
-            if initial.is_empty() {
+            if initial.len() < 100 {
                 match timeline.paginate_backwards(30).await {
                     Ok(reached_start) => tracing::debug!(
                         "Paginated room {} backwards (reached_start={})",
@@ -95,12 +95,7 @@ impl Chat {
             let initial = Arc::new(
                 initial
                     .into_iter()
-                    .map(|m| {
-                        (
-                            m.unique_id().0.clone(),
-                            Arc::new(m.convert(&avatar_cache, &thumbnail_cache, &video_cache)),
-                        )
-                    })
+                    .map(|m| Arc::new(m.convert(&avatar_cache, &thumbnail_cache, &video_cache)))
                     .collect(),
             );
 
@@ -176,10 +171,10 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     None
                 }
             }
-            ChatMessage::Input(msg) => match self.input.update(msg) {
-                None => None,
-                Some(InputAction::Run(task)) => Some(ChatAction::Run(task)),
-            },
+            ChatMessage::Input(msg) => self
+                .input
+                .update(msg)
+                .map(|InputAction::Run(task)| ChatAction::Run(task)),
         }
     }
 

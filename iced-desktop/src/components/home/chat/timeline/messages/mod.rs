@@ -94,7 +94,8 @@ impl TimelineItem {
     }
 
     pub fn load_media(&mut self, media: &MediaLoaded) -> bool {
-        match media {
+        let id = self.id.clone();
+        let result = match media {
             MediaLoaded::Avatar { uri } if let Some(hashes) = self.avatar_hashes() => {
                 hashes.remove(uri)
             }
@@ -105,7 +106,9 @@ impl TimelineItem {
                 hashes.remove(key)
             }
             _ => false,
-        }
+        };
+        tracing::debug!("[diag] TimelineItem({id}).load_media({media:?}) -> {result}");
+        result
     }
 
     fn set_hovered(&mut self, new_hovered: bool) -> Option<TimelineItemAction> {
@@ -352,7 +355,12 @@ struct MessageEvent {
 
     in_reply_to: Arc<Vec<ReplyToDetails>>,
 
-    reactions: ReactionsByKeyBySender,
+    // Arc-wrapped because `MessageEvent` gets deep-cloned on every render
+    // pass (`w::lazy` must clone its dependency before it can even check
+    // the hash to decide whether to skip re-rendering) -- without this,
+    // a message with many reactions makes every touch of its row
+    // expensive regardless of how many other messages are in the room.
+    reactions: Arc<ReactionsByKeyBySender>,
 
     avatar_cache: AvatarCache,
 

@@ -1,4 +1,4 @@
-use std::{hash::Hasher, rc::Rc};
+use std::collections::HashMap;
 
 use deplace_core::PaginationDirection;
 use macros::iced_cache;
@@ -19,7 +19,7 @@ pub enum TimelineMessage {
     },
     Loaded {
         timeline: Arc<Timeline>,
-        initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
+        initial: Arc<Vec<Arc<TimelineItem>>>,
     },
     Diffs(Vec<VectorDiff<Arc<UiTimelineItem>>>),
     SetReplying(OwnedEventId),
@@ -52,7 +52,8 @@ pub struct ChatTimeline {
     loading_top: bool,
     loading_bottom: bool,
 
-    messages: Arc<IndexMap<String, Arc<TimelineItem>>>,
+    content: list::Content<Arc<TimelineItem>>,
+    id_index: Arc<HashMap<String, usize>>,
     #[hash]
     messages_version: u64,
 }
@@ -69,15 +70,18 @@ impl ChatTimeline {
             loading_top: false,
             loading_bottom: false,
 
-            messages: Arc::new(IndexMap::new()),
+            content: list::Content::default(),
+            id_index: Arc::new(HashMap::new()),
             messages_version: 0,
         }
     }
 
     pub fn load_media(&mut self, media: &MediaLoaded) {
         let mut changed = false;
-        for item in Arc::make_mut(&mut self.messages).values_mut() {
-            changed &= Arc::make_mut(item).load_media(media);
+        for index in 0..self.content.len() {
+            if let Some(item) = self.content.get_mut(index) {
+                changed |= Arc::make_mut(item).load_media(media);
+            }
         }
 
         if changed {
@@ -103,7 +107,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     fn update(&mut self, message: TimelineMessage) -> Option<TimelineAction> {
         match message {
             TimelineMessage::Item { id, message } => {
-                let Some(item) = Arc::make_mut(&mut self.messages).get_mut(&id) else {
+                let Some(&index) = self.id_index.get(&id) else {
+                    tracing::warn!("No item found for id {}", id);
+                    return None;
+                };
+                let Some(item) = self.content.get_mut(index) else {
                     tracing::warn!("No item found for id {}", id);
                     return None;
                 };
@@ -125,7 +133,14 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     initial.len()
                 );
                 self.timeline = Some(timeline);
-                self.messages = initial;
+                self.id_index = Arc::new(
+                    initial
+                        .iter()
+                        .enumerate()
+                        .map(|(index, item)| (item.id.clone(), index))
+                        .collect(),
+                );
+                self.content = list::Content::with_items((*initial).clone());
                 self.messages_version += 1;
             }
             TimelineMessage::Diffs(diffs) => {
@@ -133,74 +148,67 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     "ChatTimeline for room {} applying {} diff(s), {} messages before",
                     self.room_id,
                     diffs.len(),
-                    self.messages.len()
+                    self.content.len()
                 );
 
-                let messages = Arc::make_mut(&mut self.messages);
                 let avatar_cache = self.state.avatar_cache();
                 let thumbnail_cache = self.state.thumbnail_cache();
                 let video_cache = self.state.video_cache();
 
                 for diff in diffs.into_iter().map(|d| {
-                    d.map(|m| {
-                        (
-                            m.unique_id().0.clone(),
-                            m.convert(avatar_cache, thumbnail_cache, video_cache),
-                        )
-                    })
+                    d.map(|m| Arc::new(m.convert(avatar_cache, thumbnail_cache, video_cache)))
                 }) {
                     match diff {
                         VectorDiff::Append { values } => {
-                            for (key, value) in values {
-                                messages.insert(key, Arc::new(value));
+                            for value in values {
+                                self.content.push(value);
                             }
                         }
-                        VectorDiff::Clear => {
-                            messages.clear();
-                        }
-                        VectorDiff::Insert {
-                            index,
-                            value: (key, value),
-                        } => {
-                            messages.shift_insert(index, key, Arc::new(value));
+                        // A wholesale reset -- nothing incremental to
+                        // preserve, so a fresh Content is both correct and
+                        // cheaper than removing every item one by one.
+                        VectorDiff::Clear => self.content = list::Content::new(),
+                        VectorDiff::Insert { index, value } => {
+                            self.content.insert(index, value);
                         }
                         VectorDiff::PopBack => {
-                            messages.pop();
-                        }
-                        VectorDiff::PopFront => {
-                            messages.shift_remove_index(0);
-                        }
-                        VectorDiff::PushBack {
-                            value: (key, value),
-                        } => {
-                            messages.insert(key, Arc::new(value));
-                        }
-                        VectorDiff::PushFront {
-                            value: (key, value),
-                        } => {
-                            messages.shift_insert(0, key, Arc::new(value));
-                        }
-                        VectorDiff::Remove { index } => {
-                            messages.shift_remove_index(index);
-                        }
-                        VectorDiff::Reset { values } => {
-                            messages.clear();
-                            for (key, value) in values {
-                                messages.insert(key, Arc::new(value));
+                            if !self.content.is_empty() {
+                                self.content.remove(self.content.len() - 1);
                             }
                         }
-                        VectorDiff::Set {
-                            index,
-                            value: (key, value),
-                        } => {
-                            messages.shift_remove_index(index);
-                            messages.shift_insert(index, key, Arc::new(value));
+                        VectorDiff::PopFront => {
+                            if !self.content.is_empty() {
+                                self.content.remove(0);
+                            }
+                        }
+                        VectorDiff::PushBack { value } => self.content.push(value),
+                        VectorDiff::PushFront { value } => self.content.insert(0, value),
+                        VectorDiff::Remove { index } => {
+                            self.content.remove(index);
+                        }
+                        VectorDiff::Reset { values } => {
+                            self.content = list::Content::with_items(values.into_iter().collect());
+                        }
+                        VectorDiff::Set { index, value } => {
+                            if let Some(slot) = self.content.get_mut(index) {
+                                *slot = value;
+                            }
                         }
                         VectorDiff::Truncate { length } => {
-                            messages.truncate(length);
+                            while self.content.len() > length {
+                                self.content.remove(self.content.len() - 1);
+                            }
                         }
                     }
                 }
+
+                self.id_index = Arc::new(
+                    (0..self.content.len())
+                        .filter_map(|index| {
+                            self.content.get(index).map(|item| (item.id.clone(), index))
+                        })
+                        .collect(),
+                );
                 self.messages_version += 1;
             }
             TimelineMessage::SetReplying(event_id) => {
@@ -215,6 +223,13 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 if already_loading {
                     return None;
                 }
+
+                match direction {
+                    PaginationDirection::Forward => self.loading_bottom = true,
+                    PaginationDirection::Backward => self.loading_top = true,
+                };
+
+                tracing::trace!("Scrolling to edge: direction={:?}", direction);
 
                 let timeline = self.timeline.clone()?;
                 return Some(TimelineAction::Scroll {
@@ -239,40 +254,53 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, TimelineMessage> {
-        let list_content = self
-            .messages
-            .iter()
-            .map(|(a, b)| (a.clone(), b.clone()))
-            .collect::<Vec<(String, Arc<TimelineItem>)>>();
-        let content = list::Content::new(list::ContentInner::with_items(list_content));
+        let reached_top = self.reached_top;
+        let reached_bottom = self.reached_bottom;
+        let loading_top = self.loading_top;
+        let loading_bottom = self.loading_bottom;
+
         w::container(
             w::scrollable(
-                w::container(list(content, move |_index, arc| {
-                    let (id, item) = &*arc;
-                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                    id.hash(&mut hasher);
-                    let key = hasher.finish();
-
-                    let id = id.clone();
-                    let item = item.clone();
-                    let element = w::lazy(item.clone(), move |item| {
+                w::container(list(self.content.clone(), move |_index, item| {
+                    let id = item.id.clone();
+                    w::lazy(item.clone(), move |item| {
                         let id = id.clone();
                         item.view(theme, structure)
                             .map(move |msg| TimelineMessage::Item {
                                 id: id.clone(),
                                 message: msg,
                             })
-                    });
-                    element.into()
+                    })
+                    .into()
                 }))
                 .padding(10)
                 .width(Fill),
             )
-            .width(Fill),
-            // Space::new().height(structure.gap * 3.0),
-            // )
-            // .anchor_bottom()
-            // .width(Fill),
+            .width(Fill)
+            .anchor_bottom()
+            .on_scroll(move |viewport| {
+                // With `anchor_bottom`, `absolute_offset` is distance
+                // scrolled *up from the bottom*: 0 at the bottom, growing
+                // towards `max_offset` at the top.
+                let max_offset =
+                    (viewport.content_bounds().height - viewport.bounds().height).max(0.0);
+                let offset = viewport.absolute_offset().y;
+
+                if !reached_top
+                    && !loading_top
+                    && max_offset - offset <= structure.chat.icon_size * 6.0
+                {
+                    return TimelineMessage::Scroll {
+                        direction: PaginationDirection::Backward,
+                    };
+                }
+                if !reached_bottom && !loading_bottom && offset <= structure.chat.icon_size * 6.0 {
+                    return TimelineMessage::Scroll {
+                        direction: PaginationDirection::Forward,
+                    };
+                }
+                TimelineMessage::None
+            }),
         )
         .width(Fill)
         .align_bottom(Fill)
