@@ -1,7 +1,6 @@
 use crate::{
     common::*,
     components::overlay::{Overlay, OverlayMessage, QUICK_SELECT_INPUT_ID},
-    things::on_message,
 };
 use chat::{
     Chat, ChatAction, ChatMessage, TimelineMessage,
@@ -89,8 +88,6 @@ impl Home {
     pub fn new(state: AppState) -> (Self, Task<HomeMessage>) {
         let active_room = state.active_room();
         let initial_room = active_room.borrow().clone();
-
-        state.client().add_event_handler(on_message);
 
         let home = Self {
             sidebar: Sidebar::new(&state),

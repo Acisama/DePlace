@@ -101,6 +101,44 @@ impl ChatTimeline {
             }
         }
     }
+
+    fn pagination_task(
+        &mut self,
+        direction: PaginationDirection,
+        amount: u16,
+    ) -> Option<TimelineAction> {
+        let already_loading = match direction {
+            PaginationDirection::Forward => self.loading_bottom,
+            PaginationDirection::Backward => self.loading_top,
+        };
+
+        if already_loading {
+            return None;
+        }
+
+        match direction {
+            PaginationDirection::Forward => self.loading_bottom = true,
+            PaginationDirection::Backward => self.loading_top = true,
+        };
+
+        tracing::trace!("Scrolling to edge: direction={:?}", direction);
+
+        let timeline = self.timeline.clone()?;
+        Some(TimelineAction::Scroll {
+            direction,
+            task: Task::future(async move {
+                match direction {
+                    PaginationDirection::Forward => timeline.paginate_forwards(amount).await,
+                    PaginationDirection::Backward => timeline.paginate_backwards(amount).await,
+                }
+                .map_err(|e| {
+                    tracing::error!("Failed to paginate: {}", e);
+                })
+                // Treat failure to paginate like hitting the end
+                .unwrap_or(true)
+            }),
+        })
+    }
 }
 
 impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
@@ -142,6 +180,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 );
                 self.content = list::Content::with_items((*initial).clone());
                 self.messages_version += 1;
+
+                if initial.len() < 50 {
+                    return self
+                        .pagination_task(PaginationDirection::Forward, 50 - initial.len() as u16);
+                }
             }
             TimelineMessage::Diffs(diffs) => {
                 tracing::debug!(
@@ -215,37 +258,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 return Some(TimelineAction::SetReplying(event_id));
             }
             TimelineMessage::Scroll { direction } => {
-                let already_loading = match direction {
-                    PaginationDirection::Forward => self.loading_bottom,
-                    PaginationDirection::Backward => self.loading_top,
-                };
-
-                if already_loading {
-                    return None;
-                }
-
-                match direction {
-                    PaginationDirection::Forward => self.loading_bottom = true,
-                    PaginationDirection::Backward => self.loading_top = true,
-                };
-
-                tracing::trace!("Scrolling to edge: direction={:?}", direction);
-
-                let timeline = self.timeline.clone()?;
-                return Some(TimelineAction::Scroll {
-                    direction,
-                    task: Task::future(async move {
-                        match direction {
-                            PaginationDirection::Forward => timeline.paginate_forwards(30).await,
-                            PaginationDirection::Backward => timeline.paginate_backwards(30).await,
-                        }
-                        .map_err(|e| {
-                            tracing::error!("Failed to paginate: {}", e);
-                        })
-                        // Treat failure to paginate like hitting the end
-                        .unwrap_or(true)
-                    }),
-                });
+                return self.pagination_task(direction, 30);
             }
             TimelineMessage::None => {}
         };

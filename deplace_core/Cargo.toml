@@ -21,6 +21,7 @@ getrandom.workspace = true
 gpui = { workspace = true, optional = true }
 hex = "0.4.3"
 iced = { workspace = true, optional = true }
+iced_video_player.workspace = true
 image.workspace = true
 imbl.workspace = true
 keyring-core = "1.0.0"
@@ -28,7 +29,9 @@ macros.workspace = true
 # livekit.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
+mime.workspace = true
 mime_guess.workspace = true
+notify-rust = "4.18.0"
 ruma.workspace = true
 scraper = "0.27.0"
 serde.workspace = true
@@ -40,8 +43,6 @@ toml_edit.workspace = true
 tracing.workspace = true
 url.workspace = true
 uuid.workspace = true
-iced_video_player.workspace = true
-mime.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1.0"

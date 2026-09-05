@@ -21,7 +21,7 @@ use crate::{
     keyring::{self, StoredSession, get_or_create_store_key},
     matrix_api::sync::spawn_room_sync,
     settings::{SETTINGS_FILE_NAME, Settings},
-    state::{AppState, UserDevice},
+    state::{AppState, ImportantPaths, UserDevice},
 };
 
 pub async fn test_server(url: Url) -> Option<Client> {
@@ -117,24 +117,13 @@ where
     F: FnOnce(String) -> Fut + Send + 'static,
     Fut: Future<Output = matrix_sdk::Result<()>> + Send + 'static,
 {
-    // let temp_client = match Client::new(url.clone()).await {
-    //     Ok(c) => c,
-    //     Err(e) => {
-    //         tracing::error!("Failed to construct client: {e}");
-    //         return LoginResult::Error("Failed to construct client".to_string());
-    //     }
-    // };
-
-    // if temp_client
-    //     .matrix_auth()
-    //     .login_username(&username, &password)
-    //     .initial_device_display_name(DEVICE_DISPLAY_NAME)
-    //     .send()
-    //     .await
-    //     .is_err()
-    // {
-    //     return LoginResult::InvalidCredentials;
-    // }
+    let paths = match ImportantPaths::new() {
+        Ok(paths) => paths,
+        Err(error) => {
+            tracing::error!("Failed to create important paths: {:?}", error);
+            return LoginResult::Error(error.to_string());
+        }
+    };
 
     let (url, temp_client) = match method {
         LoginMethod::Credentials {
@@ -219,7 +208,7 @@ where
 
     save_session(&client);
 
-    let state = AppState::new(client.clone(), device.clone(), settings).await;
+    let state = AppState::new(client.clone(), device.clone(), settings, paths).await;
     spawn_room_sync(&client, &state);
 
     LoginResult::Success(state)

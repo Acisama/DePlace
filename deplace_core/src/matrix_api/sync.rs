@@ -5,6 +5,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use matrix_sdk::{
     Client, Room, config::SyncSettings, room::ParentSpace, ruma::presence::PresenceState,
+    sync::SyncResponse,
 };
 use ruma::{OwnedRoomId, events::space::child::SpaceChildEventContent};
 
@@ -15,6 +16,7 @@ use crate::{
         presence::{get_presences, handle_presences},
         save_session,
     },
+    notifications::on_message,
     state::AppState,
 };
 
@@ -50,19 +52,32 @@ async fn run_sync_stream(client: Client, state: AppState) {
     let sync_stream = client.sync_stream(sync_settings).await;
     let mut sync_stream = pin!(sync_stream);
 
-    while let Some(result) = sync_stream.next().await {
-        let result = match result {
-            Ok(result) => result,
-            Err(e) => {
-                tracing::error!("Sync loop returned an error: {e:?}");
-                continue;
-            }
-        };
+    let Some(result) = sync_stream.next().await else {
+        return;
+    };
 
-        handle_presences(&result.presence, &state);
+    #[allow(clippy::useless_conversion)]
+    handle_sync_result(result.into(), &state).await;
+    client.add_event_handler(on_message);
+
+    while let Some(result) = sync_stream.next().await {
+        #[allow(clippy::useless_conversion)]
+        handle_sync_result(result.into(), &state).await;
     }
 
     tracing::warn!("Sync stream ended");
+}
+
+async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &AppState) {
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::error!("Sync loop returned an error: {e:?}");
+            return;
+        }
+    };
+
+    handle_presences(&result.presence, state);
 }
 
 async fn run_room_classification(client: Client, state: AppState) {
