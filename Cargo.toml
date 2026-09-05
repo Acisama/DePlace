@@ -60,6 +60,7 @@ url-macro = "0.2.4"
 uuid = { version = "1.24.0", features = ["v7"] }
 iced_video_player = { git = "https://codeberg.org/aosiuejhf/iced_video_player.git" }
 mime = "0.3.17"
+sweeten = { git = "https://codeberg.org/aosiuejhf/sweeten-fork.git", branch = "master" }
 
 # [patch."https://github.com/acisama/iced"]
 # iced = { path = "/home/eriko/iced" }

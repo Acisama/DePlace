@@ -1,9 +1,10 @@
-use std::hash::Hasher;
+use std::{hash::Hasher, rc::Rc};
 
 use deplace_core::PaginationDirection;
 use macros::iced_cache;
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as UiTimelineItem};
 use messages::{TimelineItem, TimelineItemAction, TimelineItemMessage};
+use sweeten::widget::list;
 
 use crate::common::*;
 
@@ -18,7 +19,7 @@ pub enum TimelineMessage {
     },
     Loaded {
         timeline: Arc<Timeline>,
-        initial: Arc<IndexMap<String, TimelineItem>>,
+        initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
     },
     Diffs(Vec<VectorDiff<Arc<UiTimelineItem>>>),
     SetReplying(OwnedEventId),
@@ -51,7 +52,7 @@ pub struct ChatTimeline {
     loading_top: bool,
     loading_bottom: bool,
 
-    messages: Arc<IndexMap<String, TimelineItem>>,
+    messages: Arc<IndexMap<String, Arc<TimelineItem>>>,
     #[hash]
     messages_version: u64,
 }
@@ -76,7 +77,7 @@ impl ChatTimeline {
     pub fn load_media(&mut self, media: &MediaLoaded) {
         let mut changed = false;
         for item in Arc::make_mut(&mut self.messages).values_mut() {
-            changed &= item.load_media(media);
+            changed &= Arc::make_mut(item).load_media(media);
         }
 
         if changed {
@@ -106,7 +107,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     tracing::warn!("No item found for id {}", id);
                     return None;
                 };
-                return match item.update(message) {
+                return match Arc::make_mut(item).update(message) {
                     Some(TimelineItemAction::Update) => {
                         self.messages_version += 1;
                         None
@@ -151,7 +152,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     match diff {
                         VectorDiff::Append { values } => {
                             for (key, value) in values {
-                                messages.insert(key, value);
+                                messages.insert(key, Arc::new(value));
                             }
                         }
                         VectorDiff::Clear => {
@@ -161,7 +162,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             index,
                             value: (key, value),
                         } => {
-                            messages.shift_insert(index, key, value);
+                            messages.shift_insert(index, key, Arc::new(value));
                         }
                         VectorDiff::PopBack => {
                             messages.pop();
@@ -172,12 +173,12 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         VectorDiff::PushBack {
                             value: (key, value),
                         } => {
-                            messages.insert(key, value);
+                            messages.insert(key, Arc::new(value));
                         }
                         VectorDiff::PushFront {
                             value: (key, value),
                         } => {
-                            messages.shift_insert(0, key, value);
+                            messages.shift_insert(0, key, Arc::new(value));
                         }
                         VectorDiff::Remove { index } => {
                             messages.shift_remove_index(index);
@@ -185,7 +186,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         VectorDiff::Reset { values } => {
                             messages.clear();
                             for (key, value) in values {
-                                messages.insert(key, value);
+                                messages.insert(key, Arc::new(value));
                             }
                         }
                         VectorDiff::Set {
@@ -193,7 +194,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             value: (key, value),
                         } => {
                             messages.shift_remove_index(index);
-                            messages.shift_insert(index, key, value);
+                            messages.shift_insert(index, key, Arc::new(value));
                         }
                         VectorDiff::Truncate { length } => {
                             messages.truncate(length);
@@ -238,34 +239,40 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, TimelineMessage> {
+        let list_content = self
+            .messages
+            .iter()
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect::<Vec<(String, Arc<TimelineItem>)>>();
+        let content = list::Content::new(list::ContentInner::with_items(list_content));
         w::container(
             w::scrollable(
-                w::column![
-                    w::keyed_column(self.messages.iter().map(|(id, item)| {
-                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                        id.hash(&mut hasher);
-                        let key = hasher.finish();
+                w::container(list(content, move |_index, arc| {
+                    let (id, item) = &*arc;
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    id.hash(&mut hasher);
+                    let key = hasher.finish();
 
+                    let id = id.clone();
+                    let item = item.clone();
+                    let element = w::lazy(item.clone(), move |item| {
                         let id = id.clone();
-                        let item = item.clone();
-                        let element = w::lazy(item.clone(), move |item| {
-                            let id = id.clone();
-                            item.view(theme, structure)
-                                .map(move |msg| TimelineMessage::Item {
-                                    id: id.clone(),
-                                    message: msg,
-                                })
-                        });
-                        (key, element.into())
-                    }))
-                    .spacing(structure.small_gap)
-                    .width(Fill),
-                    Space::new().height(structure.gap * 3.0)
-                ]
+                        item.view(theme, structure)
+                            .map(move |msg| TimelineMessage::Item {
+                                id: id.clone(),
+                                message: msg,
+                            })
+                    });
+                    element.into()
+                }))
+                .padding(10)
                 .width(Fill),
             )
-            .anchor_bottom()
             .width(Fill),
+            // Space::new().height(structure.gap * 3.0),
+            // )
+            // .anchor_bottom()
+            // .width(Fill),
         )
         .width(Fill)
         .align_bottom(Fill)

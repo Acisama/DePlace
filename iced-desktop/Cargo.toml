@@ -30,6 +30,7 @@ url-macro.workspace = true
 uuid.workspace = true
 notify-rust = "4.18.0"
 iced_video_player.workspace = true
+sweeten.workspace = true
 
 [dev-dependencies]
 naga = "27"

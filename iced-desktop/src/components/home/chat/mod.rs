@@ -98,7 +98,7 @@ impl Chat {
                     .map(|m| {
                         (
                             m.unique_id().0.clone(),
-                            m.convert(&avatar_cache, &thumbnail_cache, &video_cache),
+                            Arc::new(m.convert(&avatar_cache, &thumbnail_cache, &video_cache)),
                         )
                     })
                     .collect(),
