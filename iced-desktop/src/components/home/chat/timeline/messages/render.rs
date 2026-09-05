@@ -1,7 +1,4 @@
-use deplace_core::{
-    formatting::{fit_dimensions, format_bytes},
-    state::cache::VideoCache,
-};
+use deplace_core::formatting::{fit_dimensions, format_bytes};
 use iced::{Alignment, never};
 use iced_video_player::VideoPlayer;
 use matrix_sdk::{
@@ -25,16 +22,13 @@ use crate::{
     },
 };
 
-use super::{MessageContent, MessageEvent, TimelineItemMessage};
+use super::{ImageMessage, MessageContent, MessageEvent, TimelineItemMessage, VideoMessage};
 
 impl MessageEvent {
     pub fn view(
         &self,
         theme: Theme,
         structure: Structure,
-        avatar_cache: AvatarCache,
-        thumbnail_cache: ThumbnailCache,
-        video_cache: VideoCache,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let col_width = structure.chat_col_width();
         let pre_col_width = structure.small_gap * 1.5;
@@ -42,14 +36,7 @@ impl MessageEvent {
 
         let show_header = true;
 
-        let (text_content, other_content) = render_message_kind(
-            &self.content,
-            theme,
-            structure,
-            &thumbnail_cache,
-            &video_cache,
-            self.media_hovered,
-        );
+        let (text_content, other_content) = self.content.view(theme, structure);
 
         let mut column = w::Column::new();
 
@@ -75,7 +62,7 @@ impl MessageEvent {
                         Some(render_loading_name(size, theme)),
                     ),
                     TimelineDetails::Ready(p) => (
-                        Some(p.render_icon(size, &avatar_cache)),
+                        Some(p.render_icon(size, &self.avatar_cache)),
                         Some(p.render_name(text_size)),
                     ),
                 }
@@ -98,369 +85,74 @@ impl MessageEvent {
     }
 }
 
-fn render_message_kind(
-    kind: &MessageContent,
-    theme: Theme,
-    structure: Structure,
-    thumbnail_cache: &ThumbnailCache,
-    video_cache: &VideoCache,
-    media_hovered: bool,
-) -> (
-    Option<Element<'static, TimelineItemMessage>>,
-    Option<Element<'static, TimelineItemMessage>>,
-) {
-    let text_size = structure.chat.text_size;
+impl MessageContent {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+    ) -> (
+        Option<Element<'static, TimelineItemMessage>>,
+        Option<Element<'static, TimelineItemMessage>>,
+    ) {
+        let text_size = structure.chat.text_size;
 
-    let render_text_color = |text: String, color: Color| w::text(text).color(color).size(text_size);
-    let render_normal_text = |text: String| render_text_color(text, theme.text.normal);
-    let render_warning_text = |text: &'static str| {
-        (
-            Some(render_text_color(text.to_string(), theme.colors.warning).into()),
-            None,
-        )
-    };
-    let render_error_text = |text: &'static str| {
-        (
-            Some(render_text_color(text.to_string(), theme.colors.error).into()),
-            None,
-        )
-    };
-    let itallic_text = |text: String| {
-        (
-            Some(
-                w::rich_text![w::span(text).font(Font {
-                    style: iced::font::Style::Italic,
-                    ..Default::default()
-                })]
-                .color(theme.text.dim)
-                .on_link_click(never)
-                .size(text_size)
-                .into(),
-            ),
-            None,
-        )
-    };
-
-    match kind {
-        MessageContent::Audio => render_warning_text("Audio messages are not yet implemented"),
-        MessageContent::Emote {
-            body,
-            formatted_body,
-        } => (
-            body.as_ref().map(|t| render_normal_text(t.clone()).into()),
-            None,
-        ),
-        MessageContent::Empty => itallic_text("Empty".to_string()),
-        MessageContent::File { .. } => render_warning_text("File messages are not yet implemented"),
-        MessageContent::Image {
-            caption,
-            formatted_caption,
-            blur_preview,
-            filename,
-            source,
-            info,
-        } => {
-            let max_width = structure.chat.max_media_width;
-            let max_height = structure.chat.max_media_height;
-
-            let label = format!(
-                "{filename}{}",
-                info.as_ref()
-                    .and_then(|i| i.size.map(|s| format!(
-                        " ({})",
-                        format_bytes(s, deplace_core::settings::DataSizeUnit::Bytes)
-                    )))
-                    .unwrap_or_default()
-            );
-
-            // Just an overestimate to be sure
-            let min_width = label.len() as f32 * structure.chat.text_size;
-
-            let (width, height) = fit_dimensions(
-                info.as_ref()
-                    .and_then(|i| i.width.map(|w| w as f32))
-                    .unwrap_or(max_width),
-                info.as_ref()
-                    .and_then(|i| i.height.map(|h| h as f32))
-                    .unwrap_or(max_height),
-                max_width,
-                max_height,
-                min_width,
-            );
-
-            let thumbnail_source = info
-                .as_ref()
-                .and_then(|i| i.thumbnail_source.clone())
-                .unwrap_or_else(|| source.clone());
-
-            let thumbnail_key = (thumbnail_source.unique_key(), width as u64, height as u64);
-            let image = thumbnail_cache.get(&thumbnail_key).unwrap_or_default();
-
-            let mut stack = Stack::new();
-
-            if let Some(image) = blur_preview {
-                stack = stack.push(
-                    w::image(image)
-                        .width(width)
-                        .height(height)
-                        .content_fit(iced::ContentFit::Fill)
-                        .border_radius(structure.inner_border_radius),
-                );
-            }
-
-            stack = match &image {
-                MediaState::Failed => stack
-                    .push(
-                        w::container(
-                            weighted_text("Image failed to load", Weight::Bold)
-                                .size(structure.chat.text_size * 1.5),
-                        )
-                        .width(Fill)
-                        .height(Fill)
-                        .center(Fill)
-                        .style(move |_| w::container::Style {
-                            background: Some(theme.colors.error.scale_lightness(0.2).into()),
-                            text_color: Some(theme.colors.error),
-                            border: Border {
-                                color: theme.colors.error,
-                                width: 0.0,
-                                radius: 0.0.into(),
-                            },
-                            ..Default::default()
-                        }),
-                    )
-                    .push(
-                        Canvas::new(InsetShadow::new(
-                            structure.inner_border_radius,
-                            theme.colors.error,
-                            structure.chat.text_size / 2.0,
-                            8,
-                        ))
-                        .width(width)
-                        .height(height),
-                    ),
-                MediaState::Loaded(image) => stack.push(
-                    w::image((*(*image).clone()).clone())
-                        .width(width)
-                        .height(height)
-                        .border_radius(structure.inner_border_radius),
-                ),
-                _ => stack,
-            };
-
-            if media_hovered {
-                stack = stack.push(
-                    w::container(
-                        w::container(w::text(label).size(text_size).color(theme.text.normal))
-                            .style(move |_| ContainerStyle {
-                                background: Some(theme.solid_bg.into()),
-                                border: Border {
-                                    color: theme.border,
-                                    width: structure.border_thickness,
-                                    radius: ((structure.smaller_border_radius
-                                        + structure.inner_border_radius)
-                                        / 2.0)
-                                        .into(),
-                                },
-                                ..Default::default()
-                            })
-                            .padding(structure.small_gap / 2.0),
-                    )
-                    .padding(structure.small_gap / 2.0)
-                    .align_bottom(height),
-                )
-            }
-
-            let media = w::mouse_area(w::container(stack).width(width).height(height).style(
-                move |_| ContainerStyle {
-                    border: Border {
-                        color: Color::TRANSPARENT,
-                        width: 0.0,
-                        radius: structure.inner_border_radius.into(),
-                    },
-                    ..Default::default()
-                },
-            ));
-
-            let media: Element<'static, TimelineItemMessage> = if image.is_loading() {
-                on_appear(
-                    media,
-                    TimelineItemMessage::NeedsMedia(NeedsMedia::thumbnail(
-                        source.clone(),
-                        thumbnail_key,
-                    )),
-                )
-                .into()
-            } else {
-                media.into()
-            };
-
+        let render_text_color =
+            |text: String, color: Color| w::text(text).color(color).size(text_size);
+        let render_normal_text = |text: String| render_text_color(text, theme.text.normal);
+        let render_warning_text = |text: &'static str| {
             (
-                caption
-                    .as_ref()
-                    .map(|c| render_normal_text(c.clone()).into()),
-                Some(
-                    w::mouse_area(media)
-                        .on_enter(TimelineItemMessage::MediaMouseEnter)
-                        .on_exit(TimelineItemMessage::MediaMouseLeave)
-                        .interaction(Interaction::Pointer)
-                        .into(),
-                ),
+                Some(render_text_color(text.to_string(), theme.colors.warning).into()),
+                None,
             )
-        }
-        MessageContent::LiveLocation => {
-            render_warning_text("Live location messages are not yet implemented")
-        }
-        MessageContent::Location => {
-            render_warning_text("Location messages are not yet implemented")
-        }
-        MessageContent::Notice { .. } => {
-            render_warning_text("Notice messages are not yet implemented")
-        }
-        MessageContent::Other { event_type } => {
-            itallic_text(format!("Message of type: {}", event_type))
-        }
-        MessageContent::ServerNotice { .. } => {
-            render_warning_text("Server notice messages are not yet implemented")
-        }
-        MessageContent::Poll => render_warning_text("Poll messages are not yet implemented"),
-        MessageContent::Redacted => (
-            Some(
-                w::row![
-                    w::container(phosphor_icon(icons::trash::BOLD, text_size))
-                        .style(move |_| ContainerStyle::default().color(theme.text.dim)),
-                    w::rich_text![w::span("Redacted").font(Font {
+        };
+        let render_error_text = |text: &'static str| {
+            (
+                Some(render_text_color(text.to_string(), theme.colors.error).into()),
+                None,
+            )
+        };
+        let itallic_text = |text: String| {
+            (
+                Some(
+                    w::rich_text![w::span(text).font(Font {
                         style: iced::font::Style::Italic,
                         ..Default::default()
                     })]
                     .color(theme.text.dim)
                     .on_link_click(never)
                     .size(text_size)
-                ]
-                .spacing(structure.small_gap / 2.0)
-                .align_y(Alignment::Center)
-                .into(),
+                    .into(),
+                ),
+                None,
+            )
+        };
+
+        match &self {
+            MessageContent::Audio => render_warning_text("Audio messages are not yet implemented"),
+            MessageContent::Emote {
+                body,
+                formatted_body,
+            } => (
+                body.as_ref().map(|t| render_normal_text(t.clone()).into()),
+                None,
             ),
-            None,
-        ),
-        MessageContent::Sticker => render_warning_text("Sticker messages are not yet implemented"),
-        MessageContent::Text {
-            body,
-            formatted_body,
-            ..
-        } => (
-            body.as_ref().map(|t| render_normal_text(t.clone()).into()),
-            None,
-        ),
-        MessageContent::UnableToDecrypt => {
-            render_error_text("Unable to decrypt messages are not yet implemented")
-        }
-        MessageContent::VerificationRequest {
-            body,
-            formatted_body,
-        } => (
-            body.as_ref().map(|t| render_normal_text(t.clone()).into()),
-            None,
-        ),
-        MessageContent::Video {
-            caption,
-            formatted_caption,
-            blur_preview,
-            filename,
-            source,
-            info,
-        } => {
-            let max_width = structure.chat.max_media_width;
-            let max_height = structure.chat.max_media_height;
-
-            let label = format!(
-                "{filename}{}",
-                info.as_ref()
-                    .and_then(|i| i.size.map(|s| format!(
-                        " ({})",
-                        format_bytes(s, deplace_core::settings::DataSizeUnit::Bytes)
-                    )))
-                    .unwrap_or_default()
-            );
-
-            let min_width = label.len() as f32 * structure.chat.text_size;
-
-            let (width, height) = fit_dimensions(
-                info.as_ref()
-                    .and_then(|i| i.width.map(|w| w as f32))
-                    .unwrap_or(max_width),
-                info.as_ref()
-                    .and_then(|i| i.height.map(|h| h as f32))
-                    .unwrap_or(max_height),
-                max_width,
-                max_height,
-                min_width,
-            );
-
-            let cached_video = video_cache.get(&source.unique_key()).unwrap_or_default();
-            let mut stack = Stack::new();
-
-            if let Some(image) = blur_preview {
-                stack = stack.push(
-                    w::image(image)
-                        .width(width)
-                        .height(height)
-                        .content_fit(iced::ContentFit::Fill)
-                        .border_radius(structure.inner_border_radius),
-                );
+            MessageContent::Empty => itallic_text("Empty".to_string()),
+            MessageContent::File { .. } => {
+                render_warning_text("File messages are not yet implemented")
             }
+            MessageContent::Image { image, is_hovered } => {
+                let mut stack = Stack::new().push(w::lazy(image.clone(), move |image| {
+                    image.image_view(theme, structure)
+                }));
 
-            stack = match &cached_video {
-                MediaState::Loaded(video) => stack.push(
-                    VideoPlayer::<TimelineItemMessage>::new(video.0.clone())
-                        .width(width)
-                        .height(height),
-                ),
-                MediaState::Failed => stack
-                    .push(
+                if *is_hovered {
+                    stack = stack.push(
                         w::container(
-                            weighted_text("Video failed to load", Weight::Bold)
-                                .size(structure.chat.text_size * 1.5),
-                        )
-                        .width(Fill)
-                        .height(Fill)
-                        .center(Fill)
-                        .style(move |_| w::container::Style {
-                            background: Some(theme.colors.error.scale_lightness(0.2).into()),
-                            text_color: Some(theme.colors.error),
-                            border: Border {
-                                color: theme.colors.error,
-                                width: 0.0,
-                                radius: 0.0.into(),
-                            },
-                            ..Default::default()
-                        }),
-                    )
-                    .push(
-                        Canvas::new(InsetShadow::new(
-                            structure.inner_border_radius,
-                            theme.colors.error,
-                            structure.chat.text_size / 2.0,
-                            8,
-                        ))
-                        .width(width)
-                        .height(height),
-                    ),
-                MediaState::Loading => stack.push(
-                    w::container(
-                        weighted_text("Loading Video...", Weight::Normal)
-                            .size(structure.chat.text_size),
-                    )
-                    .width(width)
-                    .height(height)
-                    .center(Fill),
-                ),
-            };
-
-            if media_hovered {
-                stack = stack.push(
-                    w::container(
-                        w::container(w::text(label).size(text_size).color(theme.text.normal))
+                            w::container(
+                                w::text(image.label())
+                                    .size(structure.chat.text_size)
+                                    .color(theme.text.normal),
+                            )
                             .style(move |_| ContainerStyle {
                                 background: Some(theme.solid_bg.into()),
                                 border: Border {
@@ -474,53 +166,381 @@ fn render_message_kind(
                                 ..Default::default()
                             })
                             .padding(structure.small_gap / 2.0),
+                        )
+                        .height(Fill)
+                        .padding(structure.small_gap / 2.0)
+                        .align_y(Alignment::End),
                     )
-                    .padding(structure.small_gap / 2.0)
-                    .align_bottom(height),
-                );
+                }
+
+                (
+                    // TODO: Actually use image caption
+                    None,
+                    Some(
+                        w::mouse_area(stack)
+                            .on_enter(TimelineItemMessage::MediaMouseEnter)
+                            .on_exit(TimelineItemMessage::MediaMouseLeave)
+                            .interaction(Interaction::Pointer)
+                            .into(),
+                    ),
+                )
             }
+            MessageContent::LiveLocation => {
+                render_warning_text("Live location messages are not yet implemented")
+            }
+            MessageContent::Location => {
+                render_warning_text("Location messages are not yet implemented")
+            }
+            MessageContent::Notice { .. } => {
+                render_warning_text("Notice messages are not yet implemented")
+            }
+            MessageContent::Other { event_type } => {
+                itallic_text(format!("Message of type: {}", event_type))
+            }
+            MessageContent::ServerNotice { .. } => {
+                render_warning_text("Server notice messages are not yet implemented")
+            }
+            MessageContent::Poll => render_warning_text("Poll messages are not yet implemented"),
+            MessageContent::Redacted => (
+                Some(
+                    w::row![
+                        w::container(phosphor_icon(icons::trash::BOLD, text_size))
+                            .style(move |_| ContainerStyle::default().color(theme.text.dim)),
+                        w::rich_text![w::span("Redacted").font(Font {
+                            style: iced::font::Style::Italic,
+                            ..Default::default()
+                        })]
+                        .color(theme.text.dim)
+                        .on_link_click(never)
+                        .size(text_size)
+                    ]
+                    .spacing(structure.small_gap / 2.0)
+                    .align_y(Alignment::Center)
+                    .into(),
+                ),
+                None,
+            ),
+            MessageContent::Sticker => {
+                render_warning_text("Sticker messages are not yet implemented")
+            }
+            MessageContent::Text {
+                body,
+                formatted_body,
+                ..
+            } => (
+                body.as_ref().map(|t| render_normal_text(t.clone()).into()),
+                None,
+            ),
+            MessageContent::UnableToDecrypt => {
+                render_error_text("Unable to decrypt messages are not yet implemented")
+            }
+            MessageContent::VerificationRequest {
+                body,
+                formatted_body,
+            } => (
+                body.as_ref().map(|t| render_normal_text(t.clone()).into()),
+                None,
+            ),
+            MessageContent::Video { video, is_hovered } => {
+                let mut stack = Stack::new().push(w::lazy(video.clone(), move |video| {
+                    video.video_view(theme, structure)
+                }));
 
-            let media = w::mouse_area(w::container(stack).width(width).height(height).style(
-                move |_| ContainerStyle {
-                    border: Border {
-                        color: Color::TRANSPARENT,
-                        width: 0.0,
-                        radius: structure.inner_border_radius.into(),
-                    },
-                    ..Default::default()
-                },
-            ));
+                if *is_hovered {
+                    stack = stack.push(
+                        w::container(
+                            w::container(
+                                w::text(video.label())
+                                    .size(structure.chat.text_size)
+                                    .color(theme.text.normal),
+                            )
+                            .style(move |_| ContainerStyle {
+                                background: Some(theme.solid_bg.into()),
+                                border: Border {
+                                    color: theme.border,
+                                    width: structure.border_thickness,
+                                    radius: ((structure.smaller_border_radius
+                                        + structure.inner_border_radius)
+                                        / 2.0)
+                                        .into(),
+                                },
+                                ..Default::default()
+                            })
+                            .padding(structure.small_gap / 2.0),
+                        )
+                        .height(Fill)
+                        .padding(structure.small_gap / 2.0)
+                        .align_y(Alignment::End),
+                    )
+                }
 
-            let media: Element<'static, TimelineItemMessage> = if cached_video.is_loading() {
-                on_appear(
-                    media,
-                    TimelineItemMessage::NeedsMedia(NeedsMedia::Video {
-                        source: source.clone(),
-                        filename: filename.clone(),
+                (
+                    // TODO: Actually use image caption
+                    None,
+                    Some(
+                        w::mouse_area(stack)
+                            .on_enter(TimelineItemMessage::MediaMouseEnter)
+                            .on_exit(TimelineItemMessage::MediaMouseLeave)
+                            .interaction(Interaction::Pointer)
+                            .into(),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+impl ImageMessage {
+    fn label(&self) -> String {
+        format!(
+            "{}{}",
+            self.filename,
+            self.info
+                .as_ref()
+                .and_then(|i| i.size.map(|s| format!(
+                    " ({})",
+                    format_bytes(s, deplace_core::settings::DataSizeUnit::Bytes)
+                )))
+                .unwrap_or_default()
+        )
+    }
+
+    fn image_view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+    ) -> Element<'static, TimelineItemMessage> {
+        let max_width = structure.chat.max_media_width;
+        let max_height = structure.chat.max_media_height;
+        let info = &self.info;
+
+        // Just an overestimate to be sure
+        let min_width = self.label().len() as f32 * structure.chat.text_size;
+
+        let (width, height) = fit_dimensions(
+            info.as_ref()
+                .and_then(|i| i.width.map(|w| w as f32))
+                .unwrap_or(max_width),
+            info.as_ref()
+                .and_then(|i| i.height.map(|h| h as f32))
+                .unwrap_or(max_height),
+            max_width,
+            max_height,
+            min_width,
+        );
+
+        let thumbnail_source = info
+            .as_ref()
+            .and_then(|i| i.thumbnail_source.clone())
+            .unwrap_or_else(|| self.source.clone());
+
+        let thumbnail_key = (thumbnail_source.unique_key(), width as u64, height as u64);
+        let image = self.thumbnail_cache.get(&thumbnail_key);
+
+        let mut stack = Stack::new();
+
+        if let Some(image) = self.blur_preview.clone() {
+            stack = stack.push(
+                w::image(image)
+                    .width(width)
+                    .height(height)
+                    .content_fit(iced::ContentFit::Fill)
+                    .border_radius(structure.inner_border_radius),
+            );
+        }
+
+        stack = match image.as_ref().unwrap_or(&MediaState::Loading) {
+            MediaState::Failed => stack
+                .push(
+                    w::container(
+                        weighted_text("Image failed to load", Weight::Bold)
+                            .size(structure.chat.text_size * 1.5),
+                    )
+                    .width(Fill)
+                    .height(Fill)
+                    .center(Fill)
+                    .style(move |_| w::container::Style {
+                        background: Some(theme.colors.error.scale_lightness(0.2).into()),
+                        text_color: Some(theme.colors.error),
+                        border: Border {
+                            color: theme.colors.error,
+                            width: 0.0,
+                            radius: 0.0.into(),
+                        },
+                        ..Default::default()
                     }),
                 )
-                .into()
-            } else {
-                media.into()
-            };
+                .push(
+                    Canvas::new(InsetShadow::new(
+                        structure.inner_border_radius,
+                        theme.colors.error,
+                        structure.chat.text_size / 2.0,
+                        8,
+                    ))
+                    .width(width)
+                    .height(height),
+                ),
+            MediaState::Loaded(image) => stack.push(
+                w::image((*(*image).clone()).clone())
+                    .width(width)
+                    .height(height)
+                    .border_radius(structure.inner_border_radius),
+            ),
+            _ => stack,
+        };
 
-            let mut mouse_area = w::mouse_area(media)
-                .on_enter(TimelineItemMessage::MediaMouseEnter)
-                .on_exit(TimelineItemMessage::MediaMouseLeave)
-                .interaction(Interaction::Pointer);
-
-            if let MediaState::Loaded(video_data) = &cached_video {
-                mouse_area = mouse_area
-                    .on_press(TimelineItemMessage::ToggleVideoPause(video_data.0.clone()));
-            }
-
-            (
-                caption
-                    .as_ref()
-                    .map(|c| render_normal_text(c.clone()).into()),
-                Some(mouse_area.into()),
-            )
+        if image.is_none() {
+            stack = stack.push(on_appear(
+                Space::new(),
+                TimelineItemMessage::NeedsMedia(NeedsMedia::thumbnail(
+                    self.source.clone(),
+                    thumbnail_key,
+                )),
+            ))
         }
+
+        let media = w::mouse_area(w::container(stack).width(width).height(height).style(
+            move |_| ContainerStyle {
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: structure.inner_border_radius.into(),
+                },
+                ..Default::default()
+            },
+        ));
+
+        media.into()
+    }
+}
+
+impl VideoMessage {
+    fn label(&self) -> String {
+        format!(
+            "{}{}",
+            self.filename,
+            self.info
+                .as_ref()
+                .and_then(|i| i.size.map(|s| format!(
+                    " ({})",
+                    format_bytes(s, deplace_core::settings::DataSizeUnit::Bytes)
+                )))
+                .unwrap_or_default()
+        )
+    }
+
+    fn video_view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+    ) -> Element<'static, TimelineItemMessage> {
+        let max_width = structure.chat.max_media_width;
+        let max_height = structure.chat.max_media_height;
+        let info = &self.info;
+
+        let min_width = self.label().len() as f32 * structure.chat.text_size;
+
+        let (width, height) = fit_dimensions(
+            info.as_ref()
+                .and_then(|i| i.width.map(|w| w as f32))
+                .unwrap_or(max_width),
+            info.as_ref()
+                .and_then(|i| i.height.map(|h| h as f32))
+                .unwrap_or(max_height),
+            max_width,
+            max_height,
+            min_width,
+        );
+
+        let cached_video = self.video_cache.get(&self.source.unique_key());
+        let mut stack = Stack::new();
+
+        if let Some(image) = self.blur_preview.clone() {
+            stack = stack.push(
+                w::image(image)
+                    .width(width)
+                    .height(height)
+                    .content_fit(iced::ContentFit::Fill)
+                    .border_radius(structure.inner_border_radius),
+            );
+        }
+
+        stack = match cached_video.as_ref().unwrap_or(&MediaState::Loading) {
+            MediaState::Loaded(video) => stack.push(
+                VideoPlayer::<TimelineItemMessage>::new(video.0.clone())
+                    .width(width)
+                    .height(height),
+            ),
+            MediaState::Failed => stack
+                .push(
+                    w::container(
+                        weighted_text("Video failed to load", Weight::Bold)
+                            .size(structure.chat.text_size * 1.5),
+                    )
+                    .width(Fill)
+                    .height(Fill)
+                    .center(Fill)
+                    .style(move |_| w::container::Style {
+                        background: Some(theme.colors.error.scale_lightness(0.2).into()),
+                        text_color: Some(theme.colors.error),
+                        border: Border {
+                            color: theme.colors.error,
+                            width: 0.0,
+                            radius: 0.0.into(),
+                        },
+                        ..Default::default()
+                    }),
+                )
+                .push(
+                    Canvas::new(InsetShadow::new(
+                        structure.inner_border_radius,
+                        theme.colors.error,
+                        structure.chat.text_size / 2.0,
+                        8,
+                    ))
+                    .width(width)
+                    .height(height),
+                ),
+            MediaState::Loading => stack.push(
+                w::container(
+                    weighted_text("Loading Video...", Weight::Normal)
+                        .size(structure.chat.text_size),
+                )
+                .width(width)
+                .height(height)
+                .center(Fill),
+            ),
+        };
+
+        if cached_video.is_none() {
+            stack = stack.push(on_appear(
+                Space::new(),
+                TimelineItemMessage::NeedsMedia(NeedsMedia::Video {
+                    source: self.source.clone(),
+                    filename: self.filename.clone(),
+                }),
+            ))
+        }
+
+        let media = w::mouse_area(w::container(stack).width(width).height(height).style(
+            move |_| ContainerStyle {
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: structure.inner_border_radius.into(),
+                },
+                ..Default::default()
+            },
+        ))
+        .on_press(
+            if let MediaState::Loaded(video_data) = cached_video.unwrap_or_default() {
+                TimelineItemMessage::ToggleVideoPause(video_data.0.clone())
+            } else {
+                TimelineItemMessage::DoNothing
+            },
+        );
+
+        media.into()
     }
 }
 
@@ -529,7 +549,6 @@ impl SystemEvent {
         &self,
         theme: Theme,
         structure: Structure,
-        _avatar_cache: AvatarCache,
     ) -> Element<'static, TimelineItemMessage> {
         let (icon, icon_color) = self.content.icon(theme);
 

@@ -171,7 +171,7 @@ impl ThumbnailCache {
         };
 
         let mut success = true;
-        let res = match self.client.media().get_media_content(&request, true).await {
+        let res = match self.client.media().get_media_content(&request, false).await {
             Ok(bytes) => MediaState::loaded(iced::widget::image::Handle::from_bytes(bytes)),
             Err(e) => {
                 tracing::error!("Failed to fetch media: {e}");

@@ -5,7 +5,10 @@ use crate::common::*;
 use crate::components::home::chat::timeline::messages::TimelineProfile;
 use crate::components::{blurhash_to_image, thumbhash_to_image};
 
-use super::{MessageContent, MessageEvent, SystemEvent, SystemMessage, VisualInfo};
+use super::{
+    ImageMessage, MessageContent, MessageEvent, SystemEvent, SystemMessage, VideoMessage,
+    VisualInfo,
+};
 use super::{TimelineItem, TimelineItemKind};
 
 use deplace_core::state::cache::VideoCache;
@@ -36,20 +39,23 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
     ) -> TimelineItem {
         TimelineItem {
             id: self.unique_id().0.clone(),
-            kind: TimelineItemKind::from_ui(self.kind()),
-
-            avatar_cache: avatar_cache.clone(),
-            avatar_states_for_hash: BTreeSet::new(),
-            thumbnail_cache: thumbnail_cache.clone(),
-            thumbnail_states_for_hash: BTreeSet::new(),
-            video_cache: video_cache.clone(),
-            video_states_for_hash: BTreeSet::new(),
+            kind: TimelineItemKind::from_ui(
+                self.kind(),
+                avatar_cache,
+                thumbnail_cache,
+                video_cache,
+            ),
         }
     }
 }
 
 impl TimelineItemKind {
-    fn from_ui(value: &UiTimelineItemKind) -> Self {
+    fn from_ui(
+        value: &UiTimelineItemKind,
+        avatar_cache: &AvatarCache,
+        thumbnail_cache: &ThumbnailCache,
+        video_cache: &VideoCache,
+    ) -> Self {
         match value {
             UiTimelineItemKind::Virtual(virt) => match virt {
                 VirtualTimelineItem::ReadMarker => TimelineItemKind::ReadMarker,
@@ -83,12 +89,15 @@ impl TimelineItemKind {
                     ($content:expr) => {
                         TimelineItemKind::System {
                             is_hovered: false,
-                            event: Arc::new(SystemEvent {
+                            event: Box::new(SystemEvent {
                                 timestamp,
                                 event_id,
                                 sender,
                                 sender_profile,
-                                content: $content,
+                                content: Arc::new($content),
+
+                                avatar_cache: avatar_cache.clone(),
+                                avatar_states_for_hash: BTreeSet::new(),
                             }),
                         }
                     };
@@ -216,8 +225,6 @@ impl TimelineItemKind {
                             sender,
                             sender_profile,
 
-                            media_hovered: false,
-
                             in_reply_to: Arc::new(Vec::new()),
 
                             reactions: m.reactions.clone(),
@@ -231,7 +238,14 @@ impl TimelineItemKind {
                             shield: event.get_shield(false),
                             send_state: event.send_state().cloned(),
 
-                            content: Arc::new(MessageContent::from(&m.kind)),
+                            content: MessageContent::from_ui(
+                                &m.kind,
+                                &thumbnail_cache,
+                                &video_cache,
+                            ),
+
+                            avatar_cache: avatar_cache.clone(),
+                            avatar_states_for_hash: BTreeSet::new(),
                         }),
                         is_hovered: false,
                     },
@@ -249,72 +263,88 @@ fn string_to_option(s: &str) -> Option<String> {
     }
 }
 
-impl From<&MsgLikeKind> for MessageContent {
-    fn from(value: &MsgLikeKind) -> Self {
+impl MessageContent {
+    fn from_ui(
+        value: &MsgLikeKind,
+        thumbnail_cache: &ThumbnailCache,
+        video_cache: &VideoCache,
+    ) -> Self {
         match value {
             MsgLikeKind::Message(msg) => match msg.msgtype() {
                 MessageType::Audio(_) => MessageContent::Audio,
                 MessageType::Emote(emote) => MessageContent::Emote {
                     body: string_to_option(&emote.body),
-                    formatted_body: emote.formatted.clone(),
+                    formatted_body: None,
                 },
                 MessageType::File(file) => MessageContent::File {
                     caption: file.caption().map(|s| s.to_string()),
-                    formatted_caption: file.formatted_caption().cloned(),
+                    formatted_caption: None,
                     filename: file.filename().to_string(),
                     source: file.source.clone(),
                     info: file.info.clone(),
                 },
                 MessageType::Image(image) => MessageContent::Image {
-                    caption: image.caption().map(|s| s.to_string()),
-                    formatted_caption: image.formatted_caption().cloned(),
+                    image: ImageMessage {
+                        caption: image.caption().map(|s| s.to_string()),
+                        formatted_caption: None,
 
-                    blur_preview: image.info.as_ref().and_then(|info| {
-                        info.thumbhash
-                            .as_ref()
-                            .map(thumbhash_to_image)
-                            .unwrap_or_else(|| {
-                                info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
-                            })
-                    }),
+                        blur_preview: image.info.as_ref().and_then(|info| {
+                            info.thumbhash
+                                .as_ref()
+                                .map(thumbhash_to_image)
+                                .unwrap_or_else(|| {
+                                    info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
+                                })
+                        }),
 
-                    filename: image.filename().to_string(),
-                    source: image.source.clone(),
-                    info: image.info.as_ref().map(|info| info.into()),
+                        filename: image.filename().to_string(),
+                        source: image.source.clone(),
+                        info: image.info.as_ref().map(|info| info.into()),
+
+                        thumbnail_cache: thumbnail_cache.clone(),
+                        thumbnail_states_for_hash: BTreeSet::new(),
+                    },
+                    is_hovered: false,
                 },
                 MessageType::Location(_) => MessageContent::Location,
                 MessageType::Notice(notice) => MessageContent::Notice {
                     body: string_to_option(&notice.body),
-                    formatted_body: notice.formatted.clone(),
+                    formatted_body: None,
                 },
                 MessageType::ServerNotice(server_notice) => MessageContent::ServerNotice {
                     body: string_to_option(&server_notice.body),
                 },
                 MessageType::Text(text) => MessageContent::Text {
                     body: string_to_option(&text.body),
-                    formatted_body: text.formatted.clone(),
+                    formatted_body: None,
                     _url_previews: text.url_previews.clone(),
                 },
                 MessageType::VerificationRequest(request) => MessageContent::VerificationRequest {
                     body: string_to_option(&request.body),
-                    formatted_body: request.formatted.clone(),
+                    formatted_body: None,
                 },
                 MessageType::Video(video) => MessageContent::Video {
-                    caption: video.caption().map(|s| s.to_string()),
-                    formatted_caption: video.formatted_caption().cloned(),
+                    video: VideoMessage {
+                        caption: video.caption().map(|s| s.to_string()),
+                        formatted_caption: None,
 
-                    blur_preview: video.info.as_ref().and_then(|info| {
-                        info.thumbhash
-                            .as_ref()
-                            .map(thumbhash_to_image)
-                            .unwrap_or_else(|| {
-                                info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
-                            })
-                    }),
+                        blur_preview: video.info.as_ref().and_then(|info| {
+                            info.thumbhash
+                                .as_ref()
+                                .map(thumbhash_to_image)
+                                .unwrap_or_else(|| {
+                                    info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
+                                })
+                        }),
 
-                    filename: video.filename().to_string(),
-                    source: video.source.clone(),
-                    info: video.info.as_ref().map(|info| info.into()),
+                        filename: video.filename().to_string(),
+                        source: video.source.clone(),
+                        info: video.info.as_ref().map(|info| info.into()),
+
+                        video_cache: video_cache.clone(),
+                        video_states_for_hash: BTreeSet::new(),
+                    },
+                    is_hovered: false,
                 },
                 other => MessageContent::Other {
                     event_type: Arc::new(other.msgtype().to_string()),

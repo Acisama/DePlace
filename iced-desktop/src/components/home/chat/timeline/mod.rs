@@ -69,8 +69,13 @@ impl ChatTimeline {
     }
 
     pub fn load_media(&mut self, media: &MediaLoaded) {
-        for (_, item) in Arc::make_mut(&mut self.messages).iter_mut() {
-            item.load_media(media);
+        let mut changed = false;
+        for item in Arc::make_mut(&mut self.messages).values_mut() {
+            changed &= item.load_media(media);
+        }
+
+        if changed {
+            self.messages_version += 1;
         }
 
         match media {

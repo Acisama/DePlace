@@ -1,5 +1,5 @@
 use crate::common::*;
-use std::time::SystemTime;
+use std::{collections::BTreeSet, time::SystemTime};
 
 use deplace_core::{formatting::format_date_divider, state::cache::VideoCache};
 use iced::Alignment;
@@ -13,7 +13,7 @@ use matrix_sdk::{
                 MediaSource,
                 guest_access::GuestAccess,
                 history_visibility::HistoryVisibility,
-                message::{FileInfo, FormattedBody, UrlPreview},
+                message::{FileInfo, UrlPreview},
             },
             rtc::notification::CallIntent,
         },
@@ -33,8 +33,8 @@ pub use convert::ToTimelineItem;
 /// The message an item in the timeline can receive
 #[derive(Debug, Clone)]
 pub enum TimelineItemMessage {
+    DoNothing,
     NeedsMedia(NeedsMedia),
-    MediaLoaded(MediaLoaded),
     EventEnter,
     EventExit,
     MediaMouseEnter,
@@ -63,40 +63,61 @@ pub struct TimelineItem {
     pub id: String,
     #[hash]
     kind: TimelineItemKind,
-
-    avatar_cache: AvatarCache,
-    thumbnail_cache: ThumbnailCache,
-    video_cache: VideoCache,
 }
 
 impl TimelineItem {
-    pub fn load_media(&mut self, media: &MediaLoaded) {
+    fn avatar_hashes(&mut self) -> Option<&mut BTreeSet<OwnedMxcUri>> {
+        if let TimelineItemKind::Message { event, .. } = &mut self.kind {
+            Some(&mut event.avatar_states_for_hash)
+        } else {
+            None
+        }
+    }
+
+    fn thumbnail_hashes(&mut self) -> Option<&mut BTreeSet<(String, u64, u64)>> {
+        if let TimelineItemKind::Message { event, .. } = &mut self.kind
+            && let MessageContent::Image { image, .. } = &mut event.content
+        {
+            Some(&mut image.thumbnail_states_for_hash)
+        } else {
+            None
+        }
+    }
+
+    fn video_hashes(&mut self) -> Option<&mut BTreeSet<String>> {
+        if let TimelineItemKind::Message { event, .. } = &mut self.kind
+            && let MessageContent::Video { video, .. } = &mut event.content
+        {
+            Some(&mut video.video_states_for_hash)
+        } else {
+            None
+        }
+    }
+
+    pub fn load_media(&mut self, media: &MediaLoaded) -> bool {
         match media {
-            MediaLoaded::Avatar { uri } => {
-                self.avatar_states_for_hash.remove(uri);
+            MediaLoaded::Avatar { uri } if let Some(hashes) = self.avatar_hashes() => {
+                hashes.remove(uri)
             }
-            MediaLoaded::Thumbnail { key } => {
-                self.thumbnail_states_for_hash.remove(key);
+            MediaLoaded::Thumbnail { key } if let Some(hashes) = self.thumbnail_hashes() => {
+                hashes.remove(key)
             }
-            MediaLoaded::Video { key } => {
-                self.video_states_for_hash.remove(key);
+            MediaLoaded::Video { key } if let Some(hashes) = self.video_hashes() => {
+                hashes.remove(key)
             }
+            _ => false,
         }
     }
 
     fn set_hovered(&mut self, new_hovered: bool) -> Option<TimelineItemAction> {
         match &mut self.kind {
-            TimelineItemKind::Message { is_hovered, .. } => {
-                if *is_hovered != new_hovered {
-                    *is_hovered = new_hovered;
-                    return Some(TimelineItemAction::Update);
-                }
+            TimelineItemKind::Message { is_hovered, .. } if *is_hovered != new_hovered => {
+                *is_hovered = new_hovered;
+                return Some(TimelineItemAction::Update);
             }
-            TimelineItemKind::System { is_hovered, .. } => {
-                if *is_hovered != new_hovered {
-                    *is_hovered = new_hovered;
-                    return Some(TimelineItemAction::Update);
-                }
+            TimelineItemKind::System { is_hovered, .. } if *is_hovered != new_hovered => {
+                *is_hovered = new_hovered;
+                return Some(TimelineItemAction::Update);
             }
             _ => {}
         }
@@ -107,45 +128,64 @@ impl TimelineItem {
 impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
     fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
-            TimelineItemMessage::MediaMouseEnter
-                if let TimelineItemKind::Message { event, .. } = &mut self.kind =>
-            {
-                event.media_hovered = true;
-                Some(TimelineItemAction::Update)
+            TimelineItemMessage::DoNothing => None,
+            TimelineItemMessage::MediaMouseEnter => {
+                if let TimelineItemKind::Message { event, .. } = &mut self.kind {
+                    match &mut event.content {
+                        MessageContent::Image { is_hovered, .. } if !*is_hovered => {
+                            *is_hovered = true;
+                            Some(TimelineItemAction::Update)
+                        }
+                        MessageContent::Video { is_hovered, .. } if !*is_hovered => {
+                            *is_hovered = true;
+                            Some(TimelineItemAction::Update)
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
             }
-            TimelineItemMessage::MediaMouseLeave
-                if let TimelineItemKind::Message { event, .. } = &mut self.kind =>
-            {
-                event.media_hovered = false;
-                Some(TimelineItemAction::Update)
+            TimelineItemMessage::MediaMouseLeave => {
+                if let TimelineItemKind::Message { event, .. } = &mut self.kind {
+                    match &mut event.content {
+                        MessageContent::Image { is_hovered, .. } if *is_hovered => {
+                            *is_hovered = false;
+                            Some(TimelineItemAction::Update)
+                        }
+                        MessageContent::Video { is_hovered, .. } if *is_hovered => {
+                            *is_hovered = false;
+                            Some(TimelineItemAction::Update)
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
             }
             TimelineItemMessage::EventEnter => self.set_hovered(true),
             TimelineItemMessage::EventExit => self.set_hovered(false),
             TimelineItemMessage::NeedsMedia(media) => {
                 match &media {
-                    NeedsMedia::Avatar { uri } => self.avatar_states_for_hash.insert(uri.clone()),
-                    NeedsMedia::Thumbnail { key, .. } => {
-                        self.thumbnail_states_for_hash.insert(key.clone())
+                    NeedsMedia::Avatar { uri } if let Some(hashes) = self.avatar_hashes() => {
+                        hashes.insert(uri.clone())
                     }
-                    NeedsMedia::Video { source, .. } => {
-                        self.video_states_for_hash.insert(source.unique_key())
+                    NeedsMedia::Thumbnail { key, .. }
+                        if let Some(hashes) = self.thumbnail_hashes() =>
+                    {
+                        hashes.insert(key.clone())
                     }
+                    NeedsMedia::Video { source, .. } if let Some(hashes) = self.video_hashes() => {
+                        hashes.insert(source.unique_key())
+                    }
+                    _ => return None,
                 };
                 Some(TimelineItemAction::NeedsMedia(media))
-            }
-            TimelineItemMessage::MediaLoaded(media) => {
-                match media {
-                    MediaLoaded::Avatar { uri } => self.avatar_states_for_hash.remove(&uri),
-                    MediaLoaded::Thumbnail { key } => self.thumbnail_states_for_hash.remove(&key),
-                    MediaLoaded::Video { key } => self.video_states_for_hash.remove(&key),
-                };
-                None
             }
             TimelineItemMessage::ToggleVideoPause(video) => {
                 video.set_paused(!video.paused());
                 None
             }
-            TimelineItemMessage::MediaMouseEnter | TimelineItemMessage::MediaMouseLeave => None,
         }
     }
 
@@ -185,12 +225,9 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
             TimelineItemKind::TimelineStart => fallback,
             TimelineItemKind::System { is_hovered, event } => {
                 let is_hovered = *is_hovered;
-                let avatar_cache = self.avatar_cache.clone();
-                let event = event.clone();
                 w::mouse_area(
-                    // System events are static and do not need to be updated
-                    w::container(w::lazy((), move |_| {
-                        event.view(theme, structure, avatar_cache.clone())
+                    w::container(w::lazy(event.clone(), move |event| {
+                        event.view(theme, structure)
                     }))
                     .width(Fill)
                     .style(move |_| {
@@ -212,21 +249,9 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
             }
             TimelineItemKind::Message { event, is_hovered } => {
                 let is_hovered = *is_hovered;
-                let avatar_cache = self.avatar_cache.clone();
-                let thumbnail_cache = self.thumbnail_cache.clone();
-                let video_cache = self.video_cache.clone();
                 w::mouse_area(
                     w::container(w::lazy(event.clone(), move |event| {
-                        let avatar_cache = avatar_cache.clone();
-                        let thumbnail_cache = thumbnail_cache.clone();
-                        let video_cache = video_cache.clone();
-                        event.view(
-                            theme,
-                            structure,
-                            avatar_cache.clone(),
-                            thumbnail_cache.clone(),
-                            video_cache.clone(),
-                        )
+                        event.view(theme, structure)
                     }))
                     .style(move |_| ContainerStyle {
                         background: None,
@@ -262,7 +287,7 @@ enum TimelineItemKind {
     },
     System {
         is_hovered: bool,
-        event: Arc<SystemEvent>,
+        event: Box<SystemEvent>,
     },
     FailedToParseMessageLike {
         event_type: Arc<String>,
@@ -331,8 +356,7 @@ struct MessageEvent {
 
     reactions: ReactionsByKeyBySender,
 
-    #[hash]
-    media_hovered: bool,
+    avatar_cache: AvatarCache,
 
     is_own: bool,
     is_editable: bool,
@@ -343,9 +367,27 @@ struct MessageEvent {
     shield: TimelineEventShieldState,
 
     #[hash]
-    content: Arc<MessageContent>,
+    content: MessageContent,
 
     send_state: Option<EventSendState>,
+}
+
+impl ExtraHash for MessageEvent {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self.sender_profile {
+            TimelineDetails::Error(_) => 0.hash(state),
+            TimelineDetails::Pending => 1.hash(state),
+            TimelineDetails::Unavailable => 2.hash(state),
+            TimelineDetails::Ready(_) => 3.hash(state),
+        }
+
+        match self.send_state {
+            None => 0.hash(state),
+            Some(EventSendState::NotSentYet { .. }) => 1.hash(state),
+            Some(EventSendState::Sent { .. }) => 2.hash(state),
+            Some(EventSendState::SendingFailed { .. }) => 3.hash(state),
+        }
+    }
 }
 
 impl MessageEvent {
@@ -374,58 +416,55 @@ impl Hash for VisualInfo {
     }
 }
 
+#[derive(Debug, Clone, Hash)]
+pub struct CustomBody {}
+
+impl CustomBody {
+    pub fn new() -> Self {
+        CustomBody {}
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum MessageContent {
     Audio,
     Emote {
         body: Option<String>,
-        formatted_body: Option<FormattedBody>,
+        formatted_body: Option<CustomBody>,
     },
     Empty,
     File {
         caption: Option<String>,
-        formatted_caption: Option<FormattedBody>,
+        formatted_caption: Option<CustomBody>,
         filename: String,
         source: MediaSource,
         info: Option<Box<FileInfo>>,
     },
     Image {
-        caption: Option<String>,
-        formatted_caption: Option<FormattedBody>,
-
-        blur_preview: Option<ImageHandle>,
-
-        filename: String,
-        source: MediaSource,
-        info: Option<VisualInfo>,
+        is_hovered: bool,
+        image: ImageMessage,
     },
     Location,
     Notice {
         body: Option<String>,
-        formatted_body: Option<FormattedBody>,
+        formatted_body: Option<CustomBody>,
     },
     ServerNotice {
         body: Option<String>,
     },
     Text {
         body: Option<String>,
-        formatted_body: Option<FormattedBody>,
+        formatted_body: Option<CustomBody>,
         _url_previews: Option<Vec<UrlPreview>>,
     },
     Video {
-        caption: Option<String>,
-        formatted_caption: Option<FormattedBody>,
-
-        blur_preview: Option<ImageHandle>,
-
-        filename: String,
-        source: MediaSource,
-        info: Option<VisualInfo>,
+        is_hovered: bool,
+        video: VideoMessage,
     },
     /// Body is only present if the client doesn't support the key verification framework, this client doesn't support it
     VerificationRequest {
         body: Option<String>,
-        formatted_body: Option<FormattedBody>,
+        formatted_body: Option<CustomBody>,
     },
     Sticker,
     Poll,
@@ -447,7 +486,7 @@ impl std::hash::Hash for MessageContent {
                 formatted_body,
             } => {
                 body.hash(state);
-                formatted_body.as_ref().map(|c| &c.body).hash(state);
+                formatted_body.hash(state);
             }
             MessageContent::File {
                 caption,
@@ -457,7 +496,7 @@ impl std::hash::Hash for MessageContent {
                 info,
             } => {
                 caption.hash(state);
-                formatted_caption.as_ref().map(|c| &c.body).hash(state);
+                formatted_caption.hash(state);
                 filename.hash(state);
                 source.unique_key().hash(state);
                 if let Some(info) = info {
@@ -469,26 +508,16 @@ impl std::hash::Hash for MessageContent {
                         .hash(state);
                 }
             }
-            MessageContent::Image {
-                caption,
-                formatted_caption,
-                filename,
-                source,
-                info,
-                ..
-            } => {
-                caption.hash(state);
-                formatted_caption.as_ref().map(|c| &c.body).hash(state);
-                filename.hash(state);
-                source.unique_key().hash(state);
-                info.hash(state);
+            MessageContent::Image { is_hovered, image } => {
+                is_hovered.hash(state);
+                image.hash(state);
             }
             MessageContent::Notice {
                 body,
                 formatted_body,
             } => {
                 body.hash(state);
-                formatted_body.as_ref().map(|c| &c.body).hash(state);
+                formatted_body.hash(state);
             }
             MessageContent::ServerNotice { body } => {
                 body.hash(state);
@@ -499,25 +528,62 @@ impl std::hash::Hash for MessageContent {
                 ..
             } => {
                 body.hash(state);
-                formatted_body.as_ref().map(|c| &c.body).hash(state);
+                formatted_body.hash(state);
             }
-            MessageContent::Video {
-                caption,
-                formatted_caption,
-                filename,
-                source,
-                info,
-                ..
-            } => {
-                caption.hash(state);
-                formatted_caption.as_ref().map(|c| &c.body).hash(state);
-                filename.hash(state);
-                source.unique_key().hash(state);
-                info.hash(state);
+            MessageContent::Video { is_hovered, video } => {
+                is_hovered.hash(state);
+                video.hash(state);
             }
             MessageContent::Other { event_type } => event_type.hash(state),
             _ => {}
         }
+    }
+}
+#[iced_cache(Debug, Clone)]
+pub struct ImageMessage {
+    #[hash]
+    caption: Option<String>,
+    #[hash]
+    formatted_caption: Option<CustomBody>,
+
+    blur_preview: Option<ImageHandle>,
+
+    thumbnail_cache: ThumbnailCache,
+
+    #[hash]
+    filename: String,
+    source: MediaSource,
+    #[hash]
+    info: Option<VisualInfo>,
+}
+
+impl ExtraHash for ImageMessage {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.source.unique_key().hash(state);
+    }
+}
+
+#[iced_cache(Debug, Clone)]
+pub struct VideoMessage {
+    #[hash]
+    caption: Option<String>,
+    #[hash]
+    formatted_caption: Option<CustomBody>,
+
+    blur_preview: Option<ImageHandle>,
+
+    video_cache: VideoCache,
+
+    #[hash]
+    filename: String,
+    source: MediaSource,
+    #[hash]
+    info: Option<VisualInfo>,
+}
+
+impl ExtraHash for VideoMessage {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.source.unique_key().hash(state);
     }
 }
 
@@ -552,7 +618,7 @@ enum ReplyContent {
 }
 
 /// This has an empty hash implementation because it doesn't change
-#[iced_cache(Debug)]
+#[iced_cache(Clone, Debug)]
 struct SystemEvent {
     timestamp: SystemTime,
 
@@ -560,7 +626,9 @@ struct SystemEvent {
     sender: OwnedUserId,
     sender_profile: TimelineDetails<Arc<TimelineProfile>>,
 
-    content: SystemMessage,
+    avatar_cache: AvatarCache,
+
+    content: Arc<SystemMessage>,
 }
 
 #[derive(Debug)]
