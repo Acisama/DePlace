@@ -1,8 +1,7 @@
-use std::{collections::BTreeSet, hash::Hasher};
+use std::hash::Hasher;
 
-use deplace_core::state::cache::VideoCache;
+use deplace_core::PaginationDirection;
 use macros::iced_cache;
-use matrix_sdk::{media::UniqueKey, ruma::events::room::MediaSource};
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as UiTimelineItem};
 use messages::{TimelineItem, TimelineItemAction, TimelineItemMessage};
 
@@ -24,24 +23,33 @@ pub enum TimelineMessage {
     Diffs(Vec<VectorDiff<Arc<UiTimelineItem>>>),
     SetReplying(OwnedEventId),
     None,
+    Scroll {
+        direction: PaginationDirection,
+    },
 }
 
 pub enum TimelineAction {
     NeedsMedia(NeedsMedia),
     SetReplying(OwnedEventId),
     Run(Task<()>),
+    Scroll {
+        direction: PaginationDirection,
+        task: Task<bool>,
+    },
 }
 
 #[iced_cache(Clone)]
 pub struct ChatTimeline {
+    state: AppState,
     timeline: Option<Arc<Timeline>>,
-
-    avatar_cache: AvatarCache,
-    thumbnail_cache: ThumbnailCache,
-    video_cache: VideoCache,
 
     #[hash]
     room_id: OwnedRoomId,
+
+    reached_top: bool,
+    reached_bottom: bool,
+    loading_top: bool,
+    loading_bottom: bool,
 
     messages: Arc<IndexMap<String, TimelineItem>>,
     #[hash]
@@ -51,17 +59,14 @@ pub struct ChatTimeline {
 impl ChatTimeline {
     pub fn new(room: &Room, state: &AppState) -> Self {
         Self {
+            state: state.clone(),
             timeline: None,
             room_id: room.room_id().to_owned(),
 
-            avatar_cache: state.avatar_cache().clone(),
-            avatar_states_for_hash: BTreeSet::new(),
-
-            thumbnail_cache: state.thumbnail_cache().clone(),
-            thumbnail_states_for_hash: BTreeSet::new(),
-
-            video_cache: state.video_cache().clone(),
-            video_states_for_hash: BTreeSet::new(),
+            reached_top: false,
+            reached_bottom: false,
+            loading_top: false,
+            loading_bottom: false,
 
             messages: Arc::new(IndexMap::new()),
             messages_version: 0,
@@ -77,12 +82,19 @@ impl ChatTimeline {
         if changed {
             self.messages_version += 1;
         }
+    }
 
-        match media {
-            MediaLoaded::Avatar { uri } => self.avatar_states_for_hash.remove(&uri.clone()),
-            MediaLoaded::Thumbnail { key } => self.thumbnail_states_for_hash.remove(&key.clone()),
-            MediaLoaded::Video { key } => self.video_states_for_hash.remove(&key.clone()),
-        };
+    pub fn set_scroll_finished(&mut self, direction: PaginationDirection, finished: bool) {
+        match direction {
+            PaginationDirection::Forward => {
+                self.reached_bottom = finished;
+                self.loading_bottom = false;
+            }
+            PaginationDirection::Backward => {
+                self.reached_top = finished;
+                self.loading_top = false;
+            }
+        }
     }
 }
 
@@ -100,17 +112,6 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         None
                     }
                     Some(TimelineItemAction::NeedsMedia(needs_media)) => {
-                        match &needs_media {
-                            NeedsMedia::Avatar { uri } => {
-                                self.avatar_states_for_hash.insert(uri.clone())
-                            }
-                            NeedsMedia::Thumbnail { key, .. } => {
-                                self.thumbnail_states_for_hash.insert(key.clone())
-                            }
-                            NeedsMedia::Video { source, .. } => {
-                                self.video_states_for_hash.insert(source.unique_key())
-                            }
-                        };
                         Some(TimelineAction::NeedsMedia(needs_media))
                     }
                     _ => None,
@@ -135,9 +136,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 );
 
                 let messages = Arc::make_mut(&mut self.messages);
-                let avatar_cache = &self.avatar_cache;
-                let thumbnail_cache = &self.thumbnail_cache;
-                let video_cache = &self.video_cache;
+                let avatar_cache = self.state.avatar_cache();
+                let thumbnail_cache = self.state.thumbnail_cache();
+                let video_cache = self.state.video_cache();
 
                 for diff in diffs.into_iter().map(|d| {
                     d.map(|m| {
@@ -203,6 +204,32 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             }
             TimelineMessage::SetReplying(event_id) => {
                 return Some(TimelineAction::SetReplying(event_id));
+            }
+            TimelineMessage::Scroll { direction } => {
+                let already_loading = match direction {
+                    PaginationDirection::Forward => self.loading_bottom,
+                    PaginationDirection::Backward => self.loading_top,
+                };
+
+                if already_loading {
+                    return None;
+                }
+
+                let timeline = self.timeline.clone()?;
+                return Some(TimelineAction::Scroll {
+                    direction,
+                    task: Task::future(async move {
+                        match direction {
+                            PaginationDirection::Forward => timeline.paginate_forwards(30).await,
+                            PaginationDirection::Backward => timeline.paginate_backwards(30).await,
+                        }
+                        .map_err(|e| {
+                            tracing::error!("Failed to paginate: {}", e);
+                        })
+                        // Treat failure to paginate like hitting the end
+                        .unwrap_or(true)
+                    }),
+                });
             }
             TimelineMessage::None => {}
         };

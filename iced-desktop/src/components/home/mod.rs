@@ -7,6 +7,7 @@ use chat::{
     Chat, ChatAction, ChatMessage, TimelineMessage,
     empty::{EmptyChat, EmptyChatMessage},
 };
+use deplace_core::PaginationDirection;
 use iced::{
     keyboard::{Key, Modifiers},
     widget::{operation::focus, stack},
@@ -32,12 +33,22 @@ pub enum HomeMessage {
     KeyboardEvent(iced::keyboard::Event),
     Overlay(OverlayMessage),
     MediaLoaded(MediaLoaded),
+    TimelineScrollFinished {
+        room_id: OwnedRoomId,
+        direction: PaginationDirection,
+        finished: bool,
+    },
 }
 
 pub enum HomeAction {
     Run(Task<()>),
     LoadMediaTask(Task<MediaLoaded>),
     LoadTimeline(Task<(OwnedRoomId, TimelineMessage)>),
+    TimelineScroll {
+        room_id: OwnedRoomId,
+        direction: PaginationDirection,
+        task: Task<bool>,
+    },
 }
 
 #[iced_cache(Clone)]
@@ -197,6 +208,13 @@ impl Home {
             match action {
                 ChatAction::Run(task) => Some(HomeAction::Run(task)),
                 ChatAction::NeedsMedia(needs_media) => self.load_media_task(needs_media),
+                ChatAction::TimelineScroll { direction, task } => {
+                    Some(HomeAction::TimelineScroll {
+                        room_id: chat.room_id.clone(),
+                        direction,
+                        task,
+                    })
+                }
             }
         } else {
             None
@@ -267,6 +285,15 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 {
                     chat.load_media(&media);
                 }
+            }
+            HomeMessage::TimelineScrollFinished {
+                room_id,
+                direction,
+                finished,
+            } => {
+                if let Some(chat) = self.chats.peek_mut(&room_id) {
+                    chat.set_timeline_scroll_finished(direction, finished);
+                };
             }
         }
 

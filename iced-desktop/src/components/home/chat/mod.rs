@@ -1,5 +1,6 @@
 use std::future;
 
+use deplace_core::PaginationDirection;
 use header::{Header, HeaderAction, HeaderMessage};
 use iced::futures::{StreamExt, stream};
 use iced::widget::text_editor;
@@ -28,6 +29,10 @@ pub enum ChatMessage {
 pub enum ChatAction {
     NeedsMedia(NeedsMedia),
     Run(Task<()>),
+    TimelineScroll {
+        direction: PaginationDirection,
+        task: Task<bool>,
+    },
 }
 
 #[iced_cache(Clone)]
@@ -37,6 +42,8 @@ pub struct Chat {
     #[hash]
     timeline: ChatTimeline,
     input: ChatInput,
+
+    pub room_id: OwnedRoomId,
 }
 
 impl Chat {
@@ -108,6 +115,8 @@ impl Chat {
                 header: Header::new(state, &room),
                 timeline: ChatTimeline::new(&room, state),
                 input: ChatInput::new(&room),
+
+                room_id: room.room_id().to_owned(),
             },
             Task::stream(stream).map(move |msg| (room_id.clone(), msg)),
         )
@@ -124,6 +133,10 @@ impl Chat {
 
     pub fn focus_input(&self) -> Task<()> {
         self.input.focus()
+    }
+
+    pub fn set_timeline_scroll_finished(&mut self, direction: PaginationDirection, finished: bool) {
+        self.timeline.set_scroll_finished(direction, finished);
     }
 }
 
@@ -144,17 +157,25 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     None
                 }
             }
-            ChatMessage::Timeline(msg) => match self.timeline.update(msg) {
-                None => None,
-                Some(TimelineAction::SetReplying(event_id)) => {
-                    self.input.set_replies_to(event_id);
+            ChatMessage::Timeline(msg) => {
+                if let Some(action) = self.timeline.update(msg) {
+                    match action {
+                        TimelineAction::SetReplying(event_id) => {
+                            self.input.set_replies_to(event_id);
+                            None
+                        }
+                        TimelineAction::Run(task) => Some(ChatAction::Run(task)),
+                        TimelineAction::NeedsMedia(needs_media) => {
+                            Some(ChatAction::NeedsMedia(needs_media))
+                        }
+                        TimelineAction::Scroll { direction, task } => {
+                            Some(ChatAction::TimelineScroll { direction, task })
+                        }
+                    }
+                } else {
                     None
                 }
-                Some(TimelineAction::Run(task)) => Some(ChatAction::Run(task)),
-                Some(TimelineAction::NeedsMedia(needs_media)) => {
-                    Some(ChatAction::NeedsMedia(needs_media))
-                }
-            },
+            }
             ChatMessage::Input(msg) => match self.input.update(msg) {
                 None => None,
                 Some(InputAction::Run(task)) => Some(ChatAction::Run(task)),

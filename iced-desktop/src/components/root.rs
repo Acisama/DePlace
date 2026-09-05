@@ -31,20 +31,35 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
     fn update(&mut self, message: AppMessage) -> Option<Task<AppMessage>> {
         match message {
             AppMessage::Home(msg) if let Screen::Home(home) = self => {
-                match home.update(msg) {
-                    None => {}
-                    Some(HomeAction::Run(task)) => {
-                        return Some(task.map(|_| AppMessage::DoNothing));
+                if let Some(action) = home.update(msg) {
+                    match action {
+                        HomeAction::Run(task) => {
+                            return Some(task.map(|_| AppMessage::DoNothing));
+                        }
+                        HomeAction::LoadTimeline(task) => {
+                            return Some(task.map(|(room_id, message)| {
+                                AppMessage::Home(HomeMessage::Timeline { room_id, message })
+                            }));
+                        }
+                        HomeAction::LoadMediaTask(task) => {
+                            return Some(task.map(AppMessage::MediaLoaded));
+                        }
+                        HomeAction::TimelineScroll {
+                            room_id,
+                            direction,
+                            task,
+                        } => {
+                            return Some(task.map(move |finished| {
+                                let room_id = room_id.clone();
+                                AppMessage::Home(HomeMessage::TimelineScrollFinished {
+                                    room_id,
+                                    direction,
+                                    finished,
+                                })
+                            }));
+                        }
                     }
-                    Some(HomeAction::LoadTimeline(task)) => {
-                        return Some(task.map(|(room_id, message)| {
-                            AppMessage::Home(HomeMessage::Timeline { room_id, message })
-                        }));
-                    }
-                    Some(HomeAction::LoadMediaTask(task)) => {
-                        return Some(task.map(AppMessage::MediaLoaded));
-                    }
-                };
+                }
             }
             AppMessage::Discovery(msg) if let Screen::Discovery(discovery) = self => {
                 match discovery.update(msg) {
@@ -119,20 +134,35 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
             },
             AppMessage::KeyboardEvent(event) => {
                 if let Screen::Home(home) = self {
-                    match home.update(HomeMessage::KeyboardEvent(event)) {
-                        None => {}
-                        Some(HomeAction::Run(task)) => {
-                            return Some(task.map(|_| AppMessage::DoNothing));
+                    if let Some(action) = home.update(HomeMessage::KeyboardEvent(event)) {
+                        match action {
+                            HomeAction::Run(task) => {
+                                return Some(task.map(|_| AppMessage::DoNothing));
+                            }
+                            HomeAction::LoadTimeline(task) => {
+                                return Some(task.map(|(room_id, message)| {
+                                    AppMessage::Home(HomeMessage::Timeline { room_id, message })
+                                }));
+                            }
+                            HomeAction::LoadMediaTask(task) => {
+                                return Some(task.map(AppMessage::MediaLoaded));
+                            }
+                            HomeAction::TimelineScroll {
+                                room_id,
+                                direction,
+                                task,
+                            } => {
+                                return Some(task.map(move |finished| {
+                                    let room_id = room_id.clone();
+                                    AppMessage::Home(HomeMessage::TimelineScrollFinished {
+                                        room_id,
+                                        direction,
+                                        finished,
+                                    })
+                                }));
+                            }
                         }
-                        Some(HomeAction::LoadTimeline(task)) => {
-                            return Some(task.map(|(room_id, message)| {
-                                AppMessage::Home(HomeMessage::Timeline { room_id, message })
-                            }));
-                        }
-                        Some(HomeAction::LoadMediaTask(task)) => {
-                            return Some(task.map(AppMessage::MediaLoaded));
-                        }
-                    };
+                    }
                 }
             }
             _ => {}

@@ -45,6 +45,12 @@ const DEVICE_DISPLAY_NAME: &str = formatcp!("DePlace on {PLATFORM}");
 
 pub use state::RoomMap;
 
+#[derive(Debug, Clone, Copy)]
+pub enum PaginationDirection {
+    Forward,
+    Backward,
+}
+
 #[derive(Debug, Clone)]
 pub enum RestoreResult {
     Success(Box<AppState>),
