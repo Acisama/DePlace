@@ -30,7 +30,6 @@ impl MessageEvent {
         theme: Theme,
         structure: Structure,
     ) -> iced::Element<'static, TimelineItemMessage> {
-        let col_width = structure.chat_col_width();
         let pre_col_width = structure.small_gap * 1.5;
         let text_size = structure.chat.text_size;
 
@@ -346,8 +345,8 @@ impl ImageMessage {
         let max_height = structure.chat.max_media_height;
         let info = &self.info;
 
-        // Just an overestimate to be sure
         let min_width = self.label().len() as f32 * structure.chat.text_size;
+        let min_height = structure.chat.text_size * 2.0;
 
         fit_dimensions(
             info.as_ref()
@@ -359,6 +358,7 @@ impl ImageMessage {
             max_width,
             max_height,
             min_width,
+            min_height,
         )
     }
 
@@ -477,17 +477,29 @@ impl VideoMessage {
         let info = &self.info;
 
         let min_width = self.label().len() as f32 * structure.chat.text_size;
+        let min_height = structure.chat.text_size * 2.0;
+
+        // Matrix doesn't require senders to include dimensions in `info`,
+        // so when they're missing, assume a typical 16:9 video instead of
+        // the full (usually squarer) bounding box -- otherwise `scale`
+        // below resolves to exactly 1.0 and the placeholder stretches to
+        // fill `max_height`, which looks far too tall for real video.
+        const DEFAULT_ASPECT_RATIO: f32 = 16.0 / 9.0;
+        let (natural_width, natural_height) = match (
+            info.as_ref().and_then(|i| i.width),
+            info.as_ref().and_then(|i| i.height),
+        ) {
+            (Some(w), Some(h)) => (w as f32, h as f32),
+            _ => (max_width, max_width / DEFAULT_ASPECT_RATIO),
+        };
 
         fit_dimensions(
-            info.as_ref()
-                .and_then(|i| i.width.map(|w| w as f32))
-                .unwrap_or(max_width),
-            info.as_ref()
-                .and_then(|i| i.height.map(|h| h as f32))
-                .unwrap_or(max_height),
+            natural_width,
+            natural_height,
             max_width,
             max_height,
             min_width,
+            min_height,
         )
     }
 
@@ -557,7 +569,8 @@ impl VideoMessage {
                 )
                 .width(width)
                 .height(height)
-                .center(Fill),
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
             ),
         };
 
