@@ -3,6 +3,39 @@
 version = 4
 
 [[package]]
+name = "DePlace"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blurhash",
+ "bytemuck",
+ "chrono",
+ "chrono-tz",
+ "const_format",
+ "deplace_core",
+ "dirs",
+ "iced",
+ "iced_video_player",
+ "image",
+ "indexmap",
+ "lru 0.18.3",
+ "macros",
+ "matrix-sdk",
+ "matrix-sdk-ui",
+ "naga 27.0.3",
+ "phosphor-svgs",
+ "serde_json",
+ "sweeten",
+ "thumbhash",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "url-macro",
+ "uuid",
+]
+
+[[package]]
 name = "ab_glyph"
 version = "0.2.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3705,39 +3738,6 @@ dependencies = [
  "iced_winit",
  "image",
  "thiserror 2.0.20",
-]
-
-[[package]]
-name = "iced-desktop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blurhash",
- "bytemuck",
- "chrono",
- "chrono-tz",
- "const_format",
- "deplace_core",
- "dirs",
- "iced",
- "iced_video_player",
- "image",
- "indexmap",
- "lru 0.18.3",
- "macros",
- "matrix-sdk",
- "matrix-sdk-ui",
- "naga 27.0.3",
- "phosphor-svgs",
- "serde_json",
- "sweeten",
- "thumbhash",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "url-macro",
- "uuid",
 ]
 
 [[package]]
