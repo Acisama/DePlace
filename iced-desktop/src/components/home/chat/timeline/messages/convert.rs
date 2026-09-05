@@ -227,7 +227,7 @@ impl TimelineItemKind {
 
                             in_reply_to: Arc::new(Vec::new()),
 
-                            reactions: m.reactions.clone(),
+                            reactions: Arc::new(m.reactions.clone()),
 
                             is_own: event.is_own(),
                             is_editable: event.is_editable(),
@@ -238,11 +238,7 @@ impl TimelineItemKind {
                             shield: event.get_shield(false),
                             send_state: event.send_state().cloned(),
 
-                            content: MessageContent::from_ui(
-                                &m.kind,
-                                &thumbnail_cache,
-                                &video_cache,
-                            ),
+                            content: MessageContent::from_ui(&m.kind, thumbnail_cache, video_cache),
 
                             avatar_cache: avatar_cache.clone(),
                             avatar_states_for_hash: BTreeSet::new(),

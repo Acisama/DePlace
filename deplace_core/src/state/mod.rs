@@ -1,9 +1,11 @@
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
+use anyhow::Result;
 use futures::{Stream, stream};
 use matrix_sdk::{
     Client, Room,
@@ -14,6 +16,7 @@ use ruma::{RoomId, events::presence::PresenceEventContent};
 use tokio::sync::watch::{self, Receiver, Ref, Sender};
 
 use crate::{
+    APP_NAME,
     matrix_api::{
         account_data::{
             BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data,
@@ -23,6 +26,42 @@ use crate::{
     settings::Settings,
     window_title,
 };
+
+#[derive(Debug, Clone)]
+pub struct ImportantPaths {
+    pub config_dir: PathBuf,
+    pub download_dir: PathBuf,
+    pub cache_dir: PathBuf,
+}
+
+impl ImportantPaths {
+    pub fn new() -> Result<Self> {
+        let config_dir = dirs::config_dir()
+            .ok_or(anyhow::anyhow!("Failed to get config dir"))?
+            .join(APP_NAME);
+        let download_dir =
+            dirs::download_dir().ok_or(anyhow::anyhow!("Failed to get download dir"))?;
+        let cache_dir = dirs::cache_dir()
+            .ok_or(anyhow::anyhow!("Failed to get cache dir"))?
+            .join(APP_NAME);
+
+        if !config_dir.exists() {
+            std::fs::create_dir_all(&config_dir)?;
+        }
+        if !download_dir.exists() {
+            std::fs::create_dir_all(&download_dir)?;
+        }
+        if !cache_dir.exists() {
+            std::fs::create_dir_all(&cache_dir)?;
+        }
+
+        Ok(Self {
+            config_dir,
+            download_dir,
+            cache_dir,
+        })
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct UserDevice {
@@ -128,6 +167,8 @@ struct AppStateInner {
     pub settings: Settings,
 
     window_title: Sender<String>,
+    window_focused: Mutex<bool>,
+    important_paths: ImportantPaths,
 
     dm_rooms: Sender<RoomMap>,
     single_rooms: Sender<RoomMap>,
@@ -163,7 +204,12 @@ struct AppStateInner {
 }
 
 impl AppState {
-    pub async fn new(client: Client, user_device: UserDevice, settings: Settings) -> Self {
+    pub async fn new(
+        client: Client,
+        user_device: UserDevice,
+        settings: Settings,
+        important_paths: ImportantPaths,
+    ) -> Self {
         let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
 
         let last_room_id = breadcrumbs_content.recent_rooms.first().cloned();
@@ -229,6 +275,8 @@ impl AppState {
                 video_cache: cache::VideoCache::new(client.clone()),
 
                 window_title,
+                window_focused: Mutex::new(false),
+                important_paths,
 
                 client,
                 user_device,
@@ -269,6 +317,18 @@ impl AppState {
     #[cfg(feature = "iced_desktop")]
     pub fn video_cache(&self) -> &cache::VideoCache {
         &self.inner.video_cache
+    }
+
+    pub fn important_paths(&self) -> &ImportantPaths {
+        &self.inner.important_paths
+    }
+
+    pub fn window_focused(&self) -> bool {
+        *self
+            .inner
+            .window_focused
+            .lock()
+            .unwrap_or_else(|posion| posion.into_inner())
     }
 
     pub fn window_title(&self) -> Receiver<String> {

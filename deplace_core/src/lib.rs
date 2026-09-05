@@ -7,7 +7,7 @@ use matrix_sdk::{
     room::RoomMember,
 };
 use ruma::{OwnedMxcUri, RoomId, UserId, room_id, user_id};
-use state::ActiveServer;
+use state::{ActiveServer, ImportantPaths};
 
 use crate::{
     keyring::init_keyring,
@@ -22,6 +22,7 @@ pub mod colors;
 pub mod formatting;
 pub mod helpers;
 pub mod matrix_api;
+pub mod notifications;
 pub mod profile;
 pub mod settings;
 pub mod state;
@@ -60,6 +61,14 @@ pub enum RestoreResult {
 
 pub async fn try_restore() -> RestoreResult {
     init_keyring();
+
+    let paths = match ImportantPaths::new() {
+        Ok(paths) => paths,
+        Err(error) => {
+            tracing::error!("Failed to create important paths: {:?}", error);
+            return RestoreResult::NoSession;
+        }
+    };
 
     let session = match tokio::task::spawn_blocking(keyring::get_last_active_session).await {
         Ok(Ok(Some(session))) => session,
@@ -114,7 +123,7 @@ pub async fn try_restore() -> RestoreResult {
         user_id: user_id.clone(),
         device_id: device_id.clone(),
     };
-    let state = AppState::new(client.clone(), device, settings).await;
+    let state = AppState::new(client.clone(), device, settings, paths).await;
     spawn_room_sync(&client, &state);
 
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");

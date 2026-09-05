@@ -13,6 +13,7 @@ const_format.workspace = true
 deplace_core = { workspace = true, features = ["iced_desktop"] }
 dirs.workspace = true
 iced.workspace = true
+iced_video_player.workspace = true
 image.workspace = true
 indexmap.workspace = true
 lru.workspace = true
@@ -21,6 +22,7 @@ matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
 phosphor-svgs.workspace = true
 serde_json.workspace = true
+sweeten.workspace = true
 thumbhash.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -28,8 +30,6 @@ tracing-subscriber.workspace = true
 url.workspace = true
 url-macro.workspace = true
 uuid.workspace = true
-notify-rust = "4.18.0"
-iced_video_player.workspace = true
 
 [dev-dependencies]
 naga = "27"
