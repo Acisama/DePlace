@@ -62,12 +62,6 @@ impl ServerColumn {
             state: state.clone(),
         }
     }
-
-    pub fn load_media(&mut self, media: &MediaLoaded) {
-        if let MediaLoaded::Avatar { uri } = media {
-            self.avatar_states_for_hash.remove(uri);
-        }
-    }
 }
 
 impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {

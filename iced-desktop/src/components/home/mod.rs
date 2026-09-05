@@ -177,13 +177,12 @@ impl Home {
                     );
                     media
                 }
-                NeedsMedia::Video { source, filename } => {
-                    let (media, success) = state
-                        .video_cache()
-                        .load_video(source, filename.clone())
-                        .await;
+                NeedsMedia::Video { source } => {
+                    let unique_key = source.unique_key();
+                    let (media, success) = state.video_cache().load_video(source).await;
                     tracing::trace!(
-                        "Loading of video {filename} finished: {}",
+                        "Loading of video {} finished: {}",
+                        unique_key,
                         if success { "success" } else { "failure" }
                     );
                     media
@@ -273,14 +272,12 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 self.overlay.update(msg);
             }
             HomeMessage::MediaLoaded(media) => {
-                self.sidebar.load_media(&media);
-
                 if let Some(chat) = self
                     .active_room_id
                     .as_ref()
                     .and_then(|id| self.chats.peek_mut(id))
                 {
-                    chat.load_media(&media);
+                    chat.touch_media(&media);
                 }
             }
             HomeMessage::TimelineScrollFinished {

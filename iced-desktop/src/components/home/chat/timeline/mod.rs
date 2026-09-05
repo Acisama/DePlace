@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use deplace_core::PaginationDirection;
 use macros::iced_cache;
+use matrix_sdk::media::UniqueKey;
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as UiTimelineItem};
 use messages::{TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::widget::list;
@@ -47,6 +48,10 @@ pub struct ChatTimeline {
     #[hash]
     room_id: OwnedRoomId,
 
+    avatar_cache: AvatarCache,
+    thumbnail_cache: ThumbnailCache,
+    video_cache: VideoCache,
+
     reached_top: bool,
     reached_bottom: bool,
     loading_top: bool,
@@ -65,6 +70,14 @@ impl ChatTimeline {
             timeline: None,
             room_id: room.room_id().to_owned(),
 
+            avatar_cache: state.avatar_cache().clone(),
+            thumbnail_cache: state.thumbnail_cache().clone(),
+            video_cache: state.video_cache().clone(),
+
+            avatar_states_for_hash: BTreeSet::new(),
+            thumbnail_states_for_hash: BTreeSet::new(),
+            video_states_for_hash: BTreeSet::new(),
+
             reached_top: false,
             reached_bottom: false,
             loading_top: false,
@@ -76,16 +89,22 @@ impl ChatTimeline {
         }
     }
 
-    pub fn load_media(&mut self, media: &MediaLoaded) {
-        let mut changed = false;
-        for index in 0..self.content.len() {
-            if let Some(item) = self.content.get_mut(index) {
-                changed |= Arc::make_mut(item).load_media(media);
-            }
+    /// The virtualized `List` only re-examines a row's hash when `get_mut`
+    /// queues a `Change::Updated` for it; this method pokes every row to trigger
+    /// re-examination when the media is actually loaded.
+    pub fn touch_media(&mut self, media: &MediaLoaded) {
+        let relevant = match media {
+            MediaLoaded::Avatar { uri } => self.avatar_states_for_hash.contains(uri),
+            MediaLoaded::Thumbnail { key } => self.thumbnail_states_for_hash.contains(key),
+            MediaLoaded::Video { key } => self.video_states_for_hash.contains(key),
+        };
+
+        if !relevant {
+            return;
         }
 
-        if changed {
-            self.messages_version += 1;
+        for index in 0..self.content.len() {
+            self.content.get_mut(index);
         }
     }
 
@@ -159,6 +178,17 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         None
                     }
                     Some(TimelineItemAction::NeedsMedia(needs_media)) => {
+                        match &needs_media {
+                            NeedsMedia::Avatar { uri } => {
+                                self.avatar_states_for_hash.insert(uri.clone());
+                            }
+                            NeedsMedia::Thumbnail { key, .. } => {
+                                self.thumbnail_states_for_hash.insert(key.clone());
+                            }
+                            NeedsMedia::Video { source, .. } => {
+                                self.video_states_for_hash.insert(source.unique_key());
+                            }
+                        }
                         Some(TimelineAction::NeedsMedia(needs_media))
                     }
                     _ => None,
@@ -286,15 +316,12 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     })
                     .into()
                 }))
-                .padding(10)
+                .padding(padding::bottom(structure.gap * 3.0))
                 .width(Fill),
             )
             .width(Fill)
             .anchor_bottom()
             .on_scroll(move |viewport| {
-                // With `anchor_bottom`, `absolute_offset` is distance
-                // scrolled *up from the bottom*: 0 at the bottom, growing
-                // towards `max_offset` at the top.
                 let max_offset =
                     (viewport.content_bounds().height - viewport.bounds().height).max(0.0);
                 let offset = viewport.absolute_offset().y;

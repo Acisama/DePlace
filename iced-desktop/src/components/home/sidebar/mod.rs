@@ -42,11 +42,6 @@ impl Sidebar {
         }
     }
 
-    pub fn load_media(&mut self, media: &MediaLoaded) {
-        self.server_column.load_media(media);
-        self.channels.load_media(media);
-    }
-
     pub fn set_active_server_task(&mut self, server: ActiveServer) -> Option<SidebarAction> {
         let state = self.state.clone();
         Some(SidebarAction::Run(Task::future(async move {

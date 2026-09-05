@@ -1,5 +1,5 @@
 use deplace_core::formatting::{fit_dimensions, format_bytes};
-use iced::{Alignment, never};
+use iced::{Alignment, Background, Length, gradient::Linear, never};
 use iced_video_player::VideoPlayer;
 use matrix_sdk::{
     media::UniqueKey,
@@ -47,6 +47,20 @@ impl MessageEvent {
             column = column.push(other_content);
         }
 
+        let highlight_color = if self.is_highlighted {
+            Some(theme.accent.scale_alpha(0.2))
+        } else {
+            None
+        };
+
+        let background = highlight_color.map(|c| {
+            Background::Gradient(iced::Gradient::Linear(
+                Linear::new(90.0)
+                    .add_stop(0.0, c)
+                    .add_stop(1.0, Color::TRANSPARENT),
+            ))
+        });
+
         let (icon, name) = if show_header {
             {
                 let size = structure.chat.icon_size;
@@ -73,13 +87,35 @@ impl MessageEvent {
 
         w::container(w::row![
             w::row![
-                Space::new().width(pre_col_width),
-                icon.unwrap_or(Space::new().into())
+                if self.is_highlighted {
+                    w::container(
+                        w::container("")
+                            .width(pre_col_width / 3.0)
+                            .height(Length::Fill)
+                            .style(move |_| ContainerStyle {
+                                border: border::rounded(pre_col_width / 6.0),
+                                background: Some(theme.accent.into()),
+                                ..Default::default()
+                            }),
+                    )
+                    .padding(pre_col_width / 3.0)
+                } else {
+                    w::container("").width(pre_col_width)
+                },
+                w::row![
+                    icon.unwrap_or(Space::new().width(structure.chat.icon_size).into()),
+                    Space::new().width(pre_col_width),
+                    w::column![name.unwrap_or(Space::new().into()), column]
+                ]
+                .padding(padding::vertical(structure.small_gap)),
             ]
-            .width(col_width),
-            w::column![name.unwrap_or(Space::new().into()), column]
+            .height(Length::Shrink)
         ])
-        .padding(padding::vertical(structure.small_gap))
+        .style(move |_| ContainerStyle {
+            background,
+            border: border::rounded(structure.semi_border_radius() - structure.border_thickness),
+            ..Default::default()
+        })
         .width(Fill)
         .into()
     }
@@ -167,7 +203,7 @@ impl MessageContent {
                             })
                             .padding(structure.small_gap / 2.0),
                         )
-                        .height(Fill)
+                        .height(image.get_dimensions(structure).1)
                         .padding(structure.small_gap / 2.0)
                         .align_y(Alignment::End),
                     )
@@ -268,7 +304,7 @@ impl MessageContent {
                             })
                             .padding(structure.small_gap / 2.0),
                         )
-                        .height(Fill)
+                        .height(video.get_dimensions(structure).1)
                         .padding(structure.small_gap / 2.0)
                         .align_y(Alignment::End),
                     )
@@ -305,11 +341,7 @@ impl ImageMessage {
         )
     }
 
-    fn image_view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-    ) -> Element<'static, TimelineItemMessage> {
+    fn get_dimensions(&self, structure: Structure) -> (f32, f32) {
         let max_width = structure.chat.max_media_width;
         let max_height = structure.chat.max_media_height;
         let info = &self.info;
@@ -317,7 +349,7 @@ impl ImageMessage {
         // Just an overestimate to be sure
         let min_width = self.label().len() as f32 * structure.chat.text_size;
 
-        let (width, height) = fit_dimensions(
+        fit_dimensions(
             info.as_ref()
                 .and_then(|i| i.width.map(|w| w as f32))
                 .unwrap_or(max_width),
@@ -327,7 +359,17 @@ impl ImageMessage {
             max_width,
             max_height,
             min_width,
-        );
+        )
+    }
+
+    fn image_view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+    ) -> Element<'static, TimelineItemMessage> {
+        let info = &self.info;
+
+        let (width, height) = self.get_dimensions(structure);
 
         let thumbnail_source = info
             .as_ref()
@@ -356,9 +398,9 @@ impl ImageMessage {
                         weighted_text("Image failed to load", Weight::Bold)
                             .size(structure.chat.text_size * 1.5),
                     )
-                    .width(Fill)
-                    .height(Fill)
-                    .center(Fill)
+                    .width(width)
+                    .height(height)
+                    .center(height)
                     .style(move |_| w::container::Style {
                         background: Some(theme.colors.error.scale_lightness(0.2).into()),
                         text_color: Some(theme.colors.error),
@@ -429,18 +471,14 @@ impl VideoMessage {
         )
     }
 
-    fn video_view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-    ) -> Element<'static, TimelineItemMessage> {
+    fn get_dimensions(&self, structure: Structure) -> (f32, f32) {
         let max_width = structure.chat.max_media_width;
         let max_height = structure.chat.max_media_height;
         let info = &self.info;
 
         let min_width = self.label().len() as f32 * structure.chat.text_size;
 
-        let (width, height) = fit_dimensions(
+        fit_dimensions(
             info.as_ref()
                 .and_then(|i| i.width.map(|w| w as f32))
                 .unwrap_or(max_width),
@@ -450,7 +488,15 @@ impl VideoMessage {
             max_width,
             max_height,
             min_width,
-        );
+        )
+    }
+
+    fn video_view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+    ) -> Element<'static, TimelineItemMessage> {
+        let (width, height) = self.get_dimensions(structure);
 
         let cached_video = self.video_cache.get(&self.source.unique_key());
         let mut stack = Stack::new();
@@ -480,9 +526,9 @@ impl VideoMessage {
                         weighted_text("Video failed to load", Weight::Bold)
                             .size(structure.chat.text_size * 1.5),
                     )
-                    .width(Fill)
-                    .height(Fill)
-                    .center(Fill)
+                    .width(width)
+                    .height(height)
+                    .center(height)
                     .style(move |_| w::container::Style {
                         background: Some(theme.colors.error.scale_lightness(0.2).into()),
                         text_color: Some(theme.colors.error),
@@ -520,7 +566,6 @@ impl VideoMessage {
                 Space::new(),
                 TimelineItemMessage::NeedsMedia(NeedsMedia::Video {
                     source: self.source.clone(),
-                    filename: self.filename.clone(),
                 }),
             ))
         }

@@ -109,10 +109,9 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
             });
             hashings.push(quote! {
                 for uri in &self.avatar_states_for_hash {
-                    self.avatar_cache
-                        .get(uri)
-                        .unwrap_or_default()
-                        .hash(state)
+                    if let Some(res) = self.avatar_cache.get(uri) {
+                        res.hash(state)
+                    }
                 }
             });
         }

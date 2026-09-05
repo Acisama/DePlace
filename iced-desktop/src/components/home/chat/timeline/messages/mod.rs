@@ -93,24 +93,6 @@ impl TimelineItem {
         }
     }
 
-    pub fn load_media(&mut self, media: &MediaLoaded) -> bool {
-        let id = self.id.clone();
-        let result = match media {
-            MediaLoaded::Avatar { uri } if let Some(hashes) = self.avatar_hashes() => {
-                hashes.remove(uri)
-            }
-            MediaLoaded::Thumbnail { key } if let Some(hashes) = self.thumbnail_hashes() => {
-                hashes.remove(key)
-            }
-            MediaLoaded::Video { key } if let Some(hashes) = self.video_hashes() => {
-                hashes.remove(key)
-            }
-            _ => false,
-        };
-        tracing::debug!("[diag] TimelineItem({id}).load_media({media:?}) -> {result}");
-        result
-    }
-
     fn set_hovered(&mut self, new_hovered: bool) -> Option<TimelineItemAction> {
         match &mut self.kind {
             TimelineItemKind::Message { is_hovered, .. } if *is_hovered != new_hovered => {
@@ -218,11 +200,14 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
             .into(),
             TimelineItemKind::FailedToParseMessageLike { .. } => fallback,
             TimelineItemKind::FailedToParseState { .. } => fallback,
-            TimelineItemKind::ReadMarker => w::container("")
-                .width(Fill)
-                .height(structure.divider_width)
-                .style(move |_| ContainerStyle::default().background(theme.accent))
-                .into(),
+            TimelineItemKind::ReadMarker => w::container(
+                w::container(Space::new())
+                    .width(Fill)
+                    .height(structure.divider_width)
+                    .style(move |_| ContainerStyle::default().background(theme.accent)),
+            )
+            .padding(padding::vertical(structure.small_gap))
+            .into(),
             TimelineItemKind::TimelineStart => fallback,
             TimelineItemKind::System { is_hovered, event } => {
                 let is_hovered = *is_hovered;
@@ -267,6 +252,7 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                         },
                         ..Default::default()
                     })
+                    .padding(structure.border_thickness)
                     .width(Fill),
                 )
                 .on_enter(TimelineItemMessage::EventEnter)

@@ -79,7 +79,6 @@ pub enum NeedsMedia {
     },
     Video {
         source: MediaSource,
-        filename: String,
     },
 }
 
@@ -93,8 +92,8 @@ impl NeedsMedia {
         Self::Thumbnail { source, key }
     }
 
-    pub fn video(source: MediaSource, filename: String) -> Self {
-        Self::Video { source, filename }
+    pub fn video(source: MediaSource) -> Self {
+        Self::Video { source }
     }
 }
 
@@ -127,7 +126,7 @@ impl AvatarCache {
         };
 
         let mut success = true;
-        let res = match self.client.media().get_media_content(&request, false).await {
+        let res = match self.client.media().get_media_content(&request, true).await {
             Ok(bytes) => MediaState::loaded(iced::widget::image::Handle::from_bytes(bytes)),
             Err(e) => {
                 tracing::error!("Failed to fetch media: {e}");
@@ -171,7 +170,7 @@ impl ThumbnailCache {
         };
 
         let mut success = true;
-        let res = match self.client.media().get_media_content(&request, false).await {
+        let res = match self.client.media().get_media_content(&request, true).await {
             Ok(bytes) => MediaState::loaded(iced::widget::image::Handle::from_bytes(bytes)),
             Err(e) => {
                 tracing::error!("Failed to fetch media: {e}");
@@ -192,7 +191,7 @@ pub type VideoCache = MediaCache<String, (Arc<Video>, Arc<matrix_sdk::media::Med
 #[cfg(feature = "iced_desktop")]
 impl VideoCache {
     /// Loads a video with the given source and filename and returns MediaLoaded and a boolean indicating whether it was successfully loaded.
-    pub async fn load_video(&self, source: MediaSource, filename: String) -> (MediaLoaded, bool) {
+    pub async fn load_video(&self, source: MediaSource) -> (MediaLoaded, bool) {
         use matrix_sdk::media::UniqueKey;
 
         let key = &source.unique_key();
@@ -213,13 +212,7 @@ impl VideoCache {
         let res = match self
             .client
             .media()
-            .get_media_file(
-                request,
-                Some(filename.clone()),
-                &mime::TEXT_PLAIN,
-                true,
-                None,
-            )
+            .get_media_file(request, None, &mime::TEXT_PLAIN, true, None)
             .await
         {
             Ok(file) => {

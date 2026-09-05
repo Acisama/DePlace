@@ -1,4 +1,4 @@
-use deplace_core::{RestoreResult, state::cache::MediaLoaded, try_restore};
+use deplace_core::{RestoreResult, try_restore};
 use iced::{Task, window};
 use matrix_sdk::Client;
 use tracing_subscriber::EnvFilter;
@@ -28,7 +28,6 @@ pub enum AppMessage {
     TabPressed { shift: bool },
     GoToLoading,
     GoToLogin(Client),
-    MediaLoaded(MediaLoaded),
 }
 
 fn main() -> iced::Result {

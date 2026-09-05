@@ -117,11 +117,6 @@ impl Chat {
         )
     }
 
-    pub fn load_media(&mut self, media: &MediaLoaded) {
-        self.timeline.load_media(media);
-        self.header.load_media(media);
-    }
-
     pub fn get_input_pointer(&self) -> *mut text_editor::Content {
         self.input.get_raw_content_pointer()
     }
@@ -132,6 +127,10 @@ impl Chat {
 
     pub fn set_timeline_scroll_finished(&mut self, direction: PaginationDirection, finished: bool) {
         self.timeline.set_scroll_finished(direction, finished);
+    }
+
+    pub fn touch_media(&mut self, media: &MediaLoaded) {
+        self.timeline.touch_media(media);
     }
 }
 
@@ -195,11 +194,12 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                         .map(ChatMessage::Input)),
                 ]
                 .padding(Padding {
-                    top: 0.0,
-                    left: structure.small_gap,
-                    right: structure.small_gap,
-                    bottom: structure.small_gap
+                    top: structure.border_thickness,
+                    left: structure.small_gap + structure.border_thickness,
+                    right: structure.small_gap + structure.border_thickness,
+                    bottom: structure.small_gap + structure.border_thickness,
                 })
+                .clip(true)
                 .height(Fill)
                 .width(Fill)
             )

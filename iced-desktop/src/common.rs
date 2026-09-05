@@ -13,7 +13,7 @@ pub use deplace_core::{
     settings::Settings,
     state::{
         AppState, MembershipMap, RoomMap,
-        cache::{AvatarCache, MediaLoaded, MediaState, NeedsMedia, ThumbnailCache},
+        cache::{AvatarCache, MediaLoaded, MediaState, NeedsMedia, ThumbnailCache, VideoCache},
         roles::ExtraHash,
     },
 };
