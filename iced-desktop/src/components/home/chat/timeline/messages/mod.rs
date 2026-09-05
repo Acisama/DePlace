@@ -33,7 +33,6 @@ pub use convert::ToTimelineItem;
 /// The message an item in the timeline can receive
 #[derive(Debug, Clone)]
 pub enum TimelineItemMessage {
-    DoNothing,
     NeedsMedia(NeedsMedia),
     EventEnter,
     EventExit,
@@ -128,7 +127,6 @@ impl TimelineItem {
 impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
     fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
-            TimelineItemMessage::DoNothing => None,
             TimelineItemMessage::MediaMouseEnter => {
                 if let TimelineItemKind::Message { event, .. } = &mut self.kind {
                     match &mut event.content {

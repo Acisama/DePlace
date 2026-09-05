@@ -467,9 +467,12 @@ impl VideoMessage {
 
         stack = match cached_video.as_ref().unwrap_or(&MediaState::Loading) {
             MediaState::Loaded(video) => stack.push(
-                VideoPlayer::<TimelineItemMessage>::new(video.0.clone())
-                    .width(width)
-                    .height(height),
+                w::mouse_area(
+                    VideoPlayer::<TimelineItemMessage>::new(video.0.clone())
+                        .width(width)
+                        .height(height),
+                )
+                .on_press(TimelineItemMessage::ToggleVideoPause(video.0.clone())),
             ),
             MediaState::Failed => stack
                 .push(
@@ -522,25 +525,7 @@ impl VideoMessage {
             ))
         }
 
-        let media = w::mouse_area(w::container(stack).width(width).height(height).style(
-            move |_| ContainerStyle {
-                border: Border {
-                    color: Color::TRANSPARENT,
-                    width: 0.0,
-                    radius: structure.inner_border_radius.into(),
-                },
-                ..Default::default()
-            },
-        ))
-        .on_press(
-            if let MediaState::Loaded(video_data) = cached_video.unwrap_or_default() {
-                TimelineItemMessage::ToggleVideoPause(video_data.0.clone())
-            } else {
-                TimelineItemMessage::DoNothing
-            },
-        );
-
-        media.into()
+        stack.into()
     }
 }
 
