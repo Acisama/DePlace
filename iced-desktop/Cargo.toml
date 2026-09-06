@@ -30,6 +30,7 @@ tracing-subscriber.workspace = true
 url.workspace = true
 url-macro.workspace = true
 uuid.workspace = true
+interprocess = "2.4.4"
 
 [dev-dependencies]
 naga = "27"

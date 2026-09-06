@@ -1,8 +1,10 @@
 use deplace_core::RestoreResult;
+use iced::advanced::subscription;
 use iced::widget::Shader;
 use iced::window;
+use interprocess::local_socket::{GenericNamespaced, Listener, ListenerOptions, prelude::*};
 
-use crate::common::*;
+use crate::{SOCKET_NAME, SocketListener, common::*};
 
 use crate::components::authentification::discovery::{DiscoveryAction, DiscoveryMessage};
 use crate::components::authentification::login::{LoginAction, LoginMessage};
@@ -211,20 +213,22 @@ pub struct Root {
     loading: shader::LoadingIndicator,
     theme: Theme,
     structure: Structure,
+
+    id: Option<window::Id>,
+    listener: Arc<Listener>,
 }
 
-impl Default for Root {
-    fn default() -> Self {
+impl Root {
+    pub fn new(listener: Arc<Listener>) -> Self {
         Self {
+            listener,
+            id: None,
             screen: Screen::default(),
             loading: shader::LoadingIndicator::default(),
             theme: Theme::new(),
             structure: Structure::new(),
         }
     }
-}
-
-impl Root {
     pub fn update(&mut self, message: AppMessage) -> Task<AppMessage> {
         self.loading.transition_to(self.screen.state_index());
 
@@ -234,6 +238,26 @@ impl Root {
             } else {
                 w::operation::focus_next()
             };
+        }
+
+        if let AppMessage::FocusRequest(_) = message {
+            if let Some(id) = self.id {
+                return window::gain_focus(id);
+            } else {
+                return window::open(window::Settings::default())
+                    .1
+                    .map(|_| AppMessage::DoNothing);
+            }
+        }
+
+        if let AppMessage::Start(id) = message {
+            self.id = Some(id)
+        }
+
+        if let AppMessage::WindowClosed(id) = message {
+            if self.id.is_some_and(|i| i == id) {
+                self.id = None
+            }
         }
 
         self.screen.update(message).unwrap_or(Task::none())
@@ -274,6 +298,11 @@ impl Root {
                 }),
                 _ => None,
             }),
+            window::close_events().map(AppMessage::WindowClosed),
+            subscription::from_recipe(SocketListener {
+                listener: self.listener.clone(),
+            })
+            .map(AppMessage::FocusRequest),
         ])
     }
 

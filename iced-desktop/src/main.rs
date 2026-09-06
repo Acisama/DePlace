@@ -1,5 +1,18 @@
+use std::{
+    any::TypeId,
+    hash::Hash,
+    io::{Read, Write},
+    sync::{Arc, Mutex},
+};
+
 use deplace_core::{RestoreResult, try_restore};
-use iced::{Task, window};
+use iced::{
+    Task,
+    advanced::subscription::Recipe,
+    futures::{channel::mpsc::Receiver, stream},
+    window,
+};
+use interprocess::local_socket::{GenericNamespaced, Listener, ListenerOptions, prelude::*};
 use matrix_sdk::Client;
 use tracing_subscriber::EnvFilter;
 
@@ -15,6 +28,8 @@ pub(crate) mod common;
 pub(crate) mod components;
 mod things;
 
+const SOCKET_NAME: &str = "deplace_app_single_instance.sock";
+
 #[derive(Debug, Clone)]
 pub enum AppMessage {
     DoNothing,
@@ -28,6 +43,8 @@ pub enum AppMessage {
     TabPressed { shift: bool },
     GoToLoading,
     GoToLogin(Client),
+    WindowClosed(window::Id),
+    FocusRequest(FocusRequest),
     WindowFocus { focused: bool },
 }
 
@@ -48,6 +65,29 @@ fn main() -> iced::Result {
         tracing::error!("Panic: {:?}", info);
         default_hook(info);
     }));
+
+    // Convert socket identifier for interprocess
+    let socket_name = match SOCKET_NAME.to_ns_name::<GenericNamespaced>() {
+        Ok(name) => name,
+        Err(e) => {
+            panic!("Failed to create socket name: {e}")
+        }
+    };
+
+    // Try connecting to an existing instance
+    if let Ok(mut stream) = LocalSocketStream::connect(socket_name.clone()) {
+        tracing::info!("Another instance is already running. Sending focus signal.");
+        let _ = stream.write_all(b"focus");
+        let _ = stream.flush();
+        // Exit this secondary instance immediately
+        return Ok(());
+    }
+    let listener = match ListenerOptions::new().name(socket_name).create_sync() {
+        Ok(l) => Arc::new(l),
+        Err(e) => {
+            panic!("Failed to bind local socket: {e}")
+        }
+    };
 
     let icon = match iced::window::icon::from_file_data(
         include_bytes!(concat!(
@@ -76,7 +116,7 @@ fn main() -> iced::Result {
                 Task::perform(try_restore(), AppMessage::Restored),
             ]);
 
-            (Root::default(), tasks)
+            (Root::new(listener.clone()), tasks)
         },
         Root::update,
         Root::view,
@@ -86,4 +126,53 @@ fn main() -> iced::Result {
     // Use monospace in specific things, not everywhere
     // .default_font(iced::Font::MONOSPACE)
     .run()
+}
+
+struct SocketListener {
+    listener: Arc<Listener>,
+}
+
+#[derive(Debug, Clone)]
+struct FocusRequest;
+
+impl Recipe for SocketListener {
+    type Output = FocusRequest;
+
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
+        TypeId::of::<Self>().hash(state);
+    }
+
+    fn stream(
+        self: Box<Self>,
+        _input: iced::advanced::subscription::EventStream,
+    ) -> iced::advanced::graphics::futures::BoxStream<Self::Output> {
+        Box::pin(stream::unfold(self.listener, |listener| async move {
+            loop {
+                let listener_clone = listener.clone();
+
+                let (msg, returned_listener) = tokio::task::spawn_blocking(move || {
+                    let msg = {
+                        if let Some(Ok(mut stream)) = listener_clone.incoming().next() {
+                            let mut buf = [0u8; 5];
+                            if stream.read_exact(&mut buf).is_ok() && &buf == b"focus" {
+                                Some(FocusRequest)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    };
+
+                    (msg, listener_clone)
+                })
+                .await
+                .ok()?;
+
+                if let Some(focus_request) = msg {
+                    return Some((focus_request, returned_listener));
+                }
+            }
+        }))
+    }
 }
