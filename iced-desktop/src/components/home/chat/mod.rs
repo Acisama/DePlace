@@ -62,20 +62,24 @@ impl Chat {
         let thumbnail_cache = state.thumbnail_cache().clone();
         let video_cache = state.video_cache().clone();
 
-        let room_id_log = room_id.clone();
+        let room_id_clone = room_id.clone();
         let stream = stream::once(async move {
-            tracing::debug!("Building timeline for room {}", room_id_log);
+            tracing::debug!("Building timeline for room {}", room_id_clone);
             let timeline = match builder.build().await {
                 Ok(t) => Arc::new(t),
                 Err(e) => {
-                    tracing::error!("Failed to build timeline for room {}: {:?}", room_id_log, e);
+                    tracing::error!(
+                        "Failed to build timeline for room {}: {:?}",
+                        room_id_clone,
+                        e
+                    );
                     return stream::pending().left_stream(); // never resolves; room stays empty
                 }
             };
             let (initial, updates) = timeline.subscribe().await;
             tracing::debug!(
                 "Subscribed to timeline for room {} with {} initial items",
-                room_id_log,
+                room_id_clone,
                 initial.len()
             );
 
@@ -83,11 +87,15 @@ impl Chat {
                 match timeline.paginate_backwards(30).await {
                     Ok(reached_start) => tracing::debug!(
                         "Paginated room {} backwards (reached_start={})",
-                        room_id_log,
+                        room_id_clone,
                         reached_start
                     ),
                     Err(e) => {
-                        tracing::warn!("Failed to paginate room {} backwards: {:?}", room_id_log, e)
+                        tracing::warn!(
+                            "Failed to paginate room {} backwards: {:?}",
+                            room_id_clone,
+                            e
+                        )
                     }
                 }
             }
@@ -95,7 +103,14 @@ impl Chat {
             let initial = Arc::new(
                 initial
                     .into_iter()
-                    .map(|m| Arc::new(m.convert(&avatar_cache, &thumbnail_cache, &video_cache)))
+                    .map(|m| {
+                        Arc::new(m.convert(
+                            &avatar_cache,
+                            &thumbnail_cache,
+                            &video_cache,
+                            room_id_clone.clone(),
+                        ))
+                    })
                     .collect(),
             );
 

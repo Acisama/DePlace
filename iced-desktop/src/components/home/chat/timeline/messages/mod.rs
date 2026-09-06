@@ -1,5 +1,8 @@
 use crate::common::*;
-use std::{collections::BTreeSet, time::SystemTime};
+use std::{
+    collections::BTreeSet,
+    time::{Duration, SystemTime},
+};
 
 use deplace_core::{formatting::format_date_divider, state::cache::VideoCache};
 use iced::Alignment;
@@ -29,6 +32,7 @@ mod convert;
 mod render;
 
 pub use convert::ToTimelineItem;
+use render::render_event;
 
 /// The message an item in the timeline can receive
 #[derive(Debug, Clone)]
@@ -61,10 +65,91 @@ pub struct TimelineItem {
     #[hash]
     pub id: String,
     #[hash]
+    room_id: OwnedRoomId,
+    #[hash]
     kind: TimelineItemKind,
 }
 
 impl TimelineItem {
+    /// Computes what `connects_before` should be for this
+    /// item given its neighbors. Pure, so the item can only be mutated in the list if necessary.
+    pub fn compute_connection(&self, previous: Option<&TimelineItem>) -> Option<bool> {
+        let TimelineItemKind::Message { event, .. } = &self.kind else {
+            return None;
+        };
+        let connection_duration = Duration::from_mins(5);
+
+        let connects_before = if !event.in_reply_to.is_empty() {
+            false
+        } else if let Some(TimelineItemKind::Message {
+            event: previous_event,
+            ..
+        }) = previous.map(|p| &p.kind)
+        {
+            event.sender == previous_event.sender
+                && event
+                    .timestamp
+                    .duration_since(previous_event.timestamp)
+                    .map(|res| res < connection_duration)
+                    .unwrap_or(false)
+        } else {
+            false
+        };
+
+        if connects_before == event.connects_previous {
+            return None;
+        }
+
+        Some(connects_before)
+    }
+
+    pub fn compute_prev_is_event(&self, previous: Option<&TimelineItem>) -> Option<bool> {
+        let previous_is_event = match &self.kind {
+            TimelineItemKind::Message {
+                previous_is_event, ..
+            } => *previous_is_event,
+            TimelineItemKind::System {
+                previous_is_event, ..
+            } => *previous_is_event,
+            _ => return None,
+        };
+
+        let prev_is_event = matches!(
+            previous.map(|p| &p.kind),
+            Some(TimelineItemKind::Message { .. }) | Some(TimelineItemKind::System { .. })
+        );
+
+        if prev_is_event == previous_is_event {
+            return None;
+        }
+
+        Some(prev_is_event)
+    }
+
+    pub fn set_connection(&mut self, connects_before: bool) {
+        if let TimelineItemKind::Message { event, .. } = &mut self.kind {
+            event.connects_previous = connects_before;
+        }
+    }
+
+    pub fn set_previous_is_event(&mut self, previous_is_event: bool) {
+        match &mut self.kind {
+            TimelineItemKind::Message {
+                previous_is_event: prev_is_event,
+                ..
+            } => {
+                *prev_is_event = previous_is_event;
+            }
+            TimelineItemKind::System {
+                previous_is_event: prev_is_event,
+                ..
+            } => {
+                *prev_is_event = previous_is_event;
+            }
+            _ => {}
+        }
+    }
+
     fn avatar_hashes(&mut self) -> Option<&mut BTreeSet<OwnedMxcUri>> {
         if let TimelineItemKind::Message { event, .. } = &mut self.kind {
             Some(&mut event.avatar_states_for_hash)
@@ -196,7 +281,7 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                         .border(border::rounded(structure.divider_width / 2.0))),
             ]
             .align_y(Alignment::Center)
-            .spacing(structure.small_gap / 2.0)
+            .spacing(structure.small_gap)
             .into(),
             TimelineItemKind::FailedToParseMessageLike { .. } => fallback,
             TimelineItemKind::FailedToParseState { .. } => fallback,
@@ -209,56 +294,33 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
             .padding(padding::vertical(structure.small_gap))
             .into(),
             TimelineItemKind::TimelineStart => fallback,
-            TimelineItemKind::System { is_hovered, event } => {
-                let is_hovered = *is_hovered;
-                w::mouse_area(
-                    w::container(w::lazy(event.clone(), move |event| {
-                        event.view(theme, structure)
-                    }))
-                    .width(Fill)
-                    .style(move |_| {
-                        ContainerStyle::default().border(
-                            border::rounded(structure.inner_border_radius)
-                                .width(structure.border_thickness)
-                                .color(if is_hovered {
-                                    theme.border
-                                } else {
-                                    Color::TRANSPARENT
-                                }),
-                        )
-                    })
-                    .padding(structure.small_gap / 2.0),
-                )
-                .on_enter(TimelineItemMessage::EventEnter)
-                .on_exit(TimelineItemMessage::EventExit)
-                .into()
-            }
-            TimelineItemKind::Message { event, is_hovered } => {
-                let is_hovered = *is_hovered;
-                w::mouse_area(
-                    w::container(w::lazy(event.clone(), move |event| {
-                        event.view(theme, structure)
-                    }))
-                    .style(move |_| ContainerStyle {
-                        background: None,
-                        border: Border {
-                            color: if is_hovered {
-                                theme.border
-                            } else {
-                                Color::TRANSPARENT
-                            },
-                            width: structure.border_thickness,
-                            radius: structure.semi_border_radius().into(),
-                        },
-                        ..Default::default()
-                    })
-                    .padding(structure.border_thickness)
-                    .width(Fill),
-                )
-                .on_enter(TimelineItemMessage::EventEnter)
-                .on_exit(TimelineItemMessage::EventExit)
-                .into()
-            }
+            TimelineItemKind::System {
+                is_hovered,
+                event,
+                previous_is_event,
+            } => render_event(
+                w::lazy(event.clone(), move |event| event.view(theme, structure)),
+                structure,
+                theme,
+                *is_hovered,
+                *previous_is_event,
+                false,
+                structure.small_gap,
+            ),
+            TimelineItemKind::Message {
+                event,
+                is_hovered,
+                previous_is_event,
+            } => render_event(
+                w::lazy(event.clone(), move |event| event.view(theme, structure)),
+                structure,
+                theme,
+                *is_hovered,
+                *previous_is_event,
+                event.connects_previous,
+                structure.gap * 1.5,
+            ),
+            _ => fallback,
         }
     }
 }
@@ -271,10 +333,12 @@ enum TimelineItemKind {
     Message {
         event: Box<MessageEvent>,
         is_hovered: bool,
+        previous_is_event: bool,
     },
     System {
         is_hovered: bool,
         event: Box<SystemEvent>,
+        previous_is_event: bool,
     },
     FailedToParseMessageLike {
         event_type: Arc<String>,
@@ -291,12 +355,22 @@ impl Hash for TimelineItemKind {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Other things are static, so hashing doesn't need to include them
         match self {
-            TimelineItemKind::Message { event, is_hovered } => {
+            TimelineItemKind::Message {
+                event,
+                is_hovered,
+                previous_is_event: previous_is_text_message,
+            } => {
                 event.hash(state);
                 is_hovered.hash(state);
+                previous_is_text_message.hash(state);
             }
-            TimelineItemKind::System { is_hovered, .. } => {
+            TimelineItemKind::System {
+                is_hovered,
+                previous_is_event,
+                ..
+            } => {
                 is_hovered.hash(state);
+                previous_is_event.hash(state);
             }
             _ => {}
         }
@@ -341,12 +415,10 @@ struct MessageEvent {
 
     in_reply_to: Arc<Vec<ReplyToDetails>>,
 
-    // Arc-wrapped because `MessageEvent` gets deep-cloned on every render
-    // pass (`w::lazy` must clone its dependency before it can even check
-    // the hash to decide whether to skip re-rendering) -- without this,
-    // a message with many reactions makes every touch of its row
-    // expensive regardless of how many other messages are in the room.
     reactions: Arc<ReactionsByKeyBySender>,
+
+    /// Weather the previous message is the same type, sender and withing 5 minutes of this message.
+    connects_previous: bool,
 
     avatar_cache: AvatarCache,
 
@@ -384,7 +456,7 @@ impl ExtraHash for MessageEvent {
 
 impl MessageEvent {
     fn is_local_echo(&self) -> bool {
-        !matches!(self.send_state, Some(EventSendState::Sent { .. }))
+        !matches!(self.send_state, Some(EventSendState::Sent { .. }) | None)
     }
 }
 

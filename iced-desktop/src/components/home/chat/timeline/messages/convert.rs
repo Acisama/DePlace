@@ -27,6 +27,7 @@ pub trait ToTimelineItem {
         avatar_cache: &AvatarCache,
         thumbnail_cache: &ThumbnailCache,
         video_cache: &VideoCache,
+        room_id: OwnedRoomId,
     ) -> TimelineItem;
 }
 
@@ -36,9 +37,11 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
         avatar_cache: &AvatarCache,
         thumbnail_cache: &ThumbnailCache,
         video_cache: &VideoCache,
+        room_id: OwnedRoomId,
     ) -> TimelineItem {
         TimelineItem {
             id: self.unique_id().0.clone(),
+            room_id,
             kind: TimelineItemKind::from_ui(
                 self.kind(),
                 avatar_cache,
@@ -89,6 +92,7 @@ impl TimelineItemKind {
                     ($content:expr) => {
                         TimelineItemKind::System {
                             is_hovered: false,
+                            previous_is_event: false,
                             event: Box::new(SystemEvent {
                                 timestamp,
                                 event_id,
@@ -229,6 +233,8 @@ impl TimelineItemKind {
 
                             reactions: Arc::new(m.reactions.clone()),
 
+                            connects_previous: false,
+
                             is_own: event.is_own(),
                             is_editable: event.is_editable(),
                             is_highlighted: event.is_highlighted(),
@@ -244,6 +250,7 @@ impl TimelineItemKind {
                             avatar_states_for_hash: BTreeSet::new(),
                         }),
                         is_hovered: false,
+                        previous_is_event: false,
                     },
                 }
             }

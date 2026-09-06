@@ -24,6 +24,43 @@ use crate::{
 
 use super::{ImageMessage, MessageContent, MessageEvent, TimelineItemMessage, VideoMessage};
 
+pub fn render_event(
+    content: impl Into<Element<'static, TimelineItemMessage>>,
+    structure: Structure,
+    theme: Theme,
+    is_hovered: bool,
+    previous_is_event: bool,
+    connect_previous: bool,
+    gap: f32,
+) -> Element<'static, TimelineItemMessage> {
+    w::container(
+        w::mouse_area(
+            w::container(content)
+                .width(Fill)
+                .style(move |_| {
+                    ContainerStyle::default().border(
+                        border::rounded(structure.inner_border_radius)
+                            .width(structure.border_thickness)
+                            .color(if is_hovered {
+                                theme.border
+                            } else {
+                                Color::TRANSPARENT
+                            }),
+                    )
+                })
+                .padding(structure.border_thickness),
+        )
+        .on_enter(TimelineItemMessage::EventEnter)
+        .on_exit(TimelineItemMessage::EventExit),
+    )
+    .padding(padding::top(if previous_is_event && !connect_previous {
+        gap
+    } else {
+        0.0
+    }))
+    .into()
+}
+
 impl MessageEvent {
     pub fn view(
         &self,
@@ -33,9 +70,10 @@ impl MessageEvent {
         let pre_col_width = structure.small_gap * 1.5;
         let text_size = structure.chat.text_size;
 
-        let show_header = true;
+        let show_header = !self.connects_previous;
 
-        let (text_content, other_content) = self.content.view(theme, structure);
+        let (text_content, other_content) =
+            self.content.view(theme, structure, self.is_local_echo());
 
         let mut column = w::Column::new();
 
@@ -97,22 +135,26 @@ impl MessageEvent {
                                 ..Default::default()
                             }),
                     )
+                    .height(Length::Fill)
                     .padding(pre_col_width / 3.0)
                 } else {
                     w::container("").width(pre_col_width)
                 },
                 w::row![
-                    icon.unwrap_or(Space::new().width(structure.chat.icon_size).into()),
+                    w::column![
+                        Space::new().height(structure.divider_width),
+                        icon.unwrap_or(Space::new().width(structure.chat.icon_size).into()),
+                        Space::new().height(structure.divider_width),
+                    ],
                     Space::new().width(pre_col_width),
                     w::column![name.unwrap_or(Space::new().into()), column]
                 ]
-                .padding(padding::vertical(structure.small_gap)),
             ]
             .height(Length::Shrink)
         ])
         .style(move |_| ContainerStyle {
             background,
-            border: border::rounded(structure.semi_border_radius() - structure.border_thickness),
+            border: border::rounded(structure.semi_border_radius() + structure.border_thickness),
             ..Default::default()
         })
         .width(Fill)
@@ -125,6 +167,7 @@ impl MessageContent {
         &self,
         theme: Theme,
         structure: Structure,
+        is_local_echo: bool,
     ) -> (
         Option<Element<'static, TimelineItemMessage>>,
         Option<Element<'static, TimelineItemMessage>>,
@@ -133,7 +176,16 @@ impl MessageContent {
 
         let render_text_color =
             |text: String, color: Color| w::text(text).color(color).size(text_size);
-        let render_normal_text = |text: String| render_text_color(text, theme.text.normal);
+        let render_normal_text = |text: String| {
+            render_text_color(
+                text,
+                if is_local_echo {
+                    theme.text.dim
+                } else {
+                    theme.text.normal
+                },
+            )
+        };
         let render_warning_text = |text: &'static str| {
             (
                 Some(render_text_color(text.to_string(), theme.colors.warning).into()),
@@ -613,6 +665,7 @@ impl SystemEvent {
                 .center_x(col_width),
             self.content.render_content(theme, structure, sender_name)
         ]
+        .padding(padding::vertical(structure.small_gap / 2.0))
         .align_y(Alignment::Center)
         .into()
     }

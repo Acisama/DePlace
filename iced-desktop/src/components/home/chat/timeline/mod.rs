@@ -108,6 +108,55 @@ impl ChatTimeline {
         }
     }
 
+    /// Recomputes `connects_previous`/`previous_is_text_message` for a
+    /// single index, applying the update only where it actually changed.
+    /// Both only depend on the *previous* neighbor.
+    fn refresh_previous_linkage(&mut self, index: usize) {
+        let previous = index
+            .checked_sub(1)
+            .and_then(|p| self.content.get(p))
+            .cloned();
+
+        let Some(current) = self.content.get(index) else {
+            return;
+        };
+
+        let connection = current.compute_connection(previous.as_deref());
+        let prev_is_text = current.compute_prev_is_event(previous.as_deref());
+
+        if connection.is_none() && prev_is_text.is_none() {
+            return;
+        }
+
+        if let Some(item) = self.content.get_mut(index) {
+            let item = Arc::make_mut(item);
+            if let Some(connects_before) = connection {
+                item.set_connection(connects_before);
+            }
+            if let Some(prev_is_text) = prev_is_text {
+                item.set_previous_is_event(prev_is_text);
+            }
+        }
+    }
+
+    /// After a structural change at `index` (insert/remove/push/pop),
+    /// refreshes `index` and the item right after it -- since the linkage
+    /// only ever looks backward, those are the only two items whose
+    /// `previous` neighbor could possibly have changed.
+    fn refresh_previous_linkage_near(&mut self, index: usize) {
+        self.refresh_previous_linkage(index);
+        self.refresh_previous_linkage(index + 1);
+    }
+
+    /// Recomputes the previous-neighbor linkage for every item -- used
+    /// after bulk operations (initial load, reset) where structure changed
+    /// too broadly to target specific indices.
+    fn refresh_all_previous_linkage(&mut self) {
+        for index in 0..self.content.len() {
+            self.refresh_previous_linkage(index);
+        }
+    }
+
     pub fn set_scroll_finished(&mut self, direction: PaginationDirection, finished: bool) {
         match direction {
             PaginationDirection::Forward => {
@@ -209,6 +258,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         .collect(),
                 );
                 self.content = list::Content::with_items((*initial).clone());
+                self.refresh_all_previous_linkage();
                 self.messages_version += 1;
 
                 if initial.len() < 50 {
@@ -224,26 +274,38 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     self.content.len()
                 );
 
-                let avatar_cache = self.state.avatar_cache();
-                let thumbnail_cache = self.state.thumbnail_cache();
-                let video_cache = self.state.video_cache();
+                let avatar_cache = self.state.avatar_cache().clone();
+                let thumbnail_cache = self.state.thumbnail_cache().clone();
+                let video_cache = self.state.video_cache().clone();
+                let room_id = self.room_id.clone();
 
                 for diff in diffs.into_iter().map(|d| {
-                    d.map(|m| Arc::new(m.convert(avatar_cache, thumbnail_cache, video_cache)))
+                    d.map(|m| {
+                        Arc::new(m.convert(
+                            &avatar_cache,
+                            &thumbnail_cache,
+                            &video_cache,
+                            room_id.clone(),
+                        ))
+                    })
                 }) {
                     match diff {
                         VectorDiff::Append { values } => {
                             for value in values {
                                 self.content.push(value);
+                                // Last item only: appending never has
+                                // anything after it whose `previous` could
+                                // change.
+                                self.refresh_previous_linkage(self.content.len() - 1);
                             }
                         }
-                        // A wholesale reset -- nothing incremental to
-                        // preserve, so a fresh Content is both correct and
-                        // cheaper than removing every item one by one.
                         VectorDiff::Clear => self.content = list::Content::new(),
                         VectorDiff::Insert { index, value } => {
                             self.content.insert(index, value);
+                            self.refresh_previous_linkage_near(index);
                         }
+                        // Removing from the end can't change any remaining
+                        // item's `previous` neighbor.
                         VectorDiff::PopBack => {
                             if !self.content.is_empty() {
                                 self.content.remove(self.content.len() - 1);
@@ -252,21 +314,38 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         VectorDiff::PopFront => {
                             if !self.content.is_empty() {
                                 self.content.remove(0);
+                                self.refresh_previous_linkage(0);
                             }
                         }
-                        VectorDiff::PushBack { value } => self.content.push(value),
-                        VectorDiff::PushFront { value } => self.content.insert(0, value),
+                        VectorDiff::PushBack { value } => {
+                            self.content.push(value);
+                            self.refresh_previous_linkage(self.content.len() - 1);
+                        }
+                        VectorDiff::PushFront { value } => {
+                            self.content.insert(0, value);
+                            self.refresh_previous_linkage_near(0);
+                        }
                         VectorDiff::Remove { index } => {
                             self.content.remove(index);
+                            self.refresh_previous_linkage(index);
                         }
                         VectorDiff::Reset { values } => {
                             self.content = list::Content::with_items(values.into_iter().collect());
+                            self.refresh_all_previous_linkage();
                         }
+                        // Matrix timeline updates (edits, reactions,
+                        // redactions-in-place) never change an item's
+                        // sender, timestamp, or whether it's a message at
+                        // all -- the only things the linkage depends on --
+                        // and don't shift any other item's position either,
+                        // so nothing here can ever need recomputing.
                         VectorDiff::Set { index, value } => {
                             if let Some(slot) = self.content.get_mut(index) {
                                 *slot = value;
                             }
                         }
+                        // Truncating only removes from the end, which can't
+                        // change any remaining item's `previous` neighbor.
                         VectorDiff::Truncate { length } => {
                             while self.content.len() > length {
                                 self.content.remove(self.content.len() - 1);
