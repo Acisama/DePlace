@@ -1,5 +1,11 @@
 use deplace_core::formatting::{fit_dimensions, format_bytes};
-use iced::{Alignment, Background, Length, gradient::Linear, never};
+use iced::{
+    Alignment, Background,
+    Length::{self, Shrink},
+    gradient::Linear,
+    never,
+    widget::{span, text::Rich},
+};
 use iced_video_player::VideoPlayer;
 use matrix_sdk::{
     media::UniqueKey,
@@ -22,7 +28,9 @@ use crate::{
     },
 };
 
-use super::{ImageMessage, MessageContent, MessageEvent, TimelineItemMessage, VideoMessage};
+use super::{
+    ImageMessage, MessageContent, MessageEvent, ReplyContent, TimelineItemMessage, VideoMessage,
+};
 
 pub fn render_event(
     content: impl Into<Element<'static, TimelineItemMessage>>,
@@ -98,7 +106,7 @@ impl MessageEvent {
             ))
         });
 
-        let (icon, name) = if show_header {
+        let (icon, name, _) = if show_header {
             {
                 let size = structure.chat.icon_size;
                 let rounding = size / 2.0;
@@ -107,51 +115,137 @@ impl MessageEvent {
                     TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
                         Some(unknown_icon(size, rounding, theme)),
                         Some(render_unknown_name(size, theme)),
+                        theme.colors.error,
                     ),
                     TimelineDetails::Pending => (
                         Some(loading_icon(size, rounding, theme)),
                         Some(render_loading_name(size, theme)),
+                        theme.colors.offline,
                     ),
                     TimelineDetails::Ready(p) => (
                         Some(p.render_icon(size, &self.avatar_cache)),
                         Some(p.render_name(text_size)),
+                        p.color().to_iced(),
                     ),
                 }
             }
         } else {
-            (None, None)
+            (None, None, theme.colors.offline)
         };
 
-        w::container(w::row![
+        let small_icon_size = structure.chat.small_icon_size;
+        let small_text_size = structure.chat.small_text_size;
+
+        let pill_width = pre_col_width / 3.0;
+
+        let replies = w::Column::with_children(self.in_reply_to.iter().map(|repl| {
+            let (icon, name, color, content) = match &repl.event {
+                TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
+                    unknown_icon(small_icon_size, small_icon_size / 2.0, theme),
+                    render_unknown_name(small_text_size, theme),
+                    theme.colors.error,
+                    w::text("Failed to get reply")
+                        .color(theme.colors.error)
+                        .into(),
+                ),
+                TimelineDetails::Pending => (
+                    loading_icon(small_icon_size, small_icon_size / 2.0, theme),
+                    render_loading_name(small_text_size, theme),
+                    theme.colors.offline,
+                    w::text("Loading...").color(theme.colors.offline).into(),
+                ),
+                TimelineDetails::Ready(p) => {
+                    let (icon, name, color) = match &p.sender_profile {
+                        TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
+                            unknown_icon(small_icon_size, small_icon_size / 2.0, theme),
+                            render_unknown_name(small_text_size, theme),
+                            theme.colors.error,
+                        ),
+                        TimelineDetails::Pending => (
+                            loading_icon(small_icon_size, small_icon_size / 2.0, theme),
+                            render_loading_name(small_text_size, theme),
+                            theme.colors.offline,
+                        ),
+                        TimelineDetails::Ready(p) => (
+                            p.render_icon(small_icon_size, &self.avatar_cache),
+                            p.render_name(small_text_size),
+                            p.color().to_iced(),
+                        ),
+                    };
+
+                    let content = p.content.view(theme, small_text_size);
+
+                    (icon, name, color, content)
+                }
+            };
+
+            w::row![
+                w::container(
+                    w::container(Space::new())
+                        .style(move |_| ContainerStyle {
+                            background: Some(color.into()),
+                            border: border::rounded(pill_width / 2.0),
+                            ..Default::default()
+                        })
+                        .width(pill_width)
+                        .height(Fill)
+                )
+                .height(Fill)
+                .padding(padding::right(pill_width)),
+                w::column![
+                    w::row![icon, w::text(" ").size(small_text_size), name],
+                    content
+                ]
+            ]
+            .height(Shrink)
+            .into()
+        }))
+        .spacing(structure.small_gap)
+        .padding(padding::top(pill_width));
+
+        w::container(
             w::row![
                 if self.is_highlighted {
                     w::container(
                         w::container("")
-                            .width(pre_col_width / 3.0)
+                            .width(pill_width)
                             .height(Length::Fill)
                             .style(move |_| ContainerStyle {
-                                border: border::rounded(pre_col_width / 6.0),
+                                border: border::rounded(pill_width / 2.0),
                                 background: Some(theme.accent.into()),
                                 ..Default::default()
                             }),
                     )
                     .height(Length::Fill)
-                    .padding(pre_col_width / 3.0)
+                    .padding(pill_width)
                 } else {
                     w::container("").width(pre_col_width)
                 },
-                w::row![
-                    w::column![
-                        Space::new().height(structure.divider_width),
-                        icon.unwrap_or(Space::new().width(structure.chat.icon_size).into()),
-                        Space::new().height(structure.divider_width),
-                    ],
-                    Space::new().width(pre_col_width),
-                    w::column![name.unwrap_or(Space::new().into()), column]
+                w::column![
+                    w::row![
+                        Space::new().width(structure.chat_col_width() - pre_col_width),
+                        replies
+                    ]
+                    .padding(padding::bottom(
+                        if !self.in_reply_to.is_empty() {
+                            structure.small_gap
+                        } else {
+                            0.0
+                        }
+                    )),
+                    w::row![
+                        w::column![
+                            Space::new().height(structure.divider_width),
+                            icon.unwrap_or(Space::new().width(structure.chat.icon_size).into()),
+                            Space::new().height(structure.divider_width),
+                        ],
+                        Space::new().width(pre_col_width),
+                        w::column![name.unwrap_or(Space::new().into()), column]
+                    ]
                 ]
             ]
-            .height(Length::Shrink)
-        ])
+            .height(Length::Shrink),
+        )
         .style(move |_| ContainerStyle {
             background,
             border: border::rounded(structure.semi_border_radius() + structure.border_thickness),
@@ -827,6 +921,97 @@ impl SystemMessage {
                 }
                 .to_string(),
             ),
+        }
+    }
+}
+
+impl ReplyContent {
+    pub fn view(&self, theme: Theme, text_size: f32) -> Element<'static, TimelineItemMessage> {
+        let color = self.color(theme);
+        let text = self.text();
+        let style = self.style();
+
+        let text_view: Rich<'static, (), TimelineItemMessage> =
+            w::rich_text![span(text).font(Font {
+                style,
+                ..Default::default()
+            })]
+            .color(color)
+            .size(text_size);
+
+        if let Some(icon) = self.icon() {
+            w::row![
+                phosphor_icon(icon, text_size).color(color),
+                w::text(" ").size(text_size),
+                text_view
+            ]
+            .into()
+        } else {
+            text_view.into()
+        }
+    }
+
+    pub fn color(&self, theme: Theme) -> Color {
+        match self {
+            ReplyContent::Audio => theme.text.normal,
+            ReplyContent::CallInvite => theme.text.normal,
+            ReplyContent::Emote(_) => theme.text.normal,
+            ReplyContent::Error(_) => theme.colors.error,
+            ReplyContent::Location => theme.text.normal,
+            ReplyContent::Media => theme.colors.success,
+            ReplyContent::Poll => theme.text.normal,
+            ReplyContent::Redacted => theme.text.dim,
+            ReplyContent::RtcNotification(_) => theme.text.normal,
+            ReplyContent::System(_) => theme.text.dim,
+            ReplyContent::Text(_) => theme.text.normal,
+        }
+    }
+
+    pub fn icon(&self) -> Option<&'static str> {
+        match self {
+            ReplyContent::Audio => Some(icons::music_note::BOLD),
+            ReplyContent::CallInvite => Some(icons::phone::BOLD),
+            ReplyContent::Emote(_) => None,
+            ReplyContent::Error(_) => Some(icons::warning::BOLD),
+            ReplyContent::Location => Some(icons::map_pin_line::BOLD),
+            ReplyContent::Media => Some(icons::image::BOLD),
+            ReplyContent::Poll => Some(icons::clipboard_text::BOLD),
+            ReplyContent::Redacted => None,
+            ReplyContent::RtcNotification(_) => Some(icons::phone_call::BOLD),
+            ReplyContent::System(_) => None,
+            ReplyContent::Text(_) => None,
+        }
+    }
+
+    pub fn text(&self) -> String {
+        match self {
+            ReplyContent::Audio => "Click to see audio".into(),
+            ReplyContent::CallInvite => "Call invite".into(),
+            ReplyContent::Emote(e) => e.into(),
+            ReplyContent::Error(e) => e.into(),
+            ReplyContent::Location => "Click to see location".into(),
+            ReplyContent::Media => "Click to see media".into(),
+            ReplyContent::Poll => "Click to see poll".into(),
+            ReplyContent::Redacted => "Redacted".into(),
+            ReplyContent::RtcNotification(_) => "RTC notification".into(),
+            ReplyContent::System(text) => text.into(),
+            ReplyContent::Text(text) => text.into(),
+        }
+    }
+
+    pub fn style(&self) -> iced::font::Style {
+        match self {
+            ReplyContent::Audio => iced::font::Style::Normal,
+            ReplyContent::CallInvite => iced::font::Style::Italic,
+            ReplyContent::Emote(_) => iced::font::Style::Normal,
+            ReplyContent::Error(_) => iced::font::Style::Normal,
+            ReplyContent::Location => iced::font::Style::Normal,
+            ReplyContent::Media => iced::font::Style::Normal,
+            ReplyContent::Poll => iced::font::Style::Normal,
+            ReplyContent::Redacted => iced::font::Style::Italic,
+            ReplyContent::RtcNotification(_) => iced::font::Style::Normal,
+            ReplyContent::System(_) => iced::font::Style::Italic,
+            ReplyContent::Text(_) => iced::font::Style::Normal,
         }
     }
 }

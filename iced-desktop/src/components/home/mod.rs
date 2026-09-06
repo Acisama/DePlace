@@ -236,7 +236,21 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 };
             }
             HomeMessage::ActiveRoomChanged(Some(room)) => {
-                return Some(HomeAction::LoadTimeline(self.load_room(room)));
+                let focus_window = iced::window::latest().then(|id| match id {
+                    Some(id) => Task::batch([
+                        iced::window::gain_focus(id),
+                        iced::window::request_user_attention(
+                            id,
+                            Some(iced::window::UserAttention::Informational),
+                        ),
+                    ]),
+                    None => Task::none(),
+                });
+
+                return Some(HomeAction::LoadTimeline(Task::batch([
+                    self.load_room(room),
+                    focus_window,
+                ])));
             }
             HomeMessage::ActiveRoomChanged(None) => {}
             HomeMessage::Chat(msg) => {

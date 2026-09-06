@@ -27,7 +27,6 @@ futures = "0.3.34"
 futures-util = "0.3"
 getrandom = "0.4.3"
 gpui = { git = "https://github.com/zed-industries/zed" }
-gpui-video-player = { git = "https://github.com/acisama/gpui-video-player" }
 iced = { git = "https://github.com/acisama/iced", version = "0.15.0-dev", features = ["advanced", "canvas", "debug", "image", "svg", "time-travel", "tokio"] }
 iced_video_player = { git = "https://codeberg.org/aosiuejhf/iced_video_player.git" }
 image = "0.25.10"

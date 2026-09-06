@@ -6,18 +6,18 @@ use crate::components::home::chat::timeline::messages::TimelineProfile;
 use crate::components::{blurhash_to_image, thumbhash_to_image};
 
 use super::{
-    ImageMessage, MessageContent, MessageEvent, SystemEvent, SystemMessage, VideoMessage,
-    VisualInfo,
+    ImageMessage, MessageContent, MessageEvent, ReplyContent, ReplyEvent, ReplyToDetails,
+    SystemEvent, SystemMessage, VideoMessage, VisualInfo,
 };
 use super::{TimelineItem, TimelineItemKind};
 
 use deplace_core::state::cache::VideoCache;
 use matrix_sdk::ruma::events::room::ImageInfo;
 use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
-use matrix_sdk_ui::timeline::VirtualTimelineItem;
 use matrix_sdk_ui::timeline::{
-    AnyOtherStateEventContentChange, TimelineItemKind as UiTimelineItemKind,
+    AnyOtherStateEventContentChange, EmbeddedEvent, TimelineItemKind as UiTimelineItemKind,
 };
+use matrix_sdk_ui::timeline::{InReplyToDetails, VirtualTimelineItem};
 use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
 use matrix_sdk_ui::timeline::{TimelineDetails, TimelineItem as UiTimelineItem};
 
@@ -229,7 +229,12 @@ impl TimelineItemKind {
                             sender,
                             sender_profile,
 
-                            in_reply_to: Arc::new(Vec::new()),
+                            in_reply_to: Arc::new(
+                                m.in_reply_to
+                                    .as_ref()
+                                    .map(get_reply_details)
+                                    .unwrap_or_default(),
+                            ),
 
                             reactions: Arc::new(m.reactions.clone()),
 
@@ -385,4 +390,149 @@ impl From<&Box<VideoInfo>> for VisualInfo {
             thumbnail_source: value.thumbnail_source.clone(),
         }
     }
+}
+
+fn get_reply_details(event: &InReplyToDetails) -> Vec<ReplyToDetails> {
+    let mut replies = Vec::new();
+
+    let mut current_event = event.event.clone();
+    let mut current_id = event.event_id.clone();
+
+    loop {
+        let ConvertTimelineReplyResult(next_opt, converted) =
+            convert_timeline_reply(&current_event, current_id);
+
+        replies.push(converted);
+
+        if let Some((next_event, next_id)) = next_opt {
+            current_event = next_event;
+            current_id = next_id;
+        } else {
+            break;
+        }
+    }
+
+    replies
+}
+
+struct ConvertTimelineReplyResult(
+    Option<(TimelineDetails<Box<EmbeddedEvent>>, OwnedEventId)>,
+    ReplyToDetails,
+);
+
+fn convert_timeline_reply(
+    event: &TimelineDetails<Box<EmbeddedEvent>>,
+    event_id: OwnedEventId,
+) -> ConvertTimelineReplyResult {
+    let embedded = match event {
+        TimelineDetails::Error(e) => {
+            return ConvertTimelineReplyResult(
+                None,
+                ReplyToDetails {
+                    event_id,
+                    event: TimelineDetails::Error(e.clone()),
+                },
+            );
+        }
+        TimelineDetails::Pending => {
+            return ConvertTimelineReplyResult(
+                None,
+                ReplyToDetails {
+                    event_id,
+                    event: TimelineDetails::Pending,
+                },
+            );
+        }
+        TimelineDetails::Unavailable => {
+            return ConvertTimelineReplyResult(
+                None,
+                ReplyToDetails {
+                    event_id,
+                    event: TimelineDetails::Unavailable,
+                },
+            );
+        }
+        TimelineDetails::Ready(emb) => emb,
+    };
+
+    let mut next_data = None;
+
+    let content = match &embedded.content {
+        TimelineItemContent::CallInvite => ReplyContent::CallInvite,
+        TimelineItemContent::FailedToParseMessageLike { .. } => {
+            ReplyContent::Error("Failed to parse message".into())
+        }
+        TimelineItemContent::FailedToParseState { .. } => {
+            ReplyContent::Error("Failed to parse state".into())
+        }
+        TimelineItemContent::MembershipChange(_) => {
+            ReplyContent::System("Membership change".into())
+        }
+        TimelineItemContent::MsgLike(msglike) => {
+            if let Some(details) = &msglike.in_reply_to {
+                next_data = Some((details.event.clone(), details.event_id.clone()))
+            }
+            match &msglike.kind {
+                MsgLikeKind::LiveLocation(_) => ReplyContent::Location,
+                MsgLikeKind::Poll(_) => ReplyContent::Poll,
+                MsgLikeKind::Message(msg) => match msg.msgtype() {
+                    MessageType::Audio(_) => ReplyContent::Audio,
+                    MessageType::Emote(content) => {
+                        ReplyContent::Emote(content.body.as_str().into())
+                    }
+                    MessageType::File(_) | MessageType::Video(_) | MessageType::Image(_) => {
+                        ReplyContent::Media
+                    }
+                    MessageType::Location(_) => ReplyContent::Location,
+                    MessageType::Notice(content) => {
+                        ReplyContent::Text(content.body.as_str().into())
+                    }
+                    MessageType::ServerNotice(content) => {
+                        ReplyContent::Text(content.body.as_str().into())
+                    }
+                    MessageType::Text(content) => ReplyContent::Text(content.body.as_str().into()),
+                    MessageType::VerificationRequest(_) => {
+                        ReplyContent::Text("Verification request".into())
+                    }
+                    _ => ReplyContent::Error("Unknown message type".into()),
+                },
+                MsgLikeKind::Redacted => ReplyContent::Redacted,
+                MsgLikeKind::Sticker(_) => ReplyContent::Media,
+                MsgLikeKind::UnableToDecrypt(_) => ReplyContent::Error("Unable to decrypt".into()),
+                MsgLikeKind::Other(other) => ReplyContent::System(other.event_type().to_string()),
+            }
+        }
+        TimelineItemContent::OtherState(other) => {
+            ReplyContent::System(other.state_key().to_string())
+        }
+        TimelineItemContent::ProfileChange(_) => ReplyContent::System("Profile change".into()),
+        TimelineItemContent::RtcNotification { call_intent, .. } => {
+            ReplyContent::RtcNotification(if let Some(intent) = call_intent {
+                format!("{} call", intent)
+            } else {
+                "Call".into()
+            })
+        }
+    };
+
+    ConvertTimelineReplyResult(
+        next_data,
+        ReplyToDetails {
+            event_id,
+            event: TimelineDetails::Ready(ReplyEvent {
+                sender: embedded.sender.clone(),
+                sender_profile: match &embedded.sender_profile {
+                    TimelineDetails::Error(e) => TimelineDetails::Error(e.clone()),
+                    TimelineDetails::Unavailable => TimelineDetails::Unavailable,
+                    TimelineDetails::Pending => TimelineDetails::Pending,
+                    TimelineDetails::Ready(p) => TimelineDetails::Ready(TimelineProfile {
+                        display_name: p.display_name.clone(),
+                        avatar_url: p.avatar_url.clone(),
+                        user_id: embedded.sender.clone(),
+                    }),
+                },
+                content,
+            }),
+        },
+    )
 }

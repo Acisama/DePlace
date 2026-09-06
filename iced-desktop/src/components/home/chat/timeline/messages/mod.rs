@@ -660,7 +660,7 @@ struct ReplyToDetails {
 #[derive(Debug)]
 struct ReplyEvent {
     sender: OwnedUserId,
-    sender_profile: TimelineDetails<Profile>,
+    sender_profile: TimelineDetails<TimelineProfile>,
     content: ReplyContent,
 }
 
@@ -675,8 +675,6 @@ enum ReplyContent {
     Location,
     Poll,
     Redacted,
-    Sticker,
-    ProfileChange,
     RtcNotification(String),
     CallInvite,
 }
