@@ -30,6 +30,9 @@ enum Screen {
 impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
     fn update(&mut self, message: AppMessage) -> Option<Task<AppMessage>> {
         match message {
+            AppMessage::WindowFocus { focused } if let Screen::Home(home) = self => {
+                home.set_frontend_focused(focused);
+            }
             AppMessage::Home(msg) if let Screen::Home(home) = self => {
                 if let Some(action) = home.update(msg) {
                     match action {
@@ -251,6 +254,15 @@ impl Root {
                 } else {
                     None
                 }
+            }),
+            iced::event::listen_with(|event, _, _| match event {
+                iced::Event::Window(window::Event::Focused) => {
+                    Some(AppMessage::WindowFocus { focused: true })
+                }
+                iced::Event::Window(window::Event::Unfocused) => {
+                    Some(AppMessage::WindowFocus { focused: false })
+                }
+                _ => None,
             }),
             iced::keyboard::listen().filter_map(|event| match event {
                 iced::keyboard::Event::KeyPressed {

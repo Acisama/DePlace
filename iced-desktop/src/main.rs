@@ -28,6 +28,7 @@ pub enum AppMessage {
     TabPressed { shift: bool },
     GoToLoading,
     GoToLogin(Client),
+    WindowFocus { focused: bool },
 }
 
 fn main() -> iced::Result {

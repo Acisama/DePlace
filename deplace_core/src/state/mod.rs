@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    env::temp_dir,
     hash::Hash,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -23,6 +24,7 @@ use crate::{
         },
         sync::{ParentToChildren, ParentToChildrenOrderStr, reclassify_rooms},
     },
+    notifications::NotificationManager,
     settings::Settings,
     window_title,
 };
@@ -32,6 +34,7 @@ pub struct ImportantPaths {
     pub config_dir: PathBuf,
     pub download_dir: PathBuf,
     pub cache_dir: PathBuf,
+    pub temp_dir: PathBuf,
 }
 
 impl ImportantPaths {
@@ -44,6 +47,7 @@ impl ImportantPaths {
         let cache_dir = dirs::cache_dir()
             .ok_or(anyhow::anyhow!("Failed to get cache dir"))?
             .join(APP_NAME);
+        let temp_dir = temp_dir();
 
         if !config_dir.exists() {
             std::fs::create_dir_all(&config_dir)?;
@@ -59,6 +63,7 @@ impl ImportantPaths {
             config_dir,
             download_dir,
             cache_dir,
+            temp_dir,
         })
     }
 }
@@ -170,6 +175,8 @@ struct AppStateInner {
     window_focused: Mutex<bool>,
     important_paths: ImportantPaths,
 
+    notification_manager: NotificationManager,
+
     dm_rooms: Sender<RoomMap>,
     single_rooms: Sender<RoomMap>,
     server_rooms: Sender<RoomMap>,
@@ -278,6 +285,8 @@ impl AppState {
                 window_focused: Mutex::new(false),
                 important_paths,
 
+                notification_manager: NotificationManager::default(),
+
                 client,
                 user_device,
                 settings,
@@ -319,6 +328,10 @@ impl AppState {
         &self.inner.video_cache
     }
 
+    pub fn notification_manager(&self) -> &NotificationManager {
+        &self.inner.notification_manager
+    }
+
     pub fn important_paths(&self) -> &ImportantPaths {
         &self.inner.important_paths
     }
@@ -329,6 +342,15 @@ impl AppState {
             .window_focused
             .lock()
             .unwrap_or_else(|posion| posion.into_inner())
+    }
+
+    pub fn set_window_focused(&self, focused: bool) {
+        tracing::trace!("Window focused: focused={focused}");
+        *self
+            .inner
+            .window_focused
+            .lock()
+            .unwrap_or_else(|posion| posion.into_inner()) = focused;
     }
 
     pub fn window_title(&self) -> Receiver<String> {

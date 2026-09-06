@@ -117,6 +117,10 @@ impl Home {
         (home, Task::batch([initial_load, watch_task]))
     }
 
+    pub fn set_frontend_focused(&mut self, focused: bool) {
+        self.state.set_window_focused(focused);
+    }
+
     pub fn title(&self) -> String {
         self.window_title.borrow().clone()
     }
