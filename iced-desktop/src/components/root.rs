@@ -241,12 +241,23 @@ impl Root {
         }
 
         if let AppMessage::FocusRequest(_) = message {
+            tracing::debug!("Received focus request.");
             if let Some(id) = self.id {
+                tracing::debug!("Window is open. Focusing Window.");
                 return window::gain_focus(id);
             } else {
+                tracing::debug!("Window is closed. Opening Window.");
                 return window::open(window::Settings::default())
                     .1
                     .map(|_| AppMessage::DoNothing);
+            }
+        }
+
+        if let AppMessage::WindowOpened(id) = message {
+            tracing::debug!("Window opened.");
+            if self.id.is_none() {
+                tracing::debug!("No window was open.");
+                self.id = Some(id)
             }
         }
 
@@ -256,6 +267,7 @@ impl Root {
 
         if let AppMessage::WindowClosed(id) = message {
             if self.id.is_some_and(|i| i == id) {
+                tracing::info!("Closing window");
                 self.id = None
             }
         }
@@ -299,6 +311,7 @@ impl Root {
                 _ => None,
             }),
             window::close_events().map(AppMessage::WindowClosed),
+            window::open_events().map(AppMessage::WindowOpened),
             subscription::from_recipe(SocketListener {
                 listener: self.listener.clone(),
             })

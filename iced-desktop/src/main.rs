@@ -44,6 +44,7 @@ pub enum AppMessage {
     GoToLoading,
     GoToLogin(Client),
     WindowClosed(window::Id),
+    WindowOpened(window::Id),
     FocusRequest(FocusRequest),
     WindowFocus { focused: bool },
 }
