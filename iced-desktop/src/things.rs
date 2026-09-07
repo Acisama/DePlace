@@ -296,7 +296,7 @@ impl Theme {
             solid_bg,
             solid_hover_bg,
             pill_color: Color::WHITE,
-            border: hsla(0.0, 0.0, 1.0, 0.175),
+            border: hsla(0.0, 0.0, 0.2, 1.0),
             background: hsla(0.6667, 0.5000, 0.0314, 1.0),
             text: Text {
                 muted: muted_color,

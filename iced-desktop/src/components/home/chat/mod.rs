@@ -63,6 +63,7 @@ impl Chat {
         let video_cache = state.video_cache().clone();
 
         let room_id_clone = room_id.clone();
+        let room_clone = room.clone();
         let stream = stream::once(async move {
             tracing::debug!("Building timeline for room {}", room_id_clone);
             let timeline = match builder.build().await {
@@ -100,6 +101,9 @@ impl Chat {
                 }
             }
 
+            let power_levels = Arc::new(room_clone.power_levels_or_default().await);
+            let own_user_id = room_clone.own_user_id();
+
             let initial = Arc::new(
                 initial
                     .into_iter()
@@ -109,14 +113,20 @@ impl Chat {
                             &thumbnail_cache,
                             &video_cache,
                             room_id_clone.clone(),
+                            &power_levels,
+                            own_user_id,
                         ))
                     })
                     .collect(),
             );
 
-            stream::once(future::ready(TimelineMessage::Loaded { timeline, initial }))
-                .chain(updates.map(TimelineMessage::Diffs))
-                .right_stream()
+            stream::once(future::ready(TimelineMessage::Loaded {
+                timeline,
+                initial,
+                power_levels,
+            }))
+            .chain(updates.map(TimelineMessage::Diffs))
+            .right_stream()
         })
         .flatten();
 
@@ -169,7 +179,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             ChatMessage::Timeline(msg) => {
                 if let Some(action) = self.timeline.update(msg) {
                     match action {
-                        TimelineAction::SetReplying(event_id) => {
+                        TimelineAction::SetIsReplyingTo(event_id) => {
                             self.input.set_replies_to(event_id);
                             None
                         }

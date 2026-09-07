@@ -1,22 +1,25 @@
 use crate::common::*;
+use phosphor_svgs::icon as icons;
 use std::{
     collections::BTreeSet,
     time::{Duration, SystemTime},
 };
 
 use deplace_core::{formatting::format_date_divider, state::cache::VideoCache};
-use iced::Alignment;
+use iced::{Alignment, Vector};
 use macros::iced_cache;
 use matrix_sdk::{
     media::UniqueKey,
     ruma::{
         OwnedRoomAliasId,
         events::{
+            MessageLikeEventType, StateEventType,
             room::{
                 MediaSource,
                 guest_access::GuestAccess,
                 history_visibility::HistoryVisibility,
                 message::{FileInfo, UrlPreview},
+                power_levels::RoomPowerLevels,
             },
             rtc::notification::CallIntent,
         },
@@ -43,6 +46,8 @@ pub enum TimelineItemMessage {
     MediaMouseEnter,
     MediaMouseLeave,
     ToggleVideoPause(Arc<iced_video_player::Video>),
+    SetIsReplyingTo(OwnedEventId),
+    SetIsEditing(bool),
 }
 
 impl NeedsAvatarExt for TimelineItemMessage {
@@ -54,6 +59,7 @@ impl NeedsAvatarExt for TimelineItemMessage {
 pub enum TimelineItemAction {
     Update,
     NeedsMedia(NeedsMedia),
+    SetIsReplyingTo(OwnedEventId),
 }
 
 /// An item in the timeline
@@ -71,6 +77,51 @@ pub struct TimelineItem {
 }
 
 impl TimelineItem {
+    /// Recalculates the item's power level actions (replying, pinning, redacting, editing)
+    pub fn recalculate_with_power_levels(
+        &mut self,
+        power_levels: &RoomPowerLevels,
+        user_id: &UserId,
+    ) {
+        let TimelineItemKind::Message {
+            event,
+            can_reply,
+            can_pin,
+            can_redact,
+            can_edit,
+            is_own,
+            ..
+        } = &mut self.kind
+        else {
+            return;
+        };
+
+        let has_event_id = event.event_id.is_some();
+        let can_send_message =
+            power_levels.user_can_send_message(user_id, MessageLikeEventType::RoomMessage);
+
+        *can_reply = event.can_be_replied_to && can_send_message;
+        *can_edit = event.is_editable && can_send_message;
+
+        *can_pin = has_event_id
+            && power_levels.user_can_send_state(user_id, StateEventType::RoomPinnedEvents);
+
+        *can_redact = has_event_id
+            && if *is_own {
+                power_levels.user_can_redact_own_event(user_id)
+            } else {
+                power_levels.user_can_redact_event_of_other(user_id)
+            };
+    }
+
+    pub fn event_id(&self) -> Option<OwnedEventId> {
+        let TimelineItemKind::Message { event, .. } = &self.kind else {
+            return None;
+        };
+
+        event.event_id.clone()
+    }
+
     /// Computes what `connects_before` should be for this
     /// item given its neighbors. Pure, so the item can only be mutated in the list if necessary.
     pub fn compute_connection(&self, previous: Option<&TimelineItem>) -> Option<bool> {
@@ -197,6 +248,10 @@ impl TimelineItem {
 impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
     fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
+            TimelineItemMessage::SetIsEditing(_) => None,
+            TimelineItemMessage::SetIsReplyingTo(event_id) => {
+                Some(TimelineItemAction::SetIsReplyingTo(event_id))
+            }
             TimelineItemMessage::MediaMouseEnter => {
                 if let TimelineItemKind::Message { event, .. } = &mut self.kind {
                     match &mut event.content {
@@ -311,16 +366,162 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 event,
                 is_hovered,
                 previous_is_event,
-            } => render_event(
-                w::lazy(event.clone(), move |event| event.view(theme, structure)),
-                structure,
-                theme,
-                *is_hovered,
-                *previous_is_event,
-                event.connects_previous,
-                structure.gap * 1.5,
-            ),
-            _ => fallback,
+                can_reply,
+                can_pin,
+                can_edit,
+                can_redact,
+                ..
+            } => {
+                let button_size = structure.chat.small_icon_size;
+                let border = border::rounded(structure.semi_border_radius());
+
+                let is_hovered = *is_hovered;
+                let can_reply = *can_reply;
+                let can_pin = *can_pin;
+                let can_edit = *can_edit;
+                let can_redact = *can_redact;
+
+                let previous_is_event = *previous_is_event;
+
+                let button_row_height = button_size + 2.0 * structure.small_gap;
+
+                let mut buttons_row = w::Row::new()
+                    .padding(structure.small_gap / 2.0)
+                    .spacing(structure.small_gap / 2.0);
+
+                let mut buttons_there = false;
+                if let Some(event_id) = event.event_id.clone()
+                    && is_hovered
+                {
+                    if can_edit {
+                        buttons_there = true;
+                        buttons_row = buttons_row.push(
+                            w::button(phosphor_icon(icons::pencil_simple::BOLD, button_size))
+                                .padding(structure.small_gap / 2.0)
+                                .on_press(TimelineItemMessage::SetIsEditing(true))
+                                .style(move |_: &IcedTheme, status| ButtonStyle {
+                                    background: if status.active() {
+                                        Some(theme.solid_hover_bg.into())
+                                    } else {
+                                        None
+                                    },
+                                    text_color: if status.active() {
+                                        theme.text.normal
+                                    } else {
+                                        theme.text.dim
+                                    },
+                                    border,
+                                    ..Default::default()
+                                }),
+                        );
+                    }
+
+                    if can_reply {
+                        buttons_there = true;
+                        buttons_row = buttons_row.push(
+                            w::button(phosphor_icon(icons::arrow_bend_up_left::BOLD, button_size))
+                                .padding(structure.small_gap / 2.0)
+                                .on_press(TimelineItemMessage::SetIsReplyingTo(event_id.clone()))
+                                .style(move |_: &IcedTheme, status| ButtonStyle {
+                                    background: if status.active() {
+                                        Some(theme.solid_hover_bg.into())
+                                    } else {
+                                        None
+                                    },
+                                    text_color: if status.active() {
+                                        theme.text.normal
+                                    } else {
+                                        theme.text.dim
+                                    },
+                                    border,
+                                    ..Default::default()
+                                }),
+                        );
+                    }
+
+                    if can_pin {
+                        buttons_there = true;
+                        buttons_row = buttons_row.push(
+                            w::button(phosphor_icon(icons::push_pin::BOLD, button_size))
+                                .padding(structure.small_gap / 2.0)
+                                .on_press(TimelineItemMessage::SetIsReplyingTo(event_id.clone()))
+                                .style(move |_: &IcedTheme, status| ButtonStyle {
+                                    background: if status.active() {
+                                        Some(theme.colors.warning.into())
+                                    } else {
+                                        None
+                                    },
+                                    text_color: if status.active() {
+                                        theme.solid_bg
+                                    } else {
+                                        theme.colors.warning
+                                    },
+                                    border,
+                                    ..Default::default()
+                                }),
+                        );
+                    }
+
+                    if can_redact {
+                        buttons_there = true;
+                        buttons_row = buttons_row.push(
+                            w::button(phosphor_icon(icons::trash::BOLD, button_size))
+                                .padding(structure.small_gap / 2.0)
+                                .on_press(TimelineItemMessage::SetIsReplyingTo(event_id.clone()))
+                                .style(move |_: &IcedTheme, status| ButtonStyle {
+                                    background: if status.active() {
+                                        Some(theme.colors.error.into())
+                                    } else {
+                                        None
+                                    },
+                                    text_color: if status.active() {
+                                        theme.solid_bg
+                                    } else {
+                                        theme.colors.error
+                                    },
+                                    border,
+                                    ..Default::default()
+                                }),
+                        );
+                    }
+                }
+
+                let buttons = w::float(w::row![
+                    Space::new().width(Fill),
+                    w::container(buttons_row).style(move |_| ContainerStyle {
+                        background: Some(theme.solid_bg.into()),
+                        border: Border {
+                            color: theme.border,
+                            width: structure.border_thickness,
+                            radius: structure.semi_border_radius().into(),
+                        },
+                        ..Default::default()
+                    })
+                ])
+                .translate(move |_, _| {
+                    if buttons_there && is_hovered {
+                        Vector::new(0.0, -button_row_height / 2.0)
+                    } else {
+                        Vector::ZERO
+                    }
+                });
+
+                let mut stack = Stack::new().push(render_event(
+                    w::lazy(event.clone(), move |event| event.view(theme, structure)),
+                    structure,
+                    theme,
+                    is_hovered,
+                    previous_is_event,
+                    event.connects_previous,
+                    structure.gap * 1.5,
+                ));
+
+                if buttons_there && is_hovered {
+                    stack = stack.push(buttons);
+                }
+
+                stack.into()
+            }
         }
     }
 }
@@ -333,6 +534,11 @@ enum TimelineItemKind {
     Message {
         event: Box<MessageEvent>,
         is_hovered: bool,
+        can_reply: bool,
+        can_pin: bool,
+        can_edit: bool,
+        can_redact: bool,
+        is_own: bool,
         previous_is_event: bool,
     },
     System {
@@ -359,10 +565,23 @@ impl Hash for TimelineItemKind {
                 event,
                 is_hovered,
                 previous_is_event: previous_is_text_message,
+                can_reply,
+                can_pin,
+                can_edit,
+                can_redact,
+                ..
             } => {
                 event.hash(state);
                 is_hovered.hash(state);
                 previous_is_text_message.hash(state);
+
+                // Only relevant for hovers, so only hashed if hovered
+                if *is_hovered {
+                    can_reply.hash(state);
+                    can_pin.hash(state);
+                    can_edit.hash(state);
+                    can_redact.hash(state);
+                }
             }
             TimelineItemKind::System {
                 is_hovered,
@@ -422,11 +641,13 @@ struct MessageEvent {
 
     avatar_cache: AvatarCache,
 
-    is_own: bool,
-    is_editable: bool,
     is_highlighted: bool,
-    can_be_replied_to: bool,
     contains_only_emojis: bool,
+
+    /// Purely content-based eligibility, independent of the room's current
+    /// power levels -- combined with power levels in `recalculate_with_power_levels`.
+    is_editable: bool,
+    can_be_replied_to: bool,
 
     shield: TimelineEventShieldState,
 

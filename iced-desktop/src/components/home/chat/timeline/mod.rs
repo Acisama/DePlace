@@ -2,7 +2,10 @@ use std::collections::{BTreeSet, HashMap};
 
 use deplace_core::PaginationDirection;
 use macros::iced_cache;
-use matrix_sdk::media::UniqueKey;
+use matrix_sdk::{
+    media::UniqueKey,
+    ruma::{events::room::power_levels::RoomPowerLevels, room_version_rules::AuthorizationRules},
+};
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as UiTimelineItem};
 use messages::{TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::widget::list;
@@ -21,6 +24,7 @@ pub enum TimelineMessage {
     Loaded {
         timeline: Arc<Timeline>,
         initial: Arc<Vec<Arc<TimelineItem>>>,
+        power_levels: Arc<RoomPowerLevels>,
     },
     Diffs(Vec<VectorDiff<Arc<UiTimelineItem>>>),
     SetReplying(OwnedEventId),
@@ -32,7 +36,7 @@ pub enum TimelineMessage {
 
 pub enum TimelineAction {
     NeedsMedia(NeedsMedia),
-    SetReplying(OwnedEventId),
+    SetIsReplyingTo(OwnedEventId),
     Run(Task<()>),
     Scroll {
         direction: PaginationDirection,
@@ -44,9 +48,12 @@ pub enum TimelineAction {
 pub struct ChatTimeline {
     state: AppState,
     timeline: Option<Arc<Timeline>>,
+    // TODO: Add logic to update this
+    power_levels: Arc<RoomPowerLevels>,
 
     #[hash]
     room_id: OwnedRoomId,
+    own_user_id: OwnedUserId,
 
     avatar_cache: AvatarCache,
     thumbnail_cache: ThumbnailCache,
@@ -68,7 +75,14 @@ impl ChatTimeline {
         Self {
             state: state.clone(),
             timeline: None,
+            power_levels: Arc::new(RoomPowerLevels::new(
+                matrix_sdk::ruma::events::room::power_levels::RoomPowerLevelsSource::None,
+                &AuthorizationRules::V12,
+                [],
+            )),
+
             room_id: room.room_id().to_owned(),
+            own_user_id: room.own_user_id().to_owned(),
 
             avatar_cache: state.avatar_cache().clone(),
             thumbnail_cache: state.thumbnail_cache().clone(),
@@ -86,6 +100,15 @@ impl ChatTimeline {
             content: list::Content::default(),
             id_index: Arc::new(HashMap::new()),
             messages_version: 0,
+        }
+    }
+
+    // TODO: Actually use this
+    pub fn recalculate_with_power_levels(&mut self, own_user_id: &UserId) {
+        for index in 0..self.content.len() {
+            if let Some(item) = self.content.get_mut(index) {
+                Arc::make_mut(item).recalculate_with_power_levels(&self.power_levels, own_user_id);
+            }
         }
     }
 
@@ -221,35 +244,47 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     tracing::warn!("No item found for id {}", id);
                     return None;
                 };
-                return match Arc::make_mut(item).update(message) {
-                    Some(TimelineItemAction::Update) => {
-                        self.messages_version += 1;
-                        None
-                    }
-                    Some(TimelineItemAction::NeedsMedia(needs_media)) => {
-                        match &needs_media {
-                            NeedsMedia::Avatar { uri } => {
-                                self.avatar_states_for_hash.insert(uri.clone());
-                            }
-                            NeedsMedia::Thumbnail { key, .. } => {
-                                self.thumbnail_states_for_hash.insert(key.clone());
-                            }
-                            NeedsMedia::Video { source, .. } => {
-                                self.video_states_for_hash.insert(source.unique_key());
-                            }
+                return if let Some(action) = Arc::make_mut(item).update(message) {
+                    match action {
+                        TimelineItemAction::Update => {
+                            self.messages_version += 1;
+                            None
                         }
-                        Some(TimelineAction::NeedsMedia(needs_media))
+                        TimelineItemAction::NeedsMedia(needs_media) => {
+                            match &needs_media {
+                                NeedsMedia::Avatar { uri } => {
+                                    self.avatar_states_for_hash.insert(uri.clone());
+                                }
+                                NeedsMedia::Thumbnail { key, .. } => {
+                                    self.thumbnail_states_for_hash.insert(key.clone());
+                                }
+                                NeedsMedia::Video { source, .. } => {
+                                    self.video_states_for_hash.insert(source.unique_key());
+                                }
+                            }
+                            Some(TimelineAction::NeedsMedia(needs_media))
+                        }
+                        TimelineItemAction::SetIsReplyingTo(event_id) => {
+                            Some(TimelineAction::SetIsReplyingTo(event_id.clone()))
+                        }
                     }
-                    _ => None,
+                } else {
+                    None
                 };
             }
-            TimelineMessage::Loaded { timeline, initial } => {
+            TimelineMessage::Loaded {
+                timeline,
+                initial,
+                power_levels,
+            } => {
                 tracing::debug!(
                     "ChatTimeline for room {} loaded with {} initial items",
                     self.room_id,
                     initial.len()
                 );
                 self.timeline = Some(timeline);
+                self.power_levels = power_levels;
+
                 self.id_index = Arc::new(
                     initial
                         .iter()
@@ -278,6 +313,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 let thumbnail_cache = self.state.thumbnail_cache().clone();
                 let video_cache = self.state.video_cache().clone();
                 let room_id = self.room_id.clone();
+                let power_levels = self.power_levels.clone();
+                let own_user_id = self.own_user_id.clone();
 
                 for diff in diffs.into_iter().map(|d| {
                     d.map(|m| {
@@ -286,6 +323,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             &thumbnail_cache,
                             &video_cache,
                             room_id.clone(),
+                            &power_levels,
+                            &own_user_id,
                         ))
                     })
                 }) {
@@ -364,7 +403,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 self.messages_version += 1;
             }
             TimelineMessage::SetReplying(event_id) => {
-                return Some(TimelineAction::SetReplying(event_id));
+                return Some(TimelineAction::SetIsReplyingTo(event_id));
             }
             TimelineMessage::Scroll { direction } => {
                 return self.pagination_task(direction, 30);
