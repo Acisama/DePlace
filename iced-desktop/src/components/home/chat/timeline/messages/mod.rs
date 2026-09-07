@@ -486,6 +486,8 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                     }
                 }
 
+                let connects_previous = event.connects_previous;
+
                 let buttons = w::float(w::row![
                     Space::new().width(Fill),
                     w::container(buttons_row).style(move |_| ContainerStyle {
@@ -500,7 +502,14 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 ])
                 .translate(move |_, _| {
                     if buttons_there && is_hovered {
-                        Vector::new(0.0, -button_row_height / 2.0)
+                        Vector::new(
+                            0.0,
+                            if previous_is_event && !connects_previous {
+                                structure.gap
+                            } else {
+                                0.0
+                            } - button_row_height / 2.0,
+                        )
                     } else {
                         Vector::ZERO
                     }
@@ -512,7 +521,7 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                     theme,
                     is_hovered,
                     previous_is_event,
-                    event.connects_previous,
+                    connects_previous,
                     structure.gap * 1.5,
                 ));
 
