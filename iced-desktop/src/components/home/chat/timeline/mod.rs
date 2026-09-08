@@ -421,7 +421,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         let loading_bottom = self.loading_bottom;
 
         w::container(
-            w::scrollable(
+            themed_scrollable(
                 w::container(list(self.content.clone(), move |_index, item| {
                     let id = item.id.clone();
                     w::lazy(item.clone(), move |item| {
@@ -436,7 +436,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 }))
                 .padding(padding::bottom(structure.gap * 3.0))
                 .width(Fill),
+                theme,
+                structure,
             )
+            .spacing(structure.small_gap)
             .width(Fill)
             .anchor_bottom()
             .on_scroll(move |viewport| {

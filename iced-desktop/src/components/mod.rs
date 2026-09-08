@@ -8,12 +8,12 @@ use iced::font::Weight;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::widget::image::Handle as ImageHandle;
 use iced::widget::text::Rich;
-use iced::widget::{self as w, Canvas, canvas, image, rich_text, span, svg};
+use iced::widget::{self as w, Canvas, Scrollable, canvas, image, rich_text, span, svg};
 use iced::{
     Border, Element,
     widget::{Container, Stack},
 };
-use iced::{Color, ContentFit, Font, Point, Renderer, Size};
+use iced::{Color, ContentFit, Font, Point, Renderer, Size, border};
 use matrix_sdk::Room;
 use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::serde::Base64;
@@ -440,6 +440,12 @@ impl StatusExt for w::text_editor::Status {
     }
 }
 
+impl StatusExt for w::scrollable::Status {
+    fn active(&self) -> bool {
+        matches!(self, Self::Dragged { .. })
+    }
+}
+
 pub fn blurhash_to_image(hash: &str) -> Option<ImageHandle> {
     let width = 32;
     let height = 32;
@@ -465,4 +471,59 @@ pub fn thumbhash_to_image(hash: &Base64) -> Option<ImageHandle> {
     };
 
     Some(ImageHandle::from_rgba(width as u32, height as u32, pixels))
+}
+
+pub fn themed_scrollable<'a, T: 'a>(
+    content: impl Into<Element<'a, T>>,
+    theme: Theme,
+    structure: Structure,
+) -> Scrollable<'a, T> {
+    w::scrollable(content)
+        .style(move |_, status| w::scrollable::Style {
+            vertical_rail: w::scrollable::Rail {
+                background: None,
+                border: border::color(Color::TRANSPARENT),
+                scroller: w::scrollable::Scroller {
+                    background: if status.active() {
+                        theme.text.normal.into()
+                    } else {
+                        theme.solid_bg.into()
+                    },
+                    border: Border {
+                        color: theme.border,
+                        width: structure.border_thickness,
+                        radius: structure.inner_border_radius.into(),
+                    },
+                },
+            },
+            horizontal_rail: w::scrollable::Rail {
+                background: None,
+                border: border::color(Color::TRANSPARENT),
+                scroller: w::scrollable::Scroller {
+                    background: if status.active() {
+                        theme.solid_hover_bg.into()
+                    } else {
+                        theme.text.normal.into()
+                    },
+                    border: Border {
+                        color: theme.border,
+                        width: structure.border_thickness,
+                        radius: structure.inner_border_radius.into(),
+                    },
+                },
+            },
+            gap: None,
+            container: w::container::Style::default(),
+            auto_scroll: w::scrollable::AutoScroll {
+                background: theme.solid_bg.into(),
+                border: Border {
+                    color: theme.border,
+                    width: structure.border_thickness,
+                    radius: structure.inner_border_radius.into(),
+                },
+                shadow: Default::default(),
+                icon: theme.text.normal,
+            },
+        })
+        .auto_scroll(true)
 }
