@@ -102,7 +102,6 @@ impl Chat {
             }
 
             let power_levels = Arc::new(room_clone.power_levels_or_default().await);
-            let own_user_id = room_clone.own_user_id();
 
             let initial = Arc::new(
                 initial
@@ -113,8 +112,6 @@ impl Chat {
                             &thumbnail_cache,
                             &video_cache,
                             room_id_clone.clone(),
-                            &power_levels,
-                            own_user_id,
                         ))
                     })
                     .collect(),

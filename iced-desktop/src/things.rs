@@ -79,7 +79,7 @@ pub struct InputTheme {
 pub struct Colors {
     pub _red: Color,
     pub _green: Color,
-    pub _yellow: Color,
+    pub yellow: Color,
     pub success: Color,
     pub warning: Color,
     pub error: Color,
@@ -96,7 +96,7 @@ impl Colors {
         Self {
             _red: red,
             _green: green,
-            _yellow: yellow,
+            yellow,
             success: green,
             warning: yellow,
             error: red,

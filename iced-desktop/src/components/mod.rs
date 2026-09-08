@@ -21,12 +21,14 @@ use matrix_sdk::ruma::serde::Base64;
 use crate::things::Structure;
 use crate::things::{Colors, Theme};
 
-pub(crate) mod authentification;
-pub(crate) mod home;
-mod on_appear;
-pub(crate) mod overlay;
-pub(crate) mod root;
-pub(crate) mod shader;
+pub mod authentification;
+pub mod home;
+pub mod on_appear;
+pub mod overlay;
+pub mod root;
+pub mod shader;
+pub mod track_bounds;
+pub mod track_scroll;
 
 pub use on_appear::on_appear;
 
@@ -479,51 +481,38 @@ pub fn themed_scrollable<'a, T: 'a>(
     structure: Structure,
 ) -> Scrollable<'a, T> {
     w::scrollable(content)
-        .style(move |_, status| w::scrollable::Style {
-            vertical_rail: w::scrollable::Rail {
+        .style(move |_, status| {
+            let border = Border {
+                color: theme.border,
+                width: structure.border_thickness,
+                radius: structure.inner_border_radius.into(),
+            };
+
+            let rail = w::scrollable::Rail {
                 background: None,
-                border: border::color(Color::TRANSPARENT),
+                border,
                 scroller: w::scrollable::Scroller {
-                    background: if status.active() {
-                        theme.text.normal.into()
+                    background: theme.solid_hover_bg.into(),
+                    border: border.color(if status.active() {
+                        theme.accent
                     } else {
-                        theme.solid_bg.into()
-                    },
-                    border: Border {
-                        color: theme.border,
-                        width: structure.border_thickness,
-                        radius: structure.inner_border_radius.into(),
-                    },
+                        theme.border
+                    }),
                 },
-            },
-            horizontal_rail: w::scrollable::Rail {
-                background: None,
-                border: border::color(Color::TRANSPARENT),
-                scroller: w::scrollable::Scroller {
-                    background: if status.active() {
-                        theme.solid_hover_bg.into()
-                    } else {
-                        theme.text.normal.into()
-                    },
-                    border: Border {
-                        color: theme.border,
-                        width: structure.border_thickness,
-                        radius: structure.inner_border_radius.into(),
-                    },
+            };
+
+            w::scrollable::Style {
+                vertical_rail: rail,
+                horizontal_rail: rail,
+                gap: None,
+                container: w::container::Style::default(),
+                auto_scroll: w::scrollable::AutoScroll {
+                    background: theme.solid_hover_bg.into(),
+                    border,
+                    shadow: Default::default(),
+                    icon: theme.accent,
                 },
-            },
-            gap: None,
-            container: w::container::Style::default(),
-            auto_scroll: w::scrollable::AutoScroll {
-                background: theme.solid_bg.into(),
-                border: Border {
-                    color: theme.border,
-                    width: structure.border_thickness,
-                    radius: structure.inner_border_radius.into(),
-                },
-                shadow: Default::default(),
-                icon: theme.text.normal,
-            },
+            }
         })
         .auto_scroll(true)
 }

@@ -1,16 +1,22 @@
 use std::collections::{BTreeSet, HashMap};
 
 use deplace_core::PaginationDirection;
+use iced::Vector;
 use macros::iced_cache;
 use matrix_sdk::{
     media::UniqueKey,
-    ruma::{events::room::power_levels::RoomPowerLevels, room_version_rules::AuthorizationRules},
+    ruma::{
+        events::{MessageLikeEventType, StateEventType, room::power_levels::RoomPowerLevels},
+        room_version_rules::AuthorizationRules,
+    },
 };
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as UiTimelineItem};
 use messages::{TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::widget::list;
 
-use crate::common::*;
+use phosphor_svgs::icon as icons;
+
+use crate::{common::*, components::track_scroll::track_scroll};
 
 pub use messages::ToTimelineItem;
 mod messages;
@@ -32,6 +38,8 @@ pub enum TimelineMessage {
     Scroll {
         direction: PaginationDirection,
     },
+    ScrolledFromTop(f32),
+    ButtonsHovered(bool),
 }
 
 pub enum TimelineAction {
@@ -48,8 +56,15 @@ pub enum TimelineAction {
 pub struct ChatTimeline {
     state: AppState,
     timeline: Option<Arc<Timeline>>,
+
     // TODO: Add logic to update this
     power_levels: Arc<RoomPowerLevels>,
+    user_can_send: bool,
+    user_can_pin: bool,
+    user_can_redact_own: bool,
+    user_can_redact_other: bool,
+
+    scrolled_from_top: f32,
 
     #[hash]
     room_id: OwnedRoomId,
@@ -64,25 +79,48 @@ pub struct ChatTimeline {
     loading_top: bool,
     loading_bottom: bool,
 
+    #[hash]
+    hovered_item_id: Option<String>,
+    #[hash]
+    buttons_hovered: bool,
+
+    message_event_bounds: HashMap<String, Rectangle>,
+
     content: list::Content<Arc<TimelineItem>>,
     id_index: Arc<HashMap<String, usize>>,
     #[hash]
     messages_version: u64,
 }
 
+impl ExtraHash for ChatTimeline {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.scrolled_from_top.to_bits().hash(state);
+    }
+}
+
 impl ChatTimeline {
     pub fn new(room: &Room, state: &AppState) -> Self {
-        Self {
+        let power_levels = Arc::new(RoomPowerLevels::new(
+            matrix_sdk::ruma::events::room::power_levels::RoomPowerLevelsSource::None,
+            &AuthorizationRules::V12,
+            [],
+        ));
+        let own_user_id = room.own_user_id().to_owned();
+
+        let mut timeline = Self {
             state: state.clone(),
             timeline: None,
-            power_levels: Arc::new(RoomPowerLevels::new(
-                matrix_sdk::ruma::events::room::power_levels::RoomPowerLevelsSource::None,
-                &AuthorizationRules::V12,
-                [],
-            )),
+
+            power_levels,
+            user_can_send: false,
+            user_can_pin: false,
+            user_can_redact_own: false,
+            user_can_redact_other: false,
+
+            scrolled_from_top: 0.0,
 
             room_id: room.room_id().to_owned(),
-            own_user_id: room.own_user_id().to_owned(),
+            own_user_id,
 
             avatar_cache: state.avatar_cache().clone(),
             thumbnail_cache: state.thumbnail_cache().clone(),
@@ -97,19 +135,33 @@ impl ChatTimeline {
             loading_top: false,
             loading_bottom: false,
 
+            hovered_item_id: None,
+            buttons_hovered: false,
+
+            message_event_bounds: HashMap::new(),
+
             content: list::Content::default(),
             id_index: Arc::new(HashMap::new()),
             messages_version: 0,
-        }
+        };
+        timeline.recalculate_with_power_levels();
+        timeline
     }
 
     // TODO: Actually use this
-    pub fn recalculate_with_power_levels(&mut self, own_user_id: &UserId) {
-        for index in 0..self.content.len() {
-            if let Some(item) = self.content.get_mut(index) {
-                Arc::make_mut(item).recalculate_with_power_levels(&self.power_levels, own_user_id);
-            }
-        }
+    pub fn recalculate_with_power_levels(&mut self) {
+        self.user_can_send = self
+            .power_levels
+            .user_can_send_message(&self.own_user_id, MessageLikeEventType::RoomMessage);
+        self.user_can_pin = self
+            .power_levels
+            .user_can_send_state(&self.own_user_id, StateEventType::RoomPinnedEvents);
+        self.user_can_redact_own = self
+            .power_levels
+            .user_can_redact_own_event(&self.own_user_id);
+        self.user_can_redact_other = self
+            .power_levels
+            .user_can_redact_event_of_other(&self.own_user_id);
     }
 
     /// The virtualized `List` only re-examines a row's hash when `get_mut`
@@ -232,9 +284,27 @@ impl ChatTimeline {
     }
 }
 
+const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
+
 impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     fn update(&mut self, message: TimelineMessage) -> Option<TimelineAction> {
         match message {
+            TimelineMessage::ButtonsHovered(hovered) => {
+                self.buttons_hovered = hovered;
+
+                if !hovered {
+                    let row_still_hovered = self
+                        .hovered_item_id
+                        .as_ref()
+                        .and_then(|id| self.id_index.get(id))
+                        .and_then(|ix| self.content.get(*ix))
+                        .is_some_and(|item| item.is_hovered());
+
+                    if !row_still_hovered {
+                        self.hovered_item_id = None;
+                    }
+                }
+            }
             TimelineMessage::Item { id, message } => {
                 let Some(&index) = self.id_index.get(&id) else {
                     tracing::warn!("No item found for id {}", id);
@@ -244,8 +314,23 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     tracing::warn!("No item found for id {}", id);
                     return None;
                 };
-                return if let Some(action) = Arc::make_mut(item).update(message) {
+                let res = if let Some(action) = Arc::make_mut(item).update(message) {
                     match action {
+                        TimelineItemAction::HoverChanged(hovered) => {
+                            if hovered {
+                                self.hovered_item_id = Some(id.clone());
+                            } else if self.hovered_item_id.as_deref() == Some(&id)
+                                && !self.buttons_hovered
+                            {
+                                self.hovered_item_id = None;
+                            }
+                            self.messages_version += 1;
+                            None
+                        }
+                        TimelineItemAction::MessageEventBounds(bounds) => {
+                            self.message_event_bounds.insert(id.clone(), bounds);
+                            None
+                        }
                         TimelineItemAction::Update => {
                             self.messages_version += 1;
                             None
@@ -271,6 +356,12 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 } else {
                     None
                 };
+
+                if self.hovered_item_id == Some(id) && self.buttons_hovered {
+                    Arc::make_mut(item).set_is_hovered(true);
+                }
+
+                return res;
             }
             TimelineMessage::Loaded {
                 timeline,
@@ -284,6 +375,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 );
                 self.timeline = Some(timeline);
                 self.power_levels = power_levels;
+                self.recalculate_with_power_levels();
 
                 self.id_index = Arc::new(
                     initial
@@ -313,8 +405,6 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 let thumbnail_cache = self.state.thumbnail_cache().clone();
                 let video_cache = self.state.video_cache().clone();
                 let room_id = self.room_id.clone();
-                let power_levels = self.power_levels.clone();
-                let own_user_id = self.own_user_id.clone();
 
                 for diff in diffs.into_iter().map(|d| {
                     d.map(|m| {
@@ -323,8 +413,6 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             &thumbnail_cache,
                             &video_cache,
                             room_id.clone(),
-                            &power_levels,
-                            &own_user_id,
                         ))
                     })
                 }) {
@@ -408,6 +496,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             TimelineMessage::Scroll { direction } => {
                 return self.pagination_task(direction, 30);
             }
+            TimelineMessage::ScrolledFromTop(offset) => {
+                self.scrolled_from_top = offset;
+            }
             TimelineMessage::None => {}
         };
 
@@ -420,51 +511,203 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         let loading_top = self.loading_top;
         let loading_bottom = self.loading_bottom;
 
-        w::container(
-            themed_scrollable(
-                w::container(list(self.content.clone(), move |_index, item| {
-                    let id = item.id.clone();
-                    w::lazy(item.clone(), move |item| {
-                        let id = id.clone();
-                        item.view(theme, structure)
-                            .map(move |msg| TimelineMessage::Item {
-                                id: id.clone(),
-                                message: msg,
+        let mut stack = Stack::new()
+            .push(
+                w::container(track_scroll(
+                    themed_scrollable(
+                        w::container(list(self.content.clone(), move |_index, item| {
+                            let id = item.id.clone();
+                            w::lazy(item.clone(), move |item| {
+                                let id = id.clone();
+                                item.view(theme, structure)
+                                    .map(move |msg| TimelineMessage::Item {
+                                        id: id.clone(),
+                                        message: msg,
+                                    })
                             })
-                    })
-                    .into()
-                }))
-                .padding(padding::bottom(structure.gap * 3.0))
-                .width(Fill),
-                theme,
-                structure,
-            )
-            .spacing(structure.small_gap)
-            .width(Fill)
-            .anchor_bottom()
-            .on_scroll(move |viewport| {
-                let max_offset =
-                    (viewport.content_bounds().height - viewport.bounds().height).max(0.0);
-                let offset = viewport.absolute_offset().y;
+                            .into()
+                        }))
+                        .padding(padding::bottom(structure.gap * 3.0))
+                        .width(Fill),
+                        theme,
+                        structure,
+                    )
+                    .spacing(structure.small_gap)
+                    .width(Fill)
+                    .anchor_bottom()
+                    .on_scroll(move |viewport| {
+                        let max_offset =
+                            (viewport.content_bounds().height - viewport.bounds().height).max(0.0);
+                        let offset = viewport.absolute_offset().y;
 
-                if !reached_top
-                    && !loading_top
-                    && max_offset - offset <= structure.chat.icon_size * 6.0
-                {
-                    return TimelineMessage::Scroll {
-                        direction: PaginationDirection::Backward,
-                    };
-                }
-                if !reached_bottom && !loading_bottom && offset <= structure.chat.icon_size * 6.0 {
-                    return TimelineMessage::Scroll {
-                        direction: PaginationDirection::Forward,
-                    };
-                }
-                TimelineMessage::None
-            }),
+                        if !reached_top
+                            && !loading_top
+                            && max_offset - offset <= structure.chat.icon_size * 6.0
+                        {
+                            return TimelineMessage::Scroll {
+                                direction: PaginationDirection::Backward,
+                            };
+                        }
+                        if !reached_bottom
+                            && !loading_bottom
+                            && offset <= structure.chat.icon_size * 6.0
+                        {
+                            return TimelineMessage::Scroll {
+                                direction: PaginationDirection::Forward,
+                            };
+                        }
+
+                        TimelineMessage::None
+                    })
+                    .id(SCROLLABLE_ID),
+                    SCROLLABLE_ID,
+                    TimelineMessage::ScrolledFromTop,
+                ))
+                .width(Fill)
+                .align_bottom(Fill),
+            )
+            .height(Fill);
+
+        if let Some(hovered_item_id) = &self.hovered_item_id
+            && let Some(bounds) = self.message_event_bounds.get(hovered_item_id).cloned()
+            && let Some((Some(event_id), (is_own, is_editable, can_be_replied_to))) = self
+                .id_index
+                .get(hovered_item_id)
+                .and_then(|ix| self.content.get(*ix))
+                .map(|item| (item.event_id(), item.booleans()))
+        {
+            let can_edit = is_editable && self.user_can_send;
+            let can_reply = can_be_replied_to && self.user_can_send;
+            let can_pin = self.user_can_pin;
+            let can_redact = if is_own {
+                self.user_can_redact_own
+            } else {
+                self.user_can_redact_other
+            };
+
+            let scrolled_from_top = self.scrolled_from_top;
+
+            stack = stack.push(
+                w::float(render_timeline_item_buttons(
+                    structure,
+                    theme,
+                    event_id.clone(),
+                    hovered_item_id.clone(),
+                    can_edit,
+                    can_reply,
+                    can_pin,
+                    can_redact,
+                ))
+                .translate(move |own_bounds, _| {
+                    let target_x = bounds.x + bounds.width - own_bounds.width;
+                    let target_y = bounds.y - scrolled_from_top - own_bounds.height / 2.0;
+                    Vector::new(target_x - own_bounds.x, target_y - own_bounds.y)
+                }),
+            );
+        }
+
+        stack.into()
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_timeline_item_buttons(
+    structure: Structure,
+    theme: Theme,
+    event_id: OwnedEventId,
+    item_id: String,
+    can_edit: bool,
+    can_reply: bool,
+    can_pin: bool,
+    can_redact: bool,
+) -> Element<'static, TimelineMessage> {
+    let mut buttons = Vec::new();
+
+    let button_size = structure.chat.small_icon_size;
+    let convert_message = |message| TimelineMessage::Item {
+        id: item_id.clone(),
+        message,
+    };
+
+    let button = move |icon: &'static str,
+                       message: TimelineItemMessage,
+                       hover_bg: Color,
+                       color: Color,
+                       hover_color: Color| {
+        w::button(phosphor_icon(icon, button_size))
+            .padding(structure.small_gap / 2.0)
+            .on_press(convert_message(message))
+            .style(move |_: &IcedTheme, status| ButtonStyle {
+                background: if status.active() {
+                    Some(hover_bg.into())
+                } else {
+                    None
+                },
+                text_color: if status.active() { hover_color } else { color },
+                border: border::rounded(structure.semi_border_radius()),
+                ..Default::default()
+            })
+            .into()
+    };
+
+    if can_edit {
+        buttons.push(button(
+            icons::pencil_simple::BOLD,
+            TimelineItemMessage::SetIsEditing(true),
+            theme.solid_hover_bg,
+            theme.text.dim,
+            theme.text.normal,
+        ));
+    }
+
+    if can_reply {
+        buttons.push(button(
+            icons::arrow_bend_up_left::BOLD,
+            TimelineItemMessage::SetIsReplyingTo(event_id.clone()),
+            theme.solid_hover_bg,
+            theme.text.dim,
+            theme.text.normal,
+        ));
+    }
+
+    if can_pin {
+        buttons.push(button(
+            icons::push_pin::BOLD,
+            TimelineItemMessage::SetIsReplyingTo(event_id.clone()),
+            theme.colors.yellow,
+            theme.colors.yellow,
+            theme.solid_bg,
+        ));
+    }
+
+    if can_redact {
+        buttons.push(button(
+            icons::trash::BOLD,
+            TimelineItemMessage::SetIsReplyingTo(event_id.clone()),
+            theme.colors.error,
+            theme.colors.error,
+            theme.solid_bg,
+        ));
+    }
+
+    if !buttons.is_empty() {
+        w::mouse_area(
+            w::container(w::Row::with_children(buttons).spacing(structure.small_gap / 2.0))
+                .style(move |_| ContainerStyle {
+                    background: Some(theme.solid_bg.into()),
+                    border: Border {
+                        color: theme.border,
+                        width: structure.border_thickness,
+                        radius: structure.semi_border_radius().into(),
+                    },
+                    ..Default::default()
+                })
+                .padding(structure.small_gap / 2.0),
         )
-        .width(Fill)
-        .align_bottom(Fill)
+        .on_enter(TimelineMessage::ButtonsHovered(true))
+        .on_exit(TimelineMessage::ButtonsHovered(false))
         .into()
+    } else {
+        Space::new().into()
     }
 }

@@ -14,7 +14,6 @@ use super::{TimelineItem, TimelineItemKind};
 use deplace_core::state::cache::VideoCache;
 use matrix_sdk::ruma::events::room::ImageInfo;
 use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
-use matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels;
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, EmbeddedEvent, TimelineItemKind as UiTimelineItemKind,
 };
@@ -29,8 +28,6 @@ pub trait ToTimelineItem {
         thumbnail_cache: &ThumbnailCache,
         video_cache: &VideoCache,
         room_id: OwnedRoomId,
-        power_levels: &RoomPowerLevels,
-        user_id: &UserId,
     ) -> TimelineItem;
 }
 
@@ -41,10 +38,8 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
         thumbnail_cache: &ThumbnailCache,
         video_cache: &VideoCache,
         room_id: OwnedRoomId,
-        power_levels: &RoomPowerLevels,
-        user_id: &UserId,
     ) -> TimelineItem {
-        let mut item = TimelineItem {
+        TimelineItem {
             id: self.unique_id().0.clone(),
             room_id,
             kind: TimelineItemKind::from_ui(
@@ -53,9 +48,7 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
                 thumbnail_cache,
                 video_cache,
             ),
-        };
-        item.recalculate_with_power_levels(power_levels, user_id);
-        item
+        }
     }
 }
 
@@ -229,12 +222,9 @@ impl TimelineItemKind {
                         declined_by: declined_by.clone(),
                     }),
                     TimelineItemContent::MsgLike(m) => TimelineItemKind::Message {
-                        // Real values come from the first `recalculate_with_power_levels` call.
-                        can_reply: false,
-                        can_pin: false,
-                        can_edit: false,
-                        can_redact: false,
                         is_own: event.is_own(),
+                        is_editable: event.is_editable(),
+                        can_be_replied_to: event.can_be_replied_to(),
                         event: Box::new(MessageEvent {
                             timestamp,
 
@@ -256,7 +246,6 @@ impl TimelineItemKind {
                             is_highlighted: event.is_highlighted(),
                             contains_only_emojis: event.contains_only_emojis(),
 
-                            is_editable: event.is_editable(),
                             can_be_replied_to: event.can_be_replied_to(),
 
                             shield: event.get_shield(false),

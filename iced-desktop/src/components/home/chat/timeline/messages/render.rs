@@ -25,6 +25,7 @@ use crate::{
     components::{
         InsetShadow,
         home::chat::timeline::messages::{SystemEvent, SystemMessage},
+        track_bounds::track_bounds,
     },
 };
 
@@ -42,7 +43,7 @@ pub fn render_event(
     gap: f32,
 ) -> Element<'static, TimelineItemMessage> {
     w::container(
-        w::mouse_area(
+        w::mouse_area(track_bounds(
             w::container(content)
                 .width(Fill)
                 .style(move |_| {
@@ -57,7 +58,8 @@ pub fn render_event(
                     )
                 })
                 .padding(structure.border_thickness),
-        )
+            TimelineItemMessage::MessageEventBounds,
+        ))
         .on_enter(TimelineItemMessage::EventEnter)
         .on_exit(TimelineItemMessage::EventExit),
     )
