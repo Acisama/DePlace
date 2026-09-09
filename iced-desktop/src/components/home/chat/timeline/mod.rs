@@ -16,7 +16,10 @@ use sweeten::widget::list;
 
 use phosphor_svgs::icon as icons;
 
-use crate::{common::*, components::track_scroll::track_scroll};
+use crate::{
+    common::*,
+    components::{track_bounds::track_bounds, track_scroll::track_scroll},
+};
 
 pub use messages::ToTimelineItem;
 mod messages;
@@ -39,7 +42,11 @@ pub enum TimelineMessage {
         direction: PaginationDirection,
     },
     ScrolledFromTop(f32),
-    ButtonsHovered(bool),
+    ButtonsHovered {
+        id: String,
+        hovered: bool,
+    },
+    ChatAreaBounds(Rectangle),
 }
 
 pub enum TimelineAction {
@@ -85,6 +92,7 @@ pub struct ChatTimeline {
     buttons_hovered: bool,
 
     message_event_bounds: HashMap<String, Rectangle>,
+    tile_bounds: Rectangle,
 
     content: list::Content<Arc<TimelineItem>>,
     id_index: Arc<HashMap<String, usize>>,
@@ -95,6 +103,10 @@ pub struct ChatTimeline {
 impl ExtraHash for ChatTimeline {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.scrolled_from_top.to_bits().hash(state);
+        self.tile_bounds.x.to_bits().hash(state);
+        self.tile_bounds.y.to_bits().hash(state);
+        self.tile_bounds.width.to_bits().hash(state);
+        self.tile_bounds.height.to_bits().hash(state);
     }
 }
 
@@ -139,6 +151,13 @@ impl ChatTimeline {
             buttons_hovered: false,
 
             message_event_bounds: HashMap::new(),
+            // No-op until the first real measurement comes in via `ChatAreaBounds`.
+            tile_bounds: Rectangle {
+                x: -1_000_000.0,
+                y: -1_000_000.0,
+                width: 2_000_000.0,
+                height: 2_000_000.0,
+            },
 
             content: list::Content::default(),
             id_index: Arc::new(HashMap::new()),
@@ -289,14 +308,17 @@ const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollab
 impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     fn update(&mut self, message: TimelineMessage) -> Option<TimelineAction> {
         match message {
-            TimelineMessage::ButtonsHovered(hovered) => {
+            TimelineMessage::ButtonsHovered { id, hovered } => {
+                if self.hovered_item_id.as_deref() != Some(id.as_str()) {
+                    return None;
+                }
+
                 self.buttons_hovered = hovered;
 
                 if !hovered {
                     let row_still_hovered = self
-                        .hovered_item_id
-                        .as_ref()
-                        .and_then(|id| self.id_index.get(id))
+                        .id_index
+                        .get(&id)
                         .and_then(|ix| self.content.get(*ix))
                         .is_some_and(|item| item.is_hovered());
 
@@ -318,6 +340,17 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     match action {
                         TimelineItemAction::HoverChanged(hovered) => {
                             if hovered {
+                                if let Some(old_id) = &self.hovered_item_id
+                                    && old_id != &id
+                                    && let Some(&old_index) = self.id_index.get(old_id)
+                                    && let Some(old_item) = self.content.get_mut(old_index)
+                                {
+                                    Arc::make_mut(old_item).set_is_hovered(false);
+                                }
+
+                                if self.hovered_item_id.as_deref() != Some(&id) {
+                                    self.buttons_hovered = false;
+                                }
                                 self.hovered_item_id = Some(id.clone());
                             } else if self.hovered_item_id.as_deref() == Some(&id)
                                 && !self.buttons_hovered
@@ -357,7 +390,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     None
                 };
 
-                if self.hovered_item_id == Some(id) && self.buttons_hovered {
+                if self.hovered_item_id == Some(id)
+                    && self.buttons_hovered
+                    && let Some(item) = self.content.get_mut(index)
+                {
                     Arc::make_mut(item).set_is_hovered(true);
                 }
 
@@ -499,6 +535,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             TimelineMessage::ScrolledFromTop(offset) => {
                 self.scrolled_from_top = offset;
             }
+            TimelineMessage::ChatAreaBounds(bounds) => {
+                self.tile_bounds = bounds;
+            }
             TimelineMessage::None => {}
         };
 
@@ -586,6 +625,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             };
 
             let scrolled_from_top = self.scrolled_from_top;
+            let tile_bounds = self.tile_bounds;
 
             stack = stack.push(
                 w::float(render_timeline_item_buttons(
@@ -601,12 +641,25 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 .translate(move |own_bounds, _| {
                     let target_x = bounds.x + bounds.width - own_bounds.width;
                     let target_y = bounds.y - scrolled_from_top - own_bounds.height / 2.0;
-                    Vector::new(target_x - own_bounds.x, target_y - own_bounds.y)
+
+                    // Never let the buttons render outside the chat tile --
+                    // clamp the target into `tile_bounds` before converting
+                    // it into an offset from the float's own position.
+                    let min_x = tile_bounds.x;
+                    let max_x = (tile_bounds.x + tile_bounds.width - own_bounds.width).max(min_x);
+                    let min_y = tile_bounds.y;
+                    let max_y =
+                        (tile_bounds.y + tile_bounds.height - own_bounds.height).max(min_y);
+
+                    let clamped_x = target_x.clamp(min_x, max_x);
+                    let clamped_y = target_y.clamp(min_y, max_y);
+
+                    Vector::new(clamped_x - own_bounds.x, clamped_y - own_bounds.y)
                 }),
             );
         }
 
-        stack.into()
+        track_bounds(stack, TimelineMessage::ChatAreaBounds).into()
     }
 }
 
@@ -704,8 +757,14 @@ fn render_timeline_item_buttons(
                 })
                 .padding(structure.small_gap / 2.0),
         )
-        .on_enter(TimelineMessage::ButtonsHovered(true))
-        .on_exit(TimelineMessage::ButtonsHovered(false))
+        .on_enter(TimelineMessage::ButtonsHovered {
+            id: item_id.clone(),
+            hovered: true,
+        })
+        .on_exit(TimelineMessage::ButtonsHovered {
+            id: item_id,
+            hovered: false,
+        })
         .into()
     } else {
         Space::new().into()
