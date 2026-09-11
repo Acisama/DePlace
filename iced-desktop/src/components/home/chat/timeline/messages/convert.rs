@@ -225,12 +225,14 @@ impl TimelineItemKind {
                         is_own: event.is_own(),
                         is_editable: event.is_editable(),
                         can_be_replied_to: event.can_be_replied_to(),
-                        event: Box::new(MessageEvent {
+                        message: Arc::new(MessageEvent {
                             timestamp,
 
                             event_id,
                             sender,
                             sender_profile,
+
+                            is_replying_to: false,
 
                             in_reply_to: Arc::new(
                                 m.in_reply_to
@@ -245,8 +247,6 @@ impl TimelineItemKind {
 
                             is_highlighted: event.is_highlighted(),
                             contains_only_emojis: event.contains_only_emojis(),
-
-                            can_be_replied_to: event.can_be_replied_to(),
 
                             shield: event.get_shield(false),
                             send_state: event.send_state().cloned(),

@@ -2,6 +2,8 @@ use std::collections::{BTreeSet, HashMap};
 
 use deplace_core::PaginationDirection;
 use iced::Vector;
+use iced::advanced::widget::operate;
+use iced::advanced::widget::operation::scrollable::{RelativeOffset, snap_to};
 use macros::iced_cache;
 use matrix_sdk::{
     media::UniqueKey,
@@ -21,6 +23,7 @@ use crate::{
     components::{track_bounds::track_bounds, track_scroll::track_scroll},
 };
 
+pub use messages::MessageEvent;
 pub use messages::ToTimelineItem;
 mod messages;
 
@@ -32,14 +35,14 @@ pub enum TimelineMessage {
     },
     Loaded {
         timeline: Arc<Timeline>,
-        initial: Arc<Vec<Arc<TimelineItem>>>,
+        initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
         power_levels: Arc<RoomPowerLevels>,
     },
     Diffs(Vec<VectorDiff<Arc<UiTimelineItem>>>),
-    SetReplying(OwnedEventId),
     None,
     Scroll {
-        direction: PaginationDirection,
+        direction: Option<PaginationDirection>,
+        position: RelativeOffset,
     },
     ScrolledFromTop(f32),
     ButtonsHovered {
@@ -47,17 +50,28 @@ pub enum TimelineMessage {
         hovered: bool,
     },
     ChatAreaBounds(Rectangle),
+    /// Sent whenever this room becomes the active one (whether freshly
+    /// created or reused from the LRU cache) to explicitly snap the
+    /// scrollable back to where this room was left -- its own widget state
+    /// is tied to tree position, not to which room is showing, so without
+    /// this it just keeps whatever position the previously active room left
+    /// behind.
+    RestoreScrollPosition,
 }
 
 pub enum TimelineAction {
     NeedsMedia(NeedsMedia),
-    SetIsReplyingTo(OwnedEventId),
+    SetIsReplyingTo {
+        message: Arc<MessageEvent>,
+        event_id: OwnedEventId,
+    },
     Run(Task<()>),
     Scroll {
         direction: PaginationDirection,
         task: Task<bool>,
     },
 }
+const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
 
 #[iced_cache(Clone)]
 pub struct ChatTimeline {
@@ -72,6 +86,9 @@ pub struct ChatTimeline {
     user_can_redact_other: bool,
 
     scrolled_from_top: f32,
+    /// Where this room's scrollable was left, so it can be restored
+    scroll_position: RelativeOffset,
+    restored_scroll: bool,
 
     #[hash]
     room_id: OwnedRoomId,
@@ -90,12 +107,13 @@ pub struct ChatTimeline {
     hovered_item_id: Option<String>,
     #[hash]
     buttons_hovered: bool,
+    #[hash]
+    replying_to: Option<String>,
 
     message_event_bounds: HashMap<String, Rectangle>,
     tile_bounds: Rectangle,
 
-    content: list::Content<Arc<TimelineItem>>,
-    id_index: Arc<HashMap<String, usize>>,
+    content: list::Content<String, Arc<TimelineItem>>,
     #[hash]
     messages_version: u64,
 }
@@ -130,6 +148,10 @@ impl ChatTimeline {
             user_can_redact_other: false,
 
             scrolled_from_top: 0.0,
+            // `RelativeOffset` is anchor-relative: 0.0 (`START`) means "at
+            // rest, at the anchor" -- the bottom, for `anchor_bottom()`.
+            scroll_position: RelativeOffset::START,
+            restored_scroll: false,
 
             room_id: room.room_id().to_owned(),
             own_user_id,
@@ -149,6 +171,7 @@ impl ChatTimeline {
 
             hovered_item_id: None,
             buttons_hovered: false,
+            replying_to: None,
 
             message_event_bounds: HashMap::new(),
             // No-op until the first real measurement comes in via `ChatAreaBounds`.
@@ -160,11 +183,22 @@ impl ChatTimeline {
             },
 
             content: list::Content::default(),
-            id_index: Arc::new(HashMap::new()),
             messages_version: 0,
         };
         timeline.recalculate_with_power_levels();
         timeline
+    }
+
+    fn restore_scroll_task(&self) -> Task<()> {
+        operate(snap_to(SCROLLABLE_ID, self.scroll_position.into()))
+    }
+
+    pub fn remove_replying(&mut self) {
+        if let Some(item_id) = self.replying_to.as_ref()
+            && let Some(item) = self.content.get_mut(item_id)
+        {
+            Arc::make_mut(item).remove_replying();
+        }
     }
 
     // TODO: Actually use this
@@ -198,7 +232,7 @@ impl ChatTimeline {
         }
 
         for index in 0..self.content.len() {
-            self.content.get_mut(index);
+            self.content.get_index_mut(index);
         }
     }
 
@@ -208,10 +242,10 @@ impl ChatTimeline {
     fn refresh_previous_linkage(&mut self, index: usize) {
         let previous = index
             .checked_sub(1)
-            .and_then(|p| self.content.get(p))
+            .and_then(|p| self.content.get_index(p))
             .cloned();
 
-        let Some(current) = self.content.get(index) else {
+        let Some(current) = self.content.get_index(index) else {
             return;
         };
 
@@ -222,7 +256,7 @@ impl ChatTimeline {
             return;
         }
 
-        if let Some(item) = self.content.get_mut(index) {
+        if let Some(item) = self.content.get_index_mut(index) {
             let item = Arc::make_mut(item);
             if let Some(connects_before) = connection {
                 item.set_connection(connects_before);
@@ -303,8 +337,6 @@ impl ChatTimeline {
     }
 }
 
-const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
-
 impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     fn update(&mut self, message: TimelineMessage) -> Option<TimelineAction> {
         match message {
@@ -316,11 +348,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 self.buttons_hovered = hovered;
 
                 if !hovered {
-                    let row_still_hovered = self
-                        .id_index
-                        .get(&id)
-                        .and_then(|ix| self.content.get(*ix))
-                        .is_some_and(|item| item.is_hovered());
+                    let row_still_hovered =
+                        self.content.get(&id).is_some_and(|item| item.is_hovered());
 
                     if !row_still_hovered {
                         self.hovered_item_id = None;
@@ -328,11 +357,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 }
             }
             TimelineMessage::Item { id, message } => {
-                let Some(&index) = self.id_index.get(&id) else {
-                    tracing::warn!("No item found for id {}", id);
-                    return None;
-                };
-                let Some(item) = self.content.get_mut(index) else {
+                let Some(item) = self.content.get_mut(&id) else {
                     tracing::warn!("No item found for id {}", id);
                     return None;
                 };
@@ -342,8 +367,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             if hovered {
                                 if let Some(old_id) = &self.hovered_item_id
                                     && old_id != &id
-                                    && let Some(&old_index) = self.id_index.get(old_id)
-                                    && let Some(old_item) = self.content.get_mut(old_index)
+                                    && let Some(old_item) = self.content.get_mut(old_id)
                                 {
                                     Arc::make_mut(old_item).set_is_hovered(false);
                                 }
@@ -382,17 +406,18 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             }
                             Some(TimelineAction::NeedsMedia(needs_media))
                         }
-                        TimelineItemAction::SetIsReplyingTo(event_id) => {
-                            Some(TimelineAction::SetIsReplyingTo(event_id.clone()))
+                        TimelineItemAction::SetIsReplyingTo { message, event_id } => {
+                            self.replying_to = Some(id.clone());
+                            Some(TimelineAction::SetIsReplyingTo { message, event_id })
                         }
                     }
                 } else {
                     None
                 };
 
-                if self.hovered_item_id == Some(id)
+                if self.hovered_item_id.as_ref() == Some(&id)
                     && self.buttons_hovered
-                    && let Some(item) = self.content.get_mut(index)
+                    && let Some(item) = self.content.get_mut(&id)
                 {
                     Arc::make_mut(item).set_is_hovered(true);
                 }
@@ -404,30 +429,29 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 initial,
                 power_levels,
             } => {
+                let length = initial.len();
                 tracing::debug!(
                     "ChatTimeline for room {} loaded with {} initial items",
                     self.room_id,
-                    initial.len()
+                    length
                 );
                 self.timeline = Some(timeline);
                 self.power_levels = power_levels;
                 self.recalculate_with_power_levels();
 
-                self.id_index = Arc::new(
-                    initial
-                        .iter()
-                        .enumerate()
-                        .map(|(index, item)| (item.id.clone(), index))
-                        .collect(),
-                );
                 self.content = list::Content::with_items((*initial).clone());
                 self.refresh_all_previous_linkage();
                 self.messages_version += 1;
 
-                if initial.len() < 50 {
-                    return self
-                        .pagination_task(PaginationDirection::Forward, 50 - initial.len() as u16);
+                if length < 50 {
+                    // Not enough content yet to meaningfully snap to
+                    // `scroll_position` -- deferred to `Diffs`, once the
+                    // top-up below actually lands.
+                    return self.pagination_task(PaginationDirection::Backward, 50 - length as u16);
                 }
+
+                self.restored_scroll = true;
+                return Some(TimelineAction::Run(self.restore_scroll_task()));
             }
             TimelineMessage::Diffs(diffs) => {
                 tracing::debug!(
@@ -444,18 +468,21 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                 for diff in diffs.into_iter().map(|d| {
                     d.map(|m| {
-                        Arc::new(m.convert(
-                            &avatar_cache,
-                            &thumbnail_cache,
-                            &video_cache,
-                            room_id.clone(),
-                        ))
+                        (
+                            m.unique_id().0.clone(),
+                            Arc::new(m.convert(
+                                &avatar_cache,
+                                &thumbnail_cache,
+                                &video_cache,
+                                room_id.clone(),
+                            )),
+                        )
                     })
                 }) {
                     match diff {
                         VectorDiff::Append { values } => {
-                            for value in values {
-                                self.content.push(value);
+                            for (key, value) in values {
+                                self.content.push(key, value);
                                 // Last item only: appending never has
                                 // anything after it whose `previous` could
                                 // change.
@@ -463,8 +490,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             }
                         }
                         VectorDiff::Clear => self.content = list::Content::new(),
-                        VectorDiff::Insert { index, value } => {
-                            self.content.insert(index, value);
+                        VectorDiff::Insert {
+                            index,
+                            value: (key, value),
+                        } => {
+                            self.content.insert(index, key, value);
                             self.refresh_previous_linkage_near(index);
                         }
                         // Removing from the end can't change any remaining
@@ -480,12 +510,16 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                                 self.refresh_previous_linkage(0);
                             }
                         }
-                        VectorDiff::PushBack { value } => {
-                            self.content.push(value);
+                        VectorDiff::PushBack {
+                            value: (key, value),
+                        } => {
+                            self.content.push(key, value);
                             self.refresh_previous_linkage(self.content.len() - 1);
                         }
-                        VectorDiff::PushFront { value } => {
-                            self.content.insert(0, value);
+                        VectorDiff::PushFront {
+                            value: (key, value),
+                        } => {
+                            self.content.insert(0, key, value);
                             self.refresh_previous_linkage_near(0);
                         }
                         VectorDiff::Remove { index } => {
@@ -502,8 +536,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         // all -- the only things the linkage depends on --
                         // and don't shift any other item's position either,
                         // so nothing here can ever need recomputing.
-                        VectorDiff::Set { index, value } => {
-                            if let Some(slot) = self.content.get_mut(index) {
+                        VectorDiff::Set {
+                            index,
+                            value: (_, value),
+                        } => {
+                            if let Some(slot) = self.content.get_index_mut(index) {
                                 *slot = value;
                             }
                         }
@@ -517,26 +554,38 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     }
                 }
 
-                self.id_index = Arc::new(
-                    (0..self.content.len())
-                        .filter_map(|index| {
-                            self.content.get(index).map(|item| (item.id.clone(), index))
-                        })
-                        .collect(),
-                );
                 self.messages_version += 1;
+
+                if !self.restored_scroll && !self.content.is_empty() {
+                    self.restored_scroll = true;
+                    return Some(TimelineAction::Run(self.restore_scroll_task()));
+                }
             }
-            TimelineMessage::SetReplying(event_id) => {
-                return Some(TimelineAction::SetIsReplyingTo(event_id));
-            }
-            TimelineMessage::Scroll { direction } => {
-                return self.pagination_task(direction, 30);
+            TimelineMessage::Scroll {
+                direction,
+                position,
+            } => {
+                self.scroll_position = position;
+
+                if let Some(direction) = direction {
+                    return self.pagination_task(direction, 30);
+                }
             }
             TimelineMessage::ScrolledFromTop(offset) => {
                 self.scrolled_from_top = offset;
             }
             TimelineMessage::ChatAreaBounds(bounds) => {
                 self.tile_bounds = bounds;
+            }
+            TimelineMessage::RestoreScrollPosition => {
+                if self.content.is_empty() {
+                    // Nothing loaded yet -- `Loaded`/`Diffs` will snap once
+                    // there's actually content to snap against.
+                    return None;
+                }
+
+                self.restored_scroll = true;
+                return Some(TimelineAction::Run(self.restore_scroll_task()));
             }
             TimelineMessage::None => {}
         };
@@ -554,8 +603,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             .push(
                 w::container(track_scroll(
                     themed_scrollable(
-                        w::container(list(self.content.clone(), move |_index, item| {
-                            let id = item.id.clone();
+                        w::container(list(self.content.clone(), move |_index, id, item| {
                             w::lazy(item.clone(), move |item| {
                                 let id = id.clone();
                                 item.view(theme, structure)
@@ -578,25 +626,25 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         let max_offset =
                             (viewport.content_bounds().height - viewport.bounds().height).max(0.0);
                         let offset = viewport.absolute_offset().y;
+                        let position = viewport.relative_offset();
 
+                        let mut direction = None;
                         if !reached_top
                             && !loading_top
                             && max_offset - offset <= structure.chat.icon_size * 6.0
                         {
-                            return TimelineMessage::Scroll {
-                                direction: PaginationDirection::Backward,
-                            };
-                        }
-                        if !reached_bottom
+                            direction = Some(PaginationDirection::Backward);
+                        } else if !reached_bottom
                             && !loading_bottom
                             && offset <= structure.chat.icon_size * 6.0
                         {
-                            return TimelineMessage::Scroll {
-                                direction: PaginationDirection::Forward,
-                            };
+                            direction = Some(PaginationDirection::Forward);
                         }
 
-                        TimelineMessage::None
+                        TimelineMessage::Scroll {
+                            direction,
+                            position,
+                        }
                     })
                     .id(SCROLLABLE_ID),
                     SCROLLABLE_ID,
@@ -610,9 +658,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         if let Some(hovered_item_id) = &self.hovered_item_id
             && let Some(bounds) = self.message_event_bounds.get(hovered_item_id).cloned()
             && let Some((Some(event_id), (is_own, is_editable, can_be_replied_to))) = self
-                .id_index
+                .content
                 .get(hovered_item_id)
-                .and_then(|ix| self.content.get(*ix))
                 .map(|item| (item.event_id(), item.booleans()))
         {
             let can_edit = is_editable && self.user_can_send;
@@ -648,8 +695,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     let min_x = tile_bounds.x;
                     let max_x = (tile_bounds.x + tile_bounds.width - own_bounds.width).max(min_x);
                     let min_y = tile_bounds.y;
-                    let max_y =
-                        (tile_bounds.y + tile_bounds.height - own_bounds.height).max(min_y);
+                    let max_y = (tile_bounds.y + tile_bounds.height - own_bounds.height).max(min_y);
 
                     let clamped_x = target_x.clamp(min_x, max_x);
                     let clamped_y = target_y.clamp(min_y, max_y);

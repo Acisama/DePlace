@@ -1,12 +1,15 @@
 use deplace_core::{helpers::RoomPlaceholderExt, matrix_api::messages::RoomSendingExt};
 use iced::{
     Length,
+    border::Radius,
     widget::{Id, operation, text_editor},
 };
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
 
 use crate::common::*;
+
+use super::timeline::MessageEvent;
 
 #[derive(Debug, Clone)]
 pub enum InputMessage {
@@ -19,7 +22,7 @@ pub enum InputMessage {
 }
 
 pub enum InputAction {
-    Run(Task<()>),
+    RemoveReplying(Task<()>),
 }
 
 #[iced_cache(Clone)]
@@ -36,7 +39,7 @@ pub struct ChatInput {
     /// The `[crate::components::IcedWidget]` crate requires 'static lifetimes for caching, but `text_editor` requires a reference to the content since it stores the data internally.
     content: *mut text_editor::Content,
     #[hash]
-    replying_to: Option<OwnedEventId>,
+    replying_to: Option<(Arc<MessageEvent>, OwnedEventId)>,
 }
 
 impl ChatInput {
@@ -53,8 +56,8 @@ impl ChatInput {
         }
     }
 
-    pub fn set_replies_to(&mut self, id: OwnedEventId) {
-        self.replying_to = Some(id);
+    pub fn set_replies_to(&mut self, message: Arc<MessageEvent>, event_id: OwnedEventId) {
+        self.replying_to = Some((message, event_id));
     }
 
     fn content(&self) -> &'static text_editor::Content {
@@ -96,14 +99,18 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 };
 
                 let text = self.content().text();
-                let replying_to = self.replying_to.clone();
+                let replying_to = if let Some((_, id)) = &self.replying_to {
+                    Some(id.clone())
+                } else {
+                    None
+                };
 
                 let content = unsafe { &mut *self.content };
                 content.perform(text_editor::Action::SelectAll);
                 content.perform(text_editor::Action::Edit(text_editor::Edit::Backspace));
                 self.replying_to = None;
 
-                return Some(InputAction::Run(Task::future(async move {
+                return Some(InputAction::RemoveReplying(Task::future(async move {
                     if let Err(e) = timeline.send_message(text, replying_to).await {
                         tracing::warn!("Failed to send message: {}", e);
                     }
@@ -140,46 +147,70 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
 
         let max_lines = 10.0;
 
-        w::stack![
-            w::text_editor(self.content())
-                .id(self.id.clone())
-                .placeholder(self.placeholder.clone())
-                .padding(
-                    Padding::new(structure.small_gap * 2.0)
-                        .left(button_size + structure.small_gap * 2.0)
-                )
-                .on_action(InputMessage::TextAction)
-                .key_binding(|key| {
-                    if !key.modifiers.shift()
-                        && matches!(
-                            key.key,
-                            iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
-                        )
-                    {
-                        Some(text_editor::Binding::Custom(InputMessage::SendMessage))
-                    } else {
-                        text_editor::Binding::from_key_press(key)
-                    }
-                })
-                .wrapping(text::Wrapping::WordOrGlyph)
-                .line_height(text::LineHeight::Relative(1.0))
-                .height(Length::Fit.min(line_height).max(line_height * max_lines))
-                .style(move |_, status| w::text_editor::Style {
-                    background: theme.solid_bg.into(),
-                    border: Border {
-                        color: if status.active() {
-                            theme.accent
+        let replies_to = if let Some((msg, _)) = &self.replying_to {
+            Some(msg.clone())
+        } else {
+            None
+        };
+        let is_replying_to = self.replying_to.is_some();
+
+        w::column![
+            replies_to.map(|msg| w::container("test").style(move |_| ContainerStyle {
+                background: Some(theme.solid_bg.into()),
+                border: Border {
+                    color: theme.border,
+                    width: structure.border_thickness,
+                    radius: Radius::from(structure.inner_border_radius).bottom(0.0)
+                },
+                ..Default::default()
+            })),
+            w::stack![
+                w::text_editor(self.content())
+                    .id(self.id.clone())
+                    .placeholder(self.placeholder.clone())
+                    .padding(
+                        Padding::new(structure.small_gap * 2.0)
+                            .left(button_size + structure.small_gap * 2.0)
+                    )
+                    .on_action(InputMessage::TextAction)
+                    .key_binding(|key| {
+                        if !key.modifiers.shift()
+                            && matches!(
+                                key.key,
+                                iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
+                            )
+                        {
+                            Some(text_editor::Binding::Custom(InputMessage::SendMessage))
                         } else {
-                            theme.border
+                            text_editor::Binding::from_key_press(key)
+                        }
+                    })
+                    .wrapping(text::Wrapping::WordOrGlyph)
+                    .line_height(text::LineHeight::Relative(1.0))
+                    .height(Length::Fit.min(line_height).max(line_height * max_lines))
+                    .style(move |_, status| w::text_editor::Style {
+                        background: theme.solid_bg.into(),
+                        border: Border {
+                            color: if status.active() {
+                                theme.accent
+                            } else {
+                                theme.border
+                            },
+                            width: 1.0,
+                            radius: Radius::from(structure.inner_border_radius).top(
+                                if !is_replying_to {
+                                    structure.inner_border_radius
+                                } else {
+                                    0.0
+                                }
+                            ),
                         },
-                        width: 1.0,
-                        radius: structure.inner_border_radius.into(),
-                    },
-                    placeholder: theme.text.muted,
-                    selection: theme.accent,
-                    value: theme.text.normal
-                }),
-            input_button(phosphor_svgs::icon::plus::BOLD),
+                        placeholder: theme.text.muted,
+                        selection: theme.accent,
+                        value: theme.text.normal
+                    }),
+                input_button(phosphor_svgs::icon::plus::BOLD),
+            ]
         ]
         .width(Fill)
         .into()

@@ -31,7 +31,7 @@ iced = { git = "https://github.com/acisama/iced", version = "0.15.0-dev", featur
 iced_video_player = { git = "https://codeberg.org/aosiuejhf/iced_video_player.git" }
 image = "0.25.10"
 imbl = "6.1.0"
-indexmap = "2.14.1"
+indexmap = "2.14.2"
 infer = "0.22.0"
 interprocess = { version = "2", features = ["tokio"] }
 # livekit = "0.8.1"

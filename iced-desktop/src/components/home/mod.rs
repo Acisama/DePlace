@@ -129,8 +129,10 @@ impl Home {
         let id = room.room_id().to_owned();
         self.active_room_id = Some(id.clone());
 
+        let restore_scroll = Task::done((id.clone(), TimelineMessage::RestoreScrollPosition));
+
         if self.chats.promote(&id) {
-            return self.focus_input_task(&id);
+            return Task::batch([restore_scroll, self.focus_input_task(&id)]);
         }
 
         let (chat, task) = Chat::new(&self.state, room);
@@ -144,7 +146,7 @@ impl Home {
         };
         self.chats.promote(&id);
 
-        Task::batch([task, self.focus_input_task(&id)])
+        Task::batch([task, restore_scroll, self.focus_input_task(&id)])
     }
 
     fn focus_input_task(&self, id: &OwnedRoomId) -> Task<(OwnedRoomId, TimelineMessage)> {

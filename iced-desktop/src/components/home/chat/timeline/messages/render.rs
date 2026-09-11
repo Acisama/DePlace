@@ -94,8 +94,10 @@ impl MessageEvent {
             column = column.push(other_content);
         }
 
-        let highlight_color = if self.is_highlighted {
-            Some(theme.accent.scale_alpha(0.2))
+        let highlight_color = if self.is_replying_to {
+            Some(Color::WHITE)
+        } else if self.is_highlighted {
+            Some(theme.accent)
         } else {
             None
         };
@@ -103,7 +105,7 @@ impl MessageEvent {
         let background = highlight_color.map(|c| {
             Background::Gradient(iced::Gradient::Linear(
                 Linear::new(90.0)
-                    .add_stop(0.0, c)
+                    .add_stop(0.0, c.scale_alpha(0.2))
                     .add_stop(1.0, Color::TRANSPARENT),
             ))
         });
@@ -207,14 +209,14 @@ impl MessageEvent {
 
         w::container(
             w::row![
-                if self.is_highlighted {
+                if let Some(highlight_color) = highlight_color {
                     w::container(
                         w::container("")
                             .width(pill_width)
                             .height(Length::Fill)
                             .style(move |_| ContainerStyle {
                                 border: border::rounded(pill_width / 2.0),
-                                background: Some(theme.accent.into()),
+                                background: Some(highlight_color.into()),
                                 ..Default::default()
                             }),
                     )
@@ -285,12 +287,6 @@ impl MessageContent {
         let render_warning_text = |text: &'static str| {
             (
                 Some(render_text_color(text.to_string(), theme.colors.warning).into()),
-                None,
-            )
-        };
-        let render_error_text = |text: &'static str| {
-            (
-                Some(render_text_color(text.to_string(), theme.colors.error).into()),
                 None,
             )
         };
@@ -415,7 +411,7 @@ impl MessageContent {
                 None,
             ),
             MessageContent::UnableToDecrypt => {
-                render_error_text("Unable to decrypt messages are not yet implemented")
+                itallic_text("Unable to decrypt messages".to_string())
             }
             MessageContent::VerificationRequest {
                 body,

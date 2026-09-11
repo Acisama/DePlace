@@ -57,7 +57,10 @@ impl NeedsAvatarExt for TimelineItemMessage {
 pub enum TimelineItemAction {
     Update,
     NeedsMedia(NeedsMedia),
-    SetIsReplyingTo(OwnedEventId),
+    SetIsReplyingTo {
+        message: Arc<MessageEvent>,
+        event_id: OwnedEventId,
+    },
     MessageEventBounds(Rectangle),
     HoverChanged(bool),
 }
@@ -78,11 +81,24 @@ pub struct TimelineItem {
 
 impl TimelineItem {
     pub fn event_id(&self) -> Option<OwnedEventId> {
-        let TimelineItemKind::Message { event, .. } = &self.kind else {
+        let TimelineItemKind::Message { message: event, .. } = &self.kind else {
             return None;
         };
 
         event.event_id.clone()
+    }
+
+    pub fn remove_replying(&mut self) {
+        if let TimelineItemKind::Message { message, .. } = &mut self.kind {
+            Arc::make_mut(message).is_replying_to = false;
+        }
+    }
+
+    pub fn message_event(&self) -> Option<Arc<MessageEvent>> {
+        let TimelineItemKind::Message { message: event, .. } = &self.kind else {
+            return None;
+        };
+        Some(event.clone())
     }
 
     pub fn booleans(&self) -> (bool, bool, bool) {
@@ -117,7 +133,7 @@ impl TimelineItem {
     /// Computes what `connects_before` should be for this
     /// item given its neighbors. Pure, so the item can only be mutated in the list if necessary.
     pub fn compute_connection(&self, previous: Option<&TimelineItem>) -> Option<bool> {
-        let TimelineItemKind::Message { event, .. } = &self.kind else {
+        let TimelineItemKind::Message { message: event, .. } = &self.kind else {
             return None;
         };
         let connection_duration = Duration::from_mins(5);
@@ -125,7 +141,7 @@ impl TimelineItem {
         let connects_before = if !event.in_reply_to.is_empty() {
             false
         } else if let Some(TimelineItemKind::Message {
-            event: previous_event,
+            message: previous_event,
             ..
         }) = previous.map(|p| &p.kind)
         {
@@ -170,7 +186,8 @@ impl TimelineItem {
     }
 
     pub fn set_connection(&mut self, connects_before: bool) {
-        if let TimelineItemKind::Message { event, .. } = &mut self.kind {
+        if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
+            let event = Arc::make_mut(event);
             event.connects_previous = connects_before;
         }
     }
@@ -194,7 +211,8 @@ impl TimelineItem {
     }
 
     fn avatar_hashes(&mut self) -> Option<&mut BTreeSet<OwnedMxcUri>> {
-        if let TimelineItemKind::Message { event, .. } = &mut self.kind {
+        if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
+            let event = Arc::make_mut(event);
             Some(&mut event.avatar_states_for_hash)
         } else {
             None
@@ -202,20 +220,26 @@ impl TimelineItem {
     }
 
     fn thumbnail_hashes(&mut self) -> Option<&mut BTreeSet<(String, u64, u64)>> {
-        if let TimelineItemKind::Message { event, .. } = &mut self.kind
-            && let MessageContent::Image { image, .. } = &mut event.content
-        {
-            Some(&mut image.thumbnail_states_for_hash)
+        if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
+            let event = Arc::make_mut(event);
+            if let MessageContent::Image { image, .. } = &mut event.content {
+                Some(&mut image.thumbnail_states_for_hash)
+            } else {
+                None
+            }
         } else {
             None
         }
     }
 
     fn video_hashes(&mut self) -> Option<&mut BTreeSet<String>> {
-        if let TimelineItemKind::Message { event, .. } = &mut self.kind
-            && let MessageContent::Video { video, .. } = &mut event.content
-        {
-            Some(&mut video.video_states_for_hash)
+        if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
+            let event = Arc::make_mut(event);
+            if let MessageContent::Video { video, .. } = &mut event.content {
+                Some(&mut video.video_states_for_hash)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -245,10 +269,19 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
             }
             TimelineItemMessage::SetIsEditing(_) => None,
             TimelineItemMessage::SetIsReplyingTo(event_id) => {
-                Some(TimelineItemAction::SetIsReplyingTo(event_id))
+                if let TimelineItemKind::Message { message, .. } = &mut self.kind {
+                    Arc::make_mut(message).is_replying_to = true;
+                    Some(TimelineItemAction::SetIsReplyingTo {
+                        message: message.clone(),
+                        event_id,
+                    })
+                } else {
+                    None
+                }
             }
             TimelineItemMessage::MediaMouseEnter => {
-                if let TimelineItemKind::Message { event, .. } = &mut self.kind {
+                if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
+                    let event = Arc::make_mut(event);
                     match &mut event.content {
                         MessageContent::Image { is_hovered, .. } if !*is_hovered => {
                             *is_hovered = true;
@@ -265,7 +298,8 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 }
             }
             TimelineItemMessage::MediaMouseLeave => {
-                if let TimelineItemKind::Message { event, .. } = &mut self.kind {
+                if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
+                    let event = Arc::make_mut(event);
                     match &mut event.content {
                         MessageContent::Image { is_hovered, .. } if *is_hovered => {
                             *is_hovered = false;
@@ -364,168 +398,16 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 structure.small_gap,
             ),
             TimelineItemKind::Message {
-                event,
+                message: event,
                 is_hovered,
                 previous_is_event,
                 ..
             } => {
-                // let button_size = structure.chat.small_icon_size;
-                // let border = border::rounded(structure.semi_border_radius());
-
                 let is_hovered = *is_hovered;
 
                 let previous_is_event = *previous_is_event;
-
-                // let button_row_height = button_size + 2.0 * structure.small_gap;
-
-                // let mut buttons_row = w::Row::new()
-                //     .padding(structure.small_gap / 2.0)
-                //     .spacing(structure.small_gap / 2.0);
-
-                // let mut buttons_there = false;
-                // if let Some(event_id) = event.event_id.clone()
-                //     && is_hovered
-                // {
-                //     if can_edit {
-                //         buttons_there = true;
-                //         buttons_row = buttons_row.push(
-                //             w::button(phosphor_icon(icons::pencil_simple::BOLD, button_size))
-                //                 .padding(structure.small_gap / 2.0)
-                //                 .on_press(TimelineItemMessage::SetIsEditing(true))
-                //                 .style(move |_: &IcedTheme, status| ButtonStyle {
-                //                     background: if status.active() {
-                //                         Some(theme.solid_hover_bg.into())
-                //                     } else {
-                //                         None
-                //                     },
-                //                     text_color: if status.active() {
-                //                         theme.text.normal
-                //                     } else {
-                //                         theme.text.dim
-                //                     },
-                //                     border,
-                //                     ..Default::default()
-                //                 }),
-                //         );
-                //     }
-
-                //     if can_reply {
-                //         buttons_there = true;
-                //         buttons_row = buttons_row.push(
-                //             w::button(phosphor_icon(icons::arrow_bend_up_left::BOLD, button_size))
-                //                 .padding(structure.small_gap / 2.0)
-                //                 .on_press(TimelineItemMessage::SetIsReplyingTo(event_id.clone()))
-                //                 .style(move |_: &IcedTheme, status| ButtonStyle {
-                //                     background: if status.active() {
-                //                         Some(theme.solid_hover_bg.into())
-                //                     } else {
-                //                         None
-                //                     },
-                //                     text_color: if status.active() {
-                //                         theme.text.normal
-                //                     } else {
-                //                         theme.text.dim
-                //                     },
-                //                     border,
-                //                     ..Default::default()
-                //                 }),
-                //         );
-                //     }
-
-                //     if can_pin {
-                //         buttons_there = true;
-                //         buttons_row = buttons_row.push(
-                //             w::button(phosphor_icon(icons::push_pin::BOLD, button_size))
-                //                 .padding(structure.small_gap / 2.0)
-                //                 .on_press(TimelineItemMessage::SetIsReplyingTo(event_id.clone()))
-                //                 .style(move |_: &IcedTheme, status| ButtonStyle {
-                //                     background: if status.active() {
-                //                         Some(theme.colors.warning.into())
-                //                     } else {
-                //                         None
-                //                     },
-                //                     text_color: if status.active() {
-                //                         theme.solid_bg
-                //                     } else {
-                //                         theme.colors.warning
-                //                     },
-                //                     border,
-                //                     ..Default::default()
-                //                 }),
-                //         );
-                //     }
-
-                //     if can_redact {
-                //         buttons_there = true;
-                //         buttons_row = buttons_row.push(
-                //             w::button(phosphor_icon(icons::trash::BOLD, button_size))
-                //                 .padding(structure.small_gap / 2.0)
-                //                 .on_press(TimelineItemMessage::SetIsReplyingTo(event_id.clone()))
-                //                 .style(move |_: &IcedTheme, status| ButtonStyle {
-                //                     background: if status.active() {
-                //                         Some(theme.colors.error.into())
-                //                     } else {
-                //                         None
-                //                     },
-                //                     text_color: if status.active() {
-                //                         theme.solid_bg
-                //                     } else {
-                //                         theme.colors.error
-                //                     },
-                //                     border,
-                //                     ..Default::default()
-                //                 }),
-                //         );
-                //     }
-                // }
-
                 let connects_previous = event.connects_previous;
 
-                // let buttons = w::float(
-                //     w::mouse_area(w::row![
-                //         Space::new().width(Fill),
-                //         w::container(buttons_row).style(move |_| ContainerStyle {
-                //             background: Some(theme.solid_bg.into()),
-                //             border: Border {
-                //                 color: theme.border,
-                //                 width: structure.border_thickness,
-                //                 radius: structure.semi_border_radius().into(),
-                //             },
-                //             ..Default::default()
-                //         })
-                //     ])
-                //     .on_enter(TimelineItemMessage::EventEnter),
-                // )
-                // .translate(move |_, _| {
-                //     if buttons_there && is_hovered {
-                //         Vector::new(
-                //             0.0,
-                //             if previous_is_event && !connects_previous {
-                //                 structure.gap
-                //             } else {
-                //                 0.0
-                //             } - button_row_height / 2.0,
-                //         )
-                //     } else {
-                //         Vector::ZERO
-                //     }
-                // });
-
-                // let mut stack = Stack::new().push(render_event(
-                //     w::lazy(event.clone(), move |event| event.view(theme, structure)),
-                //     structure,
-                //     theme,
-                //     is_hovered,
-                //     previous_is_event,
-                //     connects_previous,
-                //     structure.gap * 1.5,
-                // ));
-
-                // if buttons_there && is_hovered {
-                //     stack = stack.push(buttons);
-                // }
-
-                // stack.into()
                 render_event(
                     w::lazy(event.clone(), move |event| event.view(theme, structure)),
                     structure,
@@ -546,7 +428,7 @@ enum TimelineItemKind {
     TimelineStart,
     ReadMarker,
     Message {
-        event: Box<MessageEvent>,
+        message: Arc<MessageEvent>,
         is_editable: bool,
         can_be_replied_to: bool,
         is_hovered: bool,
@@ -574,7 +456,7 @@ impl Hash for TimelineItemKind {
         // Other things are static, so hashing doesn't need to include them
         match self {
             TimelineItemKind::Message {
-                event,
+                message: event,
                 is_hovered,
                 previous_is_event: previous_is_text_message,
                 ..
@@ -639,12 +521,13 @@ struct MessageEvent {
     /// Weather the previous message is the same type, sender and withing 5 minutes of this message.
     connects_previous: bool,
 
+    #[hash]
+    is_replying_to: bool,
+
     avatar_cache: AvatarCache,
 
     is_highlighted: bool,
     contains_only_emojis: bool,
-
-    can_be_replied_to: bool,
 
     shield: TimelineEventShieldState,
 

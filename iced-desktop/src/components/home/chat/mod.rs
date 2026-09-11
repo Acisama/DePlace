@@ -107,12 +107,15 @@ impl Chat {
                 initial
                     .into_iter()
                     .map(|m| {
-                        Arc::new(m.convert(
-                            &avatar_cache,
-                            &thumbnail_cache,
-                            &video_cache,
-                            room_id_clone.clone(),
-                        ))
+                        (
+                            m.unique_id().0.clone(),
+                            Arc::new(m.convert(
+                                &avatar_cache,
+                                &thumbnail_cache,
+                                &video_cache,
+                                room_id_clone.clone(),
+                            )),
+                        )
                     })
                     .collect(),
             );
@@ -176,8 +179,8 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             ChatMessage::Timeline(msg) => {
                 if let Some(action) = self.timeline.update(msg) {
                     match action {
-                        TimelineAction::SetIsReplyingTo(event_id) => {
-                            self.input.set_replies_to(event_id);
+                        TimelineAction::SetIsReplyingTo { event_id, message } => {
+                            self.input.set_replies_to(message, event_id);
                             None
                         }
                         TimelineAction::Run(task) => Some(ChatAction::Run(task)),
@@ -192,10 +195,18 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     None
                 }
             }
-            ChatMessage::Input(msg) => self
-                .input
-                .update(msg)
-                .map(|InputAction::Run(task)| ChatAction::Run(task)),
+            ChatMessage::Input(msg) => {
+                if let Some(action) = self.input.update(msg) {
+                    match action {
+                        InputAction::RemoveReplying(task) => {
+                            self.timeline.remove_replying();
+                            Some(ChatAction::Run(task))
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
         }
     }
 
