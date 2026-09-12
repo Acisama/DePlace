@@ -407,6 +407,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             Some(TimelineAction::NeedsMedia(needs_media))
                         }
                         TimelineItemAction::SetIsReplyingTo { message, event_id } => {
+                            if let Some(prev_replying_to_id) = self.replying_to.as_ref()
+                                && let Some(item) = self.content.get_mut(prev_replying_to_id)
+                            {
+                                Arc::make_mut(item).remove_replying();
+                            }
                             self.replying_to = Some(id.clone());
                             Some(TimelineAction::SetIsReplyingTo { message, event_id })
                         }

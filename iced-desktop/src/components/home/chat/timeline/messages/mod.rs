@@ -409,7 +409,9 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 let connects_previous = event.connects_previous;
 
                 render_event(
-                    w::lazy(event.clone(), move |event| event.view(theme, structure)),
+                    w::lazy(event.clone(), move |event| {
+                        event.view(theme, structure, false)
+                    }),
                     structure,
                     theme,
                     is_hovered,

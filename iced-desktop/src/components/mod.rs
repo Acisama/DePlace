@@ -13,7 +13,7 @@ use iced::{
     Border, Element,
     widget::{Container, Stack},
 };
-use iced::{Color, ContentFit, Font, Point, Renderer, Size, border};
+use iced::{Color, ContentFit, Font, Point, Renderer, Size};
 use matrix_sdk::Room;
 use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::serde::Base64;

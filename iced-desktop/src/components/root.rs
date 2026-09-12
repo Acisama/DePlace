@@ -2,9 +2,9 @@ use deplace_core::RestoreResult;
 use iced::advanced::subscription;
 use iced::widget::Shader;
 use iced::window;
-use interprocess::local_socket::{GenericNamespaced, Listener, ListenerOptions, prelude::*};
+use interprocess::local_socket::Listener;
 
-use crate::{SOCKET_NAME, SocketListener, common::*};
+use crate::{SocketListener, common::*};
 
 use crate::components::authentification::discovery::{DiscoveryAction, DiscoveryMessage};
 use crate::components::authentification::login::{LoginAction, LoginMessage};
@@ -265,11 +265,11 @@ impl Root {
             self.id = Some(id)
         }
 
-        if let AppMessage::WindowClosed(id) = message {
-            if self.id.is_some_and(|i| i == id) {
-                tracing::info!("Closing window");
-                self.id = None
-            }
+        if let AppMessage::WindowClosed(id) = message
+            && self.id.is_some_and(|i| i == id)
+        {
+            tracing::info!("Closing window");
+            self.id = None
         }
 
         self.screen.update(message).unwrap_or(Task::none())

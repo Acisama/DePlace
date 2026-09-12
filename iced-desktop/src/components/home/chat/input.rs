@@ -155,7 +155,24 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
         let is_replying_to = self.replying_to.is_some();
 
         w::column![
-            replies_to.map(|msg| w::container("test").style(move |_| ContainerStyle {
+            replies_to.map(|msg| w::container(w::column![
+                w::container(
+                    w::text("Replying to")
+                        .size(structure.chat.text_size)
+                        .color(theme.text.normal)
+                )
+                .padding(structure.small_gap)
+                .width(Fill),
+                w::container(Space::new())
+                    .style(move |_| ContainerStyle {
+                        background: Some(theme.border.into()),
+                        ..Default::default()
+                    })
+                    .height(structure.border_thickness)
+                    .width(Fill),
+                w::container(msg.view(theme, structure, true).map(|_| InputMessage::None))
+            ])
+            .style(move |_| ContainerStyle {
                 background: Some(theme.solid_bg.into()),
                 border: Border {
                     color: theme.border,

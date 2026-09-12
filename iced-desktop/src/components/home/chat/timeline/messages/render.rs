@@ -76,11 +76,12 @@ impl MessageEvent {
         &self,
         theme: Theme,
         structure: Structure,
+        as_dummy: bool,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let pre_col_width = structure.small_gap * 1.5;
         let text_size = structure.chat.text_size;
 
-        let show_header = !self.connects_previous;
+        let show_header = as_dummy || !self.connects_previous;
 
         let (text_content, other_content) =
             self.content.view(theme, structure, self.is_local_echo());
@@ -94,7 +95,7 @@ impl MessageEvent {
             column = column.push(other_content);
         }
 
-        let highlight_color = if self.is_replying_to {
+        let highlight_color = if self.is_replying_to && !as_dummy {
             Some(Color::WHITE)
         } else if self.is_highlighted {
             Some(theme.accent)
@@ -244,7 +245,13 @@ impl MessageEvent {
                             Space::new().height(structure.divider_width),
                         ],
                         Space::new().width(pre_col_width),
-                        w::column![name.unwrap_or(Space::new().into()), column]
+                        w::column![name.unwrap_or(Space::new().into()), column].padding(
+                            padding::bottom(if as_dummy {
+                                structure.small_gap / 2.0
+                            } else {
+                                0.0
+                            })
+                        )
                     ]
                 ]
             ]
@@ -252,7 +259,11 @@ impl MessageEvent {
         )
         .style(move |_| ContainerStyle {
             background,
-            border: border::rounded(structure.semi_border_radius() + structure.border_thickness),
+            border: border::rounded(if !as_dummy {
+                structure.semi_border_radius() + structure.border_thickness
+            } else {
+                0.0
+            }),
             ..Default::default()
         })
         .width(Fill)
