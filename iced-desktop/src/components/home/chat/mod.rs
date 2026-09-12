@@ -41,6 +41,7 @@ pub struct Chat {
     header: Header,
     #[hash]
     timeline: ChatTimeline,
+    #[hash]
     input: ChatInput,
 
     pub room_id: OwnedRoomId,
@@ -198,9 +199,13 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             ChatMessage::Input(msg) => {
                 if let Some(action) = self.input.update(msg) {
                     match action {
-                        InputAction::RemoveReplying(task) => {
+                        InputAction::SendMessage(task) => {
                             self.timeline.remove_replying();
                             Some(ChatAction::Run(task))
+                        }
+                        InputAction::RemoveReplying => {
+                            self.timeline.remove_replying();
+                            None
                         }
                     }
                 } else {

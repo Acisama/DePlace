@@ -22,7 +22,8 @@ pub enum InputMessage {
 }
 
 pub enum InputAction {
-    RemoveReplying(Task<()>),
+    SendMessage(Task<()>),
+    RemoveReplying,
 }
 
 #[iced_cache(Clone)]
@@ -85,6 +86,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
             }
             InputMessage::RemoveReplying => {
                 self.replying_to = None;
+                return Some(InputAction::RemoveReplying);
             }
             InputMessage::Cancel => {
                 self.replying_to = None;
@@ -110,7 +112,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 content.perform(text_editor::Action::Edit(text_editor::Edit::Backspace));
                 self.replying_to = None;
 
-                return Some(InputAction::RemoveReplying(Task::future(async move {
+                return Some(InputAction::SendMessage(Task::future(async move {
                     if let Err(e) = timeline.send_message(text, replying_to).await {
                         tracing::warn!("Failed to send message: {}", e);
                     }
@@ -125,6 +127,8 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
         let line_height = structure.font_size * 1.2;
 
         let button_size = line_height + structure.small_gap * 2.0;
+
+        let reply_bar_size = structure.chat.text_size * 1.2 + structure.small_gap * 2.0;
 
         let input_button = |svg: &'static str| {
             w::container(
@@ -156,12 +160,38 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
 
         w::column![
             replies_to.map(|msg| w::container(w::column![
-                w::container(
-                    w::text("Replying to")
-                        .size(structure.chat.text_size)
-                        .color(theme.text.normal)
-                )
-                .padding(structure.small_gap)
+                w::row![
+                    w::container(
+                        w::text("Replying to")
+                            .size(structure.chat.text_size)
+                            .color(theme.text.normal)
+                    )
+                    .padding(structure.small_gap)
+                    .width(Fill),
+                    w::container(
+                        w::button(phosphor_icon(
+                            phosphor_svgs::icon::x::BOLD,
+                            structure.chat.text_size
+                        ))
+                        .padding(structure.small_gap * 0.66)
+                        .style(move |_, status| ButtonStyle {
+                            background: if status.active() {
+                                Some(theme.solid_hover_bg.into())
+                            } else {
+                                None
+                            },
+                            text_color: if status.active() {
+                                theme.text.normal
+                            } else {
+                                theme.text.dim
+                            },
+                            border: border::rounded(structure.semi_border_radius()),
+                            ..Default::default()
+                        })
+                        .on_press(InputMessage::RemoveReplying)
+                    )
+                    .center(reply_bar_size)
+                ]
                 .width(Fill),
                 w::container(Space::new())
                     .style(move |_| ContainerStyle {
