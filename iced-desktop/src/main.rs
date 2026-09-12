@@ -2,16 +2,11 @@ use std::{
     any::TypeId,
     hash::Hash,
     io::{Read, Write},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
-use deplace_core::{RestoreResult, try_restore};
-use iced::{
-    Task,
-    advanced::subscription::Recipe,
-    futures::{channel::mpsc::Receiver, stream},
-    window,
-};
+use deplace_core::{APP_NAME, RestoreResult, try_restore};
+use iced::{Task, advanced::subscription::Recipe, futures::stream, window};
 use interprocess::local_socket::{GenericNamespaced, Listener, ListenerOptions, prelude::*};
 use matrix_sdk::Client;
 use tracing_subscriber::EnvFilter;
@@ -71,22 +66,28 @@ fn main() -> iced::Result {
     let socket_name = match SOCKET_NAME.to_ns_name::<GenericNamespaced>() {
         Ok(name) => name,
         Err(e) => {
-            panic!("Failed to create socket name: {e}")
+            tracing::error!("Failed to create socket name: {e}");
+            return Err(iced::Error::WindowCreationFailed(Box::new(e)));
         }
     };
 
     // Try connecting to an existing instance
     if let Ok(mut stream) = LocalSocketStream::connect(socket_name.clone()) {
         tracing::info!("Another instance is already running. Sending focus signal.");
-        let _ = stream.write_all(b"focus");
-        let _ = stream.flush();
+        if let Err(e) = stream.write_all(b"focus") {
+            tracing::error!("Failed to send focus signal: {e}");
+        }
+        if let Err(e) = stream.flush() {
+            tracing::error!("Failed to flush focus signal: {e}");
+        }
         // Exit this secondary instance immediately
         return Ok(());
     }
     let listener = match ListenerOptions::new().name(socket_name).create_sync() {
         Ok(l) => Arc::new(l),
         Err(e) => {
-            panic!("Failed to bind local socket: {e}")
+            tracing::error!("Failed to bind local socket: {e}");
+            return Err(iced::Error::WindowCreationFailed(Box::new(e)));
         }
     };
 
@@ -109,6 +110,10 @@ fn main() -> iced::Result {
             let (_id, open_task) = window::open(window::Settings {
                 maximized: true,
                 icon: Some(icon.clone()),
+                platform_specific: window::settings::PlatformSpecific {
+                    application_id: APP_NAME.to_string(),
+                    ..Default::default()
+                },
                 ..Default::default()
             });
 
@@ -134,7 +139,7 @@ struct SocketListener {
 }
 
 #[derive(Debug, Clone)]
-struct FocusRequest;
+pub struct FocusRequest;
 
 impl Recipe for SocketListener {
     type Output = FocusRequest;
