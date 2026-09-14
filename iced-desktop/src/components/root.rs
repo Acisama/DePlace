@@ -41,6 +41,9 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
                         HomeAction::Run(task) => {
                             return Some(task.map(|_| AppMessage::DoNothing));
                         }
+                        HomeAction::Perform(task) => {
+                            return Some(task.map(|m| AppMessage::Home(m)));
+                        }
                         HomeAction::LoadTimeline(task) => {
                             return Some(task.map(|(room_id, message)| {
                                 AppMessage::Home(HomeMessage::Timeline { room_id, message })
@@ -146,6 +149,9 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
                     match action {
                         HomeAction::Run(task) => {
                             return Some(task.map(|_| AppMessage::DoNothing));
+                        }
+                        HomeAction::Perform(task) => {
+                            return Some(task.map(|m| AppMessage::Home(m)));
                         }
                         HomeAction::LoadTimeline(task) => {
                             return Some(task.map(|(room_id, message)| {

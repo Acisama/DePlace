@@ -2,13 +2,14 @@ use deplace_core::state::AppState;
 use iced::{
     Color,
     Length::Fill,
+    Task,
     keyboard::{Key, Modifiers},
     widget::{container, mouse_area, opaque},
 };
 
 use crate::{
     common::IcedWidget,
-    components::overlay::quick_select::{QuickSelect, QuickSelectMessage},
+    components::overlay::quick_select::{QuickSelect, QuickSelectAction, QuickSelectMessage},
 };
 
 pub use quick_select::QUICK_SELECT_INPUT_ID;
@@ -31,11 +32,12 @@ pub enum OverlayMessage {
 }
 
 impl Overlay {
-    /// Open the quick select overlay
+    /// Switch the current overlay to quick select or open it
     ///
     /// This function takes care of closing any other overlay
     /// and opening quick select instead
     pub fn open_quick_select(&mut self, state: &AppState) {
+        self.close_overlay();
         let quick_select = QuickSelect::new(state);
         *self = Self::QuickSelect(quick_select)
     }
@@ -49,7 +51,11 @@ impl Overlay {
     }
 }
 
-pub enum OverlayAction {}
+#[derive(Debug)]
+pub enum OverlayAction {
+    Run(Task<()>),
+    Perform(Task<OverlayMessage>),
+}
 
 impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
     fn update(&mut self, message: OverlayMessage) -> Option<OverlayAction> {
@@ -62,7 +68,18 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                     tracing::warn!("Received quick select message without it being open");
                     return None;
                 };
-                qs.update(msg);
+                let Some(action) = qs.update(msg) else {
+                    return None;
+                };
+                match action {
+                    QuickSelectAction::ChangeRoom(task) => {
+                        self.close_overlay();
+                        return Some(OverlayAction::Run(task));
+                    }
+                    QuickSelectAction::Close => {
+                        self.close_overlay();
+                    }
+                }
             }
             OverlayMessage::KeyboardEvent(event) => {
                 if let iced::keyboard::Event::KeyPressed {
@@ -76,11 +93,28 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                     // about bubbling the event to the component itself
                     if k == "k" && matches!(self, Overlay::QuickSelect(_)) {
                         self.close_overlay();
+                        return None;
                     }
-                }
-                if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                } else if let iced::keyboard::Event::KeyPressed { ref key, .. } = event {
                     if matches!(key, Key::Named(iced::keyboard::key::Named::Escape)) {
                         self.close_overlay();
+                    }
+                }
+                // The keypress was not mean to close the overlay, so we bubble it there
+                if let Overlay::QuickSelect(quick_select) = self {
+                    let Some(action) =
+                        quick_select.update(QuickSelectMessage::KeyboardEvent(event))
+                    else {
+                        return None;
+                    };
+                    match action {
+                        QuickSelectAction::ChangeRoom(task) => {
+                            self.close_overlay();
+                            return Some(OverlayAction::Run(task));
+                        }
+                        QuickSelectAction::Close => {
+                            self.close_overlay();
+                        }
                     }
                 }
             }

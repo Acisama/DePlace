@@ -1,6 +1,6 @@
 use crate::{
     common::*,
-    components::overlay::{Overlay, OverlayMessage, QUICK_SELECT_INPUT_ID},
+    components::overlay::{Overlay, OverlayAction, OverlayMessage, QUICK_SELECT_INPUT_ID},
 };
 use chat::{
     Chat, ChatAction, ChatMessage, TimelineMessage,
@@ -40,7 +40,17 @@ pub enum HomeMessage {
 }
 
 pub enum HomeAction {
+    /// A Task that doesn't produce an output
+    ///
+    /// This is mostly used to run matrix sdk async functions,
+    /// which don't produce an output but alter the client and
+    /// it's internal state directly.
     Run(Task<()>),
+    /// A Task that produces an output
+    ///
+    /// The ouput will be fed into the app as a message after
+    /// completion.
+    Perform(Task<HomeMessage>),
     LoadMediaTask(Task<MediaLoaded>),
     LoadTimeline(Task<(OwnedRoomId, TimelineMessage)>),
     TimelineScroll {
@@ -267,8 +277,20 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             HomeMessage::EmptyChat(_) => tracing::warn!("Empty chat not yet implemented"),
             HomeMessage::KeyboardEvent(event) => {
                 if !matches!(self.overlay, Overlay::None) {
-                    self.overlay.update(OverlayMessage::KeyboardEvent(event));
-                    return None;
+                    let Some(action) = self.overlay.update(OverlayMessage::KeyboardEvent(event))
+                    else {
+                        return None;
+                    };
+                    match action {
+                        OverlayAction::Run(task) => {
+                            return Some(HomeAction::Run(task));
+                        }
+                        OverlayAction::Perform(task) => {
+                            return Some(HomeAction::Perform(
+                                task.map(|m| HomeMessage::Overlay(m)),
+                            ));
+                        }
+                    }
                 }
                 let iced::keyboard::Event::KeyPressed {
                     key,
@@ -289,7 +311,19 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 }
             }
             HomeMessage::Overlay(msg) => {
-                self.overlay.update(msg);
+                // tracing::debug!("{action:?}");
+                let Some(action) = self.overlay.update(msg) else {
+                    return None;
+                };
+
+                match action {
+                    OverlayAction::Run(task) => {
+                        return Some(HomeAction::Run(task));
+                    }
+                    OverlayAction::Perform(task) => {
+                        return Some(HomeAction::Perform(task.map(|m| HomeMessage::Overlay(m))));
+                    }
+                }
             }
             HomeMessage::MediaLoaded(media) => {
                 if let Some(chat) = self
