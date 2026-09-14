@@ -422,7 +422,7 @@ impl MessageContent {
                 None,
             ),
             MessageContent::UnableToDecrypt => {
-                itallic_text("Unable to decrypt messages".to_string())
+                itallic_text("Unable to decrypt message".to_string())
             }
             MessageContent::VerificationRequest {
                 body,
