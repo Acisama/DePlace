@@ -42,26 +42,31 @@ pub fn render_event(
     connect_previous: bool,
     gap: f32,
 ) -> Element<'static, TimelineItemMessage> {
+    let inner_container = w::container(content)
+        .width(Fill)
+        .style(move |_| {
+            ContainerStyle::default().border(
+                border::rounded(structure.inner_border_radius)
+                    .width(structure.border_thickness)
+                    .color(if is_hovered {
+                        theme.border
+                    } else {
+                        Color::TRANSPARENT
+                    }),
+            )
+        })
+        .padding(structure.border_thickness);
+
+    let content_element: Element<'static, TimelineItemMessage> = if is_hovered {
+        track_bounds(inner_container, TimelineItemMessage::MessageEventBounds).into()
+    } else {
+        inner_container.into()
+    };
+
     w::container(
-        w::mouse_area(track_bounds(
-            w::container(content)
-                .width(Fill)
-                .style(move |_| {
-                    ContainerStyle::default().border(
-                        border::rounded(structure.inner_border_radius)
-                            .width(structure.border_thickness)
-                            .color(if is_hovered {
-                                theme.border
-                            } else {
-                                Color::TRANSPARENT
-                            }),
-                    )
-                })
-                .padding(structure.border_thickness),
-            TimelineItemMessage::MessageEventBounds,
-        ))
-        .on_enter(TimelineItemMessage::EventEnter)
-        .on_exit(TimelineItemMessage::EventExit),
+        w::mouse_area(content_element)
+            .on_enter(TimelineItemMessage::EventEnter)
+            .on_exit(TimelineItemMessage::EventExit),
     )
     .padding(padding::top(if previous_is_event && !connect_previous {
         gap

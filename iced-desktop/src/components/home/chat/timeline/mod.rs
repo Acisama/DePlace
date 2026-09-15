@@ -125,6 +125,21 @@ impl ExtraHash for ChatTimeline {
         self.tile_bounds.y.to_bits().hash(state);
         self.tile_bounds.width.to_bits().hash(state);
         self.tile_bounds.height.to_bits().hash(state);
+        self.message_event_bounds.len().hash(state);
+
+        // sort for deterministic hashing
+        let mut sorted_keys: Vec<&String> = self.message_event_bounds.keys().collect();
+        sorted_keys.sort_unstable();
+
+        for key in sorted_keys {
+            if let Some(bounds) = self.message_event_bounds.get(key) {
+                key.hash(state);
+                bounds.x.to_bits().hash(state);
+                bounds.y.to_bits().hash(state);
+                bounds.width.to_bits().hash(state);
+                bounds.height.to_bits().hash(state);
+            }
+        }
     }
 }
 
