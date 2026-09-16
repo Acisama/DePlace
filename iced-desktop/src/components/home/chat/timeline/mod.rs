@@ -4,6 +4,7 @@ use deplace_core::PaginationDirection;
 use iced::Vector;
 use iced::advanced::widget::operate;
 use iced::advanced::widget::operation::scrollable::{RelativeOffset, snap_to};
+use iced::widget::operation::scroll_to;
 use macros::iced_cache;
 use matrix_sdk::{
     media::UniqueKey,
@@ -14,6 +15,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as UiTimelineItem};
 use messages::{TimelineItem, TimelineItemAction, TimelineItemMessage};
+use sweeten::scrollable::AbsoluteOffset;
 use sweeten::widget::list;
 
 use phosphor_svgs::icon as icons;
@@ -26,6 +28,8 @@ use crate::{
 pub use messages::MessageEvent;
 pub use messages::ToTimelineItem;
 mod messages;
+
+const LIST_ID: iced::widget::Id = iced::widget::Id::new("list");
 
 #[derive(Debug, Clone)]
 pub enum TimelineMessage {
@@ -57,6 +61,8 @@ pub enum TimelineMessage {
     /// this it just keeps whatever position the previously active room left
     /// behind.
     RestoreScrollPosition,
+    KeyboardEvent(iced::keyboard::Event),
+    ScrollTo(Option<Rectangle>),
 }
 
 pub enum TimelineAction {
@@ -66,6 +72,7 @@ pub enum TimelineAction {
         event_id: OwnedEventId,
     },
     Run(Task<()>),
+    Perform(Task<TimelineMessage>),
     Scroll {
         direction: PaginationDirection,
         task: Task<bool>,
@@ -116,6 +123,8 @@ pub struct ChatTimeline {
     content: list::Content<String, Arc<TimelineItem>>,
     #[hash]
     messages_version: u64,
+
+    focused_message: Option<usize>,
 }
 
 impl ExtraHash for ChatTimeline {
@@ -199,6 +208,7 @@ impl ChatTimeline {
 
             content: list::Content::default(),
             messages_version: 0,
+            focused_message: None,
         };
         timeline.recalculate_with_power_levels();
         timeline
@@ -607,6 +617,122 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 self.restored_scroll = true;
                 return Some(TimelineAction::Run(self.restore_scroll_task()));
             }
+            TimelineMessage::KeyboardEvent(event) => {
+                if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                    if key == iced::keyboard::Key::Character("k".into()) {
+                        let mut new_focus = match self.focused_message {
+                            Some(focus) => focus + 1,
+                            None if !self.content.is_empty() => self.content.len() - 1,
+                            None => return None,
+                        };
+
+                        while let Some(item) = self.content.get_index(new_focus) {
+                            if item.message_event().is_some() {
+                                let old_focus = self.focused_message;
+                                tracing::debug!("Focusing message on index {new_focus}");
+                                self.focused_message = Some(new_focus);
+
+                                let index_map = self.content.index_map();
+                                let Some((new_id, _)) = index_map.get_index(new_focus) else {
+                                    tracing::error!("Couldn't get item at new index");
+                                    return None;
+                                };
+
+                                let mut task = operate(sweeten::widget::list::FindItemBounds::new(
+                                    Some(LIST_ID),
+                                    new_focus,
+                                ))
+                                .map(TimelineMessage::ScrollTo);
+                                if let Some(index) = old_focus {
+                                    let Some((old_id, _)) = index_map.get_index(index) else {
+                                        tracing::error!("Couldn't get item at old index");
+                                        return None;
+                                    };
+                                    task = task.chain(Task::done(TimelineMessage::Item {
+                                        id: old_id.to_string(),
+                                        message: TimelineItemMessage::SetIsFocused(false),
+                                    }));
+                                }
+                                return Some(TimelineAction::Perform(task.chain(Task::done(
+                                    TimelineMessage::Item {
+                                        id: new_id.to_string(),
+                                        message: TimelineItemMessage::SetIsFocused(true),
+                                    },
+                                ))));
+                            }
+                            if new_focus == self.content.len() - 1 {
+                                break;
+                            }
+                            new_focus += 1;
+                        }
+                    }
+
+                    if key == iced::keyboard::Key::Character("j".into()) {
+                        let mut new_focus = match self.focused_message {
+                            Some(focus) if focus == 0 => {
+                                // self.focused_message = None;
+                                return None;
+                            }
+                            Some(focus) => focus.saturating_sub(1),
+                            // None if !self.content.is_empty() => {
+                            //     self.content.len().saturating_sub(1)
+                            // }
+                            None => return None,
+                        };
+
+                        while let Some(item) = self.content.get_index(new_focus) {
+                            if item.message_event().is_some() {
+                                let old_focus = self.focused_message;
+                                tracing::debug!("Focusing message on index {new_focus}");
+                                self.focused_message = Some(new_focus);
+
+                                let index_map = self.content.index_map();
+                                let Some((new_id, _)) = index_map.get_index(new_focus) else {
+                                    tracing::error!("Couldn't get item at new index");
+                                    return None;
+                                };
+
+                                let mut task = operate(sweeten::widget::list::FindItemBounds::new(
+                                    Some(LIST_ID),
+                                    new_focus,
+                                ))
+                                .map(TimelineMessage::ScrollTo);
+                                if let Some(index) = old_focus {
+                                    let Some((old_id, _)) = index_map.get_index(index) else {
+                                        tracing::error!("Couldn't get item at old index");
+                                        return None;
+                                    };
+                                    task = task.chain(Task::done(TimelineMessage::Item {
+                                        id: old_id.to_string(),
+                                        message: TimelineItemMessage::SetIsFocused(false),
+                                    }));
+                                }
+                                return Some(TimelineAction::Perform(task.chain(Task::done(
+                                    TimelineMessage::Item {
+                                        id: new_id.to_string(),
+                                        message: TimelineItemMessage::SetIsFocused(true),
+                                    },
+                                ))));
+                            }
+                            if new_focus == 0 {
+                                break;
+                            }
+                            new_focus -= 1;
+                        }
+                    }
+                }
+            }
+            TimelineMessage::ScrollTo(opt_rect) => {
+                let Some(rect) = opt_rect else { return None };
+                tracing::debug!("Item to scroll to is at y: {}", rect.y);
+                return Some(TimelineAction::Run(scroll_to::<()>(
+                    SCROLLABLE_ID,
+                    AbsoluteOffset {
+                        x: rect.x,
+                        y: rect.y,
+                    },
+                )));
+            }
             TimelineMessage::None => {}
         };
 
@@ -623,17 +749,21 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             .push(
                 w::container(track_scroll(
                     themed_scrollable(
-                        w::container(list(self.content.clone(), move |_index, id, item| {
-                            w::lazy(item.clone(), move |item| {
-                                let id = id.clone();
-                                item.view(theme, structure)
-                                    .map(move |msg| TimelineMessage::Item {
-                                        id: id.clone(),
-                                        message: msg,
+                        w::container(
+                            list(self.content.clone(), move |_index, id, item| {
+                                w::lazy(item.clone(), move |item| {
+                                    let id = id.clone();
+                                    item.view(theme, structure).map(move |msg| {
+                                        TimelineMessage::Item {
+                                            id: id.clone(),
+                                            message: msg,
+                                        }
                                     })
+                                })
+                                .into()
                             })
-                            .into()
-                        }))
+                            .id(LIST_ID),
+                        )
                         .padding(padding::bottom(structure.gap * 3.0))
                         .width(Fill),
                         theme,

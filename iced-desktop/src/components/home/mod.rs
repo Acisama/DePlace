@@ -227,6 +227,9 @@ impl Home {
                         task,
                     })
                 }
+                ChatAction::Perform(task) => {
+                    Some(HomeAction::Perform(task.map(|o| HomeMessage::Chat(o))))
+                }
             }
         } else {
             None
@@ -293,7 +296,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                     }
                 }
                 let iced::keyboard::Event::KeyPressed {
-                    key,
+                    ref key,
                     modifiers,
                     repeat,
                     ..
@@ -303,11 +306,15 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 };
                 if !repeat
                     && modifiers == Modifiers::CTRL
-                    && Key::Character("k".into()) == key
+                    && Key::Character("k".into()) == *key
                     && !matches!(self.overlay, Overlay::QuickSelect(_))
                 {
                     self.overlay.open_quick_select(&self.state);
                     return Some(HomeAction::Run(focus(QUICK_SELECT_INPUT_ID)));
+                } else {
+                    if let Some(id) = self.active_room_id.clone() {
+                        return self.dispatch_to_chat(&id, ChatMessage::KeyboardEvent(event));
+                    }
                 }
             }
             HomeMessage::Overlay(msg) => {

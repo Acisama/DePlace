@@ -258,6 +258,7 @@ impl TimelineItemKind {
                         }),
                         is_hovered: false,
                         previous_is_event: false,
+                        is_focused: false,
                     },
                 }
             }

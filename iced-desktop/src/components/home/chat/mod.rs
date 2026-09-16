@@ -24,11 +24,13 @@ pub enum ChatMessage {
     Header(HeaderMessage),
     Timeline(TimelineMessage),
     Input(InputMessage),
+    KeyboardEvent(iced::keyboard::Event),
 }
 
 pub enum ChatAction {
     NeedsMedia(NeedsMedia),
     Run(Task<()>),
+    Perform(Task<ChatMessage>),
     TimelineScroll {
         direction: PaginationDirection,
         task: Task<bool>,
@@ -191,6 +193,9 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                         TimelineAction::Scroll { direction, task } => {
                             Some(ChatAction::TimelineScroll { direction, task })
                         }
+                        TimelineAction::Perform(task) => {
+                            Some(ChatAction::Perform(task.map(|o| ChatMessage::Timeline(o))))
+                        }
                     }
                 } else {
                     None
@@ -206,6 +211,28 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                         InputAction::RemoveReplying => {
                             self.timeline.remove_replying();
                             None
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+            ChatMessage::KeyboardEvent(event) => {
+                if let Some(action) = self.timeline.update(TimelineMessage::KeyboardEvent(event)) {
+                    match action {
+                        TimelineAction::SetIsReplyingTo { event_id, message } => {
+                            self.input.set_replies_to(message, event_id);
+                            None
+                        }
+                        TimelineAction::Run(task) => Some(ChatAction::Run(task)),
+                        TimelineAction::NeedsMedia(needs_media) => {
+                            Some(ChatAction::NeedsMedia(needs_media))
+                        }
+                        TimelineAction::Scroll { direction, task } => {
+                            Some(ChatAction::TimelineScroll { direction, task })
+                        }
+                        TimelineAction::Perform(task) => {
+                            Some(ChatAction::Perform(task.map(|o| ChatMessage::Timeline(o))))
                         }
                     }
                 } else {

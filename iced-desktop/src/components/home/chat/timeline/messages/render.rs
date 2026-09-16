@@ -38,6 +38,7 @@ pub fn render_event(
     structure: Structure,
     theme: Theme,
     is_hovered: bool,
+    is_focused: bool,
     previous_is_event: bool,
     connect_previous: bool,
     gap: f32,
@@ -48,7 +49,9 @@ pub fn render_event(
             ContainerStyle::default().border(
                 border::rounded(structure.inner_border_radius)
                     .width(structure.border_thickness)
-                    .color(if is_hovered {
+                    .color(if is_focused {
+                        theme.input.focused_border
+                    } else if is_hovered {
                         theme.border
                     } else {
                         Color::TRANSPARENT
@@ -57,7 +60,7 @@ pub fn render_event(
         })
         .padding(structure.border_thickness);
 
-    let content_element: Element<'static, TimelineItemMessage> = if is_hovered {
+    let content_element: Element<'static, TimelineItemMessage> = if is_hovered || is_focused {
         track_bounds(inner_container, TimelineItemMessage::MessageEventBounds).into()
     } else {
         inner_container.into()

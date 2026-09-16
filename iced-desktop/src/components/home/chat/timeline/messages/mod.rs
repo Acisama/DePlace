@@ -45,6 +45,7 @@ pub enum TimelineItemMessage {
     ToggleVideoPause(Arc<iced_video_player::Video>),
     SetIsReplyingTo(OwnedEventId),
     SetIsEditing(bool),
+    SetIsFocused(bool),
     MessageEventBounds(Rectangle),
 }
 
@@ -344,6 +345,16 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 video.set_paused(!video.paused());
                 None
             }
+            TimelineItemMessage::SetIsFocused(bool) => {
+                let TimelineItemKind::Message {
+                    ref mut is_focused, ..
+                } = self.kind
+                else {
+                    return None;
+                };
+                *is_focused = bool;
+                return None;
+            }
         }
     }
 
@@ -395,12 +406,14 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 *is_hovered,
                 *previous_is_event,
                 false,
+                false,
                 structure.small_gap,
             ),
             TimelineItemKind::Message {
                 message: event,
                 is_hovered,
                 previous_is_event,
+                is_focused,
                 ..
             } => {
                 let is_hovered = *is_hovered;
@@ -415,6 +428,7 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                     structure,
                     theme,
                     is_hovered,
+                    *is_focused,
                     previous_is_event,
                     connects_previous,
                     structure.gap * 1.5,
@@ -436,6 +450,7 @@ enum TimelineItemKind {
         is_hovered: bool,
         is_own: bool,
         previous_is_event: bool,
+        is_focused: bool,
     },
     System {
         is_hovered: bool,
