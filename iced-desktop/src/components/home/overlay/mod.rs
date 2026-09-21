@@ -3,7 +3,7 @@ use iced::{
     Color,
     Length::Fill,
     Task,
-    widget::{container, mouse_area, opaque, operation::focus},
+    widget::{container, mouse_area, operation::focus},
 };
 use macros::iced_cache;
 use quick_select::{QUICK_SELECT_INPUT_ID, QuickSelect, QuickSelectAction, QuickSelectMessage};
@@ -176,9 +176,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
         //     ..Default::default()
         // });
 
-        let modal = opaque(dialog);
-
-        let backdrop = container(modal)
+        let backdrop = container(dialog)
             .width(Fill)
             .height(Fill)
             .center(Fill)

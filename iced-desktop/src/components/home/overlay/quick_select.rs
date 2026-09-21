@@ -10,7 +10,7 @@ use iced::{
     Element, Length,
     keyboard::{Event, Key, key::Named},
     padding,
-    widget::{button, column, container, row, space, text_input},
+    widget::{button, column, container, opaque, row, space, text_input},
 };
 use macros::iced_cache;
 use nucleo::{
@@ -313,17 +313,19 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        let inner_content = floating_tile(
-            theme,
-            structure,
-            column![input_field, scrollable_list]
-                .spacing(structure.gap)
-                .width(Length::Fill)
-                .height(Length::Fill),
-        )
-        .padding(structure.gap)
-        .width(Length::FillPortion(1))
-        .height(Length::FillPortion(1));
+        let inner_content = opaque(
+            floating_tile(
+                theme,
+                structure,
+                column![input_field, scrollable_list]
+                    .spacing(structure.gap)
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+            )
+            .padding(structure.gap)
+            .width(Length::FillPortion(1))
+            .height(Length::FillPortion(1)),
+        );
 
         // Center in a 3x3 layout taking up 1/3 max width/height
         column![
