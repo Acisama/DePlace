@@ -4,11 +4,16 @@ use enumset::{EnumSet, EnumSetType};
 use iced::Alignment;
 use phosphor_svgs::icon as icons;
 use serde::{Serialize, de::DeserializeOwned};
+use tokio::sync::watch;
+
+pub trait ToggleCloudExt {
+    fn toggle_cloud(field_name: &'static str, uses_cloud: bool) -> Self;
+}
 
 pub trait SettingWidget:
     Sized + Clone + PartialEq + std::hash::Hash + Serialize + DeserializeOwned + Send + Sync + 'static
 {
-    fn render<Message: Clone + 'static>(
+    fn render<Message: Clone + ToggleCloudExt + 'static>(
         field: &MatrixSettingField<Self>,
         theme: Theme,
         structure: Structure,
@@ -35,7 +40,7 @@ pub fn commit_task<T: SettingWidget>(
 }
 
 impl SettingWidget for bool {
-    fn render<Message: Clone + 'static>(
+    fn render<Message: Clone + ToggleCloudExt + 'static>(
         field: &MatrixSettingField<bool>,
         theme: Theme,
         structure: Structure,
@@ -70,7 +75,7 @@ impl SettingWidget for bool {
                 }
             });
 
-        setting_row(field, theme, structure, switch.into())
+        setting_row(field, theme, structure, switch.into(), false)
     }
 
     fn commit(field: &MatrixSettingField<bool>, _idx: usize) -> bool {
@@ -86,7 +91,7 @@ fn render_dropdown<T, Message>(
 ) -> Element<'static, Message>
 where
     T: EnumVariants + Clone + PartialEq + Serialize + DeserializeOwned + Send + Sync + 'static,
-    Message: Clone + 'static,
+    Message: Clone + ToggleCloudExt + 'static,
 {
     let variants: Vec<(T, &'static str)> = T::all_variants().collect();
     let current = field.value();
@@ -125,9 +130,21 @@ where
             width: structure.border_thickness,
             radius: structure.semi_border_radius().into(),
         },
+    })
+    .menu_style(move |_| w::overlay::menu::Style {
+        background: theme.solid_bg.into(),
+        border: Border {
+            color: theme.border,
+            width: structure.border_thickness,
+            radius: structure.semi_border_radius().into(),
+        },
+        text_color: theme.text.dim,
+        selected_text_color: theme.text.normal,
+        selected_background: theme.solid_hover_bg.into(),
+        shadow: Default::default(),
     });
 
-    setting_row(field, theme, structure, dropdown.into())
+    setting_row(field, theme, structure, dropdown.into(), false)
 }
 
 fn commit_dropdown<T: EnumVariants>(idx: usize, fallback: T) -> T {
@@ -141,7 +158,7 @@ macro_rules! impl_dropdown_widget {
     ($($ty:ty),* $(,)?) => {
         $(
             impl SettingWidget for $ty {
-                fn render<Message: Clone + 'static>(
+                fn render<Message: Clone + ToggleCloudExt + 'static>(
                     field: &MatrixSettingField<$ty>,
                     theme: Theme,
                     structure: Structure,
@@ -171,7 +188,7 @@ where
     T: EnumSetType + EnumVariants + 'static,
     EnumSet<T>: Clone + PartialEq + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    fn render<Message: Clone + 'static>(
+    fn render<Message: Clone + ToggleCloudExt + 'static>(
         field: &MatrixSettingField<EnumSet<T>>,
         theme: Theme,
         structure: Structure,
@@ -219,7 +236,7 @@ where
 
         let grid = w::row(chips).spacing(structure.small_gap).wrap();
 
-        setting_row(field, theme, structure, grid.into())
+        setting_row(field, theme, structure, grid.into(), true)
     }
 
     fn commit(field: &MatrixSettingField<EnumSet<T>>, idx: usize) -> EnumSet<T> {
@@ -235,22 +252,91 @@ where
     }
 }
 
-fn setting_row<T, Message: 'static>(
+fn cloud_button<Message: 'static + Clone + ToggleCloudExt>(
+    field_name: &'static str,
+    uses_cloud: &Option<watch::Sender<bool>>,
+    theme: Theme,
+    structure: Structure,
+) -> Element<'static, Message> {
+    let current = uses_cloud.as_ref().map(|b| *b.borrow());
+
+    let (icon, color, hover_color, tooltip) = match current {
+        Some(true) => (
+            phosphor_svgs::icon::cloud::REGULAR,
+            theme.accent,
+            Some(theme.text.normal),
+            "This setting is synced across all devices",
+        ),
+        Some(false) => (
+            phosphor_svgs::icon::cloud_slash::REGULAR,
+            theme.text.dim,
+            Some(theme.text.normal),
+            "This setting is not synced across all devices",
+        ),
+        None => (
+            phosphor_svgs::icon::cloud_slash::REGULAR,
+            theme.text.muted,
+            Some(theme.text.muted),
+            "This setting can not be synced across all devices",
+        ),
+    };
+
+    themed_tooltip(
+        w::button(phosphor_icon(icon, structure.font_size * 1.2))
+            .padding(0.0)
+            .style(move |_, status| ButtonStyle {
+                text_color: if let Some(hover_color) = hover_color
+                    && status.active()
+                {
+                    hover_color
+                } else {
+                    color
+                },
+                ..Default::default()
+            })
+            .on_press_maybe(current.map(|is_synced| Message::toggle_cloud(field_name, !is_synced))),
+        tooltip,
+        structure,
+        theme,
+    )
+    .into()
+}
+
+fn setting_row<T, Message: 'static + Clone + ToggleCloudExt>(
     field: &MatrixSettingField<T>,
     theme: Theme,
     structure: Structure,
     control: Element<'static, Message>,
+    extra_row: bool,
 ) -> Element<'static, Message> {
-    w::row![
+    let cloud_button = cloud_button(field.local_name, &field.uses_cloud, theme, structure);
+    let text = themed_tooltip(
         w::text(field.human_readable)
             .color(theme.text.normal)
             .size(structure.font_size),
-        w::space(),
-        control,
-    ]
-    .align_y(Alignment::Center)
-    .padding(structure.small_gap / 2.0)
-    .into()
+        field.description,
+        structure,
+        theme,
+    );
+    let filler = w::space().width(Fill);
+
+    if extra_row {
+        w::column![
+            w::row![text, filler, cloud_button]
+                .align_y(Alignment::Center)
+                .padding(structure.small_gap / 2.0)
+                .spacing(structure.small_gap),
+            control
+        ]
+        .spacing(structure.small_gap)
+        .into()
+    } else {
+        w::row![text, filler, control, cloud_button]
+            .align_y(Alignment::Center)
+            .padding(structure.small_gap / 2.0)
+            .spacing(structure.small_gap)
+            .into()
+    }
 }
 
 pub fn render_subsection<Message: Clone + 'static>(

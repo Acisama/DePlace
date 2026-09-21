@@ -148,7 +148,10 @@ pub fn section(input: TokenStream) -> TokenStream {
     let message_name = format_ident!("{}Message", struct_name);
     let action_name = format_ident!("{}Action", struct_name);
 
-    let mut message_variants = vec![quote! { ToggleSubsection(&'static str) }];
+    let mut message_variants = vec![
+        quote! { ToggleSubsection(&'static str) },
+        quote! { ToggleCloud(&'static str, bool) },
+    ];
     let mut update_arms = vec![quote! {
         #message_name::ToggleSubsection(id) => {
             if !self.closed_subsections.remove(id) {
@@ -171,7 +174,27 @@ pub fn section(input: TokenStream) -> TokenStream {
     );
 
     let hashings = hash_fields.iter().map(|field| {
-        quote! { self.settings.#field.value().hash(state); }
+        quote! {
+            self.settings.#field.value().hash(state);
+            self.settings.#field.uses_cloud.as_ref().map(|c| c.borrow().hash(state));
+        }
+    });
+
+    let cloud_toggle_arms = hash_fields.iter().map(|field| {
+        let name = field.to_string();
+        quote! {
+            #name => self.settings.#field.set_uses_cloud(uses_cloud, &self.settings),
+        }
+    });
+
+    update_arms.push(quote! {
+        #message_name::ToggleCloud(field_name, uses_cloud) => {
+            match field_name {
+                #(#cloud_toggle_arms)*
+                _ => {}
+            }
+            None
+        }
     });
 
     let expanded = quote! {
@@ -200,6 +223,12 @@ pub fn section(input: TokenStream) -> TokenStream {
         #[derive(Clone, Debug)]
         pub enum #message_name {
             #(#message_variants),*
+        }
+
+        impl crate::components::home::overlay::settings::widgets::ToggleCloudExt for #message_name {
+            fn toggle_cloud(field_name: &'static str, uses_cloud: bool) -> Self {
+                Self::ToggleCloud(field_name, uses_cloud)
+            }
         }
 
         pub enum #action_name {

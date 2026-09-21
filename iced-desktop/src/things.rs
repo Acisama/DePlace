@@ -261,6 +261,12 @@ impl Structure {
     }
 }
 
+impl Default for Structure {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Theme {
     pub accent: Color,
@@ -317,5 +323,11 @@ impl Theme {
 
     pub fn accent_bg(&self) -> Color {
         self.solid_bg.blend(self.accent.alpha(0.1))
+    }
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self::new()
     }
 }

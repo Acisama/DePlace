@@ -515,3 +515,23 @@ pub fn themed_scrollable<'a, T: 'a>(
         })
         .auto_scroll(true)
 }
+
+pub fn themed_tooltip<'a, T: 'a>(
+    content: impl Into<Element<'a, T>>,
+    tooltip: impl Into<Element<'a, T>>,
+    structure: Structure,
+    theme: Theme,
+) -> w::tooltip::Tooltip<'a, T> {
+    w::tooltip(content, tooltip, w::tooltip::Position::Bottom)
+        .delay(std::time::Duration::from_millis(300))
+        .style(move |_| w::container::Style {
+            background: Some(theme.background.into()),
+            border: Border {
+                color: theme.border,
+                width: structure.border_thickness,
+                radius: structure.inner_border_radius.into(),
+            },
+            text_color: Some(theme.text.normal),
+            ..Default::default()
+        })
+}

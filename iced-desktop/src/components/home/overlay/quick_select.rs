@@ -10,7 +10,7 @@ use iced::{
     Element, Length,
     keyboard::{Event, Key, key::Named},
     padding,
-    widget::{button, column, container, opaque, row, space, text_input},
+    widget::{button, column, opaque, row, space, text_input},
 };
 use macros::iced_cache;
 use nucleo::{
