@@ -24,6 +24,7 @@ iced = { workspace = true, optional = true }
 iced_video_player.workspace = true
 image.workspace = true
 imbl.workspace = true
+keyboard-types.workspace = true
 keyring-core = "1.0.0"
 macros.workspace = true
 # livekit.workspace = true

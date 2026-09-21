@@ -33,6 +33,7 @@ use super::{
     ImageMessage, MessageContent, MessageEvent, ReplyContent, TimelineItemMessage, VideoMessage,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_event(
     content: impl Into<Element<'static, TimelineItemMessage>>,
     structure: Structure,
@@ -50,7 +51,7 @@ pub fn render_event(
                 border::rounded(structure.inner_border_radius)
                     .width(structure.border_thickness)
                     .color(if is_focused {
-                        theme.input.focused_border
+                        theme.colors.red
                     } else if is_hovered {
                         theme.border
                     } else {

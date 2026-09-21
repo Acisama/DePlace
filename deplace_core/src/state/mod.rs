@@ -18,6 +18,7 @@ use tokio::sync::watch::{self, Receiver, Ref, Sender};
 
 use crate::{
     APP_NAME,
+    keybinds::Keybinds,
     matrix_api::{
         account_data::{
             BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data,
@@ -32,9 +33,13 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct ImportantPaths {
     pub config_dir: PathBuf,
+    pub settings_file: PathBuf,
+    pub keybinds_file: PathBuf,
+
     pub download_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub temp_dir: PathBuf,
+    pub data_dir: PathBuf,
 }
 
 impl ImportantPaths {
@@ -48,6 +53,9 @@ impl ImportantPaths {
             .ok_or(anyhow::anyhow!("Failed to get cache dir"))?
             .join(APP_NAME);
         let temp_dir = temp_dir();
+        let data_dir = dirs::data_dir()
+            .ok_or(anyhow::anyhow!("Failed to get data dir"))?
+            .join(APP_NAME);
 
         if !config_dir.exists() {
             std::fs::create_dir_all(&config_dir)?;
@@ -58,12 +66,22 @@ impl ImportantPaths {
         if !cache_dir.exists() {
             std::fs::create_dir_all(&cache_dir)?;
         }
+        if !data_dir.exists() {
+            std::fs::create_dir_all(&data_dir)?;
+        }
+
+        let config_file = config_dir.join("config.toml");
+        let keybinds_file = config_dir.join("keybinds.toml");
 
         Ok(Self {
             config_dir,
+            settings_file: config_file,
+            keybinds_file,
+
             download_dir,
             cache_dir,
             temp_dir,
+            data_dir,
         })
     }
 }
@@ -171,6 +189,8 @@ struct AppStateInner {
     pub user_device: UserDevice,
     pub settings: Settings,
 
+    keybinds: Sender<Keybinds>,
+
     window_title: Sender<String>,
     window_focused: Mutex<bool>,
     important_paths: ImportantPaths,
@@ -215,6 +235,7 @@ impl AppState {
         client: Client,
         user_device: UserDevice,
         settings: Settings,
+        keybinds: Keybinds,
         important_paths: ImportantPaths,
     ) -> Self {
         let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
@@ -270,6 +291,8 @@ impl AppState {
             active_server.borrow().clone(),
         ));
 
+        let (keybinds, _) = watch::channel(keybinds);
+
         Self {
             inner: Arc::new(AppStateInner {
                 #[cfg(feature = "iced_desktop")]
@@ -290,6 +313,7 @@ impl AppState {
                 client,
                 user_device,
                 settings,
+                keybinds,
 
                 dm_rooms,
                 single_rooms,
@@ -326,6 +350,10 @@ impl AppState {
     #[cfg(feature = "iced_desktop")]
     pub fn video_cache(&self) -> &cache::VideoCache {
         &self.inner.video_cache
+    }
+
+    pub fn keybinds(&self) -> Receiver<Keybinds> {
+        self.inner.keybinds.subscribe()
     }
 
     pub fn notification_manager(&self) -> &NotificationManager {

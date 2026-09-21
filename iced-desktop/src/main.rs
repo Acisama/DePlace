@@ -19,8 +19,8 @@ use crate::components::{
     root::Root,
 };
 
-pub(crate) mod common;
-pub(crate) mod components;
+pub mod common;
+pub mod components;
 mod things;
 
 const SOCKET_NAME: &str = "deplace_app_single_instance.sock";

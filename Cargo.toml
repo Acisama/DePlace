@@ -34,6 +34,7 @@ imbl = "6.1.0"
 indexmap = "2.14.2"
 infer = "0.22.0"
 interprocess = { version = "2", features = ["tokio"] }
+keyboard-types = { version = "0.8.3", features = ["serde"] }
 # livekit = "0.8.1"
 lru = "0.18.2"
 matrix-sdk = { version = "0.18.0", features = ["anyhow", "bundled-sqlite", "e2e-encryption", "experimental-element-recent-emojis", "experimental-search", "experimental-send-custom-to-device", "sso-login"] }

@@ -35,82 +35,75 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
             AppMessage::WindowFocus { focused } if let Screen::Home(home) = self => {
                 home.set_frontend_focused(focused);
             }
-            AppMessage::Home(msg) if let Screen::Home(home) = self => {
-                if let Some(action) = home.update(msg) {
-                    match action {
-                        HomeAction::Run(task) => {
-                            return Some(task.map(|_| AppMessage::DoNothing));
-                        }
-                        HomeAction::Perform(task) => {
-                            return Some(task.map(|m| AppMessage::Home(m)));
-                        }
-                        HomeAction::LoadTimeline(task) => {
-                            return Some(task.map(|(room_id, message)| {
-                                AppMessage::Home(HomeMessage::Timeline { room_id, message })
-                            }));
-                        }
-                        HomeAction::LoadMediaTask(task) => {
-                            return Some(
-                                task.map(|media| AppMessage::Home(HomeMessage::MediaLoaded(media))),
-                            );
-                        }
-                        HomeAction::TimelineScroll {
+            AppMessage::Home(msg) if let Screen::Home(home) = self => match home.update(msg)? {
+                HomeAction::Run(task) => {
+                    return Some(task.map(|_| AppMessage::DoNothing));
+                }
+                HomeAction::Perform(task) => {
+                    return Some(task.map(AppMessage::Home));
+                }
+                HomeAction::LoadTimeline(task) => {
+                    return Some(task.map(|(room_id, message)| {
+                        AppMessage::Home(HomeMessage::Timeline { room_id, message })
+                    }));
+                }
+                HomeAction::LoadMediaTask(task) => {
+                    return Some(
+                        task.map(|media| AppMessage::Home(HomeMessage::MediaLoaded(media))),
+                    );
+                }
+                HomeAction::TimelineScroll {
+                    room_id,
+                    direction,
+                    task,
+                } => {
+                    return Some(task.map(move |finished| {
+                        let room_id = room_id.clone();
+                        AppMessage::Home(HomeMessage::TimelineScrollFinished {
                             room_id,
                             direction,
-                            task,
-                        } => {
-                            return Some(task.map(move |finished| {
-                                let room_id = room_id.clone();
-                                AppMessage::Home(HomeMessage::TimelineScrollFinished {
-                                    room_id,
-                                    direction,
-                                    finished,
-                                })
-                            }));
-                        }
-                    }
+                            finished,
+                        })
+                    }));
                 }
-            }
+            },
             AppMessage::Discovery(msg) if let Screen::Discovery(discovery) = self => {
-                match discovery.update(msg) {
-                    Some(DiscoveryAction::Run(task)) => {
+                match discovery.update(msg)? {
+                    DiscoveryAction::Run(task) => {
                         return Some(
                             task.map(|res| AppMessage::Discovery(DiscoveryMessage::from(res))),
                         );
                     }
-                    Some(DiscoveryAction::ClientSelected(client)) => {
+                    DiscoveryAction::ClientSelected(client) => {
                         let (login, task) = Login::new(client);
                         *self = Screen::Login(login);
                         return Some(task.map(AppMessage::Login));
                     }
-                    None => {}
                 };
             }
-            AppMessage::Login(msg) if let Screen::Login(login) = self => match login.update(msg) {
-                Some(LoginAction::Run(task)) => {
+            AppMessage::Login(msg) if let Screen::Login(login) = self => match login.update(msg)? {
+                LoginAction::Run(task) => {
                     return Some(task.map(|res| AppMessage::Login(LoginMessage::from(res))));
                 }
-                Some(LoginAction::BackToDiscovery(client)) => {
+                LoginAction::BackToDiscovery(client) => {
                     let (dis, task) = Discovery::from_client(client);
                     *self = Screen::Discovery(dis);
                     return Some(task.map(AppMessage::Discovery));
                 }
-                Some(LoginAction::LoginSuccess(state)) => {
+                LoginAction::LoginSuccess(state) => {
                     *self = Screen::Verification(Verification::new(state));
                 }
-                None => {}
             },
             AppMessage::Verification(msg) if let Screen::Verification(verification) = self => {
-                match verification.update(msg) {
-                    None => {}
-                    Some(VerificationAction::Run(task)) => {
+                match verification.update(msg)? {
+                    VerificationAction::Run(task) => {
                         return Some(
                             task.map(|res| {
                                 AppMessage::Verification(VerificationMessage::from(res))
                             }),
                         );
                     }
-                    Some(VerificationAction::Success(state)) => {
+                    VerificationAction::Success(state) => {
                         let (home, task) = Home::new(state);
                         *self = Screen::Home(Box::new(home));
                         return Some(task.map(AppMessage::Home));
@@ -143,15 +136,13 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
                 }
             },
             AppMessage::KeyboardEvent(event) => {
-                if let Screen::Home(home) = self
-                    && let Some(action) = home.update(HomeMessage::KeyboardEvent(event))
-                {
-                    match action {
+                if let Screen::Home(home) = self {
+                    match home.update(HomeMessage::KeyboardEvent(event))? {
                         HomeAction::Run(task) => {
                             return Some(task.map(|_| AppMessage::DoNothing));
                         }
                         HomeAction::Perform(task) => {
-                            return Some(task.map(|m| AppMessage::Home(m)));
+                            return Some(task.map(AppMessage::Home));
                         }
                         HomeAction::LoadTimeline(task) => {
                             return Some(task.map(|(room_id, message)| {

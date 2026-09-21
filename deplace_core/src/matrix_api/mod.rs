@@ -17,10 +17,11 @@ pub mod presence;
 pub mod sync;
 
 use crate::{
-    APP_NAME, DEVICE_DISPLAY_NAME,
+    DEVICE_DISPLAY_NAME,
+    keybinds::Keybinds,
     keyring::{self, StoredSession, get_or_create_store_key},
     matrix_api::sync::spawn_room_sync,
-    settings::{SETTINGS_FILE_NAME, Settings},
+    settings::Settings,
     state::{AppState, ImportantPaths, UserDevice},
 };
 
@@ -178,13 +179,14 @@ where
         None => return LoginResult::Error("Failed to get device ID".to_string()),
     };
 
-    let (client, settings) = match matrix_client_builder(&user_id, &device_id, url).await {
-        Ok(client) => client,
-        Err(e) => {
-            tracing::error!("Failed to create login client: {e}");
-            return LoginResult::Error(e.to_string());
-        }
-    };
+    let (client, settings, keybinds) =
+        match matrix_client_builder(&user_id, &device_id, url, &paths).await {
+            Ok(stuff) => stuff,
+            Err(e) => {
+                tracing::error!("Failed to create login client: {e}");
+                return LoginResult::Error(e.to_string());
+            }
+        };
 
     let Some(session) = temp_client.session() else {
         return LoginResult::Error("Failed to get session from temporary client".to_string());
@@ -208,7 +210,7 @@ where
 
     save_session(&client);
 
-    let state = AppState::new(client.clone(), device.clone(), settings, paths).await;
+    let state = AppState::new(client.clone(), device.clone(), settings, keybinds, paths).await;
     spawn_room_sync(&client, &state);
 
     LoginResult::Success(state)
@@ -255,18 +257,13 @@ pub async fn matrix_client_builder(
     user_id: &UserId,
     device_id: &DeviceId,
     server_url: Url,
-) -> Result<(Client, Settings)> {
+    important_paths: &ImportantPaths,
+) -> Result<(Client, Settings, Keybinds)> {
     let safe_user_id = user_id.to_string().replace(':', "_");
 
-    let data_dir = dirs::data_dir()
-        .ok_or(Error::msg("Failed to get data directory"))?
-        .join(APP_NAME);
-    let cache_dir = dirs::cache_dir()
-        .ok_or(Error::msg("Failed to get cache directory"))?
-        .join(APP_NAME);
-    let settings_dir = dirs::config_dir()
-        .ok_or(Error::msg("Failed to get config directory"))?
-        .join(APP_NAME);
+    let data_dir = &important_paths.data_dir;
+    let cache_dir = &important_paths.cache_dir;
+    let settings_dir = &important_paths.config_dir;
 
     std::fs::create_dir_all(&data_dir)?;
     std::fs::create_dir_all(&cache_dir)?;
@@ -305,7 +302,8 @@ pub async fn matrix_client_builder(
         return Err(Error::msg("Failed to build client"));
     };
 
-    let settings = Settings::new(settings_dir.join(SETTINGS_FILE_NAME), new_client.clone());
+    let settings = Settings::new(important_paths.settings_file.clone(), new_client.clone());
+    let keybinds = Keybinds::new(&important_paths.keybinds_file);
 
-    Ok((new_client, settings))
+    Ok((new_client, settings, keybinds))
 }

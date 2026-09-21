@@ -21,6 +21,7 @@ mod keyring;
 pub mod colors;
 pub mod formatting;
 pub mod helpers;
+pub mod keybinds;
 pub mod matrix_api;
 pub mod notifications;
 pub mod profile;
@@ -89,9 +90,9 @@ pub async fn try_restore() -> RestoreResult {
     let user_id = session.user_id;
     let device_id = session.device_id;
 
-    let (client, settings) =
-        match matrix_client_builder(&user_id, &device_id, session.homeserver_url).await {
-            Ok(client) => client,
+    let (client, settings, keybinds) =
+        match matrix_client_builder(&user_id, &device_id, session.homeserver_url, &paths).await {
+            Ok(stuff) => stuff,
             Err(error) => {
                 tracing::error!("Failed to build matrix client: {:?}", error);
                 return RestoreResult::NoSession;
@@ -123,7 +124,7 @@ pub async fn try_restore() -> RestoreResult {
         user_id: user_id.clone(),
         device_id: device_id.clone(),
     };
-    let state = AppState::new(client.clone(), device, settings, paths).await;
+    let state = AppState::new(client.clone(), device, settings, keybinds, paths).await;
     spawn_room_sync(&client, &state);
 
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");

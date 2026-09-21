@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
+use std::rc::Rc;
 
 use deplace_core::PaginationDirection;
 use iced::Vector;
@@ -124,7 +125,8 @@ pub struct ChatTimeline {
     #[hash]
     messages_version: u64,
 
-    focused_message: Option<usize>,
+    #[hash]
+    focused_message_id: Option<String>,
 }
 
 impl ExtraHash for ChatTimeline {
@@ -208,7 +210,7 @@ impl ChatTimeline {
 
             content: list::Content::default(),
             messages_version: 0,
-            focused_message: None,
+            focused_message_id: None,
         };
         timeline.recalculate_with_power_levels();
         timeline
@@ -323,6 +325,24 @@ impl ChatTimeline {
         }
     }
 
+    /// The index of the bottom-most item that is an actual message,
+    /// skipping trailing non-message items (e.g. the read marker) --
+    /// used to seed initial focus so `j`/`k` start on a real message.
+    fn last_message_index(&self) -> Option<usize> {
+        let mut index = self.content.len().checked_sub(1)?;
+        loop {
+            if self
+                .content
+                .index_map()
+                .get_index(index)
+                .is_some_and(|(_, item)| item.message_event().is_some())
+            {
+                return Some(index);
+            }
+            index = index.checked_sub(1)?;
+        }
+    }
+
     fn pagination_task(
         &mut self,
         direction: PaginationDirection,
@@ -386,63 +406,59 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     tracing::warn!("No item found for id {}", id);
                     return None;
                 };
-                let res = if let Some(action) = Arc::make_mut(item).update(message) {
-                    match action {
-                        TimelineItemAction::HoverChanged(hovered) => {
-                            if hovered {
-                                if let Some(old_id) = &self.hovered_item_id
-                                    && old_id != &id
-                                    && let Some(old_item) = self.content.get_mut(old_id)
-                                {
-                                    Arc::make_mut(old_item).set_is_hovered(false);
-                                }
+                let res = match Arc::make_mut(item).update(message)? {
+                    TimelineItemAction::HoverChanged(hovered) => {
+                        if hovered {
+                            if let Some(old_id) = &self.hovered_item_id
+                                && old_id != &id
+                                && let Some(old_item) = self.content.get_mut(old_id)
+                            {
+                                Arc::make_mut(old_item).set_is_hovered(false);
+                            }
 
-                                if self.hovered_item_id.as_deref() != Some(&id) {
-                                    self.buttons_hovered = false;
-                                }
-                                self.hovered_item_id = Some(id.clone());
-                            } else if self.hovered_item_id.as_deref() == Some(&id)
-                                && !self.buttons_hovered
-                            {
-                                self.hovered_item_id = None;
+                            if self.hovered_item_id.as_deref() != Some(&id) {
+                                self.buttons_hovered = false;
                             }
-                            self.messages_version += 1;
-                            None
+                            self.hovered_item_id = Some(id.clone());
+                        } else if self.hovered_item_id.as_deref() == Some(&id)
+                            && !self.buttons_hovered
+                        {
+                            self.hovered_item_id = None;
                         }
-                        TimelineItemAction::MessageEventBounds(bounds) => {
-                            self.message_event_bounds.insert(id.clone(), bounds);
-                            None
-                        }
-                        TimelineItemAction::Update => {
-                            self.messages_version += 1;
-                            None
-                        }
-                        TimelineItemAction::NeedsMedia(needs_media) => {
-                            match &needs_media {
-                                NeedsMedia::Avatar { uri } => {
-                                    self.avatar_states_for_hash.insert(uri.clone());
-                                }
-                                NeedsMedia::Thumbnail { key, .. } => {
-                                    self.thumbnail_states_for_hash.insert(key.clone());
-                                }
-                                NeedsMedia::Video { source, .. } => {
-                                    self.video_states_for_hash.insert(source.unique_key());
-                                }
-                            }
-                            Some(TimelineAction::NeedsMedia(needs_media))
-                        }
-                        TimelineItemAction::SetIsReplyingTo { message, event_id } => {
-                            if let Some(prev_replying_to_id) = self.replying_to.as_ref()
-                                && let Some(item) = self.content.get_mut(prev_replying_to_id)
-                            {
-                                Arc::make_mut(item).remove_replying();
-                            }
-                            self.replying_to = Some(id.clone());
-                            Some(TimelineAction::SetIsReplyingTo { message, event_id })
-                        }
+                        self.messages_version += 1;
+                        None
                     }
-                } else {
-                    None
+                    TimelineItemAction::MessageEventBounds(bounds) => {
+                        self.message_event_bounds.insert(id.clone(), bounds);
+                        None
+                    }
+                    TimelineItemAction::Update => {
+                        self.messages_version += 1;
+                        None
+                    }
+                    TimelineItemAction::NeedsMedia(needs_media) => {
+                        match &needs_media {
+                            NeedsMedia::Avatar { uri } => {
+                                self.avatar_states_for_hash.insert(uri.clone());
+                            }
+                            NeedsMedia::Thumbnail { key, .. } => {
+                                self.thumbnail_states_for_hash.insert(key.clone());
+                            }
+                            NeedsMedia::Video { source, .. } => {
+                                self.video_states_for_hash.insert(source.unique_key());
+                            }
+                        }
+                        Some(TimelineAction::NeedsMedia(needs_media))
+                    }
+                    TimelineItemAction::SetIsReplyingTo { message, event_id } => {
+                        if let Some(prev_replying_to_id) = self.replying_to.as_ref()
+                            && let Some(item) = self.content.get_mut(prev_replying_to_id)
+                        {
+                            Arc::make_mut(item).remove_replying();
+                        }
+                        self.replying_to = Some(id.clone());
+                        Some(TimelineAction::SetIsReplyingTo { message, event_id })
+                    }
                 };
 
                 if self.hovered_item_id.as_ref() == Some(&id)
@@ -619,111 +635,84 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             }
             TimelineMessage::KeyboardEvent(event) => {
                 if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                    let length = self.content.len();
+
                     if key == iced::keyboard::Key::Character("k".into()) {
-                        let mut new_focus = match self.focused_message {
-                            Some(focus) => focus + 1,
-                            None if !self.content.is_empty() => self.content.len() - 1,
-                            None => return None,
+                        let mut new_focus_index = match self
+                            .focused_message_id
+                            .as_ref()
+                            .and_then(|id| self.content.index_map().get_index_of(id))
+                        {
+                            Some(focus) => {
+                                if focus == 0 {
+                                    return None;
+                                } else {
+                                    focus.saturating_sub(1)
+                                }
+                            }
+                            None => self.last_message_index()?,
                         };
 
-                        while let Some(item) = self.content.get_index(new_focus) {
+                        while let Some((id, item)) =
+                            self.content.index_map().get_index(new_focus_index)
+                        {
                             if item.message_event().is_some() {
-                                let old_focus = self.focused_message;
-                                tracing::debug!("Focusing message on index {new_focus}");
-                                self.focused_message = Some(new_focus);
+                                tracing::debug!("Focusing message on index {new_focus_index}");
+                                self.focused_message_id = Some(id.clone());
 
-                                let index_map = self.content.index_map();
-                                let Some((new_id, _)) = index_map.get_index(new_focus) else {
-                                    tracing::error!("Couldn't get item at new index");
-                                    return None;
-                                };
-
-                                let mut task = operate(sweeten::widget::list::FindItemBounds::new(
-                                    Some(LIST_ID),
-                                    new_focus,
-                                ))
-                                .map(TimelineMessage::ScrollTo);
-                                if let Some(index) = old_focus {
-                                    let Some((old_id, _)) = index_map.get_index(index) else {
-                                        tracing::error!("Couldn't get item at old index");
-                                        return None;
-                                    };
-                                    task = task.chain(Task::done(TimelineMessage::Item {
-                                        id: old_id.to_string(),
-                                        message: TimelineItemMessage::SetIsFocused(false),
-                                    }));
-                                }
-                                return Some(TimelineAction::Perform(task.chain(Task::done(
-                                    TimelineMessage::Item {
-                                        id: new_id.to_string(),
-                                        message: TimelineItemMessage::SetIsFocused(true),
-                                    },
-                                ))));
+                                // let task = operate(sweeten::widget::list::FindItemBounds::new(
+                                //     Some(LIST_ID),
+                                //     new_focus_index,
+                                // ))
+                                // .map(TimelineMessage::ScrollTo);
+                                // return Some(TimelineAction::Perform(task));
+                                return None;
                             }
-                            if new_focus == self.content.len() - 1 {
+                            if new_focus_index == 0 {
                                 break;
                             }
-                            new_focus += 1;
+                            new_focus_index -= 1;
                         }
                     }
 
                     if key == iced::keyboard::Key::Character("j".into()) {
-                        let mut new_focus = match self.focused_message {
-                            Some(focus) if focus == 0 => {
-                                // self.focused_message = None;
+                        let mut new_focus_index = match self
+                            .focused_message_id
+                            .as_ref()
+                            .and_then(|id| self.content.index_map().get_index_of(id))
+                        {
+                            Some(focus) if focus >= length - 1 => {
                                 return None;
                             }
-                            Some(focus) => focus.saturating_sub(1),
-                            // None if !self.content.is_empty() => {
-                            //     self.content.len().saturating_sub(1)
-                            // }
-                            None => return None,
+                            Some(focus) => focus + 1,
+                            None => self.last_message_index()?,
                         };
 
-                        while let Some(item) = self.content.get_index(new_focus) {
+                        while let Some((id, item)) =
+                            self.content.index_map().get_index(new_focus_index)
+                        {
                             if item.message_event().is_some() {
-                                let old_focus = self.focused_message;
-                                tracing::debug!("Focusing message on index {new_focus}");
-                                self.focused_message = Some(new_focus);
+                                tracing::debug!("Focusing message on index {new_focus_index}");
+                                self.focused_message_id = Some(id.clone());
 
-                                let index_map = self.content.index_map();
-                                let Some((new_id, _)) = index_map.get_index(new_focus) else {
-                                    tracing::error!("Couldn't get item at new index");
-                                    return None;
-                                };
-
-                                let mut task = operate(sweeten::widget::list::FindItemBounds::new(
-                                    Some(LIST_ID),
-                                    new_focus,
-                                ))
-                                .map(TimelineMessage::ScrollTo);
-                                if let Some(index) = old_focus {
-                                    let Some((old_id, _)) = index_map.get_index(index) else {
-                                        tracing::error!("Couldn't get item at old index");
-                                        return None;
-                                    };
-                                    task = task.chain(Task::done(TimelineMessage::Item {
-                                        id: old_id.to_string(),
-                                        message: TimelineItemMessage::SetIsFocused(false),
-                                    }));
-                                }
-                                return Some(TimelineAction::Perform(task.chain(Task::done(
-                                    TimelineMessage::Item {
-                                        id: new_id.to_string(),
-                                        message: TimelineItemMessage::SetIsFocused(true),
-                                    },
-                                ))));
+                                // let task = operate(sweeten::widget::list::FindItemBounds::new(
+                                //     Some(LIST_ID),
+                                //     new_focus_index,
+                                // ))
+                                // .map(TimelineMessage::ScrollTo);
+                                // return Some(TimelineAction::Perform(task));
+                                return None;
                             }
-                            if new_focus == 0 {
+                            if new_focus_index >= length - 1 {
                                 break;
                             }
-                            new_focus -= 1;
+                            new_focus_index += 1;
                         }
                     }
                 }
             }
             TimelineMessage::ScrollTo(opt_rect) => {
-                let Some(rect) = opt_rect else { return None };
+                let rect = opt_rect?;
                 tracing::debug!("Item to scroll to is at y: {}", rect.y);
                 return Some(TimelineAction::Run(scroll_to::<()>(
                     SCROLLABLE_ID,
@@ -745,15 +734,19 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         let loading_top = self.loading_top;
         let loading_bottom = self.loading_bottom;
 
+        let focused_id = Rc::new(self.focused_message_id.clone());
+
         let mut stack = Stack::new()
             .push(
                 w::container(track_scroll(
                     themed_scrollable(
                         w::container(
                             list(self.content.clone(), move |_index, id, item| {
-                                w::lazy(item.clone(), move |item| {
+                                let is_focused =
+                                    focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
+                                w::lazy((item.clone(), is_focused), move |(item, is_focused)| {
                                     let id = id.clone();
-                                    item.view(theme, structure).map(move |msg| {
+                                    item.view(theme, structure, *is_focused).map(move |msg| {
                                         TimelineMessage::Item {
                                             id: id.clone(),
                                             message: msg,

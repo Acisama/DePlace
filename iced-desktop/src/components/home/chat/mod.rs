@@ -169,74 +169,55 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
         }
 
         match msg {
-            ChatMessage::Header(msg) => {
-                if let Some(action) = self.header.update(msg) {
-                    match action {
-                        HeaderAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
-                        HeaderAction::Run(task) => Some(ChatAction::Run(task)),
-                    }
-                } else {
+            ChatMessage::Header(msg) => match self.header.update(msg)? {
+                HeaderAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
+                HeaderAction::Run(task) => Some(ChatAction::Run(task)),
+            },
+            ChatMessage::Timeline(msg) => match self.timeline.update(msg)? {
+                TimelineAction::SetIsReplyingTo { event_id, message } => {
+                    self.input.set_replies_to(message, event_id);
                     None
                 }
-            }
-            ChatMessage::Timeline(msg) => {
-                if let Some(action) = self.timeline.update(msg) {
-                    match action {
-                        TimelineAction::SetIsReplyingTo { event_id, message } => {
-                            self.input.set_replies_to(message, event_id);
-                            None
-                        }
-                        TimelineAction::Run(task) => Some(ChatAction::Run(task)),
-                        TimelineAction::NeedsMedia(needs_media) => {
-                            Some(ChatAction::NeedsMedia(needs_media))
-                        }
-                        TimelineAction::Scroll { direction, task } => {
-                            Some(ChatAction::TimelineScroll { direction, task })
-                        }
-                        TimelineAction::Perform(task) => {
-                            Some(ChatAction::Perform(task.map(|o| ChatMessage::Timeline(o))))
-                        }
-                    }
-                } else {
+                TimelineAction::Run(task) => Some(ChatAction::Run(task)),
+                TimelineAction::NeedsMedia(needs_media) => {
+                    Some(ChatAction::NeedsMedia(needs_media))
+                }
+                TimelineAction::Scroll { direction, task } => {
+                    Some(ChatAction::TimelineScroll { direction, task })
+                }
+                TimelineAction::Perform(task) => {
+                    Some(ChatAction::Perform(task.map(ChatMessage::Timeline)))
+                }
+            },
+            ChatMessage::Input(msg) => match self.input.update(msg)? {
+                InputAction::SendMessage(task) => {
+                    self.timeline.remove_replying();
+                    Some(ChatAction::Run(task))
+                }
+                InputAction::RemoveReplying => {
+                    self.timeline.remove_replying();
                     None
                 }
-            }
-            ChatMessage::Input(msg) => {
-                if let Some(action) = self.input.update(msg) {
-                    match action {
-                        InputAction::SendMessage(task) => {
-                            self.timeline.remove_replying();
-                            Some(ChatAction::Run(task))
-                        }
-                        InputAction::RemoveReplying => {
-                            self.timeline.remove_replying();
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            }
+            },
             ChatMessage::KeyboardEvent(event) => {
-                if let Some(action) = self.timeline.update(TimelineMessage::KeyboardEvent(event)) {
-                    match action {
-                        TimelineAction::SetIsReplyingTo { event_id, message } => {
-                            self.input.set_replies_to(message, event_id);
-                            None
-                        }
-                        TimelineAction::Run(task) => Some(ChatAction::Run(task)),
-                        TimelineAction::NeedsMedia(needs_media) => {
-                            Some(ChatAction::NeedsMedia(needs_media))
-                        }
-                        TimelineAction::Scroll { direction, task } => {
-                            Some(ChatAction::TimelineScroll { direction, task })
-                        }
-                        TimelineAction::Perform(task) => {
-                            Some(ChatAction::Perform(task.map(|o| ChatMessage::Timeline(o))))
-                        }
+                match self
+                    .timeline
+                    .update(TimelineMessage::KeyboardEvent(event))?
+                {
+                    TimelineAction::SetIsReplyingTo { event_id, message } => {
+                        self.input.set_replies_to(message, event_id);
+                        None
                     }
-                } else {
-                    None
+                    TimelineAction::Run(task) => Some(ChatAction::Run(task)),
+                    TimelineAction::NeedsMedia(needs_media) => {
+                        Some(ChatAction::NeedsMedia(needs_media))
+                    }
+                    TimelineAction::Scroll { direction, task } => {
+                        Some(ChatAction::TimelineScroll { direction, task })
+                    }
+                    TimelineAction::Perform(task) => {
+                        Some(ChatAction::Perform(task.map(ChatMessage::Timeline)))
+                    }
                 }
             }
         }

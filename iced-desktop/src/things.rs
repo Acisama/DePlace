@@ -77,7 +77,7 @@ pub struct InputTheme {
 
 #[derive(Clone, Copy)]
 pub struct Colors {
-    pub _red: Color,
+    pub red: Color,
     pub _green: Color,
     pub yellow: Color,
     pub success: Color,
@@ -94,7 +94,7 @@ pub struct Colors {
 impl Colors {
     fn new(red: Color, green: Color, yellow: Color, muted: Color, unknown: Color) -> Self {
         Self {
-            _red: red,
+            red,
             _green: green,
             yellow,
             success: green,

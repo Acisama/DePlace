@@ -16,11 +16,14 @@ iced.workspace = true
 iced_video_player.workspace = true
 image.workspace = true
 indexmap.workspace = true
+interprocess = "2.4.4"
 lru.workspace = true
 macros.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
+nucleo.workspace = true
 phosphor-svgs.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 sweeten.workspace = true
 thumbhash.workspace = true
@@ -30,8 +33,6 @@ tracing-subscriber.workspace = true
 url.workspace = true
 url-macro.workspace = true
 uuid.workspace = true
-interprocess = "2.4.4"
-nucleo.workspace = true
 
 [dev-dependencies]
 naga = "27"

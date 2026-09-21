@@ -266,7 +266,7 @@ pub fn convert_settings(mut item: ItemStruct) -> TokenStream {
         impl #struct_name {
             pub fn new(file_path: std::path::PathBuf, client: matrix_sdk::Client) -> Self {
                 let existing = if file_path.exists() {
-                    let content = std::fs::read_to_string(&file_path).map_err(|e| ::tracing::error!("Failed to read settings file: {:?}", e)).ok();
+                    let content = std::fs::read_to_string(file_path.clone()).map_err(|e| ::tracing::error!("Failed to read settings file: {:?}", e)).ok();
 
                     content.map(|c| toml_edit::DocumentMut::from_str(&c).map_err(|e| ::tracing::error!("Failed to parse settings file: {:?}", e)).ok()).flatten()
                 } else {

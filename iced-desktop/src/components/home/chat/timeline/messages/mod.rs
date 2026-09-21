@@ -45,7 +45,6 @@ pub enum TimelineItemMessage {
     ToggleVideoPause(Arc<iced_video_player::Video>),
     SetIsReplyingTo(OwnedEventId),
     SetIsEditing(bool),
-    SetIsFocused(bool),
     MessageEventBounds(Rectangle),
 }
 
@@ -260,10 +259,8 @@ impl TimelineItem {
         }
         None
     }
-}
 
-impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
-    fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
+    pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
             TimelineItemMessage::MessageEventBounds(bounds) => {
                 Some(TimelineItemAction::MessageEventBounds(bounds))
@@ -345,23 +342,14 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 video.set_paused(!video.paused());
                 None
             }
-            TimelineItemMessage::SetIsFocused(bool) => {
-                let TimelineItemKind::Message {
-                    ref mut is_focused, ..
-                } = self.kind
-                else {
-                    return None;
-                };
-                *is_focused = bool;
-                return None;
-            }
         }
     }
 
-    fn view(
+    pub fn view(
         &self,
         theme: Theme,
         structure: Structure,
+        is_focused: bool,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let fallback = w::text(format!("{:?}", self)).into();
 
@@ -404,8 +392,8 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 structure,
                 theme,
                 *is_hovered,
-                *previous_is_event,
                 false,
+                *previous_is_event,
                 false,
                 structure.small_gap,
             ),
@@ -413,7 +401,6 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                 message: event,
                 is_hovered,
                 previous_is_event,
-                is_focused,
                 ..
             } => {
                 let is_hovered = *is_hovered;
@@ -428,7 +415,7 @@ impl IcedWidget<TimelineItemMessage, TimelineItemAction> for TimelineItem {
                     structure,
                     theme,
                     is_hovered,
-                    *is_focused,
+                    is_focused,
                     previous_is_event,
                     connects_previous,
                     structure.gap * 1.5,
@@ -450,7 +437,6 @@ enum TimelineItemKind {
         is_hovered: bool,
         is_own: bool,
         previous_is_event: bool,
-        is_focused: bool,
     },
     System {
         is_hovered: bool,
