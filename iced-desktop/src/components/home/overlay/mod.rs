@@ -16,6 +16,7 @@ mod settings;
 
 #[iced_cache(Clone)]
 pub struct Overlay {
+    #[hash]
     state: Option<OverlayState>,
 
     quickselect: QuickSelect,
@@ -27,7 +28,7 @@ impl ExtraHash for Overlay {
         match self.state {
             Some(OverlayState::QuickSelect) => self.quickselect.hash(state),
             Some(OverlayState::Settings) => self.settings.hash(state),
-            None => 0.hash(state),
+            _ => {}
         }
     }
 }
@@ -186,6 +187,9 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 ..Default::default()
             });
 
-        mouse_area(backdrop).on_press(OverlayMessage::Close).into()
+        mouse_area(backdrop)
+            .on_press(OverlayMessage::Close)
+            .interaction(iced::mouse::Interaction::Idle)
+            .into()
     }
 }

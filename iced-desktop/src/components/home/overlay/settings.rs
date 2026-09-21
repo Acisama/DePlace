@@ -1,5 +1,6 @@
 use crate::common::*;
 use deplace_core::settings::SettingsSection;
+use iced::{Length, widget::space};
 use macros::iced_cache;
 
 pub const SETTINGS_INPUT_ID: &str = "settings_input";
@@ -39,11 +40,37 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, SettingsMessage> {
-        w::row![floating_tile(
-            theme,
-            structure,
-            Space::new().height(20.0).height(20.0)
-        )]
+        w::column![
+            space().height(Length::FillPortion(1)),
+            w::row![
+                space().width(Length::FillPortion(1)),
+                w::row![
+                    floating_tile(
+                        theme,
+                        structure,
+                        Space::new()
+                            .height(Fill)
+                            .width(structure.settings.section_column_width),
+                    ),
+                    w::column![
+                        floating_tile(
+                            theme,
+                            structure,
+                            space().width(Fill).height(structure.header.height)
+                        ),
+                        floating_tile(theme, structure, space().width(Fill).height(Fill))
+                    ]
+                    .spacing(structure.small_gap)
+                ]
+                .spacing(structure.small_gap)
+                .width(Length::FillPortion(3)),
+                space().width(Length::FillPortion(1)),
+            ]
+            .height(Length::FillPortion(3)),
+            space().height(Length::FillPortion(1)),
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
         .into()
     }
 }

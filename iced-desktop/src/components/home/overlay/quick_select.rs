@@ -313,32 +313,24 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        let inner_content = column![input_field, scrollable_list]
-            .spacing(structure.gap)
-            .width(Length::Fill)
-            .height(Length::Fill);
-
-        let card = container(inner_content)
-            .padding(structure.gap)
-            .width(Length::FillPortion(1))
-            .height(Length::FillPortion(1))
-            .style(move |_iced_theme| container::Style {
-                background: Some(theme.background.into()),
-                border: iced::Border {
-                    radius: 10.0.into(),
-                    width: 1.0,
-                    color: theme.border,
-                },
-                text_color: Some(theme.text.normal),
-                ..Default::default()
-            });
+        let inner_content = floating_tile(
+            theme,
+            structure,
+            column![input_field, scrollable_list]
+                .spacing(structure.gap)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+        .padding(structure.gap)
+        .width(Length::FillPortion(1))
+        .height(Length::FillPortion(1));
 
         // Center in a 3x3 layout taking up 1/3 max width/height
         column![
             space().height(Length::FillPortion(1)),
             row![
                 space().width(Length::FillPortion(1)),
-                card,
+                inner_content,
                 space().width(Length::FillPortion(1)),
             ]
             .width(Length::Fill)
