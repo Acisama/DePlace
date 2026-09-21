@@ -1,0 +1,108 @@
+use keyboard_types::{Key, Modifiers, NamedKey};
+use serde::{Deserialize, Serialize};
+use std::{fmt, path::PathBuf};
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Keybinds {
+    pub settings: Shortcut,
+    pub quickselect: Shortcut,
+}
+
+impl Default for Keybinds {
+    fn default() -> Self {
+        Self {
+            settings: Shortcut {
+                modifiers: Modifiers::CONTROL,
+                key: Key::Character(",".to_string()),
+            },
+            quickselect: Shortcut {
+                modifiers: Modifiers::CONTROL,
+                key: Key::Character("k".to_string()),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Shortcut {
+    pub modifiers: Modifiers,
+    pub key: Key,
+}
+
+impl fmt::Display for Shortcut {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut parts = Vec::new();
+        if self.modifiers.ctrl() {
+            parts.push("Ctrl");
+        }
+        if self.modifiers.shift() {
+            parts.push("Shift");
+        }
+        if self.modifiers.alt() {
+            parts.push("Alt");
+        }
+        if self.modifiers.meta() {
+            parts.push("Super");
+        }
+
+        let key_str = self.key.to_string();
+        parts.push(key_str.as_str());
+        write!(f, "{}", parts.join("+"))
+    }
+}
+
+#[cfg(feature = "iced_desktop")]
+use iced::keyboard::{Event, Key as IcedKey, key::Named};
+
+#[cfg(feature = "iced_desktop")]
+impl Shortcut {
+    pub fn matches(&self, event: &Event) -> bool {
+        if let Event::KeyPressed { key, modifiers, .. } = event {
+            if modifiers.alt() != self.modifiers.alt() {
+                return false;
+            }
+            if modifiers.control() != self.modifiers.ctrl() {
+                return false;
+            }
+            if modifiers.shift() != self.modifiers.shift() {
+                return false;
+            }
+            if modifiers.logo() != self.modifiers.meta() {
+                return false;
+            }
+
+            match key {
+                IcedKey::Unidentified => false,
+                IcedKey::Character(c1) => {
+                    if let Key::Character(c2) = &self.key {
+                        c1 == c2
+                    } else {
+                        false
+                    }
+                }
+                IcedKey::Named(named1) => {
+                    if let Key::Named(named2) = &self.key {
+                        match (named1, named2) {
+                            (Named::Backspace, NamedKey::Backspace) => true,
+                            (Named::Enter, NamedKey::Enter) => true,
+                            (Named::Space, _) if self.key == Key::Character(' '.into()) => true,
+                            // TODO: add other named key matches here
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    }
+                }
+            }
+        } else {
+            false
+        }
+    }
+}
+
+impl Keybinds {
+    pub fn new(keybinds_file: &PathBuf) -> Self {
+        let contents = std::fs::read_to_string(keybinds_file.clone()).unwrap_or_default();
+        toml_edit::de::from_str(&contents).unwrap_or_default()
+    }
+}
