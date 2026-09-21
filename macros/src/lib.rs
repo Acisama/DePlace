@@ -7,6 +7,8 @@ use tailwind::StyleList;
 
 mod tailwind;
 
+mod section;
+
 mod settings;
 
 mod iced_cache;
@@ -52,6 +54,23 @@ pub fn tailwind_div(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+/// Generates a settings-section widget struct from a declarative field tree.
+///
+/// ```rust
+/// section!(GeneralSection, [
+///     section("Language/Region", [ hour_format, date_format ]),
+///     minimize_to_tray,
+/// ]);
+/// ```
+///
+/// Each bare identifier must name a field of `deplace_core::settings::Settings`;
+/// its rendering (toggle/dropdown/etc) is picked by the `SettingWidget` impl for
+/// that field's type, so the macro itself never needs to know field types.
+#[proc_macro]
+pub fn section(input: TokenStream) -> TokenStream {
+    section::section(input)
 }
 
 #[proc_macro_attribute]

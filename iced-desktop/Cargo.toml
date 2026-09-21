@@ -12,6 +12,7 @@ chrono-tz.workspace = true
 const_format.workspace = true
 deplace_core = { workspace = true, features = ["iced_desktop"] }
 dirs.workspace = true
+enumset.workspace = true
 iced.workspace = true
 iced_video_player.workspace = true
 image.workspace = true

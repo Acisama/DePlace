@@ -19,7 +19,6 @@ pub enum SettingsSection {
     Audio,
     Chats,
     Updates,
-    Divider,
 }
 
 impl SettingsSection {
@@ -31,7 +30,6 @@ impl SettingsSection {
             SettingsSection::Audio => "audio",
             SettingsSection::Chats => "chats",
             SettingsSection::Updates => "updates",
-            SettingsSection::Divider => "divider",
         }
     }
 
@@ -43,7 +41,6 @@ impl SettingsSection {
             SettingsSection::Audio => "Audio",
             SettingsSection::Chats => "Chats",
             SettingsSection::Updates => "Updates",
-            SettingsSection::Divider => "Divider",
         }
     }
 }
@@ -58,7 +55,7 @@ impl EnumVariants for chrono_tz::Tz {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, EnumVariants)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
 pub enum HourFormat {
     #[serde(rename = "12-hour")]
     TwelveHour,
@@ -66,7 +63,7 @@ pub enum HourFormat {
     TwentyFourHour,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, EnumVariants)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
 pub enum DateFormat {
     #[serde(rename = "DD/MM/YYYY")]
     DayMonthYear,
@@ -76,7 +73,7 @@ pub enum DateFormat {
     YearMonthDay,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, EnumVariants)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
 pub enum DayOfWeek {
     #[serde(rename = "Monday")]
     Monday,
@@ -94,7 +91,7 @@ pub enum DayOfWeek {
     Sunday,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize, EnumVariants)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
 pub enum DataSizeUnit {
     #[default]
     Bytes,

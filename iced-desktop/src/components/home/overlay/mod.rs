@@ -7,7 +7,7 @@ use iced::{
 };
 use macros::iced_cache;
 use quick_select::{QUICK_SELECT_INPUT_ID, QuickSelect, QuickSelectAction, QuickSelectMessage};
-use settings::{SETTINGS_INPUT_ID, SettingsMessage, SettingsView};
+use settings::{SETTINGS_INPUT_ID, SettingsAction, SettingsMessage, SettingsView};
 
 use crate::common::*;
 
@@ -123,7 +123,9 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 if !matches!(self.state, Some(OverlayState::Settings)) {
                     return None;
                 }
-                match self.settings.update(msg)? {}
+                match self.settings.update(msg)? {
+                    SettingsAction::Run(task) => Some(OverlayAction::Run(task)),
+                }
             }
             OverlayMessage::KeyboardEvent(event) => match self.state.as_ref()? {
                 OverlayState::QuickSelect => {

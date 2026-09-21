@@ -3726,6 +3726,7 @@ dependencies = [
  "const_format",
  "deplace_core",
  "dirs",
+ "enumset",
  "iced",
  "iced_video_player",
  "image",
