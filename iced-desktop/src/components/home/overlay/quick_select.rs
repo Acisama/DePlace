@@ -7,7 +7,7 @@ use crate::common::*;
 
 use deplace_core::{ProfileLike, state::AppState};
 use iced::{
-    Element, Length, Task,
+    Element, Length,
     keyboard::{Event, Key, key::Named},
     padding,
     widget::{button, column, container, row, space, text_input},

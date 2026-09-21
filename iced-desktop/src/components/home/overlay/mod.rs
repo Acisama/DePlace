@@ -118,6 +118,12 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                     QuickSelectAction::NeedsMedia(media) => Some(OverlayAction::NeedsMedia(media)),
                 }
             }
+            OverlayMessage::Settings(msg) => {
+                if !matches!(self.state, Some(OverlayState::Settings)) {
+                    return None;
+                }
+                match self.settings.update(msg)? {}
+            }
             OverlayMessage::KeyboardEvent(event) => match self.state.as_ref()? {
                 OverlayState::QuickSelect => {
                     match self

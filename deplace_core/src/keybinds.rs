@@ -104,11 +104,17 @@ impl Keybinds {
     pub fn new(keybinds_file: PathBuf) -> Self {
         if !keybinds_file.exists() {
             let keybinds = Self::default();
-            std::fs::write(
-                &keybinds_file,
-                toml_edit::ser::to_string(&keybinds).unwrap(),
-            )
-            .ok();
+
+            match toml_edit::ser::to_string(&keybinds) {
+                Ok(contents) => {
+                    if let Err(e) = std::fs::write(&keybinds_file, contents) {
+                        tracing::error!("Failed to write keybinds: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to serialize keybinds: {}", e);
+                }
+            }
             return keybinds;
         }
 

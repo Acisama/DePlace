@@ -16,7 +16,6 @@ pub enum SidebarMessage {
 }
 
 pub enum SidebarAction {
-    Run(Task<()>),
     NeedsMedia(NeedsMedia),
     ChangeRoom(Option<Room>),
     ChangeServer(ActiveServer),
@@ -24,8 +23,6 @@ pub enum SidebarAction {
 
 #[iced_cache(Clone)]
 pub struct Sidebar {
-    state: AppState,
-
     #[hash]
     server_column: ServerColumn,
     #[hash]
@@ -37,56 +34,13 @@ impl Sidebar {
         Self {
             server_column: ServerColumn::new(state),
             channels: ServerChannels::new(state),
-
-            state: state.clone(),
         }
-    }
-
-    pub fn set_active_server_task(&mut self, server: ActiveServer) -> Option<SidebarAction> {
-        let state = self.state.clone();
-        Some(SidebarAction::Run(Task::future(async move {
-            state.set_active_server(server, true).await;
-        })))
-    }
-
-    pub fn set_active_room_task(&mut self, room: Option<Room>) -> Option<SidebarAction> {
-        let state = self.state.clone();
-        Some(SidebarAction::Run(Task::future(async move {
-            state.set_active_room(room).await;
-        })))
     }
 }
 
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
     fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
-            // SidebarMessage::ServerColumn(msg) => {
-            //     if let Some(action) = self.server_column.update(msg) {
-            //         match action {
-            //             ServerColumnAction::Run(task) => Some(SidebarAction::Run(task)),
-            //             ServerColumnAction::SetActiveServer(server) => {
-            //                 self.set_active_server_task(server)
-            //             }
-            //             ServerColumnAction::NeedsMedia(media) => {
-            //                 Some(SidebarAction::NeedsMedia(media))
-            //             }
-            //         }
-            //     } else {
-            //         None
-            //     }
-            // }
-            // SidebarMessage::Channels(msg) => {
-            //     if let Some(action) = self.channels.update(msg) {
-            //         match action {
-            //             ChannelsAction::SetActiveRoom(room) => {
-            //                 self.set_active_room_task(Some(room))
-            //             }
-            //             ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
-            //         }
-            //     } else {
-            //         None
-            //     }
-            // }
             SidebarMessage::ServerColumn(msg) => match self.server_column.update(msg)? {
                 ServerColumnAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
                 ServerColumnAction::SetActiveServer(server) => {

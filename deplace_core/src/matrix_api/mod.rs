@@ -265,9 +265,9 @@ pub async fn matrix_client_builder(
     let cache_dir = &important_paths.cache_dir;
     let settings_dir = &important_paths.config_dir;
 
-    std::fs::create_dir_all(&data_dir)?;
-    std::fs::create_dir_all(&cache_dir)?;
-    std::fs::create_dir_all(&settings_dir)?;
+    std::fs::create_dir_all(data_dir)?;
+    std::fs::create_dir_all(cache_dir)?;
+    std::fs::create_dir_all(settings_dir)?;
 
     let name = format!("{safe_user_id}_{device_id}");
     let db_path = data_dir.join(format!("{name}.db"));

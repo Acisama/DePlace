@@ -10,8 +10,9 @@ mod update;
 pub use definition::MatrixSettingField;
 pub use definition::Settings;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SettingsSection {
+    #[default]
     Profile,
     General,
     Appearance,

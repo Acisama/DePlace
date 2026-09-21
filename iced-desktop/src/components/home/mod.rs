@@ -1,20 +1,18 @@
-use crate::{
-    common::*,
-    components::overlay::{Overlay, OverlayAction, OverlayMessage},
-};
+use crate::common::*;
 use chat::{
     Chat, ChatAction, ChatMessage, TimelineMessage,
     empty::{EmptyChat, EmptyChatMessage},
 };
 use deplace_core::{PaginationDirection, keybinds::Keybinds, state::ActiveServer};
-use iced::{
-    keyboard::{Key, Modifiers},
-    widget::{operation::focus, stack},
-};
+use iced::widget::stack;
 use lru::LruCache;
 use macros::{iced_cache, nonzero_usize};
 use matrix_sdk::media::UniqueKey;
 use sidebar::{Sidebar, SidebarAction, SidebarMessage};
+
+pub mod overlay;
+
+use overlay::{Overlay, OverlayAction, OverlayMessage};
 
 mod chat;
 mod sidebar;
@@ -264,7 +262,6 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
     fn update(&mut self, message: HomeMessage) -> Option<HomeAction> {
         match message {
             HomeMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
-                SidebarAction::Run(task) => Some(HomeAction::Run(task)),
                 SidebarAction::NeedsMedia(needs_media) => self.load_media_task(needs_media),
                 SidebarAction::ChangeRoom(room) => self.set_active_room_task(room),
                 SidebarAction::ChangeServer(server) => self.set_active_server_task(server),

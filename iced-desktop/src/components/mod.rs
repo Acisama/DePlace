@@ -24,7 +24,6 @@ use crate::things::{Colors, Theme};
 pub mod authentification;
 pub mod home;
 pub mod on_appear;
-pub mod overlay;
 pub mod root;
 pub mod shader;
 pub mod track_bounds;
