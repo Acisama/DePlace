@@ -1,29 +1,32 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeSet, HashSet},
     sync::{Arc, Mutex},
 };
+
+use crate::common::*;
 
 use deplace_core::{ProfileLike, state::AppState};
 use iced::{
     Element, Length, Task,
     keyboard::{Event, Key, key::Named},
-    widget::{button, column, container, row, scrollable, space, text, text_input},
+    padding,
+    widget::{button, column, container, row, space, text_input},
 };
 use macros::iced_cache;
-use matrix_sdk::ruma::OwnedRoomId;
 use nucleo::{
     Config, Nucleo,
     pattern::{CaseMatching, Normalization},
 };
 
-use crate::common::{IcedWidget, Structure, Theme};
+use crate::common::{IcedWidget, ProfileRenderExt, Structure, Theme, themed_scrollable};
 
 pub const QUICK_SELECT_INPUT_ID: &str = "quick_select_input";
 
-#[derive(Clone)]
-#[iced_cache]
+#[iced_cache(Clone)]
 pub struct QuickSelect {
     state: AppState,
+    avatar_cache: AvatarCache,
+    membership_map: Receiver<MembershipMap>,
 
     #[hash]
     input: String,
@@ -40,11 +43,19 @@ pub enum QuickSelectMessage {
     SelectRoom(OwnedRoomId),
     KeyboardEvent(Event),
     RoomSwitchDone,
+    NeedsAvatar(OwnedMxcUri),
+}
+
+impl NeedsAvatarExt for QuickSelectMessage {
+    fn needs_avatar(uri: OwnedMxcUri) -> Self {
+        Self::NeedsAvatar(uri)
+    }
 }
 
 #[derive(Debug)]
 pub enum QuickSelectAction {
-    ChangeRoom(Task<()>),
+    NeedsMedia(NeedsMedia),
+    ChangeRoom(Option<Room>),
     Close,
 }
 
@@ -79,6 +90,11 @@ impl QuickSelect {
         }
 
         Self {
+            avatar_cache: state.avatar_cache().clone(),
+            membership_map: state.membership_map(),
+
+            avatar_states_for_hash: BTreeSet::new(),
+
             state: state.clone(),
             input: String::new(),
             matcher: Arc::new(Mutex::new(matcher)),
@@ -130,6 +146,10 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                 }
                 None
             }
+            QuickSelectMessage::NeedsAvatar(uri) => {
+                self.avatar_states_for_hash.insert(uri.clone());
+                Some(QuickSelectAction::NeedsMedia(NeedsMedia::avatar(uri)))
+            }
             // QuickSelectMessage::SelectRoom(room_id) => Some(QuickSelectAction::Run(Some(room_id))),
             QuickSelectMessage::KeyboardEvent(event) => {
                 if let Event::KeyPressed { key, .. } = event {
@@ -172,11 +192,8 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
             }
             QuickSelectMessage::SelectRoom(room_id) => {
                 let room = self.state.client().get_room(&room_id);
-                let state = self.state.clone();
                 tracing::trace!("Quick selected room {room_id}");
-                return Some(QuickSelectAction::ChangeRoom(Task::future(async move {
-                    state.set_active_room(room.clone()).await;
-                })));
+                Some(QuickSelectAction::ChangeRoom(room.clone()))
             }
             QuickSelectMessage::RoomSwitchDone => Some(QuickSelectAction::Close),
         }
@@ -196,7 +213,6 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                         radius: 6.0.into(),
                         width: 1.0,
                         color: theme.input.focused_border,
-                        ..Default::default()
                     },
                     placeholder: theme.text.muted,
                     value: theme.text.normal,
@@ -208,7 +224,6 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                         radius: 6.0.into(),
                         width: 1.0,
                         color: theme.border,
-                        ..Default::default()
                     },
                     placeholder: theme.text.muted,
                     value: theme.text.normal,
@@ -216,20 +231,39 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                 },
             });
 
-        if displayed_rooms.len() > 0 {
+        if !displayed_rooms.is_empty() {
             input_field = input_field.on_submit(QuickSelectMessage::SelectRoom(
                 displayed_rooms[self.selected_index].clone(),
             ));
         }
 
-        let mut room_list = column![].spacing(4).width(Length::Fill);
+        let mut room_list = column![]
+            .spacing(structure.small_gap)
+            .padding(padding::right(structure.gap))
+            .width(Length::Fill);
 
+        let avatar_cache = &self.avatar_cache;
+        let membership_map = self.membership_map.borrow();
         for (index, room_id) in displayed_rooms.into_iter().enumerate() {
             if let Some(room) = client.get_room(&room_id) {
-                let name = room.get_name();
                 let is_selected = index == self.selected_index;
 
-                let item_button = button(text(name).color(theme.text.normal))
+                let icon_size = structure.font_size * 1.2;
+                let (icon, name) = if room.is_dm()
+                    && let Some(other_member) = room.get_other_member(&membership_map)
+                {
+                    (
+                        other_member.clone().render_icon(icon_size, avatar_cache),
+                        other_member.render_name(structure.font_size),
+                    )
+                } else {
+                    (
+                        context_room_icon(&room, icon_size, avatar_cache),
+                        room.render_name(structure.font_size),
+                    )
+                };
+
+                let item_button = button(w::row![icon, name].spacing(structure.small_gap))
                     .width(Length::Fill)
                     .padding(8)
                     .on_press(QuickSelectMessage::SelectRoom(room_id))
@@ -242,7 +276,6 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                                     radius: 6.0.into(),
                                     width: 1.0,
                                     color: theme.accent,
-                                    ..Default::default()
                                 },
                                 ..Default::default()
                             }
@@ -276,7 +309,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
             }
         }
 
-        let scrollable_list = scrollable(room_list)
+        let scrollable_list = themed_scrollable(room_list, theme, structure)
             .width(Length::Fill)
             .height(Length::Fill);
 
@@ -295,7 +328,6 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                     radius: 10.0.into(),
                     width: 1.0,
                     color: theme.border,
-                    ..Default::default()
                 },
                 text_color: Some(theme.text.normal),
                 ..Default::default()

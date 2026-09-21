@@ -303,7 +303,7 @@ pub async fn matrix_client_builder(
     };
 
     let settings = Settings::new(important_paths.settings_file.clone(), new_client.clone());
-    let keybinds = Keybinds::new(&important_paths.keybinds_file);
+    let keybinds = Keybinds::new(important_paths.keybinds_file.clone());
 
     Ok((new_client, settings, keybinds))
 }

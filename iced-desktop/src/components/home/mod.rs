@@ -6,7 +6,7 @@ use chat::{
     Chat, ChatAction, ChatMessage, TimelineMessage,
     empty::{EmptyChat, EmptyChatMessage},
 };
-use deplace_core::{PaginationDirection, keybinds::Keybinds};
+use deplace_core::{PaginationDirection, keybinds::Keybinds, state::ActiveServer};
 use iced::{
     keyboard::{Key, Modifiers},
     widget::{operation::focus, stack},
@@ -137,14 +137,17 @@ impl Home {
         self.window_title.borrow().clone()
     }
 
-    fn load_room(&mut self, room: Room) -> Task<(OwnedRoomId, TimelineMessage)> {
+    fn load_room(&mut self, room: Room) -> Option<HomeAction> {
         let id = room.room_id().to_owned();
         self.active_room_id = Some(id.clone());
 
         let restore_scroll = Task::done((id.clone(), TimelineMessage::RestoreScrollPosition));
 
         if self.chats.promote(&id) {
-            return Task::batch([restore_scroll, self.focus_input_task(&id)]);
+            return Some(HomeAction::LoadTimeline(Task::batch([
+                restore_scroll,
+                self.focus_input_task(&id),
+            ])));
         }
 
         let (chat, task) = Chat::new(&self.state, room);
@@ -158,7 +161,11 @@ impl Home {
         };
         self.chats.promote(&id);
 
-        Task::batch([task, restore_scroll, self.focus_input_task(&id)])
+        Some(HomeAction::LoadTimeline(Task::batch([
+            task,
+            restore_scroll,
+            self.focus_input_task(&id),
+        ])))
     }
 
     fn focus_input_task(&self, id: &OwnedRoomId) -> Task<(OwnedRoomId, TimelineMessage)> {
@@ -169,6 +176,22 @@ impl Home {
         let id = id.clone();
         chat.focus_input()
             .map(move |_| (id.clone(), TimelineMessage::None))
+    }
+
+    fn set_active_server_task(&mut self, server: ActiveServer) -> Option<HomeAction> {
+        let state = self.state.clone();
+        Some(HomeAction::Run(Task::future(async move {
+            state.set_active_server(server, true).await;
+        })))
+    }
+
+    fn set_active_room_task(&mut self, room: Option<Room>) -> Option<HomeAction> {
+        let state = self.state.clone();
+        Some(HomeAction::Run(Task::future(async move {
+            state
+                .set_active_server(state.set_active_room(room).await, false)
+                .await;
+        })))
     }
 
     fn load_media_task(&self, needs_media: NeedsMedia) -> Option<HomeAction> {
@@ -243,24 +266,10 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             HomeMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
                 SidebarAction::Run(task) => Some(HomeAction::Run(task)),
                 SidebarAction::NeedsMedia(needs_media) => self.load_media_task(needs_media),
+                SidebarAction::ChangeRoom(room) => self.set_active_room_task(room),
+                SidebarAction::ChangeServer(server) => self.set_active_server_task(server),
             },
-            HomeMessage::ActiveRoomChanged(Some(room)) => {
-                let focus_window = iced::window::latest().then(|id| match id {
-                    Some(id) => Task::batch([
-                        iced::window::gain_focus(id),
-                        iced::window::request_user_attention(
-                            id,
-                            Some(iced::window::UserAttention::Informational),
-                        ),
-                    ]),
-                    None => Task::none(),
-                });
-
-                Some(HomeAction::LoadTimeline(Task::batch([
-                    self.load_room(room),
-                    focus_window,
-                ])))
-            }
+            HomeMessage::ActiveRoomChanged(Some(room)) => self.load_room(room),
             HomeMessage::ActiveRoomChanged(None) => None,
             HomeMessage::Chat(msg) => {
                 let id = self.active_room_id.clone()?;
@@ -283,6 +292,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 } else if keybinds.settings.matches(&event) {
                     return self.overlay.toggle_settings().map(HomeAction::Run);
                 }
+                drop(keybinds);
 
                 if self.overlay.is_open() {
                     return match self.overlay.update(OverlayMessage::KeyboardEvent(event))? {
@@ -290,9 +300,10 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                             Some(HomeAction::Perform(task.map(HomeMessage::Overlay)))
                         }
                         OverlayAction::Run(task) => Some(HomeAction::Run(task)),
+                        OverlayAction::NeedsMedia(media) => self.load_media_task(media),
+                        OverlayAction::ChangeRoom(room) => self.set_active_room_task(room),
                     };
                 }
-                drop(keybinds);
 
                 let id = self.active_room_id.clone()?;
                 self.dispatch_to_chat(&id, ChatMessage::KeyboardEvent(event))
@@ -302,6 +313,8 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 OverlayAction::Perform(task) => {
                     Some(HomeAction::Perform(task.map(HomeMessage::Overlay)))
                 }
+                OverlayAction::NeedsMedia(media) => self.load_media_task(media),
+                OverlayAction::ChangeRoom(room) => self.set_active_room_task(room),
             },
             HomeMessage::MediaLoaded(media) => {
                 let chat = self

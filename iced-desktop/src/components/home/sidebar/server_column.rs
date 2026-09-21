@@ -25,7 +25,6 @@ impl NeedsAvatarExt for ServerColumnMessage {
 }
 
 pub enum ServerColumnAction {
-    Run(Task<()>),
     SetActiveServer(ActiveServer),
     NeedsMedia(NeedsMedia),
 }

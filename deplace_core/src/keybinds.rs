@@ -101,8 +101,18 @@ impl Shortcut {
 }
 
 impl Keybinds {
-    pub fn new(keybinds_file: &PathBuf) -> Self {
-        let contents = std::fs::read_to_string(keybinds_file.clone()).unwrap_or_default();
+    pub fn new(keybinds_file: PathBuf) -> Self {
+        if !keybinds_file.exists() {
+            let keybinds = Self::default();
+            std::fs::write(
+                &keybinds_file,
+                toml_edit::ser::to_string(&keybinds).unwrap(),
+            )
+            .ok();
+            return keybinds;
+        }
+
+        let contents = std::fs::read_to_string(keybinds_file).unwrap_or_default();
         toml_edit::de::from_str(&contents).unwrap_or_default()
     }
 }

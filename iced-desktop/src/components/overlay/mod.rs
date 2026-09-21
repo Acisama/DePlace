@@ -1,4 +1,4 @@
-use deplace_core::{keybinds::Keybinds, state::AppState};
+use deplace_core::state::AppState;
 use iced::{
     Color,
     Length::Fill,
@@ -90,6 +90,8 @@ impl Overlay {
 pub enum OverlayAction {
     Run(Task<()>),
     Perform(Task<OverlayMessage>),
+    NeedsMedia(NeedsMedia),
+    ChangeRoom(Option<Room>),
 }
 
 impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
@@ -104,24 +106,39 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                     return None;
                 }
                 match self.quickselect.update(msg)? {
-                    QuickSelectAction::ChangeRoom(task) => {
+                    QuickSelectAction::ChangeRoom(room) => {
+                        // TODO: Reset because quickselect is persistent
                         self.state = None;
-                        Some(OverlayAction::Run(task))
+                        Some(OverlayAction::ChangeRoom(room))
                     }
                     QuickSelectAction::Close => {
                         self.state = None;
                         None
                     }
+                    QuickSelectAction::NeedsMedia(media) => Some(OverlayAction::NeedsMedia(media)),
                 }
             }
-            // OverlayMessage::Settings(msg) if matches!(self.state, Some(OverlayState::Settings)) => {
-            //     match self.settings.update(msg)? {
-            //         SettingsAction::Close => {
-            //             self.state = None;
-            //         }
-            //     }
-            // }
-            OverlayMessage::KeyboardEvent(event) => None,
+            OverlayMessage::KeyboardEvent(event) => match self.state.as_ref()? {
+                OverlayState::QuickSelect => {
+                    match self
+                        .quickselect
+                        .update(QuickSelectMessage::KeyboardEvent(event))?
+                    {
+                        QuickSelectAction::ChangeRoom(room) => {
+                            self.state = None;
+                            Some(OverlayAction::ChangeRoom(room))
+                        }
+                        QuickSelectAction::Close => {
+                            self.state = None;
+                            None
+                        }
+                        QuickSelectAction::NeedsMedia(media) => {
+                            Some(OverlayAction::NeedsMedia(media))
+                        }
+                    }
+                }
+                OverlayState::Settings => None,
+            },
         }
     }
 

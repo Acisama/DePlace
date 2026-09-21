@@ -13,13 +13,13 @@ mod server_column;
 pub enum SidebarMessage {
     ServerColumn(ServerColumnMessage),
     Channels(ChannelsMessage),
-    ChangeActiveRoom(Option<Room>),
-    ChangeActiveServer(ActiveServer),
 }
 
 pub enum SidebarAction {
     Run(Task<()>),
     NeedsMedia(NeedsMedia),
+    ChangeRoom(Option<Room>),
+    ChangeServer(ActiveServer),
 }
 
 #[iced_cache(Clone)]
@@ -60,35 +60,43 @@ impl Sidebar {
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
     fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
-            SidebarMessage::ChangeActiveRoom(room) => self.set_active_room_task(room),
-            SidebarMessage::ChangeActiveServer(server) => self.set_active_server_task(server),
-            SidebarMessage::ServerColumn(msg) => {
-                if let Some(action) = self.server_column.update(msg) {
-                    match action {
-                        ServerColumnAction::Run(task) => Some(SidebarAction::Run(task)),
-                        ServerColumnAction::SetActiveServer(server) => {
-                            self.set_active_server_task(server)
-                        }
-                        ServerColumnAction::NeedsMedia(media) => {
-                            Some(SidebarAction::NeedsMedia(media))
-                        }
-                    }
-                } else {
-                    None
+            // SidebarMessage::ServerColumn(msg) => {
+            //     if let Some(action) = self.server_column.update(msg) {
+            //         match action {
+            //             ServerColumnAction::Run(task) => Some(SidebarAction::Run(task)),
+            //             ServerColumnAction::SetActiveServer(server) => {
+            //                 self.set_active_server_task(server)
+            //             }
+            //             ServerColumnAction::NeedsMedia(media) => {
+            //                 Some(SidebarAction::NeedsMedia(media))
+            //             }
+            //         }
+            //     } else {
+            //         None
+            //     }
+            // }
+            // SidebarMessage::Channels(msg) => {
+            //     if let Some(action) = self.channels.update(msg) {
+            //         match action {
+            //             ChannelsAction::SetActiveRoom(room) => {
+            //                 self.set_active_room_task(Some(room))
+            //             }
+            //             ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
+            //         }
+            //     } else {
+            //         None
+            //     }
+            // }
+            SidebarMessage::ServerColumn(msg) => match self.server_column.update(msg)? {
+                ServerColumnAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
+                ServerColumnAction::SetActiveServer(server) => {
+                    Some(SidebarAction::ChangeServer(server))
                 }
-            }
-            SidebarMessage::Channels(msg) => {
-                if let Some(action) = self.channels.update(msg) {
-                    match action {
-                        ChannelsAction::SetActiveRoom(room) => {
-                            self.set_active_room_task(Some(room))
-                        }
-                        ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
-                    }
-                } else {
-                    None
-                }
-            }
+            },
+            SidebarMessage::Channels(msg) => match self.channels.update(msg)? {
+                ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
+                ChannelsAction::SetActiveRoom(room) => Some(SidebarAction::ChangeRoom(Some(room))),
+            },
         }
     }
 
