@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::Result;
 use futures::{Stream, stream};
+use indexmap::IndexMap;
 use matrix_sdk::{
     Client, Room,
     room::RoomMember,
@@ -101,6 +102,7 @@ pub struct UserDevice {
 pub type RoomMap = HashMap<OwnedRoomId, Room>;
 pub type MembershipMap = HashMap<OwnedRoomId, HashMap<OwnedUserId, RoomMember>>;
 pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
+pub type DmRoomMap = IndexMap<OwnedRoomId, Room>;
 
 pub mod cache;
 pub mod roles;
@@ -181,6 +183,40 @@ pub enum ActiveServerId {
     Server(OwnedRoomId),
 }
 
+trait KeysExt {
+    fn len(&self) -> usize;
+    fn keys(&self) -> Vec<&OwnedRoomId>;
+    fn contains_other_key(&self, key: &OwnedRoomId) -> bool;
+}
+
+impl KeysExt for RoomMap {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn keys(&self) -> Vec<&OwnedRoomId> {
+        self.keys().collect()
+    }
+
+    fn contains_other_key(&self, key: &OwnedRoomId) -> bool {
+        self.keys().find(|other| &key == other).is_some()
+    }
+}
+
+impl KeysExt for DmRoomMap {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn keys(&self) -> Vec<&OwnedRoomId> {
+        self.keys().collect()
+    }
+
+    fn contains_other_key(&self, key: &OwnedRoomId) -> bool {
+        self.keys().find(|other| &key == other).is_some()
+    }
+}
+
 /// Cheaply clonable AppState since the data is all
 /// wrapped in an `Arc`. Access only over functions,
 /// no direct field access.
@@ -203,7 +239,7 @@ struct AppStateInner {
 
     notification_manager: NotificationManager,
 
-    dm_rooms: Sender<RoomMap>,
+    dm_rooms: Sender<DmRoomMap>,
     single_rooms: Sender<RoomMap>,
     server_rooms: Sender<RoomMap>,
 
@@ -427,7 +463,7 @@ impl AppState {
 
     // Getters
 
-    pub fn dm_rooms(&self) -> watch::Receiver<RoomMap> {
+    pub fn dm_rooms(&self) -> watch::Receiver<DmRoomMap> {
         self.inner.dm_rooms.subscribe()
     }
 
@@ -478,7 +514,7 @@ impl AppState {
 
     // Mutators
 
-    pub(crate) fn set_dm_rooms(&self, rooms: RoomMap) {
+    pub(crate) fn set_dm_rooms(&self, rooms: DmRoomMap) {
         Self::send_if_keys_changed(&self.inner.dm_rooms, rooms);
     }
 
@@ -685,11 +721,12 @@ impl AppState {
         });
     }
 
-    fn send_if_keys_changed(sender: &Sender<RoomMap>, rooms: RoomMap) {
+    fn send_if_keys_changed<T: KeysExt>(sender: &Sender<T>, new: T) {
         sender.send_if_modified(|cur| {
-            let changed = cur.len() != rooms.len() || rooms.keys().any(|id| !cur.contains_key(id));
+            let changed =
+                cur.len() != new.len() || new.keys().iter().any(|id| !cur.contains_other_key(id));
             if changed {
-                *cur = rooms;
+                *cur = new;
             }
             changed
         });

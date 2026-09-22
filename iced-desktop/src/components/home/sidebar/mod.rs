@@ -46,6 +46,9 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 ServerColumnAction::SetActiveServer(server) => {
                     Some(SidebarAction::ChangeServer(server))
                 }
+                ServerColumnAction::SetActiveDm(room) => {
+                    Some(SidebarAction::ChangeRoom(Some(room)))
+                }
             },
             SidebarMessage::Channels(msg) => match self.channels.update(msg)? {
                 ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),

@@ -1,8 +1,9 @@
-use std::collections::HashMap;
 use std::pin::pin;
 use std::time::Duration;
+use std::{cmp::Reverse, collections::HashMap};
 
 use futures_util::StreamExt;
+use indexmap::IndexMap;
 use matrix_sdk::{
     Client, Room, config::SyncSettings, room::ParentSpace, ruma::presence::PresenceState,
     sync::SyncResponse,
@@ -17,7 +18,7 @@ use crate::{
         save_session,
     },
     notifications::on_message,
-    state::AppState,
+    state::{AppState, DmRoomMap},
 };
 
 pub fn spawn_room_sync(client: &Client, state: &AppState) {
@@ -107,7 +108,7 @@ pub type ParentToChildren = HashMap<OwnedRoomId, HashMap<OwnedRoomId, Room>>;
 pub type ChildToParents = HashMap<OwnedRoomId, Vec<Room>>;
 
 pub struct ClasifiedRooms {
-    pub dm_rooms: RoomMap,
+    pub dm_rooms: DmRoomMap,
     pub single_rooms: RoomMap,
     pub server_rooms: RoomMap,
 
@@ -118,7 +119,7 @@ pub struct ClasifiedRooms {
 }
 
 pub async fn reclassify_rooms(client: &Client) -> ClasifiedRooms {
-    let mut dm_rooms = HashMap::new();
+    let mut dm_rooms = IndexMap::new();
     let mut server_rooms = HashMap::new();
     let mut single_rooms = HashMap::new();
 
@@ -235,6 +236,8 @@ pub async fn reclassify_rooms(client: &Client) -> ClasifiedRooms {
             tracing::error!("Failed to listen to room {}: {e}", id);
         }
     }
+
+    dm_rooms.sort_by_key(|_, r| Reverse(r.latest_event_timestamp()));
 
     ClasifiedRooms {
         dm_rooms,

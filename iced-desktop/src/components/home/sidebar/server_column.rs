@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use deplace_core::{
     matrix_api::sync::ParentToChildren,
-    state::{ActiveServer, ActiveServerId},
+    state::{ActiveServer, ActiveServerId, DmRoomMap},
 };
 use iced::widget::svg;
 use macros::iced_cache;
@@ -13,6 +13,7 @@ use crate::common::*;
 #[derive(Clone, Debug)]
 pub enum ServerColumnMessage {
     ChangeActiveServer(ActiveServer),
+    ChangeToDm(Room),
     NeedsAvatar(OwnedMxcUri),
     ServerHovered(ActiveServerId),
     ServerHoverEnded(ActiveServerId),
@@ -26,6 +27,7 @@ impl NeedsAvatarExt for ServerColumnMessage {
 
 pub enum ServerColumnAction {
     SetActiveServer(ActiveServer),
+    SetActiveDm(Room),
     NeedsMedia(NeedsMedia),
 }
 
@@ -36,6 +38,9 @@ pub struct ServerColumn {
     server_rooms: Receiver<RoomMap>,
     server_order: Receiver<Vec<OwnedRoomId>>,
     parent_to_all_children: Receiver<ParentToChildren>,
+    membership_map: Receiver<MembershipMap>,
+
+    dm_rooms: Receiver<DmRoomMap>,
 
     #[hash]
     hovered_server: Option<ActiveServerId>,
@@ -45,12 +50,25 @@ pub struct ServerColumn {
     avatar_cache: AvatarCache,
 }
 
+impl ExtraHash for ServerColumn {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for room in self.dm_rooms.borrow().values() {
+            let count = room.unread_notification_counts();
+            count.highlight_count.hash(state);
+            count.notification_count.hash(state);
+        }
+    }
+}
+
 impl ServerColumn {
     pub fn new(state: &AppState) -> Self {
         Self {
             server_rooms: state.server_rooms(),
             server_order: state.server_order(),
             parent_to_all_children: state.parent_to_all_children(),
+            membership_map: state.membership_map(),
+
+            dm_rooms: state.dm_rooms(),
 
             hovered_server: None,
             active_server: state.active_server(),
@@ -66,6 +84,7 @@ impl ServerColumn {
 impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
     fn update(&mut self, message: ServerColumnMessage) -> Option<ServerColumnAction> {
         match message {
+            ServerColumnMessage::ChangeToDm(room) => Some(ServerColumnAction::SetActiveDm(room)),
             ServerColumnMessage::ChangeActiveServer(server) => {
                 Some(ServerColumnAction::SetActiveServer(server))
             }
@@ -104,18 +123,18 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             .cloned()
             .collect();
 
-        let mut sorted_rooms: Vec<Room> = self
+        let mut sorted_rooms: IndexMap<OwnedRoomId, Room> = self
             .server_order
             .borrow()
             .iter()
-            .filter_map(|id| rooms_map.get(id).cloned())
+            .filter_map(|id| rooms_map.get(id).map(|r| (id.clone(), r.clone())))
             .collect();
 
-        let mut unsorted_rooms: Vec<Room> = unsorted_server_ids
+        let mut unsorted_rooms: IndexMap<OwnedRoomId, Room> = unsorted_server_ids
             .iter()
-            .filter_map(|id| rooms_map.get(id).cloned())
+            .filter_map(|id| rooms_map.get(id).map(|r| (id.clone(), r.clone())))
             .collect();
-        unsorted_rooms.sort_by_key(|r| r.room_id().to_string());
+        unsorted_rooms.sort_by_key(|id, _| id.clone());
         sorted_rooms.extend(unsorted_rooms);
 
         let icon_handle = iced::advanced::svg::Handle::from_memory(include_bytes!(concat!(
@@ -124,45 +143,88 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         )));
         let icon_size = structure.server_column.icon_size;
 
-        let mut column = w::column![
-            pill(
-                theme,
-                structure,
-                active_server.is_dms(),
-                hovered_server
+        let membership_map = self.membership_map.borrow();
+
+        let column = w::column![pill(
+            theme,
+            structure,
+            active_server.is_dms(),
+            hovered_server
+                .as_ref()
+                .map(|id| id.is_dms())
+                .unwrap_or(false),
+            false,
+            w::mouse_area(svg(icon_handle).width(icon_size).height(icon_size))
+                .interaction(Interaction::Pointer)
+                .on_press(ServerColumnMessage::ChangeActiveServer(ActiveServer::Dms))
+                .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Dms))
+                .on_exit(ServerColumnMessage::ServerHoverEnded(ActiveServerId::Dms))
+        )]
+        .extend(self.dm_rooms.borrow().iter().filter_map(|(id, room)| {
+            let notifications = room.unread_notification_counts();
+
+            let num = if notifications.highlight_count > 0 {
+                Some(notifications.highlight_count)
+            } else if notifications.notification_count > 0 {
+                Some(notifications.notification_count)
+            } else {
+                None
+            };
+
+            num.map(|notif| {
+                let hovered = hovered_server
                     .as_ref()
-                    .map(|id| id.is_dms())
-                    .unwrap_or(false),
-                false,
-                w::mouse_area(svg(icon_handle).width(icon_size).height(icon_size))
-                    .interaction(Interaction::Pointer)
-                    .on_press(ServerColumnMessage::ChangeActiveServer(ActiveServer::Dms))
-                    .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Dms))
-                    .on_exit(ServerColumnMessage::ServerHoverEnded(ActiveServerId::Dms))
-            ),
-            w::row![
-                Space::new().width(structure.small_gap),
-                w::container(
-                    Space::new()
-                        .width(icon_size)
-                        .height(structure.divider_width)
+                    .map(|server_id| server_id.is_server(id))
+                    .unwrap_or(false);
+
+                let icon = if let Some(other_member) = room.get_other_member(&membership_map) {
+                    other_member.render_icon(icon_size, avatar_cache)
+                } else {
+                    room.render_icon(icon_size, avatar_cache)
+                };
+
+                pill(
+                    theme,
+                    structure,
+                    active_server.is_dms(),
+                    hovered,
+                    true,
+                    w::mouse_area(
+                        w::button(icon)
+                            .padding(0.0)
+                            .style(move |_, _| ButtonStyle {
+                                ..Default::default()
+                            })
+                            .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
+                    )
+                    .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
+                        id.clone(),
+                    )))
+                    .on_exit(ServerColumnMessage::ServerHoverEnded(
+                        ActiveServerId::Server(id.clone()),
+                    )),
                 )
-                .style(move |_| w::container::Style {
-                    background: Some(theme.border.into()),
-                    border: Border {
-                        radius: (structure.small_gap / 2.0).into(),
-                        ..Default::default()
-                    },
+                .into()
+            })
+        }))
+        .push(w::row![
+            Space::new().width(structure.small_gap),
+            w::container(
+                Space::new()
+                    .width(icon_size)
+                    .height(structure.divider_width)
+            )
+            .style(move |_| w::container::Style {
+                background: Some(theme.border.into()),
+                border: Border {
+                    radius: (structure.small_gap / 2.0).into(),
                     ..Default::default()
-                })
-            ]
-        ]
-        .spacing(structure.gap);
-
-        for room in sorted_rooms {
-            let id = room.room_id().to_owned();
-
-            column = column.push(pill(
+                },
+                ..Default::default()
+            })
+        ])
+        .extend(sorted_rooms.into_iter().map(|(id, room)| {
+            pill(
                 theme,
                 structure,
                 active_server.is_server(&id),
@@ -182,8 +244,10 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     .on_exit(ServerColumnMessage::ServerHoverEnded(
                         ActiveServerId::Server(id),
                     )),
-            ));
-        }
+            )
+            .into()
+        }))
+        .spacing(structure.gap);
 
         floating_tile(theme, structure, column)
             .width(structure.server_column_width())
@@ -204,7 +268,7 @@ fn pill(
     active: bool,
     hovered: bool,
     has_messages: bool,
-    content: MouseArea<'static, ServerColumnMessage>,
+    content: impl Into<Element<'static, ServerColumnMessage>>,
 ) -> Stack<'static, ServerColumnMessage> {
     let target = if active {
         structure.server_column.icon_size
@@ -215,6 +279,8 @@ fn pill(
     } else {
         0.0
     };
+
+    let content = content.into();
 
     Stack::new()
         .push(w::row![Space::new().width(structure.small_gap), content])

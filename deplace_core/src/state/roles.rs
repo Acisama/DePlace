@@ -23,6 +23,7 @@ pub trait IsRoomDependency {}
 impl IsRoomDependency for tokio::sync::watch::Receiver<crate::state::RoomMap> {}
 impl IsRoomDependency for tokio::sync::watch::Receiver<crate::state::ParentToChildren> {}
 impl IsRoomDependency for tokio::sync::watch::Receiver<crate::state::ParentToChildrenOrderStr> {}
+impl IsRoomDependency for tokio::sync::watch::Receiver<crate::state::DmRoomMap> {}
 
 /// Implemented by `#[iced_cache]` structs that need to fold extra state into their
 /// `Hash` impl beyond their `#[hash]`-marked fields. Picked up automatically by the

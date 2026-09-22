@@ -1,6 +1,9 @@
-use std::{cmp::Reverse, collections::BTreeSet};
+use std::collections::BTreeSet;
 
-use deplace_core::{matrix_api::sync::ParentToChildrenOrderStr, state::ActiveServer};
+use deplace_core::{
+    matrix_api::sync::ParentToChildrenOrderStr,
+    state::{ActiveServer, DmRoomMap},
+};
 use iced::widget::text::Alignment;
 use macros::iced_cache;
 
@@ -28,7 +31,7 @@ pub struct ServerChannels {
     state: AppState,
     avatar_cache: AvatarCache,
 
-    dm_rooms: Receiver<RoomMap>,
+    dm_rooms: Receiver<DmRoomMap>,
 
     membership_map: Receiver<MembershipMap>,
 
@@ -76,12 +79,8 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
             .as_ref()
             .map(|r| r.room_id().to_owned());
 
-        let channels = match &active_server {
-            ActiveServer::Dms => {
-                let mut rooms: Vec<Room> = self.dm_rooms.borrow().values().cloned().collect();
-                rooms.sort_by_key(|r| Reverse(r.latest_event_timestamp()));
-                rooms
-            }
+        let channels: Vec<_> = match &active_server {
+            ActiveServer::Dms => self.dm_rooms.borrow().values().cloned().collect(),
             ActiveServer::Server(server) => {
                 let mut children: Vec<(Room, Option<String>)> = self
                     .parent_to_children

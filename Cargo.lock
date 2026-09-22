@@ -1952,6 +1952,7 @@ dependencies = [
  "iced_video_player",
  "image",
  "imbl",
+ "indexmap",
  "keyboard-types",
  "keyring-core",
  "macros",
