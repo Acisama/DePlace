@@ -1,3 +1,5 @@
+use enumset::EnumSet;
+use matrix_sdk::ruma::events::StateEventType;
 use std::collections::BTreeSet;
 use std::time::SystemTime;
 
@@ -22,50 +24,30 @@ use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
 use matrix_sdk_ui::timeline::{TimelineDetails, TimelineItem as UiTimelineItem};
 
 pub trait ToTimelineItem {
-    fn convert(
-        self,
-        avatar_cache: &AvatarCache,
-        thumbnail_cache: &ThumbnailCache,
-        video_cache: &VideoCache,
-        room_id: OwnedRoomId,
-    ) -> TimelineItem;
+    fn convert(self, state: &AppState, room_id: OwnedRoomId) -> TimelineItem;
 }
 
 impl ToTimelineItem for Arc<UiTimelineItem> {
-    fn convert(
-        self,
-        avatar_cache: &AvatarCache,
-        thumbnail_cache: &ThumbnailCache,
-        video_cache: &VideoCache,
-        room_id: OwnedRoomId,
-    ) -> TimelineItem {
+    fn convert(self, state: &AppState, room_id: OwnedRoomId) -> TimelineItem {
         TimelineItem {
             id: self.unique_id().0.clone(),
             room_id,
-            kind: TimelineItemKind::from_ui(
-                self.kind(),
-                avatar_cache,
-                thumbnail_cache,
-                video_cache,
-            ),
+            kind: TimelineItemKind::from_ui(self.kind(), state),
         }
     }
 }
 
 impl TimelineItemKind {
-    fn from_ui(
-        value: &UiTimelineItemKind,
-        avatar_cache: &AvatarCache,
-        thumbnail_cache: &ThumbnailCache,
-        video_cache: &VideoCache,
-    ) -> Self {
+    fn from_ui(value: &UiTimelineItemKind, state: &AppState) -> Self {
         match value {
             UiTimelineItemKind::Virtual(virt) => match virt {
                 VirtualTimelineItem::ReadMarker => TimelineItemKind::ReadMarker,
                 VirtualTimelineItem::TimelineStart => TimelineItemKind::TimelineStart,
-                VirtualTimelineItem::DateDivider(ms) => TimelineItemKind::DateDivider(
-                    ms.to_system_time().unwrap_or_else(SystemTime::now),
-                ),
+                VirtualTimelineItem::DateDivider(ms) => TimelineItemKind::DateDivider {
+                    date: ms.to_system_time().unwrap_or_else(SystemTime::now),
+                    depends_on_system_messages: None,
+                    system_messages_to_show: state.settings().system_messages_to_show.watch(),
+                },
             },
             UiTimelineItemKind::Event(event) => {
                 let timestamp = event
@@ -93,6 +75,10 @@ impl TimelineItemKind {
                         TimelineItemKind::System {
                             is_hovered: false,
                             previous_is_event: false,
+                            system_messages_to_show: state
+                                .settings()
+                                .system_messages_to_show
+                                .watch(),
                             event: Box::new(SystemEvent {
                                 timestamp,
                                 event_id,
@@ -100,7 +86,7 @@ impl TimelineItemKind {
                                 sender_profile,
                                 content: Arc::new($content),
 
-                                avatar_cache: avatar_cache.clone(),
+                                avatar_cache: state.avatar_cache().clone(),
                                 avatar_states_for_hash: BTreeSet::new(),
                             }),
                         }
@@ -205,11 +191,16 @@ impl TimelineItemKind {
                         AnyOtherStateEventContentChange::SpaceParent(_) => {
                             system!(SystemMessage::SpaceParent)
                         }
-                        other => {
-                            system!(SystemMessage::Custom {
-                                event_type: other.event_type().to_string()
-                            })
-                        }
+                        other => match other.event_type() {
+                            StateEventType::CallMember => {
+                                system!(SystemMessage::CallMember)
+                            }
+                            _ => {
+                                system!(SystemMessage::Custom {
+                                    event_type: other.event_type().to_string()
+                                })
+                            }
+                        },
                     },
                     TimelineItemContent::ProfileChange(p) => {
                         system!(SystemMessage::ProfileChange(Box::new(p.clone())))
@@ -221,44 +212,51 @@ impl TimelineItemKind {
                         call_intent: call_intent.clone(),
                         declined_by: declined_by.clone(),
                     }),
-                    TimelineItemContent::MsgLike(m) => TimelineItemKind::Message {
-                        is_own: event.is_own(),
-                        is_editable: event.is_editable(),
-                        can_be_replied_to: event.can_be_replied_to(),
-                        message: Arc::new(MessageEvent {
-                            timestamp,
+                    TimelineItemContent::MsgLike(m) => {
+                        let settings = state.settings();
+                        TimelineItemKind::Message {
+                            is_own: event.is_own(),
+                            is_editable: event.is_editable(),
+                            can_be_replied_to: event.can_be_replied_to(),
+                            message: Arc::new(MessageEvent {
+                                timestamp,
 
-                            event_id,
-                            sender,
-                            sender_profile,
+                                timezone: settings.timezone.watch(),
+                                hour_format: settings.hour_format.watch(),
+                                date_format: settings.date_format.watch(),
 
-                            is_replying_to: false,
+                                event_id,
+                                sender,
+                                sender_profile,
 
-                            in_reply_to: Arc::new(
-                                m.in_reply_to
-                                    .as_ref()
-                                    .map(get_reply_details)
-                                    .unwrap_or_default(),
-                            ),
+                                is_replying_to: false,
 
-                            reactions: Arc::new(m.reactions.clone()),
+                                in_reply_to: Arc::new(
+                                    m.in_reply_to
+                                        .as_ref()
+                                        .map(get_reply_details)
+                                        .unwrap_or_default(),
+                                ),
 
-                            connects_previous: false,
+                                reactions: Arc::new(m.reactions.clone()),
 
-                            is_highlighted: event.is_highlighted(),
-                            contains_only_emojis: event.contains_only_emojis(),
+                                connects_previous: false,
 
-                            shield: event.get_shield(false),
-                            send_state: event.send_state().cloned(),
+                                is_highlighted: event.is_highlighted(),
+                                contains_only_emojis: event.contains_only_emojis(),
 
-                            content: MessageContent::from_ui(&m.kind, thumbnail_cache, video_cache),
+                                shield: event.get_shield(false),
+                                send_state: event.send_state().cloned(),
 
-                            avatar_cache: avatar_cache.clone(),
-                            avatar_states_for_hash: BTreeSet::new(),
-                        }),
-                        is_hovered: false,
-                        previous_is_event: false,
-                    },
+                                content: MessageContent::from_ui(&m.kind, state),
+
+                                avatar_cache: state.avatar_cache().clone(),
+                                avatar_states_for_hash: BTreeSet::new(),
+                            }),
+                            is_hovered: false,
+                            previous_is_event: false,
+                        }
+                    }
                 }
             }
         }
@@ -274,11 +272,12 @@ fn string_to_option(s: &str) -> Option<String> {
 }
 
 impl MessageContent {
-    fn from_ui(
-        value: &MsgLikeKind,
-        thumbnail_cache: &ThumbnailCache,
-        video_cache: &VideoCache,
-    ) -> Self {
+    fn from_ui(value: &MsgLikeKind, state: &AppState) -> Self {
+        let settings = state.settings();
+
+        let thumbnail_cache = state.thumbnail_cache().clone();
+        let video_cache = state.video_cache().clone();
+
         match value {
             MsgLikeKind::Message(msg) => match msg.msgtype() {
                 MessageType::Audio(_) => MessageContent::Audio,
@@ -292,6 +291,7 @@ impl MessageContent {
                     filename: file.filename().to_string(),
                     source: file.source.clone(),
                     info: file.info.clone(),
+                    data_size_unit: settings.data_size_unit.watch(),
                 },
                 MessageType::Image(image) => MessageContent::Image {
                     image: ImageMessage {
@@ -313,6 +313,8 @@ impl MessageContent {
 
                         thumbnail_cache: thumbnail_cache.clone(),
                         thumbnail_states_for_hash: BTreeSet::new(),
+
+                        data_size_unit: settings.data_size_unit.watch(),
                     },
                     is_hovered: false,
                 },
@@ -353,6 +355,8 @@ impl MessageContent {
 
                         video_cache: video_cache.clone(),
                         video_states_for_hash: BTreeSet::new(),
+
+                        data_size_unit: settings.data_size_unit.watch(),
                     },
                     is_hovered: false,
                 },

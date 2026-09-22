@@ -4,7 +4,13 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use deplace_core::{formatting::format_date_divider, state::cache::VideoCache};
+use chrono_tz::Tz;
+use deplace_core::{
+    formatting::format_date_divider,
+    settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType},
+    state::cache::VideoCache,
+};
+use enumset::EnumSet;
 use iced::Alignment;
 use macros::iced_cache;
 use matrix_sdk::{
@@ -86,6 +92,40 @@ impl TimelineItem {
         };
 
         event.event_id.clone()
+    }
+
+    pub fn is_date_divider(&self) -> bool {
+        matches!(self.kind, TimelineItemKind::DateDivider { .. })
+    }
+
+    pub fn recompute_datedivider_types<'a>(
+        &mut self,
+        rest: impl Iterator<Item = &'a TimelineItem>,
+    ) {
+        let TimelineItemKind::DateDivider {
+            depends_on_system_messages,
+            ..
+        } = &mut self.kind
+        else {
+            return;
+        };
+
+        *depends_on_system_messages = None;
+
+        let mut types = EnumSet::empty();
+        for item in rest {
+            if let TimelineItemKind::DateDivider { .. } = item.kind {
+                break;
+            }
+
+            let TimelineItemKind::System { event, .. } = &item.kind else {
+                return;
+            };
+
+            types.insert(event.message_type());
+        }
+
+        *depends_on_system_messages = Some(types);
     }
 
     pub fn remove_replying(&mut self) {
@@ -354,24 +394,35 @@ impl TimelineItem {
         let fallback = w::text(format!("{:?}", self)).into();
 
         match &self.kind {
-            TimelineItemKind::DateDivider(date) => w::row![
-                w::container("")
-                    .width(Fill)
-                    .height(structure.divider_width)
-                    .style(move |_| ContainerStyle::default()
-                        .background(theme.border)
-                        .border(border::rounded(structure.divider_width / 2.0))),
-                w::text(format_date_divider(*date, chrono_tz::Tz::UTC)).color(theme.text.dim),
-                w::container("")
-                    .width(Fill)
-                    .height(structure.divider_width)
-                    .style(move |_| ContainerStyle::default()
-                        .background(theme.border)
-                        .border(border::rounded(structure.divider_width / 2.0))),
-            ]
-            .align_y(Alignment::Center)
-            .spacing(structure.small_gap)
-            .into(),
+            TimelineItemKind::DateDivider {
+                date,
+                depends_on_system_messages,
+                system_messages_to_show,
+            } => {
+                if depends_on_system_messages
+                    .is_some_and(|dep| system_messages_to_show.borrow().is_disjoint(dep))
+                {
+                    return w::space().into();
+                }
+                w::row![
+                    w::container("")
+                        .width(Fill)
+                        .height(structure.divider_width)
+                        .style(move |_| ContainerStyle::default()
+                            .background(theme.border)
+                            .border(border::rounded(structure.divider_width / 2.0))),
+                    w::text(format_date_divider(*date, chrono_tz::Tz::UTC)).color(theme.text.dim),
+                    w::container("")
+                        .width(Fill)
+                        .height(structure.divider_width)
+                        .style(move |_| ContainerStyle::default()
+                            .background(theme.border)
+                            .border(border::rounded(structure.divider_width / 2.0))),
+                ]
+                .align_y(Alignment::Center)
+                .spacing(structure.small_gap)
+                .into()
+            }
             TimelineItemKind::FailedToParseMessageLike { .. } => fallback,
             TimelineItemKind::FailedToParseState { .. } => fallback,
             TimelineItemKind::ReadMarker => w::container(
@@ -387,16 +438,22 @@ impl TimelineItem {
                 is_hovered,
                 event,
                 previous_is_event,
-            } => render_event(
-                w::lazy(event.clone(), move |event| event.view(theme, structure)),
-                structure,
-                theme,
-                *is_hovered,
-                false,
-                *previous_is_event,
-                false,
-                structure.small_gap,
-            ),
+                system_messages_to_show,
+            } => {
+                if event.should_show(*system_messages_to_show.borrow()) {
+                    return w::space().into();
+                }
+                render_event(
+                    w::lazy(event.clone(), move |event| event.view(theme, structure)),
+                    structure,
+                    theme,
+                    *is_hovered,
+                    false,
+                    *previous_is_event,
+                    false,
+                    structure.small_gap,
+                )
+            }
             TimelineItemKind::Message {
                 message: event,
                 is_hovered,
@@ -427,7 +484,11 @@ impl TimelineItem {
 
 #[derive(Debug, Clone)]
 enum TimelineItemKind {
-    DateDivider(SystemTime),
+    DateDivider {
+        date: SystemTime,
+        depends_on_system_messages: Option<EnumSet<SystemMessageType>>,
+        system_messages_to_show: Receiver<EnumSet<SystemMessageType>>,
+    },
     TimelineStart,
     ReadMarker,
     Message {
@@ -442,6 +503,7 @@ enum TimelineItemKind {
         is_hovered: bool,
         event: Box<SystemEvent>,
         previous_is_event: bool,
+        system_messages_to_show: Receiver<EnumSet<SystemMessageType>>,
     },
     FailedToParseMessageLike {
         event_type: Arc<String>,
@@ -471,10 +533,20 @@ impl Hash for TimelineItemKind {
             TimelineItemKind::System {
                 is_hovered,
                 previous_is_event,
+                system_messages_to_show,
                 ..
             } => {
                 is_hovered.hash(state);
                 previous_is_event.hash(state);
+                system_messages_to_show.borrow().hash(state);
+            }
+            TimelineItemKind::DateDivider {
+                depends_on_system_messages,
+                system_messages_to_show,
+                ..
+            } => {
+                depends_on_system_messages.hash(state);
+                system_messages_to_show.borrow().hash(state);
             }
             _ => {}
         }
@@ -521,6 +593,10 @@ struct MessageEvent {
 
     reactions: Arc<ReactionsByKeyBySender>,
 
+    timezone: Receiver<Tz>,
+    hour_format: Receiver<HourFormat>,
+    date_format: Receiver<DateFormat>,
+
     /// Weather the previous message is the same type, sender and withing 5 minutes of this message.
     connects_previous: bool,
 
@@ -542,6 +618,10 @@ struct MessageEvent {
 
 impl ExtraHash for MessageEvent {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.date_format.borrow().hash(state);
+        self.hour_format.borrow().hash(state);
+        self.timezone.borrow().hash(state);
+
         match self.sender_profile {
             TimelineDetails::Error(_) => 0.hash(state),
             TimelineDetails::Pending => 1.hash(state),
@@ -607,6 +687,7 @@ pub enum MessageContent {
         filename: String,
         source: MediaSource,
         info: Option<Box<FileInfo>>,
+        data_size_unit: Receiver<DataSizeUnit>,
     },
     Image {
         is_hovered: bool,
@@ -662,11 +743,13 @@ impl std::hash::Hash for MessageContent {
                 filename,
                 source,
                 info,
+                data_size_unit,
             } => {
                 caption.hash(state);
                 formatted_caption.hash(state);
                 filename.hash(state);
                 source.unique_key().hash(state);
+                data_size_unit.borrow().hash(state);
                 if let Some(info) = info {
                     info.mimetype.hash(state);
                     info.size.hash(state);
@@ -723,11 +806,14 @@ pub struct ImageMessage {
     source: MediaSource,
     #[hash]
     info: Option<VisualInfo>,
+
+    data_size_unit: Receiver<DataSizeUnit>,
 }
 
 impl ExtraHash for ImageMessage {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.source.unique_key().hash(state);
+        self.data_size_unit.borrow().hash(state);
     }
 }
 
@@ -747,11 +833,14 @@ pub struct VideoMessage {
     source: MediaSource,
     #[hash]
     info: Option<VisualInfo>,
+
+    data_size_unit: Receiver<DataSizeUnit>,
 }
 
 impl ExtraHash for VideoMessage {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.source.unique_key().hash(state);
+        self.data_size_unit.borrow().hash(state);
     }
 }
 
@@ -797,11 +886,48 @@ struct SystemEvent {
     content: Arc<SystemMessage>,
 }
 
+impl SystemEvent {
+    pub fn message_type(&self) -> SystemMessageType {
+        match *self.content {
+            SystemMessage::CallInvite => SystemMessageType::CallInvite,
+            SystemMessage::CallMember => SystemMessageType::CallMember,
+            SystemMessage::MembershipChange(_) => SystemMessageType::MembershipChange,
+            SystemMessage::PolicyRuleRoom => SystemMessageType::PolicyRuleRoom,
+            SystemMessage::PolicyRuleServer => SystemMessageType::PolicyRuleServer,
+            SystemMessage::PolicyRuleUser => SystemMessageType::PolicyRuleUser,
+            SystemMessage::RoomAvatar(_) => SystemMessageType::RoomAvatar,
+            SystemMessage::RoomCanonicalAlias(_) => SystemMessageType::RoomCanonicalAlias,
+            SystemMessage::RoomCreate => SystemMessageType::RoomCreate,
+            SystemMessage::RoomEncryption => SystemMessageType::RoomEncryption,
+            SystemMessage::RoomGuestAccess(_) => SystemMessageType::RoomGuestAccess,
+            SystemMessage::RoomHistoryVisibility(_) => SystemMessageType::RoomHistoryVisibility,
+            SystemMessage::RoomJoinRules(_) => SystemMessageType::RoomJoinRules,
+            SystemMessage::RoomName(_) => SystemMessageType::RoomName,
+            SystemMessage::RoomPinnedEvents => SystemMessageType::RoomPinnedEvents,
+            SystemMessage::RoomPowerLevels => SystemMessageType::RoomPowerLevels,
+            SystemMessage::RoomServerAcl => SystemMessageType::RoomServerAcl,
+            SystemMessage::RoomThirdPartyInvite => SystemMessageType::RoomThirdPartyInvite,
+            SystemMessage::RoomTombstone => SystemMessageType::RoomTombstone,
+            SystemMessage::RoomTopic(_) => SystemMessageType::RoomTopic,
+            SystemMessage::SpaceChild => SystemMessageType::SpaceChild,
+            SystemMessage::SpaceParent => SystemMessageType::SpaceParent,
+            SystemMessage::ProfileChange(_) => SystemMessageType::ProfileChange,
+            SystemMessage::RtcNotification { .. } => SystemMessageType::RtcNotification,
+            SystemMessage::Custom { .. } => SystemMessageType::Custom,
+        }
+    }
+
+    pub fn should_show(&self, allowed: EnumSet<SystemMessageType>) -> bool {
+        allowed.contains(self.message_type())
+    }
+}
+
 #[derive(Debug)]
 enum SystemMessage {
     MembershipChange(Box<RoomMembershipChange>),
     ProfileChange(Box<MemberProfileChange>),
     CallInvite,
+    CallMember,
     RtcNotification {
         call_intent: Option<CallIntent>,
         declined_by: Vec<OwnedUserId>,

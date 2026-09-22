@@ -1,4 +1,4 @@
-use deplace_core::{helpers::RoomPlaceholderExt, matrix_api::messages::RoomSendingExt};
+use deplace_core::{helpers::RoomPlaceholderExt, keybinds::Keybinds, matrix_api::messages::RoomSendingExt};
 use iced::{
     Length,
     border::Radius,
@@ -41,10 +41,12 @@ pub struct ChatInput {
     content: *mut text_editor::Content,
     #[hash]
     replying_to: Option<(Arc<MessageEvent>, OwnedEventId)>,
+
+    keybinds: Receiver<Keybinds>,
 }
 
 impl ChatInput {
-    pub fn new(room: &Room) -> Self {
+    pub fn new(room: &Room, state: &AppState) -> Self {
         Self {
             timeline: None,
             room_id: room.room_id().to_owned(),
@@ -54,6 +56,8 @@ impl ChatInput {
             id: Id::unique(),
             content: Box::leak(Box::new(text_editor::Content::new())),
             replying_to: None,
+
+            keybinds: state.keybinds(),
         }
     }
 
@@ -124,6 +128,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, InputMessage> {
+        let keybinds = self.keybinds.clone();
         let line_height = structure.font_size * 1.2;
 
         let button_size = line_height + structure.small_gap * 2.0;
@@ -220,7 +225,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             .left(button_size + structure.small_gap * 2.0)
                     )
                     .on_action(InputMessage::TextAction)
-                    .key_binding(|key| {
+                    .key_binding(move |key| {
                         if !key.modifiers.shift()
                             && matches!(
                                 key.key,
@@ -229,7 +234,18 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         {
                             Some(text_editor::Binding::Custom(InputMessage::SendMessage))
                         } else {
-                            text_editor::Binding::from_key_press(key)
+                            let keybinds = keybinds.borrow();
+                            let is_reserved = keybinds
+                                .settings
+                                .matches_key(&key.key, &key.modifiers)
+                                || keybinds.quickselect.matches_key(&key.key, &key.modifiers);
+                            drop(keybinds);
+
+                            if is_reserved {
+                                None
+                            } else {
+                                text_editor::Binding::from_key_press(key)
+                            }
                         }
                     })
                     .wrapping(text::Wrapping::WordOrGlyph)

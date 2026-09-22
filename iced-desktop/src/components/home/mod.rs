@@ -35,6 +35,7 @@ pub enum HomeMessage {
         direction: PaginationDirection,
         finished: bool,
     },
+    SettingsChanged,
 }
 
 pub enum HomeAction {
@@ -124,7 +125,18 @@ impl Home {
             },
         ));
 
-        (home, Task::batch([initial_load, watch_task]))
+        let settings_watch_task = Task::stream(iced::futures::stream::unfold(
+            state.settings().watch_any_change(),
+            |mut rx| async move {
+                rx.changed().await.ok()?;
+                Some((HomeMessage::SettingsChanged, rx))
+            },
+        ));
+
+        (
+            home,
+            Task::batch([initial_load, watch_task, settings_watch_task]),
+        )
     }
 
     pub fn set_frontend_focused(&mut self, focused: bool) {
@@ -330,6 +342,15 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 let chat = self.chats.peek_mut(&room_id)?;
 
                 chat.set_timeline_scroll_finished(direction, finished);
+                None
+            }
+            HomeMessage::SettingsChanged => {
+                let chat = self
+                    .active_room_id
+                    .as_ref()
+                    .and_then(|id| self.chats.peek_mut(id))?;
+
+                chat.touch_all();
                 None
             }
         }

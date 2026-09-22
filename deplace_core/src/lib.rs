@@ -45,6 +45,11 @@ const PLATFORM: &str = "ios";
 
 const DEVICE_DISPLAY_NAME: &str = formatcp!("DePlace on {PLATFORM}");
 
+pub const ASSET_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets");
+pub const SHADER_PATH: &str = formatcp!("{ASSET_DIR}/loading.wgsl");
+pub const ICON_SVG: &str = formatcp!("{ASSET_DIR}/deplace_icon.svg");
+pub const ICON_PNG: &str = formatcp!("{ASSET_DIR}/deplace_icon.png");
+
 pub use state::RoomMap;
 
 #[derive(Debug, Clone, Copy)]

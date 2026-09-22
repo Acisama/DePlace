@@ -58,44 +58,51 @@ use iced::keyboard::{Event, Key as IcedKey, key::Named};
 impl Shortcut {
     pub fn matches(&self, event: &Event) -> bool {
         if let Event::KeyPressed { key, modifiers, .. } = event {
-            if modifiers.alt() != self.modifiers.alt() {
-                return false;
-            }
-            if modifiers.control() != self.modifiers.ctrl() {
-                return false;
-            }
-            if modifiers.shift() != self.modifiers.shift() {
-                return false;
-            }
-            if modifiers.logo() != self.modifiers.meta() {
-                return false;
-            }
-
-            match key {
-                IcedKey::Unidentified => false,
-                IcedKey::Character(c1) => {
-                    if let Key::Character(c2) = &self.key {
-                        c1 == c2
-                    } else {
-                        false
-                    }
-                }
-                IcedKey::Named(named1) => {
-                    if let Key::Named(named2) = &self.key {
-                        match (named1, named2) {
-                            (Named::Backspace, NamedKey::Backspace) => true,
-                            (Named::Enter, NamedKey::Enter) => true,
-                            (Named::Space, _) if self.key == Key::Character(' '.into()) => true,
-                            // TODO: add other named key matches here
-                            _ => false,
-                        }
-                    } else {
-                        false
-                    }
-                }
-            }
+            self.matches_key(key, modifiers)
         } else {
             false
+        }
+    }
+
+    /// Same check as [`Shortcut::matches`], but usable from contexts that
+    /// only have the raw key/modifiers, not a full [`Event`] -- e.g.
+    /// `text_editor`'s `key_binding` hook.
+    pub fn matches_key(&self, key: &IcedKey, modifiers: &iced::keyboard::Modifiers) -> bool {
+        if modifiers.alt() != self.modifiers.alt() {
+            return false;
+        }
+        if modifiers.control() != self.modifiers.ctrl() {
+            return false;
+        }
+        if modifiers.shift() != self.modifiers.shift() {
+            return false;
+        }
+        if modifiers.logo() != self.modifiers.meta() {
+            return false;
+        }
+
+        match key {
+            IcedKey::Unidentified => false,
+            IcedKey::Character(c1) => {
+                if let Key::Character(c2) = &self.key {
+                    c1 == c2
+                } else {
+                    false
+                }
+            }
+            IcedKey::Named(named1) => {
+                if let Key::Named(named2) = &self.key {
+                    match (named1, named2) {
+                        (Named::Backspace, NamedKey::Backspace) => true,
+                        (Named::Enter, NamedKey::Enter) => true,
+                        (Named::Space, _) if self.key == Key::Character(' '.into()) => true,
+                        // TODO: add other named key matches here
+                        _ => false,
+                    }
+                } else {
+                    false
+                }
+            }
         }
     }
 }

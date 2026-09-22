@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 
-use crate::settings::DataSizeUnit;
+use crate::settings::{DataSizeUnit, DateFormat, HourFormat};
 
 pub fn format_bytes(bytes: u64, unit: DataSizeUnit) -> String {
     let (size, units): (f64, [&str; 5]) = match unit {
@@ -27,9 +27,14 @@ pub fn format_bytes(bytes: u64, unit: DataSizeUnit) -> String {
     }
 }
 
-pub fn format_message_long_date(date: SystemTime, timezone: Tz) -> String {
-    let hour_str = "%H:%M";
-    let date_str = "%d/%m/%Y";
+pub fn format_message_long_date(
+    date: SystemTime,
+    timezone: Tz,
+    hour_format: HourFormat,
+    date_format: DateFormat,
+) -> String {
+    let hour_str = hour_format.date_format();
+    let date_str = date_format.date_format();
 
     let date = DateTime::<Utc>::from(date).with_timezone(&timezone);
     let now = DateTime::<Utc>::from(SystemTime::now()).with_timezone(&timezone);

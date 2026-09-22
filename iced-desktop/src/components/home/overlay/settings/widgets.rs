@@ -1,7 +1,7 @@
 use crate::common::*;
 use deplace_core::settings::{EnumVariants, MatrixSettingField};
 use enumset::{EnumSet, EnumSetType};
-use iced::Alignment;
+use iced::{Alignment, Length};
 use phosphor_svgs::icon as icons;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::watch;
@@ -194,47 +194,54 @@ where
         structure: Structure,
         on_change: impl Fn(usize) -> Message + 'static,
     ) -> Element<'static, Message> {
-        let mut variants: Vec<(T, &'static str)> = T::all_variants().collect();
-        variants.sort_by_key(|(_, label)| *label);
+        let mut variants: Vec<(usize, T, &'static str)> = T::all_variants()
+            .enumerate()
+            .map(|(idx, (variant, label))| (idx, variant, label))
+            .collect();
+        variants.sort_by_key(|(_, _, label)| *label);
         let active = field.value();
 
-        let chips = variants
-            .into_iter()
-            .enumerate()
-            .map(|(idx, (variant, label))| {
-                let is_active = active.contains(variant);
+        let chips = variants.into_iter().map(|(idx, variant, label)| {
+            let is_active = active.contains(variant);
 
-                w::button(w::text(label).size(structure.font_size * 0.9))
-                    .padding(structure.small_gap / 2.0)
-                    .on_press(on_change(idx))
-                    .style(move |_, _| ButtonStyle {
-                        text_color: if is_active {
+            w::button(w::text(label).size(structure.font_size).center())
+                .padding(structure.small_gap)
+                .on_press(on_change(idx))
+                .style(move |_, status| ButtonStyle {
+                    text_color: if status.active() {
+                        theme.text.normal
+                    } else if is_active {
+                        theme.colors.success
+                    } else {
+                        theme.text.dim
+                    },
+                    background: is_active.then_some(
+                        Color {
+                            a: 0.1,
+                            ..theme.colors.success
+                        }
+                        .into(),
+                    ),
+                    border: Border {
+                        color: if status.active() {
+                            theme.accent
+                        } else if is_active {
                             theme.colors.success
                         } else {
-                            theme.text.dim
+                            theme.border
                         },
-                        background: is_active.then_some(
-                            Color {
-                                a: 0.1,
-                                ..theme.colors.success
-                            }
-                            .into(),
-                        ),
-                        border: Border {
-                            color: if is_active {
-                                theme.colors.success
-                            } else {
-                                theme.border
-                            },
-                            width: structure.border_thickness,
-                            radius: structure.inner_border_radius.into(),
-                        },
-                        ..Default::default()
-                    })
-                    .into()
-            });
+                        width: structure.border_thickness,
+                        radius: structure.inner_border_radius.into(),
+                    },
+                    ..Default::default()
+                })
+                .into()
+        });
 
-        let grid = w::row(chips).spacing(structure.small_gap).wrap();
+        let grid = w::grid(chips)
+            .spacing(structure.small_gap)
+            .columns(5)
+            .height(Length::Shrink);
 
         setting_row(field, theme, structure, grid.into(), true)
     }

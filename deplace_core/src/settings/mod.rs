@@ -55,7 +55,7 @@ impl EnumVariants for chrono_tz::Tz {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
 pub enum HourFormat {
     #[serde(rename = "12-hour")]
     TwelveHour,
@@ -63,7 +63,16 @@ pub enum HourFormat {
     TwentyFourHour,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
+impl HourFormat {
+    pub fn date_format(&self) -> &str {
+        match self {
+            HourFormat::TwelveHour => "%I:%M %p",
+            HourFormat::TwentyFourHour => "%H:%M",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
 pub enum DateFormat {
     #[serde(rename = "DD/MM/YYYY")]
     DayMonthYear,
@@ -73,7 +82,17 @@ pub enum DateFormat {
     YearMonthDay,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
+impl DateFormat {
+    pub fn date_format(&self) -> &str {
+        match self {
+            DateFormat::DayMonthYear => "%d/%m/%Y",
+            DateFormat::MonthDayYear => "%m/%d/%Y",
+            DateFormat::YearMonthDay => "%Y/%m/%d",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
 pub enum DayOfWeek {
     #[serde(rename = "Monday")]
     Monday,
@@ -91,7 +110,9 @@ pub enum DayOfWeek {
     Sunday,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants,
+)]
 pub enum DataSizeUnit {
     #[default]
     Bytes,
@@ -103,6 +124,7 @@ pub enum DataSizeUnit {
 #[enumset(serialize_repr = "list")]
 pub enum SystemMessageType {
     CallInvite,
+    CallMember,
     MembershipChange,
     ProfileChange,
     RtcNotification,
@@ -125,8 +147,7 @@ pub enum SystemMessageType {
     RoomTopic,
     SpaceChild,
     SpaceParent,
-    Unknown,
-    Invisible,
+    Custom,
 }
 
 const DEFAULT_SYSTEM_MESSAGES: EnumSet<SystemMessageType> = enum_set!(
@@ -137,7 +158,7 @@ const DEFAULT_SYSTEM_MESSAGES: EnumSet<SystemMessageType> = enum_set!(
         | SystemMessageType::RoomPinnedEvents
         | SystemMessageType::SpaceChild
         | SystemMessageType::SpaceParent
-        | SystemMessageType::Unknown
+        | SystemMessageType::Custom
 );
 
 pub const SYSTEM_MESSAGE_MODES: &[(&str, &str, EnumSet<SystemMessageType>)] = &[

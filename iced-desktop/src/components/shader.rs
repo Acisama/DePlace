@@ -25,7 +25,9 @@ impl Pipeline for LoadingPipeline {
     fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("loading_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("loading.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/loading.wgsl")).into(),
+            ),
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

@@ -7,13 +7,13 @@ use iced::advanced::{Widget, layout};
 use iced::font::Weight;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::widget::image::Handle as ImageHandle;
-use iced::widget::text::Rich;
+use iced::widget::text::{LineHeight, Rich};
 use iced::widget::{self as w, Canvas, Scrollable, canvas, image, rich_text, span, svg};
+use iced::{Alignment, Color, ContentFit, Font, Point, Renderer, Size};
 use iced::{
     Border, Element,
     widget::{Container, Stack},
 };
-use iced::{Color, ContentFit, Font, Point, Renderer, Size};
 use matrix_sdk::Room;
 use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::serde::Base64;
@@ -408,6 +408,8 @@ pub fn render_name<'a, T: Clone + 'a>(name: String, size: f32, color: Color) -> 
     weighted_text(name, Weight::Bold)
         .size(size)
         .color(color)
+        .line_height(LineHeight::Relative(1.0))
+        .align_y(Alignment::End)
         .into()
 }
 

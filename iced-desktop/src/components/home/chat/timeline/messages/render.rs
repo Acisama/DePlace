@@ -1,10 +1,13 @@
-use deplace_core::formatting::{fit_dimensions, format_bytes};
+use deplace_core::formatting::{fit_dimensions, format_bytes, format_message_long_date};
 use iced::{
     Alignment, Background,
     Length::{self, Shrink},
     gradient::Linear,
     never,
-    widget::{span, text::Rich},
+    widget::{
+        span,
+        text::{LineHeight, Rich},
+    },
 };
 use iced_video_player::VideoPlayer;
 use matrix_sdk::{
@@ -92,8 +95,12 @@ impl MessageEvent {
 
         let show_header = as_dummy || !self.connects_previous;
 
-        let (text_content, other_content) =
-            self.content.view(theme, structure, self.is_local_echo());
+        let (text_content, other_content) = self.content.view(
+            theme,
+            structure,
+            self.is_local_echo(),
+            self.contains_only_emojis,
+        );
 
         let mut column = w::Column::new();
 
@@ -125,20 +132,41 @@ impl MessageEvent {
                 let size = structure.chat.icon_size;
                 let rounding = size / 2.0;
 
+                let name_row = move |name_view: Element<'static, TimelineItemMessage>| {
+                    Element::from(
+                        w::row![
+                            name_view,
+                            w::text(format_message_long_date(
+                                self.timestamp,
+                                *self.timezone.borrow(),
+                                *self.hour_format.borrow(),
+                                *self.date_format.borrow(),
+                            ))
+                            .line_height(LineHeight::Relative(1.0))
+                            .size(structure.chat.small_text_size)
+                            .color(theme.text.dim)
+                            .align_y(Alignment::End)
+                        ]
+                        .spacing(structure.small_gap)
+                        .padding(padding::bottom(structure.small_gap / 2.0))
+                        .align_y(Alignment::End),
+                    )
+                };
+
                 match &self.sender_profile {
                     TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
                         Some(unknown_icon(size, rounding, theme)),
-                        Some(render_unknown_name(size, theme)),
+                        Some(name_row(render_unknown_name(size, theme))),
                         theme.colors.error,
                     ),
                     TimelineDetails::Pending => (
                         Some(loading_icon(size, rounding, theme)),
-                        Some(render_loading_name(size, theme)),
+                        Some(name_row(render_loading_name(size, theme))),
                         theme.colors.offline,
                     ),
                     TimelineDetails::Ready(p) => (
                         Some(p.render_icon(size, &self.avatar_cache)),
-                        Some(p.render_name(text_size)),
+                        Some(name_row(p.render_name(text_size))),
                         p.color().to_iced(),
                     ),
                 }
@@ -207,7 +235,8 @@ impl MessageEvent {
                 .height(Fill)
                 .padding(padding::right(pill_width)),
                 w::column![
-                    w::row![icon, w::text(" ").size(small_text_size), name],
+                    w::row![icon, w::text(" ").size(small_text_size), name]
+                        .align_y(Alignment::Center),
                     content
                 ]
             ]
@@ -286,11 +315,16 @@ impl MessageContent {
         theme: Theme,
         structure: Structure,
         is_local_echo: bool,
+        contains_only_emojis: bool,
     ) -> (
         Option<Element<'static, TimelineItemMessage>>,
         Option<Element<'static, TimelineItemMessage>>,
     ) {
-        let text_size = structure.chat.text_size;
+        let mut text_size = structure.chat.text_size;
+
+        if contains_only_emojis {
+            text_size *= 1.5;
+        }
 
         let render_text_color =
             |text: String, color: Color| w::text(text).color(color).size(text_size);
@@ -332,7 +366,11 @@ impl MessageContent {
                 body,
                 formatted_body,
             } => (
-                body.as_ref().map(|t| render_normal_text(t.clone()).into()),
+                body.as_ref().map(|t| {
+                    render_normal_text(t.clone())
+                        .size(structure.chat.text_size * 1.5)
+                        .into()
+                }),
                 None,
             ),
             MessageContent::Empty => itallic_text("Empty".to_string()),
@@ -364,7 +402,10 @@ impl MessageContent {
                                 },
                                 ..Default::default()
                             })
-                            .padding(structure.small_gap / 2.0),
+                            .padding(
+                                padding::vertical(structure.small_gap / 2.0)
+                                    .horizontal(structure.small_gap),
+                            ),
                         )
                         .height(image.get_dimensions(structure).1)
                         .padding(structure.small_gap / 2.0)
@@ -465,7 +506,10 @@ impl MessageContent {
                                 },
                                 ..Default::default()
                             })
-                            .padding(structure.small_gap / 2.0),
+                            .padding(
+                                padding::vertical(structure.small_gap / 2.0)
+                                    .horizontal(structure.small_gap),
+                            ),
                         )
                         .height(video.get_dimensions(structure).1)
                         .padding(structure.small_gap / 2.0)
@@ -496,10 +540,9 @@ impl ImageMessage {
             self.filename,
             self.info
                 .as_ref()
-                .and_then(|i| i.size.map(|s| format!(
-                    " ({})",
-                    format_bytes(s, deplace_core::settings::DataSizeUnit::Bytes)
-                )))
+                .and_then(|i| i
+                    .size
+                    .map(|s| format!(" ({})", format_bytes(s, *self.data_size_unit.borrow()))))
                 .unwrap_or_default()
         )
     }
@@ -627,10 +670,9 @@ impl VideoMessage {
             self.filename,
             self.info
                 .as_ref()
-                .and_then(|i| i.size.map(|s| format!(
-                    " ({})",
-                    format_bytes(s, deplace_core::settings::DataSizeUnit::Bytes)
-                )))
+                .and_then(|i| i
+                    .size
+                    .map(|s| format!(" ({})", format_bytes(s, *self.data_size_unit.borrow()))))
                 .unwrap_or_default()
         )
     }
@@ -787,6 +829,7 @@ impl SystemMessage {
     fn icon(&self, theme: Theme) -> (&'static str, Color) {
         match self {
             SystemMessage::CallInvite => (icons::phone_call::FILL, theme.text.dim),
+            SystemMessage::CallMember => (icons::phone_call::FILL, theme.text.dim),
             SystemMessage::RtcNotification { call_intent, .. } => (
                 match call_intent {
                     Some(CallIntent::Video) => icons::video_camera::FILL,
@@ -863,6 +906,7 @@ impl SystemMessage {
 
         match self {
             SystemMessage::CallInvite => basic_text("invited to a call".to_string()),
+            SystemMessage::CallMember => basic_text("did a call thing".to_string()),
             SystemMessage::Custom { event_type } => {
                 basic_text(format!("sent an event of type {}", event_type))
             }

@@ -1,7 +1,10 @@
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
+use chrono_tz::Tz;
 use deplace_core::PaginationDirection;
+use deplace_core::settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType};
+use enumset::EnumSet;
 use iced::Vector;
 use iced::advanced::widget::operate;
 use iced::advanced::widget::operation::scrollable::{RelativeOffset, snap_to};
@@ -93,6 +96,13 @@ pub struct ChatTimeline {
     user_can_redact_own: bool,
     user_can_redact_other: bool,
 
+    // Stuff the messages depend on
+    system_messages_to_show: Receiver<EnumSet<SystemMessageType>>,
+    timezone: Receiver<Tz>,
+    hour_format: Receiver<HourFormat>,
+    date_format: Receiver<DateFormat>,
+    data_size_unit: Receiver<DataSizeUnit>,
+
     scrolled_from_top: f32,
     /// Where this room's scrollable was left, so it can be restored
     scroll_position: RelativeOffset,
@@ -138,6 +148,12 @@ impl ExtraHash for ChatTimeline {
         self.tile_bounds.height.to_bits().hash(state);
         self.message_event_bounds.len().hash(state);
 
+        self.system_messages_to_show.borrow().hash(state);
+        self.timezone.borrow().hash(state);
+        self.hour_format.borrow().hash(state);
+        self.date_format.borrow().hash(state);
+        self.data_size_unit.borrow().hash(state);
+
         // sort for deterministic hashing
         let mut sorted_keys: Vec<&String> = self.message_event_bounds.keys().collect();
         sorted_keys.sort_unstable();
@@ -163,9 +179,17 @@ impl ChatTimeline {
         ));
         let own_user_id = room.own_user_id().to_owned();
 
+        let settings = state.settings();
+
         let mut timeline = Self {
             state: state.clone(),
             timeline: None,
+
+            system_messages_to_show: settings.system_messages_to_show.watch(),
+            timezone: settings.timezone.watch(),
+            hour_format: settings.hour_format.watch(),
+            date_format: settings.date_format.watch(),
+            data_size_unit: settings.data_size_unit.watch(),
 
             power_levels,
             user_can_send: false,
@@ -263,6 +287,15 @@ impl ChatTimeline {
         }
     }
 
+    /// Pokes every row to trigger re-examination -- see `touch_media` for
+    /// why this is necessary. Used when something outside `self.content`
+    /// that every row's view depends on changes, e.g. `system_messages_to_show`.
+    pub fn touch_all(&mut self) {
+        for index in 0..self.content.len() {
+            self.content.get_index_mut(index);
+        }
+    }
+
     /// Recomputes `connects_previous`/`previous_is_text_message` for a
     /// single index, applying the update only where it actually changed.
     /// Both only depend on the *previous* neighbor.
@@ -309,6 +342,81 @@ impl ChatTimeline {
     fn refresh_all_previous_linkage(&mut self) {
         for index in 0..self.content.len() {
             self.refresh_previous_linkage(index);
+        }
+    }
+
+    /// Index of the nearest `DateDivider` at or before `index`, if any.
+    fn nearest_datedivider_at_or_before(&self, index: usize) -> Option<usize> {
+        (0..=index).rev().find(|&i| {
+            self.content
+                .get_index(i)
+                .is_some_and(|item| item.is_date_divider())
+        })
+    }
+
+    /// Index of the nearest `DateDivider` strictly after `index`, if any.
+    fn nearest_datedivider_after(&self, index: usize) -> Option<usize> {
+        ((index + 1)..self.content.len()).find(|&i| {
+            self.content
+                .get_index(i)
+                .is_some_and(|item| item.is_date_divider())
+        })
+    }
+
+    /// Recomputes `depends_on_system_messages` for the `DateDivider` at
+    /// `divider_index`, from a snapshot of the items after it, up to (not
+    /// including) the next divider -- the only range it depends on.
+    /// Snapshotting first avoids borrowing `self.content` both mutably and
+    /// immutably at once.
+    fn recompute_datedivider(&mut self, divider_index: usize) {
+        let mut rest = Vec::new();
+        for i in (divider_index + 1)..self.content.len() {
+            let Some(item) = self.content.get_index(i) else {
+                break;
+            };
+            if item.is_date_divider() {
+                break;
+            }
+            rest.push(item.clone());
+        }
+
+        if let Some(item) = self.content.get_index_mut(divider_index) {
+            Arc::make_mut(item).recompute_datedivider_types(rest.iter().map(Arc::as_ref));
+        }
+    }
+
+    /// After a structural change at `index` (insert/remove), refreshes the
+    /// nearest `DateDivider` at or before `index` -- since a divider's scan
+    /// only ever looks forward from its own position, that's the only one
+    /// whose range could reach `index`. If a `DateDivider` landed exactly at
+    /// `index` (freshly inserted, or shifted there by a removal), it's a
+    /// boundary the divider after it now depends on, so that one is
+    /// refreshed too.
+    fn refresh_datedivider_near(&mut self, index: usize) {
+        let Some(divider_index) = self.nearest_datedivider_at_or_before(index) else {
+            return;
+        };
+        self.recompute_datedivider(divider_index);
+
+        if divider_index == index
+            && let Some(next_index) = self.nearest_datedivider_after(index)
+        {
+            self.recompute_datedivider(next_index);
+        }
+    }
+
+    /// Recomputes `depends_on_system_messages` for every `DateDivider` --
+    /// used after bulk operations (initial load, reset) where structure
+    /// changed too broadly to target specific indices.
+    fn refresh_all_datedividers(&mut self) {
+        for index in 0..self.content.len() {
+            if self
+                .content
+                .get_index(index)
+                .is_some_and(|item| item.is_date_divider())
+            {
+                self.recompute_datedivider(index);
+            }
         }
     }
 
@@ -487,6 +595,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                 self.content = list::Content::with_items((*initial).clone());
                 self.refresh_all_previous_linkage();
+                self.refresh_all_datedividers();
                 self.messages_version += 1;
 
                 if length < 50 {
@@ -507,32 +616,34 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     self.content.len()
                 );
 
-                let avatar_cache = self.state.avatar_cache().clone();
-                let thumbnail_cache = self.state.thumbnail_cache().clone();
-                let video_cache = self.state.video_cache().clone();
                 let room_id = self.room_id.clone();
+                let state = self.state.clone();
 
                 for diff in diffs.into_iter().map(|d| {
                     d.map(|m| {
                         (
                             m.unique_id().0.clone(),
-                            Arc::new(m.convert(
-                                &avatar_cache,
-                                &thumbnail_cache,
-                                &video_cache,
-                                room_id.clone(),
-                            )),
+                            Arc::new(m.convert(&state, room_id.clone())),
                         )
                     })
                 }) {
                     match diff {
                         VectorDiff::Append { values } => {
                             for (key, value) in values {
+                                // The diff already hands us the value, so no
+                                // search is needed -- it can only affect a
+                                // `DateDivider` if it's one itself (needing
+                                // its own first scan); it can never reach
+                                // back into an earlier divider's range.
+                                let is_new_divider = value.is_date_divider();
                                 self.content.push(key, value);
                                 // Last item only: appending never has
                                 // anything after it whose `previous` could
                                 // change.
                                 self.refresh_previous_linkage(self.content.len() - 1);
+                                if is_new_divider {
+                                    self.recompute_datedivider(self.content.len() - 1);
+                                }
                             }
                         }
                         VectorDiff::Clear => self.content = list::Content::new(),
@@ -542,39 +653,52 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         } => {
                             self.content.insert(index, key, value);
                             self.refresh_previous_linkage_near(index);
+                            self.refresh_datedivider_near(index);
                         }
                         // Removing from the end can't change any remaining
-                        // item's `previous` neighbor.
+                        // item's `previous` neighbor. The diff doesn't carry
+                        // the removed value, though, so unlike `Append` we
+                        // can't shortcut straight to "was it a divider" --
+                        // do the general search instead.
                         VectorDiff::PopBack => {
                             if !self.content.is_empty() {
                                 self.content.remove(self.content.len() - 1);
+                                self.refresh_datedivider_near(self.content.len());
                             }
                         }
                         VectorDiff::PopFront => {
                             if !self.content.is_empty() {
                                 self.content.remove(0);
                                 self.refresh_previous_linkage(0);
+                                self.refresh_datedivider_near(0);
                             }
                         }
                         VectorDiff::PushBack {
                             value: (key, value),
                         } => {
+                            let is_new_divider = value.is_date_divider();
                             self.content.push(key, value);
                             self.refresh_previous_linkage(self.content.len() - 1);
+                            if is_new_divider {
+                                self.recompute_datedivider(self.content.len() - 1);
+                            }
                         }
                         VectorDiff::PushFront {
                             value: (key, value),
                         } => {
                             self.content.insert(0, key, value);
                             self.refresh_previous_linkage_near(0);
+                            self.refresh_datedivider_near(0);
                         }
                         VectorDiff::Remove { index } => {
                             self.content.remove(index);
                             self.refresh_previous_linkage(index);
+                            self.refresh_datedivider_near(index);
                         }
                         VectorDiff::Reset { values } => {
                             self.content = list::Content::with_items(values.into_iter().collect());
                             self.refresh_all_previous_linkage();
+                            self.refresh_all_datedividers();
                         }
                         // Matrix timeline updates (edits, reactions,
                         // redactions-in-place) never change an item's
@@ -591,7 +715,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             }
                         }
                         // Truncating only removes from the end, which can't
-                        // change any remaining item's `previous` neighbor.
+                        // change any remaining item's `previous` neighbor or
+                        // any `DateDivider`'s dependencies.
                         VectorDiff::Truncate { length } => {
                             while self.content.len() > length {
                                 self.content.remove(self.content.len() - 1);

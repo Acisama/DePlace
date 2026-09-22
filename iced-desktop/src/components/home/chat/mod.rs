@@ -61,9 +61,7 @@ impl Chat {
 
         let room_id = room.room_id().to_owned();
 
-        let avatar_cache = state.avatar_cache().clone();
-        let thumbnail_cache = state.thumbnail_cache().clone();
-        let video_cache = state.video_cache().clone();
+        let state_clone = state.clone();
 
         let room_id_clone = room_id.clone();
         let room_clone = room.clone();
@@ -112,12 +110,7 @@ impl Chat {
                     .map(|m| {
                         (
                             m.unique_id().0.clone(),
-                            Arc::new(m.convert(
-                                &avatar_cache,
-                                &thumbnail_cache,
-                                &video_cache,
-                                room_id_clone.clone(),
-                            )),
+                            Arc::new(m.convert(&state_clone, room_id_clone.clone())),
                         )
                     })
                     .collect(),
@@ -137,7 +130,7 @@ impl Chat {
             Self {
                 header: Header::new(state, &room),
                 timeline: ChatTimeline::new(&room, state),
-                input: ChatInput::new(&room),
+                input: ChatInput::new(&room, state),
 
                 room_id: room.room_id().to_owned(),
             },
@@ -159,6 +152,10 @@ impl Chat {
 
     pub fn touch_media(&mut self, media: &MediaLoaded) {
         self.timeline.touch_media(media);
+    }
+
+    pub fn touch_all(&mut self) {
+        self.timeline.touch_all();
     }
 }
 
