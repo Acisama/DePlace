@@ -21,6 +21,7 @@ use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::serde::Base64;
 
 pub mod authentification;
+pub mod corner_badge;
 pub mod home;
 pub mod on_appear;
 pub mod root;
@@ -28,6 +29,7 @@ pub mod shader;
 pub mod track_bounds;
 pub mod track_scroll;
 
+pub use corner_badge::{CornerContent, corner_badge};
 pub use on_appear::on_appear;
 
 pub enum GenericState<T: Clone> {

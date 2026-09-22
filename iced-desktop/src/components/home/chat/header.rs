@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use iced::Alignment;
 use macros::iced_cache;
 
 use crate::{common::*, components::context_room_icon};
@@ -93,10 +94,16 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             )
         };
 
-        floating_tile(theme, structure, w::row![icon, name].spacing(structure.gap))
-            .width(Fill)
-            .padding(structure.header.icon_padding())
-            .height(structure.header.height)
-            .into()
+        floating_tile(
+            theme,
+            structure,
+            w::row![icon, name]
+                .align_y(Alignment::Center)
+                .spacing(structure.gap),
+        )
+        .width(Fill)
+        .padding(structure.header.icon_padding())
+        .height(structure.header.height)
+        .into()
     }
 }

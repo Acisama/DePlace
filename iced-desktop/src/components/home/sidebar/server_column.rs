@@ -57,6 +57,18 @@ impl ExtraHash for ServerColumn {
             count.highlight_count.hash(state);
             count.notification_count.hash(state);
         }
+
+        for id in self.server_order.borrow().iter() {
+            let ptac = self.parent_to_all_children.borrow();
+            let Some(rooms) = ptac.get(id) else {
+                continue;
+            };
+            for room in rooms.values() {
+                let count = room.unread_notification_counts();
+                count.highlight_count.hash(state);
+                count.notification_count.hash(state);
+            }
+        }
     }
 }
 
@@ -144,6 +156,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         let icon_size = structure.server_column.icon_size;
 
         let membership_map = self.membership_map.borrow();
+        let parent_to_all_children = self.parent_to_all_children.borrow();
 
         let column = w::column![pill(
             theme,
@@ -163,10 +176,12 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         .extend(self.dm_rooms.borrow().iter().filter_map(|(id, room)| {
             let notifications = room.unread_notification_counts();
 
-            let num = if notifications.highlight_count > 0 {
-                Some(notifications.highlight_count)
-            } else if notifications.notification_count > 0 {
-                Some(notifications.notification_count)
+            let num = if notifications.highlight_count > 0 || notifications.notification_count > 0 {
+                Some(
+                    notifications
+                        .highlight_count
+                        .max(notifications.notification_count),
+                )
             } else {
                 None
             };
@@ -189,19 +204,29 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     active_server.is_dms(),
                     hovered,
                     true,
-                    w::mouse_area(
-                        w::button(icon)
-                            .padding(0.0)
-                            .style(move |_, _| ButtonStyle {
-                                ..Default::default()
-                            })
-                            .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
+                    corner_badge(
+                        w::mouse_area(
+                            w::button(icon)
+                                .padding(0.0)
+                                .style(move |_, _| ButtonStyle {
+                                    ..Default::default()
+                                })
+                                .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
+                        )
+                        .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
+                            id.clone(),
+                        )))
+                        .on_exit(ServerColumnMessage::ServerHoverEnded(
+                            ActiveServerId::Server(id.clone()),
+                        )),
+                        0.4,
+                        0.15,
+                        theme.solid_bg,
                     )
-                    .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
-                        id.clone(),
-                    )))
-                    .on_exit(ServerColumnMessage::ServerHoverEnded(
-                        ActiveServerId::Server(id.clone()),
+                    .br(CornerContent::text(
+                        notif.to_string(),
+                        theme.solid_bg,
+                        theme.accent,
                     )),
                 )
                 .into()
@@ -224,6 +249,34 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             })
         ])
         .extend(sorted_rooms.into_iter().map(|(id, room)| {
+            let children = parent_to_all_children.get(&id);
+
+            let (highlight_count, notification_count) = if let Some(children) = children {
+                children
+                    .values()
+                    .fold((0, 0), |(highlight_count, notification_count), room| {
+                        let count = room.unread_notification_counts();
+                        (
+                            highlight_count + count.highlight_count,
+                            notification_count + count.notification_count,
+                        )
+                    })
+            } else {
+                (0, 0)
+            };
+
+            let content = w::mouse_area(room.render_icon(icon_size, avatar_cache))
+                .interaction(Interaction::Pointer)
+                .on_press(ServerColumnMessage::ChangeActiveServer(
+                    ActiveServer::Server(room),
+                ))
+                .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
+                    id.clone(),
+                )))
+                .on_exit(ServerColumnMessage::ServerHoverEnded(
+                    ActiveServerId::Server(id.clone()),
+                ));
+
             pill(
                 theme,
                 structure,
@@ -232,18 +285,18 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     .as_ref()
                     .map(|sid| sid.is_server(&id))
                     .unwrap_or(false),
-                false,
-                w::mouse_area(room.render_icon(icon_size, avatar_cache))
-                    .interaction(Interaction::Pointer)
-                    .on_press(ServerColumnMessage::ChangeActiveServer(
-                        ActiveServer::Server(room),
+                highlight_count > 0 || notification_count > 0,
+                if highlight_count > 0 {
+                    Element::from(corner_badge(content, 0.4, 0.15, theme.solid_bg).br(
+                        CornerContent::text(
+                            highlight_count.to_string(),
+                            theme.solid_bg,
+                            theme.accent,
+                        ),
                     ))
-                    .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
-                        id.clone(),
-                    )))
-                    .on_exit(ServerColumnMessage::ServerHoverEnded(
-                        ActiveServerId::Server(id),
-                    )),
+                } else {
+                    content.into()
+                },
             )
             .into()
         }))
@@ -275,7 +328,7 @@ fn pill(
     } else if hovered {
         structure.server_column.icon_size / 2.0
     } else if has_messages {
-        structure.small_gap / 2.0
+        structure.server_column.icon_size / 4.0
     } else {
         0.0
     };
