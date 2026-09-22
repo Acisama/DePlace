@@ -440,7 +440,7 @@ impl TimelineItem {
                 previous_is_event,
                 system_messages_to_show,
             } => {
-                if event.should_show(*system_messages_to_show.borrow()) {
+                if !event.should_show(*system_messages_to_show.borrow()) {
                     return w::space().into();
                 }
                 render_event(

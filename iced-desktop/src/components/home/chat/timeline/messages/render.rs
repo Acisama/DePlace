@@ -902,6 +902,7 @@ impl SystemMessage {
                 w::text(" ").size(text_size),
                 w::text(text).size(text_size).color(theme.text.dim)
             ]
+            .align_y(Alignment::Center)
             .into()
         };
 
