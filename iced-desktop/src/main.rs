@@ -21,7 +21,6 @@ use crate::components::{
 
 pub mod common;
 pub mod components;
-mod things;
 
 const SOCKET_NAME: &str = "deplace_app_single_instance.sock";
 

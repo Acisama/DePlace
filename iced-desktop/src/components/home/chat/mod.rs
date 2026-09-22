@@ -238,8 +238,8 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 ]
                 .padding(Padding {
                     top: structure.border_thickness,
-                    left: structure.outer_border_radius,
-                    right: structure.outer_border_radius,
+                    left: structure.small_gap,
+                    right: structure.small_gap,
                     bottom: structure.small_gap + structure.border_thickness,
                 })
                 .height(Fill)
