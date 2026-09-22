@@ -28,6 +28,9 @@ pub mod profile;
 pub mod settings;
 pub mod state;
 
+pub mod structure;
+pub mod theme;
+
 pub const APP_HUMAN_NAME: &str = "DePlace";
 pub const APP_NAME: &str = "deplace";
 pub const APP_MATRIX_NAME: &str = formatcp!("com.{APP_NAME}");

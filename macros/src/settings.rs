@@ -1,10 +1,29 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::parse::{ParseStream, Parser};
+use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
-use syn::{Expr, ExprLit, Fields, ItemStruct, Lit, Token};
+use syn::{Expr, ExprLit, Fields, ItemStruct, Lit, LitStr, Token};
 
-pub fn convert_settings(mut item: ItemStruct) -> TokenStream {
+pub struct MatrixSettingsArgs {
+    pub namespace: LitStr,
+}
+
+impl Parse for MatrixSettingsArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ident: syn::Ident = input.parse()?;
+        if ident != "namespace" {
+            return Err(syn::Error::new(
+                ident.span(),
+                "expected `#[matrix_settings(namespace = \"...\")]`",
+            ));
+        }
+        input.parse::<Token![=]>()?;
+        let namespace: LitStr = input.parse()?;
+        Ok(Self { namespace })
+    }
+}
+
+pub fn convert_settings(mut item: ItemStruct, namespace: &str) -> TokenStream {
     let struct_name = item.ident.clone();
     let mut default_field_initializers = vec![];
     let mut type_name_string_collector = vec![];
@@ -181,8 +200,9 @@ pub fn convert_settings(mut item: ItemStruct) -> TokenStream {
                     settings.#field_name.refresh(&settings.document, &settings.client, settings.file_last_chaned.load(::std::sync::atomic::Ordering::Relaxed), #default_expr).await;
                 });
 
-                let cloud_name =
-                    quote! { ::const_format::formatcp!("{APP_MATRIX_NAME}.{}", #type_name) };
+                let cloud_name = quote! {
+                    ::const_format::formatcp!("{APP_MATRIX_NAME}.{}.{}", #namespace, #type_name)
+                };
 
                 let uses_cloud_expr = match uses_cloud {
                     Some(b) => quote! { Some(::tokio::sync::watch::Sender::new(#b)) },
@@ -264,6 +284,10 @@ pub fn convert_settings(mut item: ItemStruct) -> TokenStream {
         #item
 
         impl #struct_name {
+            /// This struct's cloud namespace, `{APP_MATRIX_NAME}.{NAMESPACE}.*` --
+            /// also intended as the on-disk file stem, e.g. `{NAMESPACE}.toml`.
+            pub const NAMESPACE: &'static str = #namespace;
+
             pub fn new(file_path: std::path::PathBuf, client: matrix_sdk::Client) -> Self {
                 let existing = if file_path.exists() {
                     let content = std::fs::read_to_string(file_path.clone()).map_err(|e| ::tracing::error!("Failed to read settings file: {:?}", e)).ok();

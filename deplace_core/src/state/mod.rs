@@ -35,6 +35,8 @@ pub struct ImportantPaths {
     pub config_dir: PathBuf,
     pub settings_file: PathBuf,
     pub keybinds_file: PathBuf,
+    pub theme_file: PathBuf,
+    pub structure_file: PathBuf,
 
     pub download_dir: PathBuf,
     pub cache_dir: PathBuf,
@@ -70,13 +72,17 @@ impl ImportantPaths {
             std::fs::create_dir_all(&data_dir)?;
         }
 
-        let config_file = config_dir.join("config.toml");
+        let settings_file = config_dir.join("config.toml");
         let keybinds_file = config_dir.join("keybinds.toml");
+        let theme_file = config_dir.join("theme.toml");
+        let structure_file = config_dir.join("structure.toml");
 
         Ok(Self {
             config_dir,
-            settings_file: config_file,
+            settings_file,
             keybinds_file,
+            theme_file,
+            structure_file,
 
             download_dir,
             cache_dir,

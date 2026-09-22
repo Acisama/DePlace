@@ -276,7 +276,7 @@ where
     }
 }
 
-#[matrix_settings]
+#[matrix_settings(namespace = "settings")]
 pub struct Settings {
     #[setting(
         name = "Scaling",

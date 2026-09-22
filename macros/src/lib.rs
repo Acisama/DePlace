@@ -73,12 +73,18 @@ pub fn section(input: TokenStream) -> TokenStream {
     section::section(input)
 }
 
+/// `#[matrix_settings(namespace = "...")]` -- the namespace is inserted only
+/// into each field's cloud (matrix account-data) event type, as
+/// `{APP_MATRIX_NAME}.{namespace}.{field}`. It keeps multiple
+/// `#[matrix_settings]` structs (e.g. one for general settings, one for
+/// theme) from colliding in the cloud namespace; local TOML storage is
+/// unaffected since each struct is already backed by its own file.
 #[proc_macro_attribute]
-pub fn matrix_settings(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    assert!(_attr.is_empty());
+pub fn matrix_settings(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let namespace = syn::parse_macro_input!(attr as settings::MatrixSettingsArgs).namespace;
     let item_ast = syn::parse(item).unwrap();
 
-    settings::convert_settings(item_ast)
+    settings::convert_settings(item_ast, &namespace.value())
 }
 
 /// Macro to derive hash on a state struct
