@@ -65,7 +65,7 @@ impl SettingWidget for bool {
                         theme.text.muted.into()
                     },
                     background_border_width: structure.border_thickness,
-                    background_border_color: theme.border,
+                    background_border_color: theme.border.into(),
                     foreground: theme.solid_bg.into(),
                     foreground_border_width: 0.0,
                     foreground_border_color: Color::TRANSPARENT,
@@ -117,15 +117,15 @@ where
     .width(structure.settings.dropdown_width)
     .text_size(structure.font_size)
     .style(move |_, status| w::pick_list::Style {
-        text_color: theme.text.normal,
-        placeholder_color: theme.text.dim,
-        handle_color: theme.text.dim,
+        text_color: theme.text.normal.into(),
+        placeholder_color: theme.text.dim.into(),
+        handle_color: theme.text.dim.into(),
         background: theme.solid_bg.into(),
         border: Border {
             color: if matches!(status, w::pick_list::Status::Opened { .. }) {
-                theme.accent
+                theme.accent.into()
             } else {
-                theme.border
+                theme.border.into()
             },
             width: structure.border_thickness,
             radius: structure.semi_border_radius().into(),
@@ -134,12 +134,12 @@ where
     .menu_style(move |_| w::overlay::menu::Style {
         background: theme.solid_bg.into(),
         border: Border {
-            color: theme.border,
+            color: theme.border.into(),
             width: structure.border_thickness,
             radius: structure.semi_border_radius().into(),
         },
-        text_color: theme.text.dim,
-        selected_text_color: theme.text.normal,
+        text_color: theme.text.dim.into(),
+        selected_text_color: theme.text.normal.into(),
         selected_background: theme.solid_hover_bg.into(),
         shadow: Default::default(),
     });
@@ -209,26 +209,26 @@ where
                 .on_press(on_change(idx))
                 .style(move |_, status| ButtonStyle {
                     text_color: if status.active() {
-                        theme.text.normal
+                        theme.text.normal.into()
                     } else if is_active {
-                        theme.colors.success
+                        theme.colors.success.into()
                     } else {
-                        theme.text.dim
+                        theme.text.dim.into()
                     },
                     background: is_active.then_some(
                         Color {
                             a: 0.1,
-                            ..theme.colors.success
+                            ..theme.colors.success.into()
                         }
                         .into(),
                     ),
                     border: Border {
                         color: if status.active() {
-                            theme.accent
+                            theme.accent.into()
                         } else if is_active {
-                            theme.colors.success
+                            theme.colors.success.into()
                         } else {
-                            theme.border
+                            theme.border.into()
                         },
                         width: structure.border_thickness,
                         radius: structure.inner_border_radius.into(),
@@ -298,7 +298,8 @@ fn cloud_button<Message: 'static + Clone + ToggleCloudExt>(
                     hover_color
                 } else {
                     color
-                },
+                }
+                .into(),
                 ..Default::default()
             })
             .on_press_maybe(current.map(|is_synced| Message::toggle_cloud(field_name, !is_synced))),
@@ -384,9 +385,9 @@ pub fn render_subsection<Message: Clone + 'static>(
     .width(Fill)
     .style(move |_, status| ButtonStyle {
         text_color: if status.active() {
-            theme.text.normal
+            theme.text.normal.into()
         } else {
-            theme.text.dim
+            theme.text.dim.into()
         },
         background: None,
         border: Border::default(),

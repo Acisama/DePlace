@@ -2,6 +2,8 @@ use std::hash::Hash;
 
 use deplace_core::ProfileLike;
 use deplace_core::state::cache::{AvatarCache, MediaState};
+use deplace_core::structure::Structure;
+use deplace_core::theme::{Colors, Theme};
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
 use iced::font::Weight;
@@ -17,9 +19,6 @@ use iced::{
 use matrix_sdk::Room;
 use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::serde::Base64;
-
-use crate::things::Structure;
-use crate::things::{Colors, Theme};
 
 pub mod authentification;
 pub mod home;
@@ -100,7 +99,7 @@ pub fn floating_tile<'a, T>(
     w::container(content).style(move |_theme| Style {
         background: Some(theme.background.into()),
         border: Border {
-            color: theme.border,
+            color: theme.border.into(),
             width: structure.border_thickness,
             radius: structure.outer_border_radius.into(),
         },
@@ -126,16 +125,16 @@ where
             background: theme.background.into(),
             border: Border {
                 color: if matches!(status, Status::Focused { .. }) {
-                    theme.accent
+                    theme.accent.into()
                 } else {
-                    theme.border
+                    theme.border.into()
                 },
                 width: structure.border_thickness,
                 radius: structure.inner_border_radius.into(),
             },
-            placeholder: theme.text.muted,
-            selection: theme.text.muted,
-            value: theme.text.normal,
+            placeholder: theme.text.muted.into(),
+            selection: theme.text.muted.into(),
+            value: theme.text.normal.into(),
         })
 }
 
@@ -232,11 +231,11 @@ pub fn text_icon<'a, T: 'a>(
 }
 
 pub fn unknown_icon<'a, T: 'a>(size: f32, rounding: f32, theme: Theme) -> Element<'a, T> {
-    text_icon('?', size, rounding, theme.colors.error)
+    text_icon('?', size, rounding, theme.colors.error.into())
 }
 
 pub fn loading_icon<'a, T: 'a>(size: f32, rounding: f32, theme: Theme) -> Element<'a, T> {
-    text_icon('#', size, rounding, theme.colors.offline)
+    text_icon('#', size, rounding, theme.colors.offline.into())
 }
 
 pub fn render_avatar<'a, T: NeedsAvatarExt + Clone + 'a>(
@@ -414,11 +413,11 @@ pub fn render_name<'a, T: Clone + 'a>(name: String, size: f32, color: Color) -> 
 }
 
 pub fn render_unknown_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
-    render_name("Unknown".to_string(), size, theme.colors.error)
+    render_name("Unknown".to_string(), size, theme.colors.error.into())
 }
 
 pub fn render_loading_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
-    render_name("Loading...".to_string(), size, theme.colors.offline)
+    render_name("Loading...".to_string(), size, theme.colors.offline.into())
 }
 
 pub trait StatusExt {
@@ -484,7 +483,7 @@ pub fn themed_scrollable<'a, T: 'a>(
     w::scrollable(content)
         .style(move |_, status| {
             let border = Border {
-                color: theme.border,
+                color: theme.border.into(),
                 width: structure.border_thickness,
                 radius: structure.inner_border_radius.into(),
             };
@@ -511,7 +510,7 @@ pub fn themed_scrollable<'a, T: 'a>(
                     background: theme.solid_hover_bg.into(),
                     border,
                     shadow: Default::default(),
-                    icon: theme.accent,
+                    icon: theme.accent.into(),
                 },
             }
         })
@@ -529,11 +528,11 @@ pub fn themed_tooltip<'a, T: 'a>(
         .style(move |_| w::container::Style {
             background: Some(theme.background.into()),
             border: Border {
-                color: theme.border,
+                color: theme.border.into(),
                 width: structure.border_thickness,
                 radius: structure.inner_border_radius.into(),
             },
-            text_color: Some(theme.text.normal),
+            text_color: Some(theme.text.normal.into()),
             ..Default::default()
         })
 }

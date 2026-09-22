@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use deplace_core::{APP_NAME, RestoreResult, try_restore};
+use deplace_core::{APP_NAME, RestoreResult, state::ImportantPaths, try_restore};
 use iced::{Task, advanced::subscription::Recipe, futures::stream, window};
 use interprocess::local_socket::{GenericNamespaced, Listener, ListenerOptions, prelude::*};
 use matrix_sdk::Client;
@@ -61,6 +61,14 @@ fn main() -> iced::Result {
         tracing::error!("Panic: {:?}", info);
         default_hook(info);
     }));
+
+    let paths = match ImportantPaths::new() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("Failed to create important paths: {e}");
+            return Err(iced::Error::WindowCreationFailed(e.into()));
+        }
+    };
 
     // Convert socket identifier for interprocess
     let socket_name = match SOCKET_NAME.to_ns_name::<GenericNamespaced>() {
@@ -119,10 +127,10 @@ fn main() -> iced::Result {
 
             let tasks = Task::batch([
                 open_task.map(AppMessage::Start),
-                Task::perform(try_restore(), AppMessage::Restored),
+                Task::perform(try_restore(paths.clone()), AppMessage::Restored),
             ]);
 
-            (Root::new(listener.clone()), tasks)
+            (Root::new(paths.clone(), listener.clone()), tasks)
         },
         Root::update,
         Root::view,

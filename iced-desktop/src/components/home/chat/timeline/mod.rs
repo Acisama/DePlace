@@ -998,9 +998,9 @@ fn render_timeline_item_buttons(
 
     let button = move |icon: &'static str,
                        message: TimelineItemMessage,
-                       hover_bg: Color,
-                       color: Color,
-                       hover_color: Color| {
+                       hover_bg: DePlaceColor,
+                       color: DePlaceColor,
+                       hover_color: DePlaceColor| {
         w::button(phosphor_icon(icon, button_size))
             .padding(structure.small_gap / 2.0)
             .on_press(convert_message(message))
@@ -1010,7 +1010,7 @@ fn render_timeline_item_buttons(
                 } else {
                     None
                 },
-                text_color: if status.active() { hover_color } else { color },
+                text_color: if status.active() { hover_color } else { color }.into(),
                 border: border::rounded(structure.semi_border_radius()),
                 ..Default::default()
             })
@@ -1021,9 +1021,9 @@ fn render_timeline_item_buttons(
         buttons.push(button(
             icons::pencil_simple::BOLD,
             TimelineItemMessage::SetIsEditing(true),
-            theme.solid_hover_bg,
-            theme.text.dim,
-            theme.text.normal,
+            theme.solid_hover_bg.into(),
+            theme.text.dim.into(),
+            theme.text.normal.into(),
         ));
     }
 
@@ -1063,7 +1063,7 @@ fn render_timeline_item_buttons(
                 .style(move |_| ContainerStyle {
                     background: Some(theme.solid_bg.into()),
                     border: Border {
-                        color: theme.border,
+                        color: theme.border.into(),
                         width: structure.border_thickness,
                         radius: structure.semi_border_radius().into(),
                     },

@@ -1,4 +1,6 @@
-use deplace_core::{helpers::RoomPlaceholderExt, keybinds::Keybinds, matrix_api::messages::RoomSendingExt};
+use deplace_core::{
+    helpers::RoomPlaceholderExt, keybinds::Keybinds, matrix_api::messages::RoomSendingExt,
+};
 use iced::{
     Length,
     border::Radius,
@@ -140,9 +142,9 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 w::button(phosphor_icon(svg, line_height))
                     .style(move |_, status| ButtonStyle {
                         text_color: if status.active() {
-                            theme.text.normal
+                            theme.text.normal.into()
                         } else {
-                            theme.text.dim
+                            theme.text.dim.into()
                         },
                         background: status.active().then_some(theme.solid_hover_bg.into()),
                         border: border::rounded(structure.semi_border_radius()),
@@ -186,9 +188,9 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                 None
                             },
                             text_color: if status.active() {
-                                theme.text.normal
+                                theme.text.normal.into()
                             } else {
-                                theme.text.dim
+                                theme.text.dim.into()
                             },
                             border: border::rounded(structure.semi_border_radius()),
                             ..Default::default()
@@ -210,7 +212,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
             .style(move |_| ContainerStyle {
                 background: Some(theme.solid_bg.into()),
                 border: Border {
-                    color: theme.border,
+                    color: theme.border.into(),
                     width: structure.border_thickness,
                     radius: Radius::from(structure.inner_border_radius).bottom(0.0)
                 },
@@ -235,10 +237,9 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             Some(text_editor::Binding::Custom(InputMessage::SendMessage))
                         } else {
                             let keybinds = keybinds.borrow();
-                            let is_reserved = keybinds
-                                .settings
-                                .matches_key(&key.key, &key.modifiers)
-                                || keybinds.quickselect.matches_key(&key.key, &key.modifiers);
+                            let is_reserved =
+                                keybinds.settings.matches_key(&key.key, &key.modifiers)
+                                    || keybinds.quickselect.matches_key(&key.key, &key.modifiers);
                             drop(keybinds);
 
                             if is_reserved {
@@ -255,9 +256,9 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         background: theme.solid_bg.into(),
                         border: Border {
                             color: if status.active() {
-                                theme.accent
+                                theme.accent.into()
                             } else {
-                                theme.border
+                                theme.border.into()
                             },
                             width: 1.0,
                             radius: Radius::from(structure.inner_border_radius).top(
@@ -268,9 +269,9 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                 }
                             ),
                         },
-                        placeholder: theme.text.muted,
-                        selection: theme.accent,
-                        value: theme.text.normal
+                        placeholder: theme.text.muted.into(),
+                        selection: theme.accent.into(),
+                        value: theme.text.normal.into()
                     }),
                 input_button(phosphor_svgs::icon::plus::BOLD),
             ]

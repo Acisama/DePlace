@@ -137,7 +137,7 @@ impl IcedWidget<VerificationMessage, VerificationAction> for Verification {
                     Status::Active => theme.accent.into(),
                     _ => theme.accent.scale_alpha(0.5).into(),
                 }),
-                text_color: theme.background,
+                text_color: theme.background.into(),
                 border: Border {
                     radius: structure.semi_border_radius().into(),
                     ..Default::default()

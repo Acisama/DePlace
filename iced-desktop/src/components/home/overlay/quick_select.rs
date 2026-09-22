@@ -212,22 +212,22 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                     border: iced::Border {
                         radius: 6.0.into(),
                         width: 1.0,
-                        color: theme.input.focused_border,
+                        color: theme.input.focused_border.into(),
                     },
-                    placeholder: theme.text.muted,
-                    value: theme.text.normal,
-                    selection: theme.accent,
+                    placeholder: theme.text.muted.into(),
+                    value: theme.text.normal.into(),
+                    selection: theme.accent.into(),
                 },
                 _ => text_input::Style {
                     background: theme.input.background.into(),
                     border: iced::Border {
                         radius: 6.0.into(),
                         width: 1.0,
-                        color: theme.border,
+                        color: theme.border.into(),
                     },
-                    placeholder: theme.text.muted,
-                    value: theme.text.normal,
-                    selection: theme.accent,
+                    placeholder: theme.text.muted.into(),
+                    value: theme.text.normal.into(),
+                    selection: theme.accent.into(),
                 },
             });
 
@@ -271,11 +271,11 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                         if is_selected {
                             button::Style {
                                 background: Some(theme.solid_hover_bg.into()),
-                                text_color: theme.text.normal,
+                                text_color: theme.text.normal.into(),
                                 border: iced::Border {
                                     radius: 6.0.into(),
                                     width: 1.0,
-                                    color: theme.accent,
+                                    color: theme.accent.into(),
                                 },
                                 ..Default::default()
                             }
@@ -285,7 +285,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                         ) {
                             button::Style {
                                 background: Some(theme.solid_hover_bg.into()),
-                                text_color: theme.text.normal,
+                                text_color: theme.text.normal.into(),
                                 border: iced::Border {
                                     radius: 6.0.into(),
                                     ..Default::default()
@@ -295,7 +295,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                         } else {
                             button::Style {
                                 background: Some(iced::Color::TRANSPARENT.into()),
-                                text_color: theme.text.normal,
+                                text_color: theme.text.normal.into(),
                                 border: iced::Border {
                                     radius: 6.0.into(),
                                     ..Default::default()

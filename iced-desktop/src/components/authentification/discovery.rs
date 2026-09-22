@@ -12,10 +12,7 @@ use iced::widget::{Id, button::Status};
 use crate::common::*;
 use url::Url;
 
-use crate::{
-    components::{GenericState, floating_tile, text_input, weighted_text},
-    things::{Structure, Theme},
-};
+use crate::components::{GenericState, floating_tile, text_input, weighted_text};
 
 #[derive(Debug, Clone)]
 pub enum DiscoveryMessage {
@@ -164,7 +161,7 @@ impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
                     Status::Active => theme.accent.into(),
                     _ => theme.accent.scale_alpha(0.5).into(),
                 }),
-                text_color: theme.background,
+                text_color: theme.background.into(),
                 border: Border {
                     radius: structure.semi_border_radius().into(),
                     ..Default::default()

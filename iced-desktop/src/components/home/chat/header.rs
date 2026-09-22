@@ -80,13 +80,13 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             (
                 w::container(context_room_icon(room, icon_size, &self.avatar_cache))
                     .style(move |_| ContainerStyle {
-                        text_color: Some(theme.text.normal),
+                        text_color: Some(theme.text.normal.into()),
                         ..Default::default()
                     })
                     .into(),
                 w::container(room.render_name(structure.font_size))
                     .style(move |_| ContainerStyle {
-                        text_color: Some(theme.text.normal),
+                        text_color: Some(theme.text.normal.into()),
                         ..Default::default()
                     })
                     .into(),

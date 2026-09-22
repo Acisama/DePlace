@@ -1,6 +1,6 @@
 #![recursion_limit = "256"]
 use crate::state::MembershipMap;
-use colors::Color;
+use colors::DePlaceColor;
 use helpers::RoomExt;
 use matrix_sdk::{
     Client, Room, SessionMeta, SessionTokens, authentication::matrix::MatrixSession,
@@ -68,16 +68,8 @@ pub enum RestoreResult {
     NeedsLogin(Client),
 }
 
-pub async fn try_restore() -> RestoreResult {
+pub async fn try_restore(paths: ImportantPaths) -> RestoreResult {
     init_keyring();
-
-    let paths = match ImportantPaths::new() {
-        Ok(paths) => paths,
-        Err(error) => {
-            tracing::error!("Failed to create important paths: {:?}", error);
-            return RestoreResult::NoSession;
-        }
-    };
 
     let session = match tokio::task::spawn_blocking(keyring::get_last_active_session).await {
         Ok(Ok(Some(session))) => session,
@@ -177,7 +169,7 @@ pub trait ProfileLike {
         self.profile_avatar()
     }
 
-    fn color(&self) -> Color {
+    fn color(&self) -> DePlaceColor {
         self.profile_id().as_ref().into()
     }
 

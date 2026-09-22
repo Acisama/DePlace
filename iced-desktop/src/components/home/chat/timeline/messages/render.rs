@@ -58,7 +58,7 @@ pub fn render_event(
                     } else if is_hovered {
                         theme.border
                     } else {
-                        Color::TRANSPARENT
+                        DePlaceColor::TRANSPARENT
                     }),
             )
         })
@@ -112,7 +112,7 @@ impl MessageEvent {
         }
 
         let highlight_color = if self.is_replying_to && !as_dummy {
-            Some(Color::WHITE)
+            Some(theme.pill_color)
         } else if self.is_highlighted {
             Some(theme.accent)
         } else {
@@ -122,8 +122,8 @@ impl MessageEvent {
         let background = highlight_color.map(|c| {
             Background::Gradient(iced::Gradient::Linear(
                 Linear::new(90.0)
-                    .add_stop(0.0, c.scale_alpha(0.2))
-                    .add_stop(1.0, Color::TRANSPARENT),
+                    .add_stop(0.0, c.scale_alpha(0.2).into())
+                    .add_stop(1.0, DePlaceColor::TRANSPARENT.into()),
             ))
         });
 
@@ -167,7 +167,7 @@ impl MessageEvent {
                     TimelineDetails::Ready(p) => (
                         Some(p.render_icon(size, &self.avatar_cache)),
                         Some(name_row(p.render_name(text_size))),
-                        p.color().to_iced(),
+                        p.color(),
                     ),
                 }
             }
@@ -211,7 +211,7 @@ impl MessageEvent {
                         TimelineDetails::Ready(p) => (
                             p.render_icon(small_icon_size, &self.avatar_cache),
                             p.render_name(small_text_size),
-                            p.color().to_iced(),
+                            p.color(),
                         ),
                     };
 
@@ -335,12 +335,13 @@ impl MessageContent {
                     theme.text.dim
                 } else {
                     theme.text.normal
-                },
+                }
+                .into(),
             )
         };
         let render_warning_text = |text: &'static str| {
             (
-                Some(render_text_color(text.to_string(), theme.colors.warning).into()),
+                Some(render_text_color(text.to_string(), theme.colors.warning.into()).into()),
                 None,
             )
         };
@@ -393,7 +394,7 @@ impl MessageContent {
                             .style(move |_| ContainerStyle {
                                 background: Some(theme.solid_bg.into()),
                                 border: Border {
-                                    color: theme.border,
+                                    color: theme.border.into(),
                                     width: structure.border_thickness,
                                     radius: ((structure.smaller_border_radius
                                         + structure.inner_border_radius)
@@ -497,7 +498,7 @@ impl MessageContent {
                             .style(move |_| ContainerStyle {
                                 background: Some(theme.solid_bg.into()),
                                 border: Border {
-                                    color: theme.border,
+                                    color: theme.border.into(),
                                     width: structure.border_thickness,
                                     radius: ((structure.smaller_border_radius
                                         + structure.inner_border_radius)
@@ -609,10 +610,10 @@ impl ImageMessage {
                     .height(height)
                     .center(height)
                     .style(move |_| w::container::Style {
-                        background: Some(theme.colors.error.scale_lightness(0.2).into()),
-                        text_color: Some(theme.colors.error),
+                        background: Some(theme.colors.error.scale_alpha(0.2).into()),
+                        text_color: Some(theme.colors.error.into()),
                         border: Border {
-                            color: theme.colors.error,
+                            color: theme.colors.error.into(),
                             width: 0.0,
                             radius: 0.0.into(),
                         },
@@ -622,7 +623,7 @@ impl ImageMessage {
                 .push(
                     Canvas::new(InsetShadow::new(
                         structure.inner_border_radius,
-                        theme.colors.error,
+                        theme.colors.error.into(),
                         structure.chat.text_size / 2.0,
                         8,
                     ))
@@ -748,10 +749,10 @@ impl VideoMessage {
                     .height(height)
                     .center(height)
                     .style(move |_| w::container::Style {
-                        background: Some(theme.colors.error.scale_lightness(0.2).into()),
-                        text_color: Some(theme.colors.error),
+                        background: Some(theme.colors.error.scale_alpha(0.2).into()),
+                        text_color: Some(theme.colors.error.into()),
                         border: Border {
-                            color: theme.colors.error,
+                            color: theme.colors.error.into(),
                             width: 0.0,
                             radius: 0.0.into(),
                         },
@@ -761,7 +762,7 @@ impl VideoMessage {
                 .push(
                     Canvas::new(InsetShadow::new(
                         structure.inner_border_radius,
-                        theme.colors.error,
+                        theme.colors.error.into(),
                         structure.chat.text_size / 2.0,
                         8,
                     ))
@@ -826,7 +827,7 @@ impl SystemEvent {
 }
 
 impl SystemMessage {
-    fn icon(&self, theme: Theme) -> (&'static str, Color) {
+    fn icon(&self, theme: Theme) -> (&'static str, DePlaceColor) {
         match self {
             SystemMessage::CallInvite => (icons::phone_call::FILL, theme.text.dim),
             SystemMessage::CallMember => (icons::phone_call::FILL, theme.text.dim),
@@ -1003,7 +1004,7 @@ impl ReplyContent {
 
         if let Some(icon) = self.icon() {
             w::row![
-                phosphor_icon(icon, text_size).color(color),
+                phosphor_icon(icon, text_size).color(color.into()),
                 w::text(" ").size(text_size),
                 text_view
             ]
@@ -1013,7 +1014,7 @@ impl ReplyContent {
         }
     }
 
-    pub fn color(&self, theme: Theme) -> Color {
+    pub fn color(&self, theme: Theme) -> DePlaceColor {
         match self {
             ReplyContent::Audio => theme.text.normal,
             ReplyContent::CallInvite => theme.text.normal,

@@ -1,4 +1,7 @@
 use deplace_core::RestoreResult;
+use deplace_core::state::ImportantPaths;
+use deplace_core::structure::Structure;
+use deplace_core::theme::Theme;
 use iced::advanced::subscription;
 use iced::widget::Shader;
 use iced::window;
@@ -206,6 +209,7 @@ impl Screen {
 }
 
 pub struct Root {
+    paths: ImportantPaths,
     screen: Screen,
     loading: shader::LoadingIndicator,
     theme: Theme,
@@ -216,14 +220,15 @@ pub struct Root {
 }
 
 impl Root {
-    pub fn new(listener: Arc<Listener>) -> Self {
+    pub fn new(paths: ImportantPaths, listener: Arc<Listener>) -> Self {
         Self {
             listener,
             id: None,
             screen: Screen::default(),
             loading: shader::LoadingIndicator::default(),
-            theme: Theme::new(),
-            structure: Structure::new(),
+            theme: Theme::new(paths.theme_file.clone()),
+            structure: Structure::new(paths.structure_file.clone()),
+            paths,
         }
     }
     pub fn update(&mut self, message: AppMessage) -> Task<AppMessage> {

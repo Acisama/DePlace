@@ -2,26 +2,26 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::colors::Color;
+use crate::colors::DePlaceColor;
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
 pub struct Colors {
-    pub red: Color,
-    pub _green: Color,
-    pub yellow: Color,
-    pub success: Color,
-    pub warning: Color,
-    pub error: Color,
-    pub idle: Color,
-    pub online: Color,
-    pub offline: Color,
-    pub busy: Color,
-    pub muted: Color,
-    pub unknown: Color,
+    pub red: DePlaceColor,
+    pub _green: DePlaceColor,
+    pub yellow: DePlaceColor,
+    pub success: DePlaceColor,
+    pub warning: DePlaceColor,
+    pub error: DePlaceColor,
+    pub idle: DePlaceColor,
+    pub online: DePlaceColor,
+    pub offline: DePlaceColor,
+    pub busy: DePlaceColor,
+    pub muted: DePlaceColor,
+    pub unknown: DePlaceColor,
 }
 
 impl Colors {
-    fn new(red: Color, green: Color, yellow: Color, muted: Color, unknown: Color) -> Self {
+    fn new(red: DePlaceColor, green: DePlaceColor, yellow: DePlaceColor, muted: DePlaceColor, unknown: DePlaceColor) -> Self {
         Self {
             red,
             _green: green,
@@ -41,61 +41,61 @@ impl Colors {
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
 pub struct Text {
-    pub muted: Color,
-    pub dim: Color,
-    pub normal: Color,
+    pub muted: DePlaceColor,
+    pub dim: DePlaceColor,
+    pub normal: DePlaceColor,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
 pub struct InputTheme {
-    pub background: Color,
-    pub focus_background: Color,
-    pub focused_border: Color,
+    pub background: DePlaceColor,
+    pub focus_background: DePlaceColor,
+    pub focused_border: DePlaceColor,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
 pub struct Theme {
-    pub accent: Color,
+    pub accent: DePlaceColor,
     pub blur: f32,
     pub text: Text,
-    pub border: Color,
-    pub background: Color,
-    pub solid_hover_bg: Color,
-    pub solid_bg: Color,
+    pub border: DePlaceColor,
+    pub background: DePlaceColor,
+    pub solid_hover_bg: DePlaceColor,
+    pub solid_bg: DePlaceColor,
 
     pub input: InputTheme,
     pub colors: Colors,
-    pub pill_color: Color,
+    pub pill_color: DePlaceColor,
 }
 
 impl Default for Theme {
     fn default() -> Self {
-        let accent = Color::from_hsla(0.53, 0.52, 0.52, 1.0);
+        let accent = DePlaceColor::from_hsla(0.53 * 360.0, 0.52, 0.52, 1.0);
 
-        let muted_color = Color::from_hsla(0.66, 0.15, 0.3, 1.0);
+        let muted_color = DePlaceColor::from_hsla(0.66 * 360.0, 0.15, 0.3, 1.0);
 
-        let red = Color::from_hsla(0.9462, 0.5569, 0.6725, 1.0);
-        let green = Color::from_hsla(0.3682, 0.5446, 0.6039, 1.0);
-        let yellow = Color::from_hsla(0.155, 0.786, 0.743, 1.0);
+        let red = DePlaceColor::from_hsla(0.9462 * 360.0, 0.5569, 0.6725, 1.0);
+        let green = DePlaceColor::from_hsla(0.3682 * 360.0, 0.5446, 0.6039, 1.0);
+        let yellow = DePlaceColor::from_hsla(0.155 * 360.0, 0.786, 0.743, 1.0);
 
-        let solid_bg = Color::from_hsla(0.6667, 0.5000, 0.0314, 1.0);
-        let solid_hover_bg = Color::from_hsla(0.6667, 0.2105, 0.1490, 1.0);
+        let solid_bg = DePlaceColor::from_hsla(0.6667 * 360.0, 0.5000, 0.0314, 1.0);
+        let solid_hover_bg = DePlaceColor::from_hsla(0.6667 * 360.0, 0.2105, 0.1490, 1.0);
 
         Self {
             blur: 20.0,
             solid_bg,
             solid_hover_bg,
-            pill_color: Color::from_rgba(1.0, 1.0, 1.0, 1.0),
-            border: Color::from_hsla(0.0, 0.0, 0.2, 1.0),
-            background: Color::from_hsla(0.6667, 0.5000, 0.0314, 1.0),
+            pill_color: DePlaceColor::from_rgba(1.0, 1.0, 1.0, 1.0),
+            border: DePlaceColor::from_hsla(0.0, 0.0, 0.2, 1.0),
+            background: DePlaceColor::from_hsla(0.6667 * 360.0, 0.5000, 0.0314, 1.0),
             text: Text {
                 muted: muted_color,
-                dim: Color::from_hsla(0.66, 0.15, 0.4, 1.0),
-                normal: Color::from_hsla(0.66, 0.15, 0.7, 1.0),
+                dim: DePlaceColor::from_hsla(0.66 * 360.0, 0.15, 0.4, 1.0),
+                normal: DePlaceColor::from_hsla(0.66 * 360.0, 0.15, 0.7, 1.0),
             },
             input: InputTheme {
-                background: Color::from_hsla(0.0, 0.0, 0.0, 0.2),
-                focus_background: Color::from_hsla(0.0, 0.0, 0.0, 0.4),
+                background: DePlaceColor::from_hsla(0.0, 0.0, 0.0, 0.2),
+                focus_background: DePlaceColor::from_hsla(0.0, 0.0, 0.0, 0.4),
                 focused_border: accent.darken(0.4),
             },
             colors: Colors::new(
@@ -103,7 +103,7 @@ impl Default for Theme {
                 green,
                 yellow,
                 muted_color,
-                Color::from_hsla(0.0, 1.0, 0.7, 1.0),
+                DePlaceColor::from_hsla(0.0, 1.0, 0.7, 1.0),
             ),
             accent,
         }

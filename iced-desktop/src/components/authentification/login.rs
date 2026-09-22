@@ -11,10 +11,7 @@ use iced::widget::{Id, button::Status};
 // };
 // use matrix_sdk::Client;
 
-use crate::{
-    components::{GenericState, floating_tile, text_input, weighted_text},
-    things::{Structure, Theme},
-};
+use crate::components::{GenericState, floating_tile, text_input, weighted_text};
 
 #[derive(Debug, Clone)]
 pub enum LoginMessage {
@@ -181,7 +178,7 @@ impl IcedWidget<LoginMessage, LoginAction> for Login {
                     Status::Active => theme.accent.into(),
                     _ => theme.accent.scale_alpha(0.5).into(),
                 }),
-                text_color: theme.background,
+                text_color: theme.background.into(),
                 border: Border {
                     radius: structure.semi_border_radius().into(),
                     ..Default::default()

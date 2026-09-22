@@ -116,14 +116,14 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
                 let is_active = status.active();
                 ButtonStyle {
                     text_color: if is_selected || status.active() {
-                        theme.text.normal
+                        theme.text.normal.into()
                     } else {
-                        theme.text.dim
+                        theme.text.dim.into()
                     },
                     background: is_selected.then_some(theme.solid_hover_bg.into()),
                     border: Border {
                         color: if is_selected || is_active {
-                            theme.border
+                            theme.border.into()
                         } else {
                             Color::TRANSPARENT
                         },

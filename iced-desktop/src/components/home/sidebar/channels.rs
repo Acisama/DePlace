@@ -111,7 +111,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                     weighted_text(active_server.get_name(), Weight::Bold)
                         .size(structure.large_font_size)
                         .style(move |_| TextStyle {
-                            color: Some(theme.text.normal)
+                            color: Some(theme.text.normal.into())
                         })
                         .wrapping(text::Wrapping::None)
                         .center()
@@ -192,13 +192,13 @@ fn render_channel(
         ButtonStyle {
             background: is_active.then_some(theme.solid_hover_bg.into()),
             text_color: if selected {
-                theme.text.normal
+                theme.text.normal.into()
             } else {
-                theme.text.dim
+                theme.text.dim.into()
             },
             border: Border {
                 color: if selected {
-                    theme.border
+                    theme.border.into()
                 } else {
                     Default::default()
                 },
