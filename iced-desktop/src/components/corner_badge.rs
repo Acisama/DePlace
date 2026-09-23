@@ -1,5 +1,6 @@
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::responsive;
+use iced::widget::text::LineHeight;
 
 use crate::common::*;
 
@@ -104,6 +105,7 @@ fn corner_glyph<'a, T: 'a>(content: &CornerContent, diameter: f32) -> Element<'a
     match content {
         CornerContent::Text { text, color, .. } => weighted_text(text.clone(), Weight::ExtraBold)
             .size(diameter * 0.7)
+            .line_height(LineHeight::Relative(1.0))
             .color(*color)
             .center()
             .width(Fill)

@@ -35,7 +35,7 @@ pub struct ChatInput {
     #[hash]
     room_id: OwnedRoomId,
 
-    placeholder: String,
+    room_watchers: RoomWatchers,
 
     id: Id,
 
@@ -48,12 +48,13 @@ pub struct ChatInput {
 }
 
 impl ChatInput {
-    pub fn new(room: &Room, state: &AppState) -> Self {
+    pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
+        let room_id = room.room_id().to_owned();
         Self {
             timeline: None,
-            room_id: room.room_id().to_owned(),
 
-            placeholder: format!("Message {}", room.get_input_placeholder()),
+            room_watchers: state.room_watchers(hashing::hash_room_default(room_id.clone())),
+            room_id,
 
             id: Id::unique(),
             content: Box::leak(Box::new(text_editor::Content::new())),
@@ -130,6 +131,10 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, InputMessage> {
+        let Some(room) = self.room_watchers.get_room(&self.room_id) else {
+            return w::Space::new().into();
+        };
+
         let keybinds = self.keybinds.clone();
         let line_height = structure.font_size * 1.2;
 
@@ -221,7 +226,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
             w::stack![
                 w::text_editor(self.content())
                     .id(self.id.clone())
-                    .placeholder(self.placeholder.clone())
+                    .placeholder(format!("Message {}", room.get_input_placeholder()))
                     .padding(
                         Padding::new(structure.small_gap * 2.0)
                             .left(button_size + structure.small_gap * 2.0)

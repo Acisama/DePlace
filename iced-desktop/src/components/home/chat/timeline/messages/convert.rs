@@ -1,10 +1,9 @@
-use enumset::EnumSet;
 use matrix_sdk::ruma::events::StateEventType;
 use std::collections::BTreeSet;
 use std::time::SystemTime;
 
 use crate::common::*;
-use crate::components::home::chat::timeline::messages::TimelineProfile;
+use crate::components::home::chat::timeline::messages::{RtcNotification, TimelineProfile};
 use crate::components::{blurhash_to_image, thumbhash_to_image};
 
 use super::{
@@ -13,7 +12,6 @@ use super::{
 };
 use super::{TimelineItem, TimelineItemKind};
 
-use deplace_core::state::cache::VideoCache;
 use matrix_sdk::ruma::events::room::ImageInfo;
 use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
 use matrix_sdk_ui::timeline::{
@@ -208,10 +206,20 @@ impl TimelineItemKind {
                     TimelineItemContent::RtcNotification {
                         call_intent,
                         declined_by,
-                    } => system!(SystemMessage::RtcNotification {
+                        active_call_info,
+                    } => system!(SystemMessage::RtcNotification(RtcNotification {
                         call_intent: call_intent.clone(),
                         declined_by: declined_by.clone(),
-                    }),
+                        call_started: active_call_info
+                            .as_ref()
+                            .and_then(|info| info.call_started_ts_millis)
+                            .and_then(|t| t.to_system_time()),
+                        currnet_members: active_call_info.as_ref().map(|info| info
+                            .active_members
+                            .iter()
+                            .cloned()
+                            .collect()),
+                    })),
                     TimelineItemContent::MsgLike(m) => {
                         let settings = state.settings();
                         TimelineItemKind::Message {

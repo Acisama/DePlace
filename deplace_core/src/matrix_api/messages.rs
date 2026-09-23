@@ -139,6 +139,7 @@ impl RoomSendingExt for Room {
                 add_mentions: AddMentions::Yes,
             }),
             mentions: None,
+            extra_content: None,
         };
 
         queue
@@ -255,6 +256,7 @@ impl RoomSendingExt for Timeline {
             caption: None,
             in_reply_to: replies_to,
             mentions: None,
+            extra_content: None,
         };
 
         self.send_attachment(

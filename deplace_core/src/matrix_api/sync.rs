@@ -1,24 +1,17 @@
 use std::pin::pin;
 use std::time::Duration;
-use std::{cmp::Reverse, collections::HashMap};
 
 use futures_util::StreamExt;
-use indexmap::IndexMap;
-use matrix_sdk::{
-    Client, Room, config::SyncSettings, room::ParentSpace, ruma::presence::PresenceState,
-    sync::SyncResponse,
-};
-use ruma::{OwnedRoomId, events::space::child::SpaceChildEventContent};
+use matrix_sdk::{Client, config::SyncSettings, ruma::presence::PresenceState, sync::SyncResponse};
 
 use crate::{
-    RoomMap,
     matrix_api::{
         members::run_membership_map_update,
         presence::{get_presences, handle_presences},
         save_session,
     },
     notifications::on_message,
-    state::{AppState, DmRoomMap},
+    state::AppState,
 };
 
 pub fn spawn_room_sync(client: &Client, state: &AppState) {
@@ -28,7 +21,6 @@ pub fn spawn_room_sync(client: &Client, state: &AppState) {
 
     tokio::spawn(run_sync_stream(client.clone(), state.clone()));
     tokio::spawn(run_keystore_save_stream(client.clone()));
-    tokio::spawn(run_room_classification(client.clone(), state.clone()));
     tokio::spawn(run_membership_map_update(client.clone(), state.clone()));
     tokio::spawn(get_presences(client.clone(), state.clone()));
 
@@ -79,174 +71,150 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
     };
 
     handle_presences(&result.presence, state);
+
+    state.bump_sync_tick();
 }
 
-async fn run_room_classification(client: Client, state: AppState) {
-    let mut updates = client.room_info_notable_update_receiver();
-    while updates.recv().await.is_ok() {
-        // room_info_notable_update fires once per room, and during initial
-        // sync many rooms settle in one burst. Drain the rest of that burst
-        // so we run one reclassification pass instead of one per room.
-        while tokio::time::timeout(Duration::from_millis(50), updates.recv())
-            .await
-            .is_ok_and(|r| r.is_ok())
-        {}
+// pub struct ClasifiedRooms {
+//     pub dm_rooms: DmRoomMap,
+//     pub single_rooms: RoomMap,
+//     pub server_rooms: RoomMap,
 
-        state.bump_room_version();
-        let response = reclassify_rooms(&client).await;
+//     pub parent_to_children: ParentToChildrenOrderStr,
+//     pub parent_to_all_children: ParentToChildren,
 
-        state.set_dm_rooms(response.dm_rooms);
-        state.set_server_rooms(response.server_rooms);
-        state.set_single_rooms(response.single_rooms);
-        state.set_parent_to_children(response.parent_to_children);
-    }
-}
+//     pub child_to_parents: ChildToParents,
+// }
 
-pub type ParentToChildrenOrderStr =
-    HashMap<OwnedRoomId, HashMap<OwnedRoomId, (Room, Option<String>)>>;
-pub type ParentToChildren = HashMap<OwnedRoomId, HashMap<OwnedRoomId, Room>>;
-pub type ChildToParents = HashMap<OwnedRoomId, Vec<Room>>;
+// pub async fn reclassify_rooms(client: &Client) -> ClasifiedRooms {
+//     let mut dm_rooms = IndexMap::new();
+//     let mut server_rooms = HashMap::new();
+//     let mut single_rooms = HashMap::new();
 
-pub struct ClasifiedRooms {
-    pub dm_rooms: DmRoomMap,
-    pub single_rooms: RoomMap,
-    pub server_rooms: RoomMap,
+//     let mut parent_to_children: ParentToChildrenOrderStr = HashMap::new();
+//     let mut parent_to_all_children: ParentToChildren = HashMap::new();
 
-    pub parent_to_children: ParentToChildrenOrderStr,
-    pub parent_to_all_children: ParentToChildren,
+//     let mut child_to_parents: ChildToParents = HashMap::new();
 
-    pub child_to_parents: ChildToParents,
-}
+//     let rooms = client.rooms();
+//     for room in rooms {
+//         let parents = match room.parent_spaces().await {
+//             Ok(parents) => parents,
+//             Err(e) => {
+//                 tracing::error!(
+//                     "Failed to get parent spaces for room {}: {e}",
+//                     room.room_id()
+//                 );
+//                 continue;
+//             }
+//         };
 
-pub async fn reclassify_rooms(client: &Client) -> ClasifiedRooms {
-    let mut dm_rooms = IndexMap::new();
-    let mut server_rooms = HashMap::new();
-    let mut single_rooms = HashMap::new();
+//         let parents_res = parents.collect::<Vec<_>>().await;
 
-    let mut parent_to_children: ParentToChildrenOrderStr = HashMap::new();
-    let mut parent_to_all_children: ParentToChildren = HashMap::new();
+//         let parents: Vec<Room> = parents_res
+//             .iter()
+//             .filter_map(|res| {
+//                 if let Ok(ParentSpace::Reciprocal(room)) = res {
+//                     Some(room.clone())
+//                 } else {
+//                     None
+//                 }
+//             })
+//             .collect();
 
-    let mut child_to_parents: ChildToParents = HashMap::new();
+//         child_to_parents.insert(room.room_id().to_owned(), parents.clone());
 
-    let rooms = client.rooms();
-    for room in rooms {
-        let parents = match room.parent_spaces().await {
-            Ok(parents) => parents,
-            Err(e) => {
-                tracing::error!(
-                    "Failed to get parent spaces for room {}: {e}",
-                    room.room_id()
-                );
-                continue;
-            }
-        };
+//         let room_id = room.room_id();
 
-        let parents_res = parents.collect::<Vec<_>>().await;
+//         for parent in parents {
+//             let order = parent
+//                 .get_state_event_static_for_key::<SpaceChildEventContent, _>(room_id)
+//                 .await
+//                 .map_err(|e| {
+//                     tracing::error!("Failed to get state event for key {}: {e}", room_id);
+//                     e
+//                 })
+//                 .ok()
+//                 .flatten()
+//                 .and_then(|raw| {
+//                     raw.deserialize()
+//                         .map_err(|e| tracing::error!("Failed to deserialize state event: {e}"))
+//                         .ok()
+//                 })
+//                 .and_then(|v| v.as_sync().cloned())
+//                 .and_then(|v| v.as_original().cloned())
+//                 .and_then(|v| v.content.order.clone())
+//                 .map(|o| o.to_string());
 
-        let parents: Vec<Room> = parents_res
-            .iter()
-            .filter_map(|res| {
-                if let Ok(ParentSpace::Reciprocal(room)) = res {
-                    Some(room.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+//             let entry = parent_to_children
+//                 .entry(parent.room_id().to_owned())
+//                 .or_default();
+//             entry.insert(room_id.to_owned(), (room.clone(), order));
+//         }
+//     }
 
-        child_to_parents.insert(room.room_id().to_owned(), parents.clone());
+//     for room in client.rooms() {
+//         let room_id = room.room_id().to_owned();
 
-        let room_id = room.room_id();
+//         let is_dm = match room.compute_is_dm().await {
+//             Ok(is_dm) => is_dm,
+//             Err(e) => {
+//                 tracing::error!("Failed to compute is_dm for room {}: {e}", room_id);
+//                 false
+//             }
+//         };
 
-        for parent in parents {
-            let order = parent
-                .get_state_event_static_for_key::<SpaceChildEventContent, _>(room_id)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to get state event for key {}: {e}", room_id);
-                    e
-                })
-                .ok()
-                .flatten()
-                .and_then(|raw| {
-                    raw.deserialize()
-                        .map_err(|e| tracing::error!("Failed to deserialize state event: {e}"))
-                        .ok()
-                })
-                .and_then(|v| v.as_sync().cloned())
-                .and_then(|v| v.as_original().cloned())
-                .and_then(|v| v.content.order.clone())
-                .map(|o| o.to_string());
+//         if is_dm {
+//             dm_rooms.insert(room.room_id().to_owned(), room.clone());
+//             continue;
+//         }
 
-            let entry = parent_to_children
-                .entry(parent.room_id().to_owned())
-                .or_default();
-            entry.insert(room_id.to_owned(), (room.clone(), order));
-        }
-    }
+//         let has_children = !parent_to_children
+//             .get(&room_id)
+//             .cloned()
+//             .unwrap_or_default()
+//             .is_empty();
+//         let has_parents = !child_to_parents
+//             .get(&room_id)
+//             .cloned()
+//             .unwrap_or_default()
+//             .is_empty();
 
-    for room in client.rooms() {
-        let room_id = room.room_id().to_owned();
+//         if has_children && !has_parents {
+//             server_rooms.insert(room_id, room.clone());
+//             continue;
+//         }
 
-        let is_dm = match room.compute_is_dm().await {
-            Ok(is_dm) => is_dm,
-            Err(e) => {
-                tracing::error!("Failed to compute is_dm for room {}: {e}", room_id);
-                false
-            }
-        };
+//         single_rooms.insert(room_id, room.clone());
+//     }
 
-        if is_dm {
-            dm_rooms.insert(room.room_id().to_owned(), room.clone());
-            continue;
-        }
+//     for (parent_id, children) in &parent_to_children {
+//         for (child_id, (child, _)) in children {
+//             parent_to_all_children
+//                 .entry(parent_id.clone())
+//                 .or_default()
+//                 .insert(child_id.clone(), child.clone());
+//         }
+//     }
 
-        let has_children = !parent_to_children
-            .get(&room_id)
-            .cloned()
-            .unwrap_or_default()
-            .is_empty();
-        let has_parents = !child_to_parents
-            .get(&room_id)
-            .cloned()
-            .unwrap_or_default()
-            .is_empty();
+//     let latest_events = client.latest_events().await;
 
-        if has_children && !has_parents {
-            server_rooms.insert(room_id, room.clone());
-            continue;
-        }
+//     for id in dm_rooms.keys() {
+//         if let Err(e) = latest_events.listen_to_room(id).await {
+//             tracing::error!("Failed to listen to room {}: {e}", id);
+//         }
+//     }
 
-        single_rooms.insert(room_id, room.clone());
-    }
+//     dm_rooms.sort_by_key(|_, r| Reverse(r.latest_event_timestamp()));
 
-    for (parent_id, children) in &parent_to_children {
-        for (child_id, (child, _)) in children {
-            parent_to_all_children
-                .entry(parent_id.clone())
-                .or_default()
-                .insert(child_id.clone(), child.clone());
-        }
-    }
+//     ClasifiedRooms {
+//         dm_rooms,
+//         server_rooms,
+//         single_rooms,
 
-    let latest_events = client.latest_events().await;
+//         parent_to_children,
+//         parent_to_all_children,
 
-    for id in dm_rooms.keys() {
-        if let Err(e) = latest_events.listen_to_room(id).await {
-            tracing::error!("Failed to listen to room {}: {e}", id);
-        }
-    }
-
-    dm_rooms.sort_by_key(|_, r| Reverse(r.latest_event_timestamp()));
-
-    ClasifiedRooms {
-        dm_rooms,
-        server_rooms,
-        single_rooms,
-
-        parent_to_children,
-        parent_to_all_children,
-
-        child_to_parents,
-    }
-}
+//         child_to_parents,
+//     }
+// }

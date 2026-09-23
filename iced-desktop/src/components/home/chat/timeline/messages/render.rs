@@ -33,7 +33,8 @@ use crate::{
 };
 
 use super::{
-    ImageMessage, MessageContent, MessageEvent, ReplyContent, TimelineItemMessage, VideoMessage,
+    ImageMessage, MessageContent, MessageEvent, ReplyContent, RtcNotification, TimelineItemMessage,
+    VideoMessage,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -831,7 +832,7 @@ impl SystemMessage {
         match self {
             SystemMessage::CallInvite => (icons::phone_call::FILL, theme.text.dim),
             SystemMessage::CallMember => (icons::phone_call::FILL, theme.text.dim),
-            SystemMessage::RtcNotification { call_intent, .. } => (
+            SystemMessage::RtcNotification(RtcNotification { call_intent, .. }) => (
                 match call_intent {
                     Some(CallIntent::Video) => icons::video_camera::FILL,
                     _ => icons::phone_call::FILL,
@@ -978,7 +979,7 @@ impl SystemMessage {
             }
             SystemMessage::SpaceChild => basic_text("changed the space's child".to_string()),
             SystemMessage::SpaceParent => basic_text("changed the space's parent".to_string()),
-            SystemMessage::RtcNotification { call_intent, .. } => basic_text(
+            SystemMessage::RtcNotification(RtcNotification { call_intent, .. }) => basic_text(
                 match call_intent {
                     Some(CallIntent::Video) => "started a video call",
                     _ => "started an audio call",

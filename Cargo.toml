@@ -27,7 +27,19 @@ futures = "0.3.34"
 futures-util = "0.3"
 getrandom = { version = "0.4.0-rc.1" }
 gpui = { git = "https://github.com/zed-industries/zed" }
-iced = { git = "https://github.com/acisama/iced", version = "0.15.0-dev", features = ["advanced", "canvas", "debug", "image", "svg", "time-travel", "tokio", "unconditional-rendering"] }
+iced = {
+  git = "https://github.com/acisama/iced",
+  version = "0.15.0-dev",
+  features = [
+    "advanced",
+    "canvas",
+    "debug",
+    "image",
+    "svg",
+    "time-travel",
+    "tokio",
+  ]
+}
 iced_video_player = { git = "https://codeberg.org/aosiuejhf/iced_video_player.git" }
 image = "0.25.10"
 imbl = "6.1.0"
@@ -37,14 +49,14 @@ interprocess = { version = "2", features = ["tokio"] }
 keyboard-types = { version = "0.8.3", features = ["serde"] }
 # livekit = "0.8.1"
 lru = "0.18.2"
-matrix-sdk = { version = "0.18.0", features = ["anyhow", "bundled-sqlite", "e2e-encryption", "experimental-element-recent-emojis", "experimental-search", "experimental-send-custom-to-device", "sso-login"] }
-matrix-sdk-ui = "0.18.0"
+matrix-sdk = { version = "0.19.1", features = ["anyhow", "bundled-sqlite", "e2e-encryption", "experimental-element-recent-emojis", "experimental-search", "experimental-send-custom-to-device", "sso-login"] }
+matrix-sdk-ui = "0.19.1"
 mime = "0.3.17"
 mime_guess = "2.0.5"
 nucleo = "0.5.0"
 phosphor-svgs = "0.3.0"
 rayon = "1.12.0"
-ruma = { version = "0.16.0", features = ["unstable-msc4095"] }
+ruma = { version = "0.17.0", features = ["unstable-msc4095"] }
 ruma-html = { version = "0.8.0", features = ["matrix"] }
 rust-embed = "8.12.0"
 serde = { version = "1", features = ["derive"] }
@@ -62,11 +74,17 @@ url = "2.5.8"
 url-macro = "0.2.4"
 uuid = { version = "1.24.0", features = ["v7"] }
 
-# [patch."https://github.com/acisama/iced"]
-# iced = { path = "/home/eriko/iced" }
+# [patch."https://codeberg.org/aosiuejhf/iced_video_player.git"]
+# iced_video_player = { path = "/home/eriko/iced_video_player" }
 
 # [patch."https://codeberg.org/aosiuejhf/sweeten-fork.git"]
 # sweeten = { path = "/home/eriko/sweeten-fork" }
+
+# [patch."https://github.com/acisama/iced"]
+# iced = { path = "/home/eriko/iced" }
+# iced_core = { path = "../iced/core" }
+# iced_graphics = { path = "../iced/graphics" }
+# iced_wgpu = { path = "../iced/wgpu" }
 
 [patch."https://github.com/zed-industries/zed"]
 collections = { git = "https://github.com/acisama/zed", branch = "main" }

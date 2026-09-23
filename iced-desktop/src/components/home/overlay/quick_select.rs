@@ -28,6 +28,8 @@ pub struct QuickSelect {
     avatar_cache: AvatarCache,
     membership_map: Receiver<MembershipMap>,
 
+    room_watchers: RoomWatchers,
+
     #[hash]
     input: String,
 
@@ -55,7 +57,7 @@ impl NeedsAvatarExt for QuickSelectMessage {
 #[derive(Debug)]
 pub enum QuickSelectAction {
     NeedsMedia(NeedsMedia),
-    ChangeRoom(Option<Room>),
+    ChangeRoom(Option<DePlaceRoom>),
     Close,
 }
 
@@ -65,7 +67,7 @@ impl QuickSelect {
         let injector = matcher.injector();
 
         let mut added_rooms = HashSet::new();
-        let mut add_room = |room: matrix_sdk::room::Room| {
+        let mut add_room = |room: DePlaceRoom| {
             let room_id = room.room_id().to_owned();
             if added_rooms.insert(room_id.clone()) {
                 let name = room.get_name();
@@ -75,18 +77,10 @@ impl QuickSelect {
             }
         };
 
-        let client = state.client();
-        for room in client.rooms() {
+        let room_watchers = state.room_watchers(hashing::hash_all_rooms_default());
+
+        for room in room_watchers.all_rooms().get_all_rooms() {
             add_room(room);
-        }
-        for room in state.dm_rooms().borrow().values() {
-            add_room(room.clone());
-        }
-        for room in state.server_rooms().borrow().values() {
-            add_room(room.clone());
-        }
-        for room in state.single_rooms().borrow().values() {
-            add_room(room.clone());
         }
 
         Self {
@@ -94,6 +88,8 @@ impl QuickSelect {
             membership_map: state.membership_map(),
 
             avatar_states_for_hash: BTreeSet::new(),
+
+            room_watchers,
 
             state: state.clone(),
             input: String::new(),
@@ -191,7 +187,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                 None
             }
             QuickSelectMessage::SelectRoom(room_id) => {
-                let room = self.state.client().get_room(&room_id);
+                let room = self.room_watchers.get_room(&room_id);
                 tracing::trace!("Quick selected room {room_id}");
                 Some(QuickSelectAction::ChangeRoom(room.clone()))
             }
@@ -201,7 +197,6 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
 
     fn view(&self, theme: Theme, structure: Structure) -> Element<'static, QuickSelectMessage> {
         let displayed_rooms = self.get_displayed_rooms();
-        let client = self.state.client();
 
         let mut input_field = text_input("Search for rooms...", self.input.clone())
             .id(QUICK_SELECT_INPUT_ID)
@@ -245,7 +240,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
         let avatar_cache = &self.avatar_cache;
         let membership_map = self.membership_map.borrow();
         for (index, room_id) in displayed_rooms.into_iter().enumerate() {
-            if let Some(room) = client.get_room(&room_id) {
+            if let Some(room) = self.room_watchers.get_room(&room_id) {
                 let is_selected = index == self.selected_index;
 
                 let icon_size = structure.font_size * 1.2;

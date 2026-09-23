@@ -1,9 +1,6 @@
 use std::collections::BTreeSet;
 
-use deplace_core::{
-    matrix_api::sync::ParentToChildrenOrderStr,
-    state::{ActiveServer, DmRoomMap},
-};
+use deplace_core::state::ActiveServer;
 use iced::widget::text::Alignment;
 use macros::iced_cache;
 
@@ -12,7 +9,7 @@ use crate::common::*;
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
     NeedsAvatar(OwnedMxcUri),
-    SetActiveRoom(Room),
+    SetActiveRoom(DePlaceRoom),
 }
 
 impl NeedsAvatarExt for ChannelsMessage {
@@ -22,7 +19,7 @@ impl NeedsAvatarExt for ChannelsMessage {
 }
 
 pub enum ChannelsAction {
-    SetActiveRoom(Room),
+    SetActiveRoom(DePlaceRoom),
     NeedsMedia(NeedsMedia),
 }
 
@@ -31,13 +28,11 @@ pub struct ServerChannels {
     state: AppState,
     avatar_cache: AvatarCache,
 
-    dm_rooms: Receiver<DmRoomMap>,
+    room_watchers: RoomWatchers,
 
     membership_map: Receiver<MembershipMap>,
 
-    parent_to_children: Receiver<ParentToChildrenOrderStr>,
-
-    active_room: Receiver<Option<Room>>,
+    active_room: Receiver<Option<DePlaceRoom>>,
     active_server: Receiver<ActiveServer>,
 }
 
@@ -45,10 +40,11 @@ impl ServerChannels {
     pub fn new(state: &AppState) -> Self {
         Self {
             avatar_cache: state.avatar_cache().clone(),
-            dm_rooms: state.dm_rooms(),
+            room_watchers: state
+                .room_watchers(hashing::hash_all_rooms_default())
+                .clone(),
 
             membership_map: state.membership_map(),
-            parent_to_children: state.parent_to_children(),
 
             active_room: state.active_room(),
             active_server: state.active_server(),
@@ -79,26 +75,10 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
             .as_ref()
             .map(|r| r.room_id().to_owned());
 
-        let channels: Vec<_> = match &active_server {
-            ActiveServer::Dms => self.dm_rooms.borrow().values().cloned().collect(),
+        let channels: Arc<Vec<_>> = match &active_server {
+            ActiveServer::Dms => self.room_watchers.dm_rooms(),
             ActiveServer::Server(server) => {
-                let mut children: Vec<(Room, Option<String>)> = self
-                    .parent_to_children
-                    .borrow()
-                    .get(server.room_id())
-                    .cloned()
-                    .unwrap_or_default()
-                    .values()
-                    .cloned()
-                    .collect();
-
-                children.sort_by(|(r1, o1), (r2, o2)| {
-                    let k1 = o1.as_deref().unwrap_or_else(|| r1.room_id().as_str());
-                    let k2 = o2.as_deref().unwrap_or_else(|| r2.room_id().as_str());
-                    k1.cmp(k2)
-                });
-
-                children.into_iter().map(|(room, _)| room).collect()
+                Arc::new(self.room_watchers.get_children(server.room_id()))
             }
         };
 
@@ -156,7 +136,7 @@ fn render_channel(
     theme: Theme,
     structure: Structure,
     active_room_id: Option<OwnedRoomId>,
-    room: &Room,
+    room: &DePlaceRoom,
     avatar_cache: &AvatarCache,
     membership_map: &MembershipMap,
     icon_size: f32,

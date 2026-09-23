@@ -210,7 +210,14 @@ where
 
     save_session(&client);
 
-    let state = AppState::new(client.clone(), device.clone(), settings, keybinds, paths).await;
+    let state = match AppState::new(client.clone(), device.clone(), settings, keybinds, paths).await
+    {
+        Ok(state) => state,
+        Err(e) => {
+            tracing::error!("Failed to create app state: {e}");
+            return LoginResult::Error(e.to_string());
+        }
+    };
     spawn_room_sync(&client, &state);
 
     LoginResult::Success(state)

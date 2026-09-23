@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap},
     env::temp_dir,
     hash::Hash,
     path::PathBuf,
@@ -8,9 +8,8 @@ use std::{
 
 use anyhow::Result;
 use futures::{Stream, stream};
-use indexmap::IndexMap;
 use matrix_sdk::{
-    Client, Room,
+    Client,
     room::RoomMember,
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
 };
@@ -20,13 +19,11 @@ use tokio::sync::watch::{self, Receiver, Ref, Sender};
 use crate::{
     APP_NAME,
     keybinds::Keybinds,
-    matrix_api::{
-        account_data::{
-            BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data,
-        },
-        sync::{ParentToChildren, ParentToChildrenOrderStr, reclassify_rooms},
+    matrix_api::account_data::{
+        BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data,
     },
     notifications::NotificationManager,
+    rooms::{DePlaceRoom, RoomWatcherHashingConfig, RoomWatchers, SpaceHierarchy},
     settings::Settings,
     window_title,
 };
@@ -99,10 +96,8 @@ pub struct UserDevice {
     pub device_id: OwnedDeviceId,
 }
 
-pub type RoomMap = HashMap<OwnedRoomId, Room>;
 pub type MembershipMap = HashMap<OwnedRoomId, HashMap<OwnedUserId, RoomMember>>;
 pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
-pub type DmRoomMap = IndexMap<OwnedRoomId, Room>;
 
 pub mod cache;
 pub mod roles;
@@ -110,11 +105,11 @@ pub mod roles;
 #[derive(Clone, Debug)]
 pub enum ActiveServer {
     Dms,
-    Server(Room),
+    Server(DePlaceRoom),
 }
 
-impl From<Option<Room>> for ActiveServer {
-    fn from(room: Option<Room>) -> Self {
+impl From<Option<DePlaceRoom>> for ActiveServer {
+    fn from(room: Option<DePlaceRoom>) -> Self {
         match room {
             Some(room) => ActiveServer::Server(room),
             None => ActiveServer::Dms,
@@ -138,7 +133,7 @@ impl ActiveServer {
         matches!(self, ActiveServer::Server(room) if room.room_id() == server_id)
     }
 
-    pub fn as_server(&self) -> Option<&Room> {
+    pub fn as_server(&self) -> Option<&DePlaceRoom> {
         match self {
             ActiveServer::Server(room) => Some(room),
             ActiveServer::Dms => None,
@@ -183,40 +178,6 @@ pub enum ActiveServerId {
     Server(OwnedRoomId),
 }
 
-trait KeysExt {
-    fn len(&self) -> usize;
-    fn keys(&self) -> Vec<&OwnedRoomId>;
-    fn contains_other_key(&self, key: &OwnedRoomId) -> bool;
-}
-
-impl KeysExt for RoomMap {
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    fn keys(&self) -> Vec<&OwnedRoomId> {
-        self.keys().collect()
-    }
-
-    fn contains_other_key(&self, key: &OwnedRoomId) -> bool {
-        self.keys().find(|other| &key == other).is_some()
-    }
-}
-
-impl KeysExt for DmRoomMap {
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    fn keys(&self) -> Vec<&OwnedRoomId> {
-        self.keys().collect()
-    }
-
-    fn contains_other_key(&self, key: &OwnedRoomId) -> bool {
-        self.keys().find(|other| &key == other).is_some()
-    }
-}
-
 /// Cheaply clonable AppState since the data is all
 /// wrapped in an `Arc`. Access only over functions,
 /// no direct field access.
@@ -232,6 +193,7 @@ struct AppStateInner {
     pub settings: Settings,
 
     keybinds: Sender<Keybinds>,
+    room_watchers: RoomWatchers,
 
     window_title: Sender<String>,
     window_focused: Mutex<bool>,
@@ -239,19 +201,11 @@ struct AppStateInner {
 
     notification_manager: NotificationManager,
 
-    dm_rooms: Sender<DmRoomMap>,
-    single_rooms: Sender<RoomMap>,
-    server_rooms: Sender<RoomMap>,
-
-    /// Monotonically increasing version counter, gets increased if anything notable changes in any room
-    pub room_version: Sender<u64>,
     pub membership_version: Sender<u64>,
     pub presence_version: Sender<u64>,
+    sync_tick: Sender<u64>,
 
-    parent_to_children: Sender<ParentToChildrenOrderStr>,
-    parent_to_all_children: Sender<ParentToChildren>,
-
-    pub active_room: Sender<Option<Room>>,
+    pub active_room: Sender<Option<DePlaceRoom>>,
     pub active_server: Sender<ActiveServer>,
     presence_map: Sender<PresenceMap>,
     membership_map: Sender<MembershipMap>,
@@ -279,44 +233,44 @@ impl AppState {
         settings: Settings,
         keybinds: Keybinds,
         important_paths: ImportantPaths,
-    ) -> Self {
+    ) -> Result<Self> {
         let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
 
-        let last_room_id = breadcrumbs_content.recent_rooms.first().cloned();
-
+        let room_watchers = RoomWatchers::new(client.clone()).await?;
         let breadcrumbs = Mutex::new(breadcrumbs_content);
 
-        let response = reclassify_rooms(&client).await;
+        let (last_room_id, dms_last) = {
+            let breadcrumbs = breadcrumbs
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
 
-        let last_server = if let Some(room_id) = &last_room_id {
-            let parent_ids: HashSet<OwnedRoomId> = response
-                .child_to_parents
-                .get(room_id)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|r| r.room_id().to_owned())
-                .collect();
+            let dms_last = breadcrumbs.dms_last;
+            let last_room_id = if dms_last {
+                breadcrumbs.last_dm_id.clone()
+            } else {
+                breadcrumbs.recent_rooms.first().cloned()
+            };
 
-            response
-                .server_rooms
-                .clone()
-                .keys()
-                .find(|id| parent_ids.contains(*id))
-                .cloned()
+            (last_room_id, dms_last)
+        };
+
+        let active_server = if !dms_last
+            && let Some(room_id) = &last_room_id
+            && let Some(server) = room_watchers.get_server_of(room_id)
+        {
+            ActiveServer::Server(server)
+        } else {
+            ActiveServer::Dms
+        };
+
+        let active_room = if let Some(room) = last_room_id.and_then(|id| client.get_room(&id)) {
+            Some(DePlaceRoom::from_room(room).await)
         } else {
             None
         };
 
-        let (dm_rooms, _) = watch::channel(response.dm_rooms);
-        let (server_rooms, _) = watch::channel(response.server_rooms);
-        let (single_rooms, _) = watch::channel(response.single_rooms);
-        let (parent_to_children, _) = watch::channel(response.parent_to_children);
-        let (parent_to_all_children, _) = watch::channel(response.parent_to_all_children);
-
-        let (active_room, _) = watch::channel(last_room_id.and_then(|id| client.get_room(&id)));
-        let (active_server, _) =
-            watch::channel::<ActiveServer>(last_server.and_then(|id| client.get_room(&id)).into());
+        let (active_room, _) = watch::channel(active_room);
+        let (active_server, _) = watch::channel(active_server);
 
         let (membership_map, _) = watch::channel(MembershipMap::default());
         let (presence_map, _) = watch::channel(PresenceMap::default());
@@ -324,9 +278,9 @@ impl AppState {
         let server_order_data = get_account_data::<ServerOrderContent>(&client).await;
         let (server_order, _) = watch::channel(server_order_data.servers);
 
-        let (room_version, _) = watch::channel(0);
         let (membership_version, _) = watch::channel(0);
         let (presence_version, _) = watch::channel(0);
+        let (sync_tick, _) = watch::channel(0);
 
         let (window_title, _) = watch::channel(window_title(
             active_room.borrow().clone(),
@@ -335,7 +289,7 @@ impl AppState {
 
         let (keybinds, _) = watch::channel(keybinds);
 
-        Self {
+        Ok(Self {
             inner: Arc::new(AppStateInner {
                 #[cfg(feature = "iced_desktop")]
                 avatar_cache: cache::AvatarCache::new(client.clone()),
@@ -345,6 +299,8 @@ impl AppState {
 
                 #[cfg(feature = "iced_desktop")]
                 video_cache: cache::VideoCache::new(client.clone()),
+
+                room_watchers,
 
                 window_title,
                 window_focused: Mutex::new(false),
@@ -357,15 +313,9 @@ impl AppState {
                 settings,
                 keybinds,
 
-                dm_rooms,
-                single_rooms,
-                server_rooms,
-                room_version,
                 membership_version,
                 presence_version,
-
-                parent_to_children,
-                parent_to_all_children,
+                sync_tick,
 
                 active_room,
                 active_server,
@@ -376,7 +326,7 @@ impl AppState {
                 server_order,
                 breadcrumbs,
             }),
-        }
+        })
     }
 
     #[cfg(feature = "iced_desktop")]
@@ -392,6 +342,36 @@ impl AppState {
     #[cfg(feature = "iced_desktop")]
     pub fn video_cache(&self) -> &cache::VideoCache {
         &self.inner.video_cache
+    }
+
+    fn inner_room_watchers(&self) -> &RoomWatchers {
+        &self.inner.room_watchers
+    }
+
+    pub fn room_watchers(&self, config: RoomWatcherHashingConfig) -> RoomWatchers {
+        let mut watchers = self.inner.room_watchers.clone();
+        watchers.hash_config = config;
+        watchers
+    }
+
+    pub fn get_children(&self, parent: &RoomId) -> Arc<Vec<OwnedRoomId>> {
+        self.hierarchy().get_children(parent)
+    }
+
+    pub fn get_all_children(&self, parent: &RoomId) -> Arc<BTreeSet<OwnedRoomId>> {
+        self.hierarchy().get_all_children(parent)
+    }
+
+    pub fn hierarchy(&self) -> Ref<'_, SpaceHierarchy> {
+        self.inner.room_watchers.hierarchy.borrow()
+    }
+
+    pub fn servers(&self) -> Arc<Vec<OwnedRoomId>> {
+        self.hierarchy().servers.clone()
+    }
+
+    pub fn get_room(&self, room_id: &RoomId) -> Option<DePlaceRoom> {
+        self.inner_room_watchers().all_rooms().get(room_id)
     }
 
     pub fn keybinds(&self) -> Receiver<Keybinds> {
@@ -427,10 +407,6 @@ impl AppState {
         self.inner.window_title.subscribe()
     }
 
-    pub fn room_version(&self) -> Ref<'_, u64> {
-        self.inner.room_version.borrow()
-    }
-
     pub fn membership_version(&self) -> Ref<'_, u64> {
         self.inner.membership_version.borrow()
     }
@@ -439,8 +415,12 @@ impl AppState {
         self.inner.presence_version.borrow()
     }
 
-    pub fn bump_room_version(&self) {
-        self.inner.room_version.send_modify(|v| *v += 1);
+    /// Subscribes to a tick that fires on every processed sync response,
+    /// regardless of whether it contained anything relevant to the
+    /// subscriber. Intended to wake up UI caches so they re-check their
+    /// (cheap) hashes against the latest state.
+    pub fn sync_tick(&self) -> Receiver<u64> {
+        self.inner.sync_tick.subscribe()
     }
 
     /// Retrieves the `matrix-sdk::Client` of the app
@@ -463,27 +443,7 @@ impl AppState {
 
     // Getters
 
-    pub fn dm_rooms(&self) -> watch::Receiver<DmRoomMap> {
-        self.inner.dm_rooms.subscribe()
-    }
-
-    pub fn server_rooms(&self) -> watch::Receiver<RoomMap> {
-        self.inner.server_rooms.subscribe()
-    }
-
-    pub fn parent_to_children(&self) -> watch::Receiver<ParentToChildrenOrderStr> {
-        self.inner.parent_to_children.subscribe()
-    }
-
-    pub fn parent_to_all_children(&self) -> watch::Receiver<ParentToChildren> {
-        self.inner.parent_to_all_children.subscribe()
-    }
-
-    pub fn single_rooms(&self) -> watch::Receiver<RoomMap> {
-        self.inner.single_rooms.subscribe()
-    }
-
-    pub fn active_room(&self) -> watch::Receiver<Option<Room>> {
+    pub fn active_room(&self) -> watch::Receiver<Option<DePlaceRoom>> {
         self.inner.active_room.subscribe()
     }
 
@@ -514,18 +474,6 @@ impl AppState {
 
     // Mutators
 
-    pub(crate) fn set_dm_rooms(&self, rooms: DmRoomMap) {
-        Self::send_if_keys_changed(&self.inner.dm_rooms, rooms);
-    }
-
-    pub(crate) fn set_server_rooms(&self, rooms: RoomMap) {
-        Self::send_if_keys_changed(&self.inner.server_rooms, rooms);
-    }
-
-    pub(crate) fn set_single_rooms(&self, rooms: RoomMap) {
-        Self::send_if_keys_changed(&self.inner.single_rooms, rooms);
-    }
-
     pub(crate) fn set_membership_map(&self, membership_map: MembershipMap) {
         self.inner.membership_version.send_modify(|v| *v += 1);
         self.inner.membership_map.send_if_modified(|cur| {
@@ -544,17 +492,14 @@ impl AppState {
         });
     }
 
+    pub(crate) fn bump_sync_tick(&self) {
+        self.inner.sync_tick.send_modify(|v| *v = v.wrapping_add(1));
+    }
+
     pub(crate) fn add_presences(&self, presences: PresenceMap) {
         self.inner.presence_version.send_modify(|v| *v += 1);
         self.inner.presence_map.send_if_modified(|cur| {
             cur.extend(presences);
-            true
-        });
-    }
-
-    pub(crate) fn set_parent_to_children(&self, parent_to_children: ParentToChildrenOrderStr) {
-        self.inner.parent_to_children.send_if_modified(|cur| {
-            *cur = parent_to_children;
             true
         });
     }
@@ -604,35 +549,24 @@ impl AppState {
             let new_room_id = match server_id {
                 ActiveServerId::Server(id) => {
                     breadcrumbs.last_space_ids.get(&id).cloned().or_else(|| {
-                        let mut children: Vec<(Room, Option<String>)> = self
-                            .inner
+                        self.hierarchy()
                             .parent_to_children
-                            .borrow()
                             .get(&id)
-                            .cloned()
-                            .unwrap_or_default()
-                            .values()
-                            .cloned()
-                            .collect();
-
-                        children.sort_by_key(|(r, o)| {
-                            o.clone().unwrap_or_else(|| r.room_id().to_string())
-                        });
-                        children.first().map(|(r, _)| r.room_id().to_owned())
+                            .and_then(|children| children.first().cloned())
                     })
                 }
                 ActiveServerId::Dms => breadcrumbs.last_dm_id.clone().or_else(|| {
                     self.inner
-                        .dm_rooms
-                        .borrow()
-                        .values()
+                        .room_watchers
+                        .dm_rooms()
+                        .iter()
                         .next()
                         .map(|r| r.room_id().to_owned())
                 }),
             };
 
             if change_room {
-                let new_room = new_room_id.and_then(|id| self.client().get_room(&id));
+                let new_room = new_room_id.and_then(|id| self.inner.room_watchers.get_room(&id));
                 self.set_active_room(new_room).await;
             }
         }
@@ -641,7 +575,7 @@ impl AppState {
     /// Set the currently focused room. This function als takes care of updating the breadcrumbs and active server
     ///
     /// Returns the new server if it changed
-    pub async fn set_active_room(&self, room: Option<Room>) -> ActiveServer {
+    pub async fn set_active_room(&self, room: Option<DePlaceRoom>) -> ActiveServer {
         tracing::trace!(
             "Setting active room: {:?}",
             room.as_ref().map(|r| r.room_id().to_owned())
@@ -663,18 +597,11 @@ impl AppState {
             && room_changed
         {
             let room_id = room.room_id().to_owned();
-            let active_server_id = self
-                .inner
-                .parent_to_all_children
-                .borrow()
-                .clone()
-                .into_iter()
-                .find(|(_, v)| v.contains_key(&room_id))
-                .map(|(k, _)| k);
 
-            let active_server: ActiveServer = active_server_id
-                .and_then(|id| self.server_rooms().borrow().clone().get(&id).cloned())
-                .into();
+            let active_server_id = self.hierarchy().get_server_of(&room_id);
+
+            let active_server: ActiveServer =
+                active_server_id.and_then(|id| self.get_room(&id)).into();
 
             self.recalculate_title();
 
@@ -718,17 +645,6 @@ impl AppState {
             } else {
                 false
             }
-        });
-    }
-
-    fn send_if_keys_changed<T: KeysExt>(sender: &Sender<T>, new: T) {
-        sender.send_if_modified(|cur| {
-            let changed =
-                cur.len() != new.len() || new.keys().iter().any(|id| !cur.contains_other_key(id));
-            if changed {
-                *cur = new;
-            }
-            changed
         });
     }
 

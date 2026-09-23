@@ -92,7 +92,7 @@ pub enum OverlayAction {
     Run(Task<()>),
     Perform(Task<OverlayMessage>),
     NeedsMedia(NeedsMedia),
-    ChangeRoom(Option<Room>),
+    ChangeRoom(Option<DePlaceRoom>),
 }
 
 impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {

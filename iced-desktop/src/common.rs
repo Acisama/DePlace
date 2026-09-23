@@ -1,17 +1,18 @@
 pub use crate::components::{
     CornerContent, GenericState, IcedColorExt, IcedWidget, NeedsAvatarExt, ProfileRenderExt,
     StatusExt, context_room_icon, corner_badge, floating_tile, loading_icon, on_appear,
-    phosphor_icon, render_avatar, render_loading_name, render_name, render_unknown_name,
-    text_icon, text_input, themed_scrollable, themed_tooltip, unknown_icon, weighted_text,
+    phosphor_icon, render_avatar, render_loading_name, render_name, render_unknown_name, text_icon,
+    text_input, themed_scrollable, themed_tooltip, unknown_icon, weighted_text,
 };
 pub use deplace_core::{
     ProfileLike,
     colors::DePlaceColor,
     get_change,
     helpers::{DisplayString, EventChange, RoomExt, get_current_and_prev},
+    rooms::{DePlaceRoom, RoomWatchers, hashing},
     settings::Settings,
     state::{
-        AppState, MembershipMap, RoomMap,
+        AppState, MembershipMap,
         cache::{AvatarCache, MediaLoaded, MediaState, NeedsMedia, ThumbnailCache, VideoCache},
         roles::ExtraHash,
     },

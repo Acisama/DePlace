@@ -23,6 +23,7 @@ use ruma::{
 
 use crate::{
     APP_HUMAN_NAME,
+    rooms::DePlaceRoom,
     state::{AppState, ImportantPaths},
 };
 
@@ -315,7 +316,12 @@ impl NotificationManager {
                 NotificationResponse::Default => {
                     tracing::trace!("Notification in room {} clicked", room_id);
                     state
-                        .set_active_server(state.set_active_room(Some(room)).await, false)
+                        .set_active_server(
+                            state
+                                .set_active_room(Some(DePlaceRoom::from_room(room).await))
+                                .await,
+                            false,
+                        )
                         .await;
                 }
                 // Unfortunately only supported on MacOS

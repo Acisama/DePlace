@@ -50,8 +50,12 @@ pub struct Chat {
 }
 
 impl Chat {
-    pub fn new(state: &AppState, room: Room) -> (Self, Task<(OwnedRoomId, TimelineMessage)>) {
-        let builder = TimelineBuilder::new(&room)
+    pub fn new(
+        state: &AppState,
+        room: DePlaceRoom,
+    ) -> (Self, Task<(OwnedRoomId, TimelineMessage)>) {
+        let sdk_room = room.sdk_room().clone();
+        let builder = TimelineBuilder::new(&sdk_room)
             .with_date_divider_mode(DateDividerMode::Daily)
             .with_focus(TimelineFocus::Live {
                 hide_threaded_events: false,
@@ -64,7 +68,6 @@ impl Chat {
         let state_clone = state.clone();
 
         let room_id_clone = room_id.clone();
-        let room_clone = room.clone();
         let stream = stream::once(async move {
             tracing::debug!("Building timeline for room {}", room_id_clone);
             let timeline = match builder.build().await {
@@ -102,7 +105,7 @@ impl Chat {
                 }
             }
 
-            let power_levels = Arc::new(room_clone.power_levels_or_default().await);
+            let power_levels = Arc::new(sdk_room.power_levels_or_default().await);
 
             let initial = Arc::new(
                 initial
@@ -129,8 +132,8 @@ impl Chat {
         (
             Self {
                 header: Header::new(state, &room),
-                timeline: ChatTimeline::new(&room, state),
-                input: ChatInput::new(&room, state),
+                timeline: ChatTimeline::new(state, &room),
+                input: ChatInput::new(state, &room),
 
                 room_id: room.room_id().to_owned(),
             },
@@ -245,8 +248,9 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 .height(Fill)
                 .width(Fill)
             )
+            .height(Fill)
+            .width(Fill)
         ]
-        .height(Fill)
         .height(Fill)
         .spacing(structure.small_gap)
         .into()

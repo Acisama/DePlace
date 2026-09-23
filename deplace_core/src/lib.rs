@@ -25,11 +25,14 @@ pub mod keybinds;
 pub mod matrix_api;
 pub mod notifications;
 pub mod profile;
+pub mod rooms;
 pub mod settings;
 pub mod state;
 
 pub mod structure;
 pub mod theme;
+
+pub use rooms::{DePlaceRoom, RoomWatcherHashingConfig, RoomWatchers};
 
 pub const APP_HUMAN_NAME: &str = "DePlace";
 pub const APP_NAME: &str = "deplace";
@@ -52,8 +55,6 @@ pub const ASSET_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets");
 pub const SHADER_PATH: &str = formatcp!("{ASSET_DIR}/loading.wgsl");
 pub const ICON_SVG: &str = formatcp!("{ASSET_DIR}/deplace_icon.svg");
 pub const ICON_PNG: &str = formatcp!("{ASSET_DIR}/deplace_icon.png");
-
-pub use state::RoomMap;
 
 #[derive(Debug, Clone, Copy)]
 pub enum PaginationDirection {
@@ -124,7 +125,13 @@ pub async fn try_restore(paths: ImportantPaths) -> RestoreResult {
         user_id: user_id.clone(),
         device_id: device_id.clone(),
     };
-    let state = AppState::new(client.clone(), device, settings, keybinds, paths).await;
+    let state = match AppState::new(client.clone(), device, settings, keybinds, paths).await {
+        Ok(state) => state,
+        Err(e) => {
+            tracing::error!("Failed to create app state: {e}");
+            return RestoreResult::NeedsLogin(client);
+        }
+    };
     spawn_room_sync(&client, &state);
 
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");
@@ -292,7 +299,7 @@ impl ProfileLike for ActiveServer {
     }
 }
 
-pub fn window_title(room: Option<Room>, server: ActiveServer) -> String {
+pub fn window_title(room: Option<DePlaceRoom>, server: ActiveServer) -> String {
     let room_name = room.as_ref().map(|r| r.get_name());
     let server_name = server.as_server().map(|s| s.get_name());
 

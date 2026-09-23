@@ -912,7 +912,9 @@ impl SystemEvent {
             SystemMessage::SpaceChild => SystemMessageType::SpaceChild,
             SystemMessage::SpaceParent => SystemMessageType::SpaceParent,
             SystemMessage::ProfileChange(_) => SystemMessageType::ProfileChange,
-            SystemMessage::RtcNotification { .. } => SystemMessageType::RtcNotification,
+            SystemMessage::RtcNotification(RtcNotification { .. }) => {
+                SystemMessageType::RtcNotification
+            }
             SystemMessage::Custom { .. } => SystemMessageType::Custom,
         }
     }
@@ -923,18 +925,21 @@ impl SystemEvent {
 }
 
 #[derive(Debug)]
+struct RtcNotification {
+    call_intent: Option<CallIntent>,
+    declined_by: Vec<OwnedUserId>,
+    call_started: Option<SystemTime>,
+    currnet_members: Option<BTreeSet<OwnedUserId>>,
+}
+
+#[derive(Debug)]
 enum SystemMessage {
     MembershipChange(Box<RoomMembershipChange>),
     ProfileChange(Box<MemberProfileChange>),
     CallInvite,
     CallMember,
-    RtcNotification {
-        call_intent: Option<CallIntent>,
-        declined_by: Vec<OwnedUserId>,
-    },
-    Custom {
-        event_type: String,
-    },
+    RtcNotification(RtcNotification),
+    Custom { event_type: String },
 
     PolicyRuleRoom,
     PolicyRuleServer,

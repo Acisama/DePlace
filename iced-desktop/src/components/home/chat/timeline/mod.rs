@@ -171,7 +171,7 @@ impl ExtraHash for ChatTimeline {
 }
 
 impl ChatTimeline {
-    pub fn new(room: &Room, state: &AppState) -> Self {
+    pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
         let power_levels = Arc::new(RoomPowerLevels::new(
             matrix_sdk::ruma::events::room::power_levels::RoomPowerLevelsSource::None,
             &AuthorizationRules::V12,
@@ -241,7 +241,11 @@ impl ChatTimeline {
     }
 
     fn restore_scroll_task(&self) -> Task<()> {
-        operate(snap_to(SCROLLABLE_ID, self.scroll_position.into()))
+        operate(snap_to(
+            SCROLLABLE_ID,
+            self.scroll_position.into(),
+            w::operation::Animation::Smooth,
+        ))
     }
 
     pub fn remove_replying(&mut self) {
@@ -845,6 +849,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         x: rect.x,
                         y: rect.y,
                     },
+                    w::operation::Animation::Smooth,
                 )));
             }
             TimelineMessage::None => {}
@@ -890,9 +895,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     .spacing(structure.small_gap)
                     .width(Fill)
                     .anchor_bottom()
-                    .on_scroll(move |viewport| {
+                    .on_scroll(move |scroll| {
+                        let viewport = scroll.destination();
+
                         let max_offset =
-                            (viewport.content_bounds().height - viewport.bounds().height).max(0.0);
+                            (viewport.content.height - viewport.bounds.height).max(0.0);
                         let offset = viewport.absolute_offset().y;
                         let position = viewport.relative_offset();
 
@@ -1021,9 +1028,9 @@ fn render_timeline_item_buttons(
         buttons.push(button(
             icons::pencil_simple::BOLD,
             TimelineItemMessage::SetIsEditing(true),
-            theme.solid_hover_bg.into(),
-            theme.text.dim.into(),
-            theme.text.normal.into(),
+            theme.solid_hover_bg,
+            theme.text.dim,
+            theme.text.normal,
         ));
     }
 

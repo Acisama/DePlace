@@ -1,6 +1,7 @@
 use std::hash::Hash;
 
 use deplace_core::ProfileLike;
+use deplace_core::rooms::DePlaceRoom;
 use deplace_core::state::cache::{AvatarCache, MediaState};
 use deplace_core::structure::Structure;
 use deplace_core::theme::{Colors, Theme};
@@ -16,7 +17,6 @@ use iced::{
     Border, Element,
     widget::{Container, Stack},
 };
-use matrix_sdk::Room;
 use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::serde::Base64;
 
@@ -339,11 +339,11 @@ impl<Message, Theme, R: SvgRenderer> Widget<Message, Theme, R> for PhosphorIcon 
 
     fn layout(
         &mut self,
-        _tree: &mut iced::advanced::widget::Tree,
+        tree: &mut iced::advanced::widget::Tree,
         _renderer: &R,
         limits: &iced::advanced::layout::Limits,
-    ) -> iced::advanced::layout::Node {
-        layout::Node::new(limits.resolve(self.size, self.size, Size::new(self.size, self.size)))
+    ) {
+        tree.size = limits.resolve(self.size, self.size, Size::new(self.size, self.size));
     }
 
     fn draw(
@@ -352,7 +352,7 @@ impl<Message, Theme, R: SvgRenderer> Widget<Message, Theme, R> for PhosphorIcon 
         renderer: &mut R,
         _theme: &Theme,
         style: &iced::advanced::renderer::Style,
-        layout: layout::Layout<'_>,
+        layout: layout::Layout,
         _cursor: iced::advanced::mouse::Cursor,
         viewport: &iced::Rectangle,
     ) {
@@ -381,7 +381,7 @@ pub fn phosphor_icon(svg_content: &'static str, size: f32) -> PhosphorIcon {
 }
 
 pub fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
-    room: &Room,
+    room: &DePlaceRoom,
     size: f32,
     avatar_cache: &AvatarCache,
 ) -> Element<'a, T> {
@@ -389,15 +389,7 @@ pub fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
         return room.render_icon(size, avatar_cache);
     }
 
-    phosphor_icon(
-        if room.is_call() {
-            phosphor_svgs::icon::speaker_high::FILL
-        } else {
-            phosphor_svgs::icon::hash::BOLD
-        },
-        size,
-    )
-    .into()
+    phosphor_icon(room.icon(), size).into()
 }
 
 pub trait IcedWidget<T, V> {
@@ -516,6 +508,7 @@ pub fn themed_scrollable<'a, T: 'a>(
                 },
             }
         })
+        .smooth_scroll(true)
         .auto_scroll(true)
 }
 

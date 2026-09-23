@@ -1,8 +1,8 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 
 use deplace_core::{
-    matrix_api::sync::ParentToChildren,
-    state::{ActiveServer, ActiveServerId, DmRoomMap},
+    rooms::{NotificationCounts, hashing::RoomHashingConfig},
+    state::{ActiveServer, ActiveServerId},
 };
 use iced::widget::svg;
 use macros::iced_cache;
@@ -13,7 +13,7 @@ use crate::common::*;
 #[derive(Clone, Debug)]
 pub enum ServerColumnMessage {
     ChangeActiveServer(ActiveServer),
-    ChangeToDm(Room),
+    ChangeToDm(DePlaceRoom),
     NeedsAvatar(OwnedMxcUri),
     ServerHovered(ActiveServerId),
     ServerHoverEnded(ActiveServerId),
@@ -27,7 +27,7 @@ impl NeedsAvatarExt for ServerColumnMessage {
 
 pub enum ServerColumnAction {
     SetActiveServer(ActiveServer),
-    SetActiveDm(Room),
+    SetActiveDm(DePlaceRoom),
     NeedsMedia(NeedsMedia),
 }
 
@@ -35,12 +35,8 @@ pub enum ServerColumnAction {
 pub struct ServerColumn {
     state: AppState,
 
-    server_rooms: Receiver<RoomMap>,
-    server_order: Receiver<Vec<OwnedRoomId>>,
-    parent_to_all_children: Receiver<ParentToChildren>,
+    room_watchers: RoomWatchers,
     membership_map: Receiver<MembershipMap>,
-
-    dm_rooms: Receiver<DmRoomMap>,
 
     #[hash]
     hovered_server: Option<ActiveServerId>,
@@ -50,37 +46,39 @@ pub struct ServerColumn {
     avatar_cache: AvatarCache,
 }
 
-impl ExtraHash for ServerColumn {
-    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        for room in self.dm_rooms.borrow().values() {
-            let count = room.unread_notification_counts();
-            count.highlight_count.hash(state);
-            count.notification_count.hash(state);
-        }
+// impl ExtraHash for ServerColumn {
+//     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+//         for room in self.dm_rooms.borrow().values() {
+//             let count = room.unread_notification_counts();
+//             count.highlight_count.hash(state);
+//             count.notification_count.hash(state);
+//         }
 
-        for id in self.server_order.borrow().iter() {
-            let ptac = self.parent_to_all_children.borrow();
-            let Some(rooms) = ptac.get(id) else {
-                continue;
-            };
-            for room in rooms.values() {
-                let count = room.unread_notification_counts();
-                count.highlight_count.hash(state);
-                count.notification_count.hash(state);
-            }
-        }
-    }
-}
+//         for id in self.server_order.borrow().iter() {
+//             let ptac = self.parent_to_all_children.borrow();
+//             let Some(rooms) = ptac.get(id) else {
+//                 continue;
+//             };
+//             for room in rooms.values() {
+//                 let count = room.unread_notification_counts();
+//                 count.highlight_count.hash(state);
+//                 count.notification_count.hash(state);
+//             }
+//         }
+//     }
+// }
 
 impl ServerColumn {
     pub fn new(state: &AppState) -> Self {
         Self {
-            server_rooms: state.server_rooms(),
-            server_order: state.server_order(),
-            parent_to_all_children: state.parent_to_all_children(),
+            room_watchers: state
+                .room_watchers(
+                    hashing::hash_dms_default()
+                        .hash_servers_default()
+                        .hash_all_rooms(hashing::hash_option_room(hashing::hash_notifications())),
+                )
+                .clone(),
             membership_map: state.membership_map(),
-
-            dm_rooms: state.dm_rooms(),
 
             hovered_server: None,
             active_server: state.active_server(),
@@ -123,32 +121,6 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
 
         let active_server = self.active_server.borrow().clone();
 
-        let rooms_map = self.server_rooms.borrow().clone();
-        let ordered_server_ids_vec = self.server_order.clone();
-
-        let ordered_server_ids: HashSet<OwnedRoomId> =
-            ordered_server_ids_vec.borrow().iter().cloned().collect();
-        let all_server_ids: HashSet<OwnedRoomId> = rooms_map.keys().cloned().collect();
-
-        let unsorted_server_ids: Vec<OwnedRoomId> = all_server_ids
-            .difference(&ordered_server_ids)
-            .cloned()
-            .collect();
-
-        let mut sorted_rooms: IndexMap<OwnedRoomId, Room> = self
-            .server_order
-            .borrow()
-            .iter()
-            .filter_map(|id| rooms_map.get(id).map(|r| (id.clone(), r.clone())))
-            .collect();
-
-        let mut unsorted_rooms: IndexMap<OwnedRoomId, Room> = unsorted_server_ids
-            .iter()
-            .filter_map(|id| rooms_map.get(id).map(|r| (id.clone(), r.clone())))
-            .collect();
-        unsorted_rooms.sort_by_key(|id, _| id.clone());
-        sorted_rooms.extend(unsorted_rooms);
-
         let icon_handle = iced::advanced::svg::Handle::from_memory(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../assets/deplace_icon.svg"
@@ -156,7 +128,6 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         let icon_size = structure.server_column.icon_size;
 
         let membership_map = self.membership_map.borrow();
-        let parent_to_all_children = self.parent_to_all_children.borrow();
 
         let column = w::column![pill(
             theme,
@@ -173,8 +144,10 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                 .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Dms))
                 .on_exit(ServerColumnMessage::ServerHoverEnded(ActiveServerId::Dms))
         )]
-        .extend(self.dm_rooms.borrow().iter().filter_map(|(id, room)| {
-            let notifications = room.unread_notification_counts();
+        .extend(self.room_watchers.dm_rooms().iter().filter_map(|room| {
+            let id = room.room_id().to_owned();
+
+            let notifications = room.notification_counts();
 
             let num = if notifications.highlight_count > 0 || notifications.notification_count > 0 {
                 Some(
@@ -189,7 +162,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             num.map(|notif| {
                 let hovered = hovered_server
                     .as_ref()
-                    .map(|server_id| server_id.is_server(id))
+                    .map(|server_id| server_id.is_server(&id))
                     .unwrap_or(false);
 
                 let icon = if let Some(other_member) = room.get_other_member(&membership_map) {
@@ -248,27 +221,16 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                 ..Default::default()
             })
         ])
-        .extend(sorted_rooms.into_iter().map(|(id, room)| {
-            let children = parent_to_all_children.get(&id);
+        .extend(self.room_watchers.servers().iter().map(|room| {
+            let id = room.room_id().to_owned();
+            let children = self.room_watchers.get_all_children(&id);
 
-            let (highlight_count, notification_count) = if let Some(children) = children {
-                children
-                    .values()
-                    .fold((0, 0), |(highlight_count, notification_count), room| {
-                        let count = room.unread_notification_counts();
-                        (
-                            highlight_count + count.highlight_count,
-                            notification_count + count.notification_count,
-                        )
-                    })
-            } else {
-                (0, 0)
-            };
+            let counts: NotificationCounts = children.iter().map(|r| r.notification_counts()).sum();
 
             let content = w::mouse_area(room.render_icon(icon_size, avatar_cache))
                 .interaction(Interaction::Pointer)
                 .on_press(ServerColumnMessage::ChangeActiveServer(
-                    ActiveServer::Server(room),
+                    ActiveServer::Server(room.clone()),
                 ))
                 .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
                     id.clone(),
@@ -285,14 +247,10 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     .as_ref()
                     .map(|sid| sid.is_server(&id))
                     .unwrap_or(false),
-                highlight_count > 0 || notification_count > 0,
-                if highlight_count > 0 {
+                counts.has_notifications(),
+                if let Some(highlights) = counts.highlights() {
                     Element::from(corner_badge(content, 0.4, 0.15, theme.solid_bg).br(
-                        CornerContent::text(
-                            highlight_count.to_string(),
-                            theme.solid_bg,
-                            theme.accent,
-                        ),
+                        CornerContent::text(highlights.to_string(), theme.solid_bg, theme.accent),
                     ))
                 } else {
                     content.into()

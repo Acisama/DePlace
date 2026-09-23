@@ -68,7 +68,7 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
         }
 
         if field_name.to_string().as_str() == "active_room"
-            || type_string(&field.ty).as_str() == "Receiver<Option<Room>>"
+            || type_string(&field.ty).as_str() == "Receiver<Option<DeplaceRoom>>"
         {
             assertions.push(assert_role(
                 &struct_name,
@@ -173,6 +173,7 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
                 self.state.membership_version().hash(state);
             });
         }
+
         if !hashed_room_version
             && (field_name.to_string().as_str() == "presence_map"
                 || type_string(&field.ty).as_str() == "Receiver<PresenceMap>")
@@ -189,28 +190,19 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
             });
         }
 
-        if [
-            "dm_rooms",
-            "server_rooms",
-            "parent_to_children",
-            "parent_to_all_children",
-        ]
-        .contains(&field_name.to_string().as_str())
-            || [
-                "Receiver<RoomMap>",
-                "Receiver<ParentToChildren>",
-                "Receiver<ParentToChildrenOrderStr>",
-            ]
-            .contains(&type_string(&field.ty).as_str())
+        if !hashed_room_version
+            && (field_name.to_string().as_str() == "room_watchers"
+                || type_string(&field.ty).as_str() == "RoomWatchers")
         {
+            hashed_room_version = true;
             assertions.push(assert_role(
                 &struct_name,
                 &field_name,
                 &field_ty,
-                quote! { ::deplace_core::state::roles::IsRoomDependency },
+                quote! { ::deplace_core::state::roles::IsRoomWatchers },
             ));
             hashings.push(quote! {
-                self.state.room_version().hash(state);
+                self.room_watchers.hash(state);
             });
         }
     }

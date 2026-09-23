@@ -26,7 +26,7 @@ pub enum HomeMessage {
     },
     EmptyChat(EmptyChatMessage),
     Sidebar(SidebarMessage),
-    ActiveRoomChanged(Option<Room>),
+    ActiveRoomChanged(Option<DePlaceRoom>),
     KeyboardEvent(iced::keyboard::Event),
     Overlay(OverlayMessage),
     MediaLoaded(MediaLoaded),
@@ -36,6 +36,7 @@ pub enum HomeMessage {
         finished: bool,
     },
     SettingsChanged,
+    SyncTick,
 }
 
 pub enum HomeAction {
@@ -133,9 +134,22 @@ impl Home {
             },
         ));
 
+        let sync_tick_task = Task::stream(iced::futures::stream::unfold(
+            state.sync_tick(),
+            |mut rx| async move {
+                rx.changed().await.ok()?;
+                Some((HomeMessage::SyncTick, rx))
+            },
+        ));
+
         (
             home,
-            Task::batch([initial_load, watch_task, settings_watch_task]),
+            Task::batch([
+                initial_load,
+                watch_task,
+                settings_watch_task,
+                sync_tick_task,
+            ]),
         )
     }
 
@@ -147,7 +161,7 @@ impl Home {
         self.window_title.borrow().clone()
     }
 
-    fn load_room(&mut self, room: Room) -> Option<HomeAction> {
+    fn load_room(&mut self, room: DePlaceRoom) -> Option<HomeAction> {
         let id = room.room_id().to_owned();
         self.active_room_id = Some(id.clone());
 
@@ -195,7 +209,7 @@ impl Home {
         })))
     }
 
-    fn set_active_room_task(&mut self, room: Option<Room>) -> Option<HomeAction> {
+    fn set_active_room_task(&mut self, room: Option<DePlaceRoom>) -> Option<HomeAction> {
         let state = self.state.clone();
         Some(HomeAction::Run(Task::future(async move {
             state
@@ -353,6 +367,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 chat.touch_all();
                 None
             }
+            HomeMessage::SyncTick => None,
         }
     }
 

@@ -11,16 +11,16 @@ use ruma::events::{
     room::{MediaSource, member::Change},
 };
 
-use crate::{ProfileLike, state::MembershipMap};
+use crate::{ProfileLike, rooms::DePlaceRoom, state::MembershipMap};
 
 pub trait RoomPlaceholderExt {
     fn get_input_placeholder(&self) -> String;
 }
 
-impl RoomPlaceholderExt for Room {
+impl RoomPlaceholderExt for DePlaceRoom {
     fn get_input_placeholder(&self) -> String {
         if self.is_dm()
-            && let Some(name) = self.cached_display_name()
+            && let Some(name) = self.display_name()
         {
             format!("@{}", name)
         } else {

@@ -17,7 +17,7 @@ pub enum SidebarMessage {
 
 pub enum SidebarAction {
     NeedsMedia(NeedsMedia),
-    ChangeRoom(Option<Room>),
+    ChangeRoom(Option<DePlaceRoom>),
     ChangeServer(ActiveServer),
 }
 
