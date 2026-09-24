@@ -442,6 +442,12 @@ impl StatusExt for w::scrollable::Status {
     }
 }
 
+impl StatusExt for sweeten::widget::toggler::Status {
+    fn active(&self) -> bool {
+        matches!(self, Self::Active { .. })
+    }
+}
+
 pub fn blurhash_to_image(hash: &str) -> Option<ImageHandle> {
     let width = 32;
     let height = 32;
@@ -508,7 +514,7 @@ pub fn themed_scrollable<'a, T: 'a>(
                 },
             }
         })
-        .smooth_scroll(true)
+        .smooth_scroll(false)
         .auto_scroll(true)
 }
 

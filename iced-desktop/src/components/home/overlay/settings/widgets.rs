@@ -4,6 +4,7 @@ use enumset::{EnumSet, EnumSetType};
 use iced::{Alignment, Length};
 use phosphor_svgs::icon as icons;
 use serde::{Serialize, de::DeserializeOwned};
+use sweeten::widget::pick_list::{group, options};
 use tokio::sync::watch;
 
 pub trait ToggleCloudExt {
@@ -13,7 +14,7 @@ pub trait ToggleCloudExt {
 pub trait SettingWidget:
     Sized + Clone + PartialEq + std::hash::Hash + Serialize + DeserializeOwned + Send + Sync + 'static
 {
-    fn render<Message: Clone + ToggleCloudExt + 'static>(
+    fn render<Message: Clone + ToggleCloudExt + 'static + Default>(
         field: &MatrixSettingField<Self>,
         theme: Theme,
         structure: Structure,
@@ -40,7 +41,7 @@ pub fn commit_task<T: SettingWidget>(
 }
 
 impl SettingWidget for bool {
-    fn render<Message: Clone + ToggleCloudExt + 'static>(
+    fn render<Message: Clone + ToggleCloudExt + 'static + Default>(
         field: &MatrixSettingField<bool>,
         theme: Theme,
         structure: Structure,
@@ -48,32 +49,35 @@ impl SettingWidget for bool {
     ) -> Element<'static, Message> {
         let checked = field.value();
 
-        let switch = w::toggler(checked)
-            .on_toggle(move |_| on_change(0))
-            .size(structure.settings.checkbox_height)
-            .style(move |_, status| {
-                let is_toggled = match status {
-                    w::toggler::Status::Active { is_toggled }
-                    | w::toggler::Status::Hovered { is_toggled }
-                    | w::toggler::Status::Disabled { is_toggled } => is_toggled,
-                };
+        let switch = w::mouse_area(
+            sweeten::widget::toggler(checked)
+                .on_toggle(move |_| on_change(0))
+                .size(structure.settings.checkbox_height)
+                .style(move |_, status| {
+                    let is_toggled = match status {
+                        sweeten::widget::toggler::Status::Active { is_toggled }
+                        | sweeten::widget::toggler::Status::Hovered { is_toggled }
+                        | sweeten::widget::toggler::Status::Disabled { is_toggled } => is_toggled,
+                    };
 
-                w::toggler::Style {
-                    background: if is_toggled {
-                        theme.colors.success.into()
-                    } else {
-                        theme.text.muted.into()
-                    },
-                    background_border_width: structure.border_thickness,
-                    background_border_color: theme.border.into(),
-                    foreground: theme.solid_bg.into(),
-                    foreground_border_width: 0.0,
-                    foreground_border_color: Color::TRANSPARENT,
-                    text_color: None,
-                    border_radius: None,
-                    padding_ratio: 0.1,
-                }
-            });
+                    sweeten::widget::toggler::Style {
+                        background: if is_toggled {
+                            theme.colors.success.into()
+                        } else {
+                            theme.text.muted.into()
+                        },
+                        background_border_width: structure.border_thickness,
+                        background_border_color: theme.border.into(),
+                        foreground: theme.solid_bg.into(),
+                        foreground_border_width: 0.0,
+                        foreground_border_color: Color::TRANSPARENT,
+                        text_color: None,
+                        border_radius: None,
+                        padding_ratio: 0.1,
+                    }
+                }),
+        )
+        .interaction(Interaction::Pointer);
 
         setting_row(field, theme, structure, switch.into(), false)
     }
@@ -93,36 +97,42 @@ where
     T: EnumVariants + Clone + PartialEq + Serialize + DeserializeOwned + Send + Sync + 'static,
     Message: Clone + ToggleCloudExt + 'static,
 {
-    let variants: Vec<(T, &'static str)> = T::all_variants().collect();
-    let current = field.value();
-    let options: Vec<T> = variants.iter().map(|(v, _)| v.clone()).collect();
-
-    let labels_for_display = variants.clone();
-    let labels_for_select = variants;
-
-    let dropdown = w::pick_list(Some(current), options, move |value: &T| {
-        labels_for_display
+    let variants: Vec<(T, &'static str, usize)> = T::all_variants()
+        .enumerate()
+        .map(|(idx, (val, label))| (val, label, idx))
+        .collect();
+    let current = {
+        let value = field.value();
+        let (label, idx) = variants
             .iter()
-            .find(|(v, _)| v == value)
-            .map(|(_, label)| label.to_string())
-            .unwrap_or_default()
-    })
-    .on_select(move |value: T| {
-        let idx = labels_for_select
-            .iter()
-            .position(|(v, _)| v == &value)
-            .unwrap_or(0);
-        on_change(idx)
-    })
+            .find(|(v, _, _)| v == &value)
+            .map(|(_, s, idx)| (*s, *idx))
+            .unwrap_or(("", 0));
+        (value, label, idx)
+    };
+
+    let dropdown = sweeten::widget::pick_list(
+        Some(current),
+        options![None, group("Test", variants.into_iter())],
+        move |(_, label, _)| -> sweeten::pick_list::Content<'static> {
+            // labels_for_display
+            //     .iter()
+            //     .find(|(v, _)| v == value)
+            //     .map(|(_, label)| label.to_string())
+            //     .unwrap_or("test".into())
+            (*label).into()
+        },
+    )
+    .on_select(move |(_, _, idx)| on_change(idx))
     .width(structure.settings.dropdown_width)
     .text_size(structure.font_size)
-    .style(move |_, status| w::pick_list::Style {
+    .style(move |_, status| sweeten::widget::pick_list::Style {
         text_color: theme.text.normal.into(),
         placeholder_color: theme.text.dim.into(),
         handle_color: theme.text.dim.into(),
         background: theme.solid_bg.into(),
         border: Border {
-            color: if matches!(status, w::pick_list::Status::Opened { .. }) {
+            color: if matches!(status, sweeten::widget::pick_list::Status::Opened { .. }) {
                 theme.accent.into()
             } else {
                 theme.border.into()
@@ -131,16 +141,20 @@ where
             radius: structure.semi_border_radius().into(),
         },
     })
-    .menu_style(move |_| w::overlay::menu::Style {
+    .menu_style(move |_| sweeten::widget::overlay::menu::Style {
         background: theme.solid_bg.into(),
+        disabled_background: theme.solid_bg.into(),
         border: Border {
             color: theme.border.into(),
             width: structure.border_thickness,
             radius: structure.semi_border_radius().into(),
         },
         text_color: theme.text.dim.into(),
+        disabled_text_color: theme.text.muted.into(),
         selected_text_color: theme.text.normal.into(),
         selected_background: theme.solid_hover_bg.into(),
+        label_text_color: theme.text.normal.into(),
+        separator_color: theme.border.into(),
         shadow: Default::default(),
     });
 

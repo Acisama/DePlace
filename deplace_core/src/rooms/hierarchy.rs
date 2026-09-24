@@ -5,7 +5,9 @@ use std::{
 
 use ruma::{OwnedRoomId, RoomId};
 
-#[derive(Default, Clone, Debug)]
+use crate::matrix_api::account_data::ServerOrderContent;
+
+#[derive(Clone, Debug)]
 pub struct SpaceHierarchy {
     pub parent_to_children: Arc<BTreeMap<OwnedRoomId, Arc<Vec<OwnedRoomId>>>>,
     pub parent_to_all_children: Arc<BTreeMap<OwnedRoomId, Arc<BTreeSet<OwnedRoomId>>>>,
@@ -14,12 +16,29 @@ pub struct SpaceHierarchy {
     pub parent_to_child_orders: Arc<BTreeMap<OwnedRoomId, BTreeMap<OwnedRoomId, String>>>,
 
     pub servers: Arc<Vec<OwnedRoomId>>,
+    last_server_order: Arc<ServerOrderContent>,
 
     pub parent_versions: Arc<BTreeMap<OwnedRoomId, u64>>,
     pub total_version: u64,
 }
 
 impl SpaceHierarchy {
+    pub fn new(last_server_order: ServerOrderContent) -> Self {
+        Self {
+            parent_to_children: Arc::new(BTreeMap::new()),
+            parent_to_all_children: Arc::new(BTreeMap::new()),
+            child_to_parents: Arc::new(BTreeMap::new()),
+
+            parent_to_child_orders: Arc::new(BTreeMap::new()),
+
+            servers: Arc::new(last_server_order.servers.clone()),
+            last_server_order: Arc::new(last_server_order),
+
+            parent_versions: Arc::new(BTreeMap::new()),
+            total_version: 0,
+        }
+    }
+
     fn recompute_all_children(&mut self) {
         let mut new_all_children = BTreeMap::new();
         let mut all_parents: HashSet<OwnedRoomId> =
@@ -59,6 +78,28 @@ impl SpaceHierarchy {
                     .and_then(|map| map.get(id))
             });
         }
+    }
+
+    fn apply_server_order(&mut self) {
+        if self.last_server_order.servers == *self.servers {
+            return;
+        }
+
+        let mut all_servers: BTreeSet<OwnedRoomId> = self.servers.iter().cloned().collect();
+        let mut new_server_order = Vec::new();
+
+        for server in &self.last_server_order.servers {
+            new_server_order.push(server.clone());
+            if self.servers.contains(server) {
+                all_servers.remove(server);
+            }
+        }
+
+        new_server_order.extend(all_servers);
+        self.servers = Arc::new(new_server_order.clone());
+        self.last_server_order = Arc::new(ServerOrderContent {
+            servers: new_server_order,
+        });
     }
 
     fn bump_parent_version(&mut self, parent: OwnedRoomId) {
@@ -137,6 +178,7 @@ impl SpaceHierarchy {
 
         if hierarchy_changed {
             self.recompute_all_children();
+            self.apply_server_order();
             self.total_version += 1;
         }
     }
@@ -164,5 +206,12 @@ impl SpaceHierarchy {
             }
         }
         None
+    }
+
+    pub fn reorder_servers(&mut self, index: usize, target_index: usize) -> ServerOrderContent {
+        Arc::make_mut(&mut self.servers).swap(index, target_index);
+        ServerOrderContent {
+            servers: (*self.servers).clone(),
+        }
     }
 }

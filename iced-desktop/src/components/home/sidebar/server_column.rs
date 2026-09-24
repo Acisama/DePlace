@@ -1,11 +1,13 @@
 use std::collections::BTreeSet;
 
 use deplace_core::{
-    rooms::{NotificationCounts, hashing::RoomHashingConfig},
+    matrix_api::account_data::set_account_data,
+    rooms::NotificationCounts,
     state::{ActiveServer, ActiveServerId},
 };
 use iced::widget::svg;
 use macros::iced_cache;
+use sweeten::widget::drag::DragEvent;
 
 use super::pill::PillCanvas;
 use crate::common::*;
@@ -17,6 +19,7 @@ pub enum ServerColumnMessage {
     NeedsAvatar(OwnedMxcUri),
     ServerHovered(ActiveServerId),
     ServerHoverEnded(ActiveServerId),
+    ServerDragged(DragEvent),
 }
 
 impl NeedsAvatarExt for ServerColumnMessage {
@@ -29,6 +32,7 @@ pub enum ServerColumnAction {
     SetActiveServer(ActiveServer),
     SetActiveDm(DePlaceRoom),
     NeedsMedia(NeedsMedia),
+    Run(Task<()>),
 }
 
 #[iced_cache(Clone)]
@@ -111,6 +115,21 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             ServerColumnMessage::NeedsAvatar(uri) => {
                 self.avatar_states_for_hash.insert(uri.clone());
                 Some(ServerColumnAction::NeedsMedia(NeedsMedia::avatar(uri)))
+            }
+            ServerColumnMessage::ServerDragged(drag) => {
+                if let DragEvent::Dropped {
+                    index,
+                    target_index,
+                } = drag
+                {
+                    let new_order = self.room_watchers.reorder_servers(index, target_index);
+                    let client = self.state.client();
+                    Some(ServerColumnAction::Run(Task::future(async move {
+                        set_account_data(&client, new_order).await
+                    })))
+                } else {
+                    None
+                }
             }
         }
     }
@@ -221,43 +240,55 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                 ..Default::default()
             })
         ])
-        .extend(self.room_watchers.servers().iter().map(|room| {
-            let id = room.room_id().to_owned();
-            let children = self.room_watchers.get_all_children(&id);
+        .push(
+            sweeten::widget::column(self.room_watchers.servers().iter().map(|room| {
+                let id = room.room_id().to_owned();
+                let children = self.room_watchers.get_all_children(&id);
 
-            let counts: NotificationCounts = children.iter().map(|r| r.notification_counts()).sum();
+                let counts: NotificationCounts =
+                    children.iter().map(|r| r.notification_counts()).sum();
 
-            let content = w::mouse_area(room.render_icon(icon_size, avatar_cache))
-                .interaction(Interaction::Pointer)
-                .on_press(ServerColumnMessage::ChangeActiveServer(
-                    ActiveServer::Server(room.clone()),
-                ))
-                .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
-                    id.clone(),
-                )))
-                .on_exit(ServerColumnMessage::ServerHoverEnded(
-                    ActiveServerId::Server(id.clone()),
-                ));
-
-            pill(
-                theme,
-                structure,
-                active_server.is_server(&id),
-                hovered_server
-                    .as_ref()
-                    .map(|sid| sid.is_server(&id))
-                    .unwrap_or(false),
-                counts.has_notifications(),
-                if let Some(highlights) = counts.highlights() {
-                    Element::from(corner_badge(content, 0.4, 0.15, theme.solid_bg).br(
-                        CornerContent::text(highlights.to_string(), theme.solid_bg, theme.accent),
+                let content = w::mouse_area(room.render_icon(icon_size, avatar_cache))
+                    .interaction(Interaction::Pointer)
+                    // .on_press(ServerColumnMessage::ChangeActiveServer(
+                    //     ActiveServer::Server(room.clone()),
+                    // ))
+                    .on_release(ServerColumnMessage::ChangeActiveServer(
+                        ActiveServer::Server(room.clone()),
                     ))
-                } else {
-                    content.into()
-                },
-            )
-            .into()
-        }))
+                    .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
+                        id.clone(),
+                    )))
+                    .on_exit(ServerColumnMessage::ServerHoverEnded(
+                        ActiveServerId::Server(id.clone()),
+                    ));
+
+                pill(
+                    theme,
+                    structure,
+                    active_server.is_server(&id),
+                    hovered_server
+                        .as_ref()
+                        .map(|sid| sid.is_server(&id))
+                        .unwrap_or(false),
+                    counts.has_notifications(),
+                    if let Some(highlights) = counts.highlights() {
+                        Element::from(corner_badge(content, 0.4, 0.15, theme.solid_bg).br(
+                            CornerContent::text(
+                                highlights.to_string(),
+                                theme.solid_bg,
+                                theme.accent,
+                            ),
+                        ))
+                    } else {
+                        content.into()
+                    },
+                )
+                .into()
+            }))
+            .on_drag(ServerColumnMessage::ServerDragged)
+            .spacing(structure.gap),
+        )
         .spacing(structure.gap);
 
         floating_tile(theme, structure, column)

@@ -19,6 +19,7 @@ pub enum SidebarAction {
     NeedsMedia(NeedsMedia),
     ChangeRoom(Option<DePlaceRoom>),
     ChangeServer(ActiveServer),
+    Run(Task<()>),
 }
 
 #[iced_cache(Clone)]
@@ -49,6 +50,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 ServerColumnAction::SetActiveDm(room) => {
                     Some(SidebarAction::ChangeRoom(Some(room)))
                 }
+                ServerColumnAction::Run(task) => Some(SidebarAction::Run(task)),
             },
             SidebarMessage::Channels(msg) => match self.channels.update(msg)? {
                 ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),

@@ -153,6 +153,7 @@ pub fn section(input: TokenStream) -> TokenStream {
         quote! { ToggleCloud(&'static str, bool) },
     ];
     let mut update_arms = vec![quote! {
+        #message_name::None => None,
         #message_name::ToggleSubsection(id) => {
             if !self.closed_subsections.remove(id) {
                 self.closed_subsections.insert(id);
@@ -220,8 +221,10 @@ pub fn section(input: TokenStream) -> TokenStream {
             }
         }
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, Default)]
         pub enum #message_name {
+            #[default]
+            None,
             #(#message_variants),*
         }
 

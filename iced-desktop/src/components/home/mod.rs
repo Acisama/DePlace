@@ -291,6 +291,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 SidebarAction::NeedsMedia(needs_media) => self.load_media_task(needs_media),
                 SidebarAction::ChangeRoom(room) => self.set_active_room_task(room),
                 SidebarAction::ChangeServer(server) => self.set_active_server_task(server),
+                SidebarAction::Run(task) => Some(HomeAction::Run(task)),
             },
             HomeMessage::ActiveRoomChanged(Some(room)) => self.load_room(room),
             HomeMessage::ActiveRoomChanged(None) => None,

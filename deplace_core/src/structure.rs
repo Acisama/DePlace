@@ -7,7 +7,7 @@ pub struct ChatSidebarWidth {
     pub member: f32,
     pub search: f32,
     pub pinned: f32,
-    pub members: f32,
+    pub member_list: f32,
 }
 
 impl Default for ChatSidebarWidth {
@@ -16,7 +16,7 @@ impl Default for ChatSidebarWidth {
             member: 320.0,
             search: 480.0,
             pinned: 480.0,
-            members: 240.0,
+            member_list: 240.0,
         }
     }
 }
@@ -137,7 +137,7 @@ impl Default for Structure {
                 member: 320.0,
                 search: 480.0,
                 pinned: 480.0,
-                members: 240.0,
+                member_list: 240.0,
             },
             settings: Settings {
                 section_column_width: 300.0,

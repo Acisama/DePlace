@@ -235,8 +235,9 @@ impl AppState {
         important_paths: ImportantPaths,
     ) -> Result<Self> {
         let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
+        let last_server_order = get_account_data(&client).await;
 
-        let room_watchers = RoomWatchers::new(client.clone()).await?;
+        let room_watchers = RoomWatchers::new(client.clone(), last_server_order).await?;
         let breadcrumbs = Mutex::new(breadcrumbs_content);
 
         let (last_room_id, dms_last) = {

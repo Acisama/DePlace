@@ -18,6 +18,8 @@ use matrix_sdk_ui::{
 use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::watch;
 
+use crate::matrix_api::account_data::ServerOrderContent;
+
 use super::{DePlaceRoom, RoomWatcherHashingConfig, SpaceHierarchy};
 
 #[derive(Debug, Clone)]
@@ -28,6 +30,7 @@ pub struct RoomWatchers {
     pub(crate) all_rooms: watch::Receiver<GenericRoomMap>,
 
     pub hierarchy: watch::Receiver<SpaceHierarchy>,
+    hierarchy_sender: watch::Sender<SpaceHierarchy>,
 
     pub(crate) hash_config: RoomWatcherHashingConfig,
 
@@ -36,7 +39,7 @@ pub struct RoomWatchers {
 }
 
 impl RoomWatchers {
-    pub async fn new(client: Client) -> Result<Self> {
+    pub async fn new(client: Client, last_server_order: ServerOrderContent) -> Result<Self> {
         let service = RoomListService::new(client.clone()).await?;
 
         let room_list = Arc::new(service.all_rooms().await?);
@@ -51,11 +54,14 @@ impl RoomWatchers {
         let dm_filter = || Box::new(filters::new_filter_category(RoomCategory::People));
         let space_filter = || Box::new(filters::new_filter_space());
 
-        let (hier_tx, mut hier_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (hier_watch_tx, hier_watch_rx) = watch::channel(SpaceHierarchy::default());
+        let hiearchy = SpaceHierarchy::new(last_server_order);
 
+        let (hier_tx, mut hier_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (hier_watch_tx, hier_watch_rx) = watch::channel(hiearchy.clone());
+
+        let hier_watch_tx_clone = hier_watch_tx.clone();
         tokio::spawn(async move {
-            let mut hierarchy = SpaceHierarchy::default();
+            let mut hierarchy = hiearchy;
 
             // Listen for incoming parent updates from the stream updaters
             while let Some((child_id, parents)) = hier_rx.recv().await {
@@ -65,7 +71,7 @@ impl RoomWatchers {
 
                 // Only broadcast to the UI if something actually changed
                 if hierarchy.total_version != old_version
-                    && hier_watch_tx.send(hierarchy.clone()).is_err()
+                    && hier_watch_tx_clone.send(hierarchy.clone()).is_err()
                 {
                     break; // UI dropped the receiver, shut down task
                 }
@@ -107,6 +113,7 @@ impl RoomWatchers {
             .await,
 
             hierarchy: hier_watch_rx,
+            hierarchy_sender: hier_watch_tx,
 
             hash_config: RoomWatcherHashingConfig::default(),
 
@@ -161,6 +168,18 @@ impl RoomWatchers {
     pub fn get_server_of(&self, room_id: &RoomId) -> Option<DePlaceRoom> {
         let server_id = self.hierarchy.borrow().get_server_of(room_id)?;
         self.all_rooms.borrow().get(&server_id)
+    }
+
+    pub fn reorder_servers(&mut self, index: usize, target_index: usize) -> ServerOrderContent {
+        let mut new_order = ServerOrderContent {
+            servers: Vec::new(),
+        };
+
+        self.hierarchy_sender.send_modify(|hierarchy| {
+            new_order = hierarchy.reorder_servers(index, target_index);
+        });
+
+        new_order
     }
 }
 

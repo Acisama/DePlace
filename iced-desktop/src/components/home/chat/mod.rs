@@ -9,12 +9,14 @@ use macros::iced_cache;
 use matrix_sdk_ui::timeline::{
     DateDividerMode, TimelineBuilder, TimelineFocus, TimelineReadReceiptTracking,
 };
+use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 use timeline::{ChatTimeline, TimelineAction, ToTimelineItem};
 
 use crate::common::*;
 pub(super) mod empty;
 mod header;
 mod input;
+mod sidebar;
 mod timeline;
 
 pub use timeline::TimelineMessage;
@@ -24,6 +26,7 @@ pub enum ChatMessage {
     Header(HeaderMessage),
     Timeline(TimelineMessage),
     Input(InputMessage),
+    Sidebar(SidebarMessage),
     KeyboardEvent(iced::keyboard::Event),
 }
 
@@ -45,6 +48,8 @@ pub struct Chat {
     timeline: ChatTimeline,
     #[hash]
     input: ChatInput,
+    #[hash]
+    sidebar: Sidebar,
 
     pub room_id: OwnedRoomId,
 }
@@ -134,6 +139,7 @@ impl Chat {
                 header: Header::new(state, &room),
                 timeline: ChatTimeline::new(state, &room),
                 input: ChatInput::new(state, &room),
+                sidebar: Sidebar::new(state, &room),
 
                 room_id: room.room_id().to_owned(),
             },
@@ -171,7 +177,21 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
         match msg {
             ChatMessage::Header(msg) => match self.header.update(msg)? {
                 HeaderAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
-                HeaderAction::Run(task) => Some(ChatAction::Run(task)),
+                HeaderAction::TogglePins => {
+                    self.sidebar.toggle_pins();
+                    None
+                }
+                HeaderAction::ToggleSearch => {
+                    self.sidebar.toggle_search();
+                    None
+                }
+                HeaderAction::ToggleList => {
+                    self.sidebar.toggle_member_list();
+                    None
+                }
+            },
+            ChatMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
+                SidebarAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
             },
             ChatMessage::Timeline(msg) => match self.timeline.update(msg)? {
                 TimelineAction::SetIsReplyingTo { event_id, message } => {
@@ -184,9 +204,6 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 }
                 TimelineAction::Scroll { direction, task } => {
                     Some(ChatAction::TimelineScroll { direction, task })
-                }
-                TimelineAction::Perform(task) => {
-                    Some(ChatAction::Perform(task.map(ChatMessage::Timeline)))
                 }
             },
             ChatMessage::Input(msg) => match self.input.update(msg)? {
@@ -214,9 +231,6 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     }
                     TimelineAction::Scroll { direction, task } => {
                         Some(ChatAction::TimelineScroll { direction, task })
-                    }
-                    TimelineAction::Perform(task) => {
-                        Some(ChatAction::Perform(task.map(ChatMessage::Timeline)))
                     }
                 }
             }

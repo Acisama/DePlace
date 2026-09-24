@@ -76,7 +76,6 @@ pub enum TimelineAction {
         event_id: OwnedEventId,
     },
     Run(Task<()>),
-    Perform(Task<TimelineMessage>),
     Scroll {
         direction: PaginationDirection,
         task: Task<bool>,

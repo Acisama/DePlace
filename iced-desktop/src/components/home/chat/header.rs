@@ -9,6 +9,7 @@ use crate::{common::*, components::context_room_icon};
 pub enum HeaderMessage {
     TogglePins,
     ToggleSearch,
+    ToggleList,
     NeedsAvatar(OwnedMxcUri),
 }
 
@@ -20,7 +21,9 @@ impl NeedsAvatarExt for HeaderMessage {
 
 pub enum HeaderAction {
     NeedsMedia(NeedsMedia),
-    Run(Task<()>),
+    TogglePins,
+    ToggleSearch,
+    ToggleList,
 }
 
 #[iced_cache(Clone)]
@@ -62,8 +65,9 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                 self.avatar_states_for_hash.insert(uri.clone());
                 Some(HeaderAction::NeedsMedia(NeedsMedia::avatar(uri)))
             }
-            HeaderMessage::TogglePins => todo!(),
-            HeaderMessage::ToggleSearch => todo!(),
+            HeaderMessage::TogglePins => Some(HeaderAction::TogglePins),
+            HeaderMessage::ToggleSearch => Some(HeaderAction::ToggleSearch),
+            HeaderMessage::ToggleList => Some(HeaderAction::ToggleList),
         }
     }
 
