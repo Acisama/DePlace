@@ -189,7 +189,7 @@ pub struct AppState {
 #[derive(Debug)]
 struct AppStateInner {
     pub client: Client,
-    pub user_device: UserDevice,
+    pub user_device: Arc<UserDevice>,
     pub settings: Settings,
 
     keybinds: Sender<Keybinds>,
@@ -310,7 +310,7 @@ impl AppState {
                 notification_manager: NotificationManager::default(),
 
                 client,
-                user_device,
+                user_device: Arc::new(user_device),
                 settings,
                 keybinds,
 
@@ -434,8 +434,8 @@ impl AppState {
         self.inner.settings.clone()
     }
 
-    pub fn user_device(&self) -> &UserDevice {
-        &self.inner.user_device
+    pub fn user_device(&self) -> Arc<UserDevice> {
+        self.inner.user_device.clone()
     }
 
     pub fn own_id(&self) -> OwnedUserId {

@@ -190,6 +190,14 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     self.sidebar.toggle_member_list();
                     None
                 }
+                HeaderAction::JoinCall => {
+                    tracing::trace!("JoinCall");
+                    None
+                }
+                HeaderAction::LeaveCall => {
+                    tracing::trace!("LeaveCall");
+                    None
+                }
             },
             ChatMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
                 SidebarAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),

@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use deplace_core::state::PresenceMap;
+use deplace_core::state::{PresenceMap, UserDevice};
 use enumset::EnumSet;
 use iced::Alignment;
 use macros::iced_cache;
@@ -18,6 +18,8 @@ pub enum HeaderMessage {
     ToggleSearch,
     ToggleList,
     NeedsAvatar(OwnedMxcUri),
+    LeaveCall,
+    JoinCall,
 }
 
 impl NeedsAvatarExt for HeaderMessage {
@@ -31,6 +33,8 @@ pub enum HeaderAction {
     TogglePins,
     ToggleSearch,
     ToggleList,
+    JoinCall,
+    LeaveCall,
 }
 
 #[iced_cache(Clone)]
@@ -43,6 +47,8 @@ pub struct Header {
 
     room_watchers: RoomWatchers,
     room_id: OwnedRoomId,
+
+    user_device: Arc<UserDevice>,
 
     membership_map: Receiver<MembershipMap>,
     presence_map: Receiver<PresenceMap>,
@@ -63,6 +69,8 @@ impl Header {
                 .clone(),
             room_id: id.clone(),
             state: state.clone(),
+
+            user_device: state.user_device(),
 
             avatar_states_for_hash: BTreeSet::new(),
         }
@@ -100,6 +108,8 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                 }
                 Some(HeaderAction::ToggleList)
             }
+            HeaderMessage::JoinCall => Some(HeaderAction::JoinCall),
+            HeaderMessage::LeaveCall => Some(HeaderAction::LeaveCall),
         }
     }
 
@@ -155,6 +165,8 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             )
         };
 
+        let is_in_call = room.is_user_device_in_call(&self.user_device);
+
         floating_tile(
             theme,
             structure,
@@ -162,6 +174,25 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                 icon,
                 name,
                 Space::new().width(Fill),
+                render_icon(
+                    theme.text.dim.into(),
+                    if is_in_call {
+                        theme.colors.red.into()
+                    } else {
+                        theme.colors.green.into()
+                    },
+                    if is_in_call {
+                        phosphor_svgs::icon::phone_disconnect::BOLD
+                    } else {
+                        phosphor_svgs::icon::phone::BOLD
+                    },
+                    if is_in_call {
+                        HeaderMessage::LeaveCall
+                    } else {
+                        HeaderMessage::JoinCall
+                    },
+                    "Toggle Pins"
+                ),
                 render_icon(
                     theme.text.dim.into(),
                     theme.colors.yellow.into(),

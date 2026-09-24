@@ -1,17 +1,30 @@
-use std::{collections::HashMap, iter::Sum, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    hash::Hash,
+    iter::Sum,
+    sync::Arc,
+};
 
 use futures::StreamExt;
 use matrix_sdk::{
     Room,
+    deserialized_responses::SyncOrStrippedState,
     room::{ParentSpace, RoomMember},
     sync::UnreadNotificationsCount,
 };
 use ruma::{
-    OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId,
-    events::space::child::SpaceChildEventContent,
+    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId,
+    UserId,
+    events::{
+        call::member::CallMemberEventContent, rtc::notification::CallIntent,
+        space::child::SpaceChildEventContent,
+    },
 };
 
-use crate::{ProfileLike, state::MembershipMap};
+use crate::{
+    ProfileLike,
+    state::{MembershipMap, UserDevice},
+};
 
 #[derive(Debug, Clone)]
 pub struct DePlaceRoom {
@@ -99,6 +112,7 @@ struct DePlaceRoomInner {
     avatar_url: Option<OwnedMxcUri>,
     notification_counts: NotificationCounts,
     parents: HashMap<OwnedRoomId, Option<String>>,
+    call_participants: BTreeSet<Arc<CallMember>>,
 }
 
 impl DePlaceRoom {
@@ -157,13 +171,109 @@ impl DePlaceRoom {
     pub fn own_user_id(&self) -> &UserId {
         &self.inner.own_id
     }
+
+    pub fn is_user_in_call(&self, user_id: &UserId) -> bool {
+        self.inner
+            .call_participants
+            .iter()
+            .any(|member| member.member.user_id() == user_id)
+    }
+
+    pub fn is_user_device_in_call(&self, device: &UserDevice) -> bool {
+        self.inner.call_participants.iter().any(|member| {
+            member.member.user_id() == device.user_id && member.device_id == device.device_id
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CallMember {
+    pub member: RoomMember,
+    pub device_id: OwnedDeviceId,
+    pub call_intent: CallIntent,
+    created_ts: Option<MilliSecondsSinceUnixEpoch>,
+}
+
+impl Hash for CallMember {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.member.user_id().hash(state);
+        self.device_id.hash(state);
+    }
+}
+
+impl PartialEq for CallMember {
+    fn eq(&self, other: &Self) -> bool {
+        self.member.user_id() == other.member.user_id() && self.device_id == other.device_id
+    }
+}
+impl Eq for CallMember {}
+
+impl PartialOrd for CallMember {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CallMember {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.created_ts
+            .cmp(&other.created_ts)
+            .then_with(|| self.member.user_id().cmp(other.member.user_id()))
+            .then_with(|| self.device_id.cmp(&other.device_id))
+    }
 }
 
 impl DePlaceRoom {
     pub async fn from_room(room: Room) -> Self {
         let id = room.room_id().to_owned();
 
-        let parent_spaces = match room.parent_spaces().await {
+        #[allow(clippy::mutable_key_type)]
+        let mut call_participants: BTreeSet<Arc<CallMember>> = BTreeSet::new();
+
+        if let Ok(events) = room
+            .get_state_events_static::<CallMemberEventContent>()
+            .await
+        {
+            for raw in events {
+                let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
+                    continue;
+                };
+                let matrix_sdk::ruma::events::SyncStateEvent::Original(ev) = ev else {
+                    continue;
+                };
+                let user_id = ev.state_key.user_id();
+
+                let member = match room.get_member(user_id).await {
+                    Ok(Some(m)) => m,
+                    Ok(None) => {
+                        tracing::warn!(
+                            "Call participant with user id {} not found in room {}",
+                            user_id,
+                            id
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get member for user id {}: {}", user_id, e);
+                        continue;
+                    }
+                };
+
+                for membership in ev.content.active_memberships(None) {
+                    call_participants.insert(Arc::new(CallMember {
+                        member: member.clone(),
+                        device_id: membership.device_id().to_owned(),
+                        call_intent: membership
+                            .call_intent()
+                            .cloned()
+                            .unwrap_or(CallIntent::Audio),
+                        created_ts: membership.created_ts(),
+                    }));
+                }
+            }
+        }
+
+        let parents = match room.parent_spaces().await {
             Ok(stream) => {
                 let parents_res = stream.collect::<Vec<_>>().await;
 
@@ -219,7 +329,8 @@ impl DePlaceRoom {
                 own_id: room.own_user_id().to_owned(),
                 avatar_url: room.avatar_url(),
                 notification_counts: room.unread_notification_counts().into(),
-                parents: parent_spaces,
+                parents,
+                call_participants,
             }),
             room,
         }
