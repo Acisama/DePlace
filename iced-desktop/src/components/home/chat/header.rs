@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use deplace_core::state::PresenceMap;
+use enumset::EnumSet;
 use iced::Alignment;
 use macros::iced_cache;
 
@@ -8,6 +9,8 @@ use crate::{
     common::*,
     components::{context_room_icon, render_presence},
 };
+
+use super::sidebar::SidebarState;
 
 #[derive(Debug, Clone)]
 pub enum HeaderMessage {
@@ -36,9 +39,10 @@ pub struct Header {
     avatar_cache: AvatarCache,
 
     #[hash]
-    room_id: OwnedRoomId,
+    sidebar_state: EnumSet<SidebarState>,
 
     room_watchers: RoomWatchers,
+    room_id: OwnedRoomId,
 
     membership_map: Receiver<MembershipMap>,
     presence_map: Receiver<PresenceMap>,
@@ -52,11 +56,12 @@ impl Header {
             membership_map: state.membership_map().clone(),
             presence_map: state.presence_map().clone(),
 
-            room_id: id.clone(),
+            sidebar_state: EnumSet::new(),
 
             room_watchers: state
                 .room_watchers(hashing::hash_room_default(id.clone()))
                 .clone(),
+            room_id: id.clone(),
             state: state.clone(),
 
             avatar_states_for_hash: BTreeSet::new(),
@@ -71,9 +76,30 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                 self.avatar_states_for_hash.insert(uri.clone());
                 Some(HeaderAction::NeedsMedia(NeedsMedia::avatar(uri)))
             }
-            HeaderMessage::TogglePins => Some(HeaderAction::TogglePins),
-            HeaderMessage::ToggleSearch => Some(HeaderAction::ToggleSearch),
-            HeaderMessage::ToggleList => Some(HeaderAction::ToggleList),
+            HeaderMessage::TogglePins => {
+                if self.sidebar_state.contains(SidebarState::Pins) {
+                    self.sidebar_state.remove(SidebarState::Pins);
+                } else {
+                    self.sidebar_state.insert(SidebarState::Pins);
+                }
+                Some(HeaderAction::TogglePins)
+            }
+            HeaderMessage::ToggleSearch => {
+                if self.sidebar_state.contains(SidebarState::Search) {
+                    self.sidebar_state.remove(SidebarState::Search);
+                } else {
+                    self.sidebar_state.insert(SidebarState::Search);
+                }
+                Some(HeaderAction::ToggleSearch)
+            }
+            HeaderMessage::ToggleList => {
+                if self.sidebar_state.contains(SidebarState::MemberList) {
+                    self.sidebar_state.remove(SidebarState::MemberList);
+                } else {
+                    self.sidebar_state.insert(SidebarState::MemberList);
+                }
+                Some(HeaderAction::ToggleList)
+            }
         }
     }
 
@@ -113,12 +139,66 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             )
         };
 
+        let render_icon = |color, hover_color, icon, message, tooltip| {
+            themed_tooltip(
+                w::button(phosphor_icon(icon, icon_size))
+                    .on_press(message)
+                    .style(move |_, status| ButtonStyle {
+                        background: None,
+                        text_color: if status.active() { hover_color } else { color },
+                        ..Default::default()
+                    })
+                    .padding(0),
+                tooltip,
+                structure,
+                theme,
+            )
+        };
+
         floating_tile(
             theme,
             structure,
-            w::row![icon, name]
-                .align_y(Alignment::Center)
-                .spacing(structure.gap),
+            w::row![
+                icon,
+                name,
+                Space::new().width(Fill),
+                render_icon(
+                    theme.text.dim.into(),
+                    theme.colors.yellow.into(),
+                    if self.sidebar_state.contains(SidebarState::Pins) {
+                        phosphor_svgs::icon::push_pin::FILL
+                    } else {
+                        phosphor_svgs::icon::push_pin::BOLD
+                    },
+                    HeaderMessage::TogglePins,
+                    "Toggle Pins"
+                ),
+                render_icon(
+                    theme.text.dim.into(),
+                    theme.colors.green.into(),
+                    if self.sidebar_state.contains(SidebarState::MemberList) {
+                        if room.is_dm() {
+                            phosphor_svgs::icon::user_circle::FILL
+                        } else {
+                            phosphor_svgs::icon::user_list::FILL
+                        }
+                    } else {
+                        if room.is_dm() {
+                            phosphor_svgs::icon::user_circle::BOLD
+                        } else {
+                            phosphor_svgs::icon::user_list::BOLD
+                        }
+                    },
+                    HeaderMessage::ToggleList,
+                    if room.is_dm() {
+                        "Toggle User Profile"
+                    } else {
+                        "Toggle Member List"
+                    },
+                ),
+            ]
+            .align_y(Alignment::Center)
+            .spacing(structure.gap),
         )
         .width(Fill)
         .padding(structure.header.icon_padding())

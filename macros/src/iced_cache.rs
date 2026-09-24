@@ -34,7 +34,8 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
     let mut item_fields = Vec::new();
     let mut hashings = Vec::new();
 
-    let mut hashed_room_version = false;
+    let mut hashed_presence_version = false;
+    let mut hashed_room_watchers = false;
 
     for field in &fields.named {
         let field_name = field.ident.as_ref().unwrap().clone();
@@ -174,11 +175,11 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
             });
         }
 
-        if !hashed_room_version
+        if !hashed_presence_version
             && (field_name.to_string().as_str() == "presence_map"
                 || type_string(&field.ty).as_str() == "Receiver<PresenceMap>")
         {
-            hashed_room_version = true;
+            hashed_presence_version = true;
             assertions.push(assert_role(
                 &struct_name,
                 &field_name,
@@ -190,11 +191,11 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
             });
         }
 
-        if !hashed_room_version
+        if !hashed_room_watchers
             && (field_name.to_string().as_str() == "room_watchers"
                 || type_string(&field.ty).as_str() == "RoomWatchers")
         {
-            hashed_room_version = true;
+            hashed_room_watchers = true;
             assertions.push(assert_role(
                 &struct_name,
                 &field_name,

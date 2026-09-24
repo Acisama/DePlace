@@ -7,7 +7,7 @@ use crate::colors::DePlaceColor;
 #[derive(Clone, Copy, Deserialize, Serialize)]
 pub struct Colors {
     pub red: DePlaceColor,
-    pub _green: DePlaceColor,
+    pub green: DePlaceColor,
     pub yellow: DePlaceColor,
     pub success: DePlaceColor,
     pub warning: DePlaceColor,
@@ -21,10 +21,16 @@ pub struct Colors {
 }
 
 impl Colors {
-    fn new(red: DePlaceColor, green: DePlaceColor, yellow: DePlaceColor, muted: DePlaceColor, unknown: DePlaceColor) -> Self {
+    fn new(
+        red: DePlaceColor,
+        green: DePlaceColor,
+        yellow: DePlaceColor,
+        muted: DePlaceColor,
+        unknown: DePlaceColor,
+    ) -> Self {
         Self {
             red,
-            _green: green,
+            green,
             yellow,
             success: green,
             warning: yellow,

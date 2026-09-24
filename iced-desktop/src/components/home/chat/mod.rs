@@ -51,6 +51,7 @@ pub struct Chat {
     #[hash]
     sidebar: Sidebar,
 
+    #[hash]
     pub room_id: OwnedRoomId,
 }
 
@@ -238,32 +239,40 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
     }
 
     fn view(&self, theme: Theme, structure: Structure) -> Element<'static, ChatMessage> {
+        let main_content = floating_tile(
+            theme,
+            structure,
+            w::column![
+                w::lazy(self.timeline.clone(), move |timeline| timeline
+                    .view(theme, structure)
+                    .map(ChatMessage::Timeline)),
+                w::lazy(self.input.clone(), move |input| input
+                    .view(theme, structure)
+                    .map(ChatMessage::Input)),
+            ]
+            .padding(Padding {
+                top: structure.border_thickness,
+                left: structure.small_gap,
+                right: structure.small_gap,
+                bottom: structure.small_gap + structure.border_thickness,
+            })
+            .height(Fill)
+            .width(Fill),
+        )
+        .height(Fill)
+        .width(Fill);
+
+        let sidebar = w::lazy(self.sidebar.clone(), move |sidebar| {
+            sidebar.view(theme, structure).map(ChatMessage::Sidebar)
+        });
+
         w::column![
             w::lazy(self.header.clone(), move |header| {
                 header.view(theme, structure).map(ChatMessage::Header)
             }),
-            floating_tile(
-                theme,
-                structure,
-                w::column![
-                    w::lazy(self.timeline.clone(), move |timeline| timeline
-                        .view(theme, structure)
-                        .map(ChatMessage::Timeline)),
-                    w::lazy(self.input.clone(), move |input| input
-                        .view(theme, structure)
-                        .map(ChatMessage::Input)),
-                ]
-                .padding(Padding {
-                    top: structure.border_thickness,
-                    left: structure.small_gap,
-                    right: structure.small_gap,
-                    bottom: structure.small_gap + structure.border_thickness,
-                })
+            w::row![main_content, sidebar]
                 .height(Fill)
-                .width(Fill)
-            )
-            .height(Fill)
-            .width(Fill)
+                .spacing(structure.small_gap)
         ]
         .height(Fill)
         .spacing(structure.small_gap)

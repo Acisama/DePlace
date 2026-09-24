@@ -7,7 +7,7 @@ use matrix_sdk::room::RoomMember;
 use crate::common::*;
 
 #[derive(Debug, EnumSetType)]
-enum SidebarState {
+pub enum SidebarState {
     Member,
     MemberList,
     Pins,
@@ -25,7 +25,7 @@ impl SidebarState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum SidebarMessage {
     NeedsAvatarUrl(OwnedMxcUri),
 }
@@ -42,6 +42,7 @@ pub enum SidebarAction {
 
 #[iced_cache(Clone, Debug)]
 pub struct Sidebar {
+    #[hash]
     state: EnumSet<SidebarState>,
 
     room: DePlaceRoom,
