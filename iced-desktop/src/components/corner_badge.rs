@@ -119,7 +119,7 @@ fn corner_glyph<'a, T: 'a>(content: &CornerContent, diameter: f32) -> Element<'a
     }
 }
 
-fn notch_circle<'a, T: 'a>(diameter: f32, background: Color) -> Element<'a, T> {
+pub fn notch_circle<'a, T: 'a>(diameter: f32, background: Color) -> Element<'a, T> {
     w::container(Space::new())
         .width(diameter)
         .height(diameter)
@@ -134,7 +134,7 @@ fn notch_circle<'a, T: 'a>(diameter: f32, background: Color) -> Element<'a, T> {
         .into()
 }
 
-fn content_circle<'a, T: 'a>(content: &CornerContent, diameter: f32) -> Element<'a, T> {
+pub fn content_circle<'a, T: 'a>(content: &CornerContent, diameter: f32) -> Element<'a, T> {
     let background_color = content.background();
 
     w::container(corner_glyph(content, diameter))
@@ -152,7 +152,7 @@ fn content_circle<'a, T: 'a>(content: &CornerContent, diameter: f32) -> Element<
         .into()
 }
 
-fn positioned<'a, T: 'a>(
+pub fn positioned<'a, T: 'a>(
     corner: Element<'a, T>,
     h: Horizontal,
     v: Vertical,

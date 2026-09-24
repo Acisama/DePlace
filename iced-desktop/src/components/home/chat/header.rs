@@ -1,9 +1,13 @@
 use std::collections::BTreeSet;
 
+use deplace_core::state::PresenceMap;
 use iced::Alignment;
 use macros::iced_cache;
 
-use crate::{common::*, components::context_room_icon};
+use crate::{
+    common::*,
+    components::{context_room_icon, render_presence},
+};
 
 #[derive(Debug, Clone)]
 pub enum HeaderMessage {
@@ -37,6 +41,7 @@ pub struct Header {
     room_watchers: RoomWatchers,
 
     membership_map: Receiver<MembershipMap>,
+    presence_map: Receiver<PresenceMap>,
 }
 
 impl Header {
@@ -45,6 +50,7 @@ impl Header {
         Self {
             avatar_cache: state.avatar_cache().clone(),
             membership_map: state.membership_map().clone(),
+            presence_map: state.presence_map().clone(),
 
             room_id: id.clone(),
 
@@ -81,9 +87,13 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             && let Some(other_member) = room.get_other_member(&self.membership_map.borrow())
         {
             (
-                other_member
-                    .clone()
-                    .render_icon(icon_size, &self.avatar_cache),
+                render_presence(
+                    &other_member,
+                    &self.presence_map.borrow(),
+                    theme,
+                    icon_size,
+                    &self.avatar_cache,
+                ),
                 other_member.render_name(structure.font_size),
             )
         } else {

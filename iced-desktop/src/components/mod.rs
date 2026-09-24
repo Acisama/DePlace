@@ -1,22 +1,28 @@
 use std::hash::Hash;
 
+use corner_badge::{notch_circle, positioned};
 use deplace_core::ProfileLike;
 use deplace_core::rooms::DePlaceRoom;
+use deplace_core::state::PresenceMap;
 use deplace_core::state::cache::{AvatarCache, MediaState};
 use deplace_core::structure::Structure;
 use deplace_core::theme::{Colors, Theme};
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
+use iced::alignment::{Horizontal, Vertical};
 use iced::font::Weight;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::widget::image::Handle as ImageHandle;
 use iced::widget::text::{LineHeight, Rich};
-use iced::widget::{self as w, Canvas, Scrollable, canvas, image, rich_text, span, svg};
+use iced::widget::{
+    self as w, Canvas, Scrollable, canvas, image, responsive, rich_text, span, svg,
+};
 use iced::{Alignment, Color, ContentFit, Font, Point, Renderer, Size};
 use iced::{
     Border, Element,
     widget::{Container, Stack},
 };
+use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::serde::Base64;
 
@@ -536,4 +542,75 @@ pub fn themed_tooltip<'a, T: 'a>(
             text_color: Some(theme.text.normal.into()),
             ..Default::default()
         })
+}
+
+pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
+    member: &RoomMember,
+    presence_map: &PresenceMap,
+    theme: Theme,
+    icon_size: f32,
+    avatar_cache: &AvatarCache,
+) -> Element<'a, T> {
+    let presence = presence_map
+        .get(member.user_id())
+        .map(|p| p.presence.clone())
+        .unwrap_or(matrix_sdk::ruma::presence::PresenceState::Offline);
+
+    let (color, icon) = match presence {
+        matrix_sdk::ruma::presence::PresenceState::Offline => (
+            theme.colors.offline.into(),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../assets/indicators/offline.svg"
+            ))
+            .to_vec(),
+        ),
+        matrix_sdk::ruma::presence::PresenceState::Unavailable => (
+            theme.colors.idle.into(),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../assets/indicators/idle.svg"
+            ))
+            .to_vec(),
+        ),
+        _ => (
+            theme.colors.online.into(),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../assets/indicators/online.svg"
+            ))
+            .to_vec(),
+        ),
+    };
+
+    let ratio = 0.25;
+    let bg_circle_size = 0.2;
+
+    Stack::new()
+        .push(member.render_icon(icon_size, avatar_cache))
+        .push(responsive(move |size| {
+            let base_dim = size.width.min(size.height);
+            let notch_diameter = base_dim * (ratio + bg_circle_size);
+            let content_diameter = base_dim * ratio;
+            let overflow = base_dim * bg_circle_size / 2.0;
+
+            let h = Horizontal::Right;
+            let v = Vertical::Bottom;
+
+            let notch = notch_circle(notch_diameter, theme.solid_bg.into());
+
+            Stack::new()
+                .push(positioned(notch, h, v, overflow))
+                .push(positioned(
+                    svg(iced::advanced::svg::Handle::from_memory(icon.clone()))
+                        .width(content_diameter)
+                        .height(content_diameter)
+                        .style(move |_, _| w::svg::Style { color: Some(color) })
+                        .into(),
+                    h,
+                    v,
+                    0.0,
+                ))
+        }))
+        .into()
 }

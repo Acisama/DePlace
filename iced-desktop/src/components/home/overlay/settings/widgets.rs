@@ -111,28 +111,24 @@ where
         (value, label, idx)
     };
 
-    let dropdown = sweeten::widget::pick_list(
-        Some(current),
-        options![None, group("Test", variants.into_iter())],
-        move |(_, label, _)| -> sweeten::pick_list::Content<'static> {
-            // labels_for_display
-            //     .iter()
-            //     .find(|(v, _)| v == value)
-            //     .map(|(_, label)| label.to_string())
-            //     .unwrap_or("test".into())
-            (*label).into()
-        },
-    )
+    let dropdown = w::pick_list(Some(current), variants, move |(_, label, _)| {
+        // labels_for_display
+        //     .iter()
+        //     .find(|(v, _)| v == value)
+        //     .map(|(_, label)| label.to_string())
+        //     .unwrap_or("test".into())
+        (*label).into()
+    })
     .on_select(move |(_, _, idx)| on_change(idx))
     .width(structure.settings.dropdown_width)
     .text_size(structure.font_size)
-    .style(move |_, status| sweeten::widget::pick_list::Style {
+    .style(move |_, status| w::pick_list::Style {
         text_color: theme.text.normal.into(),
         placeholder_color: theme.text.dim.into(),
         handle_color: theme.text.dim.into(),
         background: theme.solid_bg.into(),
         border: Border {
-            color: if matches!(status, sweeten::widget::pick_list::Status::Opened { .. }) {
+            color: if matches!(status, w::pick_list::Status::Opened { .. }) {
                 theme.accent.into()
             } else {
                 theme.border.into()
@@ -141,20 +137,20 @@ where
             radius: structure.semi_border_radius().into(),
         },
     })
-    .menu_style(move |_| sweeten::widget::overlay::menu::Style {
+    .menu_style(move |_| w::overlay::menu::Style {
         background: theme.solid_bg.into(),
-        disabled_background: theme.solid_bg.into(),
+        // disabled_background: theme.solid_bg.into(),
         border: Border {
             color: theme.border.into(),
             width: structure.border_thickness,
             radius: structure.semi_border_radius().into(),
         },
         text_color: theme.text.dim.into(),
-        disabled_text_color: theme.text.muted.into(),
+        // disabled_text_color: theme.text.muted.into(),
         selected_text_color: theme.text.normal.into(),
         selected_background: theme.solid_hover_bg.into(),
-        label_text_color: theme.text.normal.into(),
-        separator_color: theme.border.into(),
+        // label_text_color: theme.text.normal.into(),
+        // separator_color: theme.border.into(),
         shadow: Default::default(),
     });
 

@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
-use deplace_core::state::ActiveServer;
+use deplace_core::state::{ActiveServer, PresenceMap};
 use iced::widget::text::Alignment;
 use macros::iced_cache;
 
-use crate::common::*;
+use crate::{common::*, components::render_presence};
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
@@ -31,6 +31,7 @@ pub struct ServerChannels {
     room_watchers: RoomWatchers,
 
     membership_map: Receiver<MembershipMap>,
+    presence_map: Receiver<PresenceMap>,
 
     active_room: Receiver<Option<DePlaceRoom>>,
     active_server: Receiver<ActiveServer>,
@@ -45,6 +46,7 @@ impl ServerChannels {
                 .clone(),
 
             membership_map: state.membership_map(),
+            presence_map: state.presence_map(),
 
             active_room: state.active_room(),
             active_server: state.active_server(),
@@ -82,6 +84,9 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
             }
         };
 
+        let membership_map = &self.membership_map.borrow();
+        let presence_map = &self.presence_map.borrow();
+
         floating_tile(
             theme,
             structure,
@@ -113,7 +118,8 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                         active_room_id.clone(),
                         r,
                         &self.avatar_cache,
-                        &self.membership_map.borrow(),
+                        membership_map,
+                        presence_map,
                         if r.is_dm() {
                             structure.sidebar.dm_icon_height
                         } else {
@@ -139,6 +145,7 @@ fn render_channel(
     room: &DePlaceRoom,
     avatar_cache: &AvatarCache,
     membership_map: &MembershipMap,
+    presence_map: &PresenceMap,
     icon_size: f32,
 ) -> Element<'static, ChannelsMessage> {
     let is_active = active_room_id
@@ -149,7 +156,7 @@ fn render_channel(
         && let Some(other_member) = room.get_other_member(membership_map)
     {
         (
-            other_member.render_icon(icon_size, avatar_cache),
+            render_presence(&other_member, presence_map, theme, icon_size, avatar_cache),
             other_member.get_name(),
         )
     } else {
