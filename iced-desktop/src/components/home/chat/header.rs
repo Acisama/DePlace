@@ -48,8 +48,6 @@ pub struct Header {
     room_watchers: RoomWatchers,
     room_id: OwnedRoomId,
 
-    user_device: Arc<UserDevice>,
-
     membership_map: Receiver<MembershipMap>,
     presence_map: Receiver<PresenceMap>,
 }
@@ -69,8 +67,6 @@ impl Header {
                 .clone(),
             room_id: id.clone(),
             state: state.clone(),
-
-            user_device: state.user_device(),
 
             avatar_states_for_hash: BTreeSet::new(),
         }
@@ -165,7 +161,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             )
         };
 
-        let is_in_call = room.is_user_device_in_call(&self.user_device);
+        let is_in_call = room.own_user_is_in_call();
 
         floating_tile(
             theme,

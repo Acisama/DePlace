@@ -189,7 +189,7 @@ pub struct AppState {
 #[derive(Debug)]
 struct AppStateInner {
     pub client: Client,
-    pub user_device: Arc<UserDevice>,
+    pub own_device: Arc<UserDevice>,
     pub settings: Settings,
 
     keybinds: Sender<Keybinds>,
@@ -237,7 +237,10 @@ impl AppState {
         let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
         let last_server_order = get_account_data(&client).await;
 
-        let room_watchers = RoomWatchers::new(client.clone(), last_server_order).await?;
+        let own_device = Arc::new(user_device);
+
+        let room_watchers =
+            RoomWatchers::new(client.clone(), last_server_order, own_device.clone()).await?;
         let breadcrumbs = Mutex::new(breadcrumbs_content);
 
         let (last_room_id, dms_last) = {
@@ -265,7 +268,7 @@ impl AppState {
         };
 
         let active_room = if let Some(room) = last_room_id.and_then(|id| client.get_room(&id)) {
-            Some(DePlaceRoom::from_room(room).await)
+            Some(DePlaceRoom::from_room(room, &own_device).await)
         } else {
             None
         };
@@ -310,7 +313,7 @@ impl AppState {
                 notification_manager: NotificationManager::default(),
 
                 client,
-                user_device: Arc::new(user_device),
+                own_device,
                 settings,
                 keybinds,
 
@@ -434,12 +437,16 @@ impl AppState {
         self.inner.settings.clone()
     }
 
-    pub fn user_device(&self) -> Arc<UserDevice> {
-        self.inner.user_device.clone()
+    pub fn own_device(&self) -> Arc<UserDevice> {
+        self.inner.own_device.clone()
+    }
+
+    pub fn own_device_ref(&self) -> &UserDevice {
+        &self.inner.own_device
     }
 
     pub fn own_id(&self) -> OwnedUserId {
-        self.inner.user_device.user_id.clone()
+        self.inner.own_device.user_id.clone()
     }
 
     // Getters

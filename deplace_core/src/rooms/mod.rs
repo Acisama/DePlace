@@ -113,6 +113,8 @@ struct DePlaceRoomInner {
     notification_counts: NotificationCounts,
     parents: HashMap<OwnedRoomId, Option<String>>,
     call_participants: BTreeSet<Arc<CallMember>>,
+    own_user_is_in_call: bool,
+    own_user_device_is_in_call: bool,
 }
 
 impl DePlaceRoom {
@@ -184,6 +186,14 @@ impl DePlaceRoom {
             member.member.user_id() == device.user_id && member.device_id == device.device_id
         })
     }
+
+    pub fn own_user_is_in_call(&self) -> bool {
+        self.inner.own_user_is_in_call
+    }
+
+    pub fn own_user_device_is_in_call(&self) -> bool {
+        self.inner.own_user_device_is_in_call
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -224,7 +234,7 @@ impl Ord for CallMember {
 }
 
 impl DePlaceRoom {
-    pub async fn from_room(room: Room) -> Self {
+    pub async fn from_room(room: Room, own_device: &UserDevice) -> Self {
         let id = room.room_id().to_owned();
 
         #[allow(clippy::mutable_key_type)]
@@ -330,6 +340,12 @@ impl DePlaceRoom {
                 avatar_url: room.avatar_url(),
                 notification_counts: room.unread_notification_counts().into(),
                 parents,
+                own_user_is_in_call: call_participants
+                    .iter()
+                    .any(|p| p.member.user_id() == own_device.user_id),
+                own_user_device_is_in_call: call_participants.iter().any(|p| {
+                    p.member.user_id() == own_device.user_id && p.device_id == own_device.device_id
+                }),
                 call_participants,
             }),
             room,

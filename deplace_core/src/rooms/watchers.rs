@@ -18,7 +18,7 @@ use matrix_sdk_ui::{
 use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::watch;
 
-use crate::matrix_api::account_data::ServerOrderContent;
+use crate::{matrix_api::account_data::ServerOrderContent, state::UserDevice};
 
 use super::{DePlaceRoom, RoomWatcherHashingConfig, SpaceHierarchy};
 
@@ -39,7 +39,11 @@ pub struct RoomWatchers {
 }
 
 impl RoomWatchers {
-    pub async fn new(client: Client, last_server_order: ServerOrderContent) -> Result<Self> {
+    pub async fn new(
+        client: Client,
+        last_server_order: ServerOrderContent,
+        own_device: Arc<UserDevice>,
+    ) -> Result<Self> {
         let service = RoomListService::new(client.clone()).await?;
 
         let room_list = Arc::new(service.all_rooms().await?);
@@ -81,6 +85,7 @@ impl RoomWatchers {
         Ok(RoomWatchers {
             dm_rooms: spawn_generic_updater(
                 client.clone(),
+                own_device.clone(),
                 room_list.clone(),
                 new_filter(dm_filter()),
                 hier_tx.clone(),
@@ -88,6 +93,7 @@ impl RoomWatchers {
             .await,
             spaces: spawn_generic_updater(
                 client.clone(),
+                own_device.clone(),
                 room_list.clone(),
                 new_filter(space_filter()),
                 hier_tx.clone(),
@@ -95,6 +101,7 @@ impl RoomWatchers {
             .await,
             other_rooms: spawn_generic_updater(
                 client.clone(),
+                own_device.clone(),
                 room_list.clone(),
                 new_filter(Box::new(filters::new_filter_not(Box::new(
                     filters::new_filter_any(vec![dm_filter(), space_filter()]),
@@ -104,6 +111,7 @@ impl RoomWatchers {
             .await,
             all_rooms: spawn_generic_updater(
                 client.clone(),
+                own_device.clone(),
                 room_list.clone(),
                 Box::new(filters::new_filter_not(
                     Box::new(filters::new_filter_none()),
@@ -185,6 +193,7 @@ impl RoomWatchers {
 
 async fn fetch_and_notify_room(
     client: &Client,
+    own_device: &UserDevice,
     item: &RoomListItem,
     hier_tx: &tokio::sync::mpsc::UnboundedSender<(
         OwnedRoomId,
@@ -195,7 +204,7 @@ async fn fetch_and_notify_room(
         .get_room(item.room_id())
         .expect("Room missing from client");
 
-    let dp_room = DePlaceRoom::from_room(room).await;
+    let dp_room = DePlaceRoom::from_room(room, own_device).await;
 
     if let Err(e) = hier_tx.send((dp_room.room_id().to_owned(), dp_room.parents())) {
         tracing::error!("Failed to send room hierarchy: {}", e);
@@ -206,6 +215,7 @@ async fn fetch_and_notify_room(
 
 async fn spawn_generic_updater<T: UpdateExt + Default + Send + Sync + 'static + Clone>(
     client: Client,
+    own_device: Arc<UserDevice>,
     room_list: Arc<matrix_sdk_ui::room_list_service::RoomList>,
     filter: BoxedFilterFn,
     hier_tx: tokio::sync::mpsc::UnboundedSender<(
@@ -223,6 +233,9 @@ async fn spawn_generic_updater<T: UpdateExt + Default + Send + Sync + 'static + 
 
         config.set_filter(filter);
 
+        let get_room =
+            async move |item| fetch_and_notify_room(&client, &own_device, &item, &hier_tx).await;
+
         while let Some(diffs) = stream.next().await {
             let mut mapped_diffs = Vec::with_capacity(diffs.len());
 
@@ -231,34 +244,34 @@ async fn spawn_generic_updater<T: UpdateExt + Default + Send + Sync + 'static + 
                     VectorDiff::Append { values } => {
                         let mut new_vals: Vector<_> = Vec::with_capacity(values.len()).into();
                         for v in values {
-                            new_vals.push_back(fetch_and_notify_room(&client, &v, &hier_tx).await);
+                            new_vals.push_back(get_room(v).await);
                         }
                         VectorDiff::Append { values: new_vals }
                     }
                     VectorDiff::Clear => VectorDiff::Clear,
                     VectorDiff::Insert { index, value } => VectorDiff::Insert {
                         index,
-                        value: fetch_and_notify_room(&client, &value, &hier_tx).await,
+                        value: get_room(value).await,
                     },
                     VectorDiff::PopBack => VectorDiff::PopBack,
                     VectorDiff::PopFront => VectorDiff::PopFront,
                     VectorDiff::PushBack { value } => VectorDiff::PushBack {
-                        value: fetch_and_notify_room(&client, &value, &hier_tx).await,
+                        value: get_room(value).await,
                     },
                     VectorDiff::PushFront { value } => VectorDiff::PushFront {
-                        value: fetch_and_notify_room(&client, &value, &hier_tx).await,
+                        value: get_room(value).await,
                     },
                     VectorDiff::Remove { index } => VectorDiff::Remove { index },
                     VectorDiff::Reset { values } => {
                         let mut new_vals: Vector<_> = Vec::with_capacity(values.len()).into();
                         for v in values {
-                            new_vals.push_back(fetch_and_notify_room(&client, &v, &hier_tx).await);
+                            new_vals.push_back(get_room(v).await);
                         }
                         VectorDiff::Reset { values: new_vals }
                     }
                     VectorDiff::Set { index, value } => VectorDiff::Set {
                         index,
-                        value: fetch_and_notify_room(&client, &value, &hier_tx).await,
+                        value: get_room(value).await,
                     },
                     VectorDiff::Truncate { length } => VectorDiff::Truncate { length },
                 };

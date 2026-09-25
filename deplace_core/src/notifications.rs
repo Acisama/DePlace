@@ -318,7 +318,9 @@ impl NotificationManager {
                     state
                         .set_active_server(
                             state
-                                .set_active_room(Some(DePlaceRoom::from_room(room).await))
+                                .set_active_room(Some(
+                                    DePlaceRoom::from_room(room, state.own_device_ref()).await,
+                                ))
                                 .await,
                             false,
                         )
