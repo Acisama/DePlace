@@ -4,7 +4,6 @@ use enumset::{EnumSet, EnumSetType};
 use iced::{Alignment, Length};
 use phosphor_svgs::icon as icons;
 use serde::{Serialize, de::DeserializeOwned};
-use sweeten::widget::pick_list::{group, options};
 use tokio::sync::watch;
 
 pub trait ToggleCloudExt {
@@ -112,11 +111,6 @@ where
     };
 
     let dropdown = w::pick_list(Some(current), variants, move |(_, label, _)| {
-        // labels_for_display
-        //     .iter()
-        //     .find(|(v, _)| v == value)
-        //     .map(|(_, label)| label.to_string())
-        //     .unwrap_or("test".into())
         (*label).into()
     })
     .on_select(move |(_, _, idx)| on_change(idx))
@@ -294,7 +288,7 @@ fn cloud_button<Message: 'static + Clone + ToggleCloudExt>(
             phosphor_svgs::icon::cloud_slash::REGULAR,
             theme.text.muted,
             Some(theme.text.muted),
-            "This setting can not be synced across all devices",
+            "This setting cannot be synced across all devices",
         ),
     };
 

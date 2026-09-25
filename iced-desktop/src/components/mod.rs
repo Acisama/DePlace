@@ -13,11 +13,11 @@ use iced::alignment::{Horizontal, Vertical};
 use iced::font::Weight;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::widget::image::Handle as ImageHandle;
-use iced::widget::text::{LineHeight, Rich};
+use iced::widget::text::{IntoFragment, LineHeight, Rich};
 use iced::widget::{
     self as w, Canvas, Scrollable, canvas, image, responsive, rich_text, span, svg,
 };
-use iced::{Alignment, Color, ContentFit, Font, Point, Renderer, Size};
+use iced::{Alignment, Color, ContentFit, Font, Point, Renderer, Size, padding};
 use iced::{
     Border, Element,
     widget::{Container, Stack},
@@ -526,22 +526,27 @@ pub fn themed_scrollable<'a, T: 'a>(
 
 pub fn themed_tooltip<'a, T: 'a>(
     content: impl Into<Element<'a, T>>,
-    tooltip: impl Into<Element<'a, T>>,
+    tooltip: impl IntoFragment<'a>,
     structure: Structure,
     theme: Theme,
 ) -> w::tooltip::Tooltip<'a, T> {
-    w::tooltip(content, tooltip, w::tooltip::Position::Bottom)
-        .delay(std::time::Duration::from_millis(300))
-        .style(move |_| w::container::Style {
-            background: Some(theme.background.into()),
-            border: Border {
-                color: theme.border.into(),
-                width: structure.border_thickness,
-                radius: structure.inner_border_radius.into(),
-            },
-            text_color: Some(theme.text.normal.into()),
-            ..Default::default()
-        })
+    w::tooltip(
+        content,
+        w::container(w::text(tooltip).color(theme.text.normal))
+            .padding(padding::horizontal(structure.small_gap).vertical(structure.small_gap / 2.0)),
+        w::tooltip::Position::Bottom,
+    )
+    .delay(std::time::Duration::from_millis(300))
+    .style(move |_| w::container::Style {
+        background: Some(theme.background.into()),
+        border: Border {
+            color: theme.border.into(),
+            width: structure.border_thickness,
+            radius: structure.inner_border_radius.into(),
+        },
+        text_color: Some(theme.text.normal.into()),
+        ..Default::default()
+    })
 }
 
 pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(

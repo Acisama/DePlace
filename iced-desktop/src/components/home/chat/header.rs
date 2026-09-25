@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use deplace_core::state::{PresenceMap, UserDevice};
+use deplace_core::state::PresenceMap;
 use enumset::EnumSet;
 use iced::Alignment;
 use macros::iced_cache;
