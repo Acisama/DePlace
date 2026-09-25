@@ -7,7 +7,7 @@ use macros::iced_cache;
 
 use crate::{
     common::*,
-    components::{context_room_icon, render_presence},
+    components::{context_room_icon, phosphor_icon, render_presence},
 };
 
 use super::sidebar::SidebarState;
@@ -125,6 +125,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     theme,
                     icon_size,
                     &self.avatar_cache,
+                    theme.solid_bg.into(),
                 ),
                 other_member.render_name(structure.font_size),
             )

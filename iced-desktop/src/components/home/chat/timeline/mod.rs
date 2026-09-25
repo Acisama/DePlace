@@ -24,6 +24,7 @@ use sweeten::widget::list;
 
 use phosphor_svgs::icon as icons;
 
+use crate::components::phosphor_icon;
 use crate::{
     common::*,
     components::{track_bounds::track_bounds, track_scroll::track_scroll},

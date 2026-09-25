@@ -555,6 +555,7 @@ pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
     theme: Theme,
     icon_size: f32,
     avatar_cache: &AvatarCache,
+    background_color: Color,
 ) -> Element<'a, T> {
     let presence = presence_map
         .get(member.user_id())
@@ -602,7 +603,7 @@ pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
             let h = Horizontal::Right;
             let v = Vertical::Bottom;
 
-            let notch = notch_circle(notch_diameter, theme.solid_bg.into());
+            let notch = notch_circle(notch_diameter, background_color);
 
             Stack::new()
                 .push(positioned(notch, h, v, overflow))

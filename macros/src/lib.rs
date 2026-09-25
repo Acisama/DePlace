@@ -13,6 +13,8 @@ mod settings;
 
 mod iced_cache;
 
+mod phosphor_icon;
+
 #[proc_macro]
 pub fn tailwind_div(input: TokenStream) -> TokenStream {
     let StyleList {
@@ -105,6 +107,13 @@ pub fn iced_cache(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_ast = syn::parse(item).unwrap();
 
     iced_cache::convert_iced(item_ast, derives)
+}
+
+/// Builds a `PhosphorIcon` from a bare icon name, e.g. `phosphor_icon!(hash, bold, 16.0)`.
+/// An optional trailing expression sets the color: `phosphor_icon!(hash, bold, 16.0, theme.text.dim)`.
+#[proc_macro]
+pub fn iced_icon(input: TokenStream) -> TokenStream {
+    phosphor_icon::iced_icon(input)
 }
 
 /// Safely creates a `NonZeroUsize` at compile time.

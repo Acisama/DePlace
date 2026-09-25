@@ -10,6 +10,7 @@ use iced::{
     },
 };
 use iced_video_player::VideoPlayer;
+use macros::iced_icon;
 use matrix_sdk::{
     media::UniqueKey,
     ruma::{
@@ -28,6 +29,7 @@ use crate::{
     components::{
         InsetShadow,
         home::chat::timeline::messages::{SystemEvent, SystemMessage},
+        phosphor_icon,
         track_bounds::track_bounds,
     },
 };
@@ -446,7 +448,7 @@ impl MessageContent {
             MessageContent::Redacted => (
                 Some(
                     w::row![
-                        w::container(phosphor_icon(icons::trash::BOLD, text_size))
+                        w::container(iced_icon!(trash, bold, text_size))
                             .style(move |_| ContainerStyle::default().color(theme.text.dim)),
                         w::rich_text![w::span("Redacted").font(Font {
                             style: iced::font::Style::Italic,

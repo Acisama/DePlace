@@ -2,14 +2,16 @@ use std::collections::BTreeSet;
 
 use deplace_core::state::{ActiveServer, PresenceMap};
 use iced::widget::text::Alignment;
-use macros::iced_cache;
+use macros::{iced_cache, iced_icon};
 
 use crate::{common::*, components::render_presence};
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
+    None,
     NeedsAvatar(OwnedMxcUri),
     SetActiveRoom(DePlaceRoom),
+    ToggleCategory(OwnedRoomId),
 }
 
 impl NeedsAvatarExt for ChannelsMessage {
@@ -30,6 +32,9 @@ pub struct ServerChannels {
 
     room_watchers: RoomWatchers,
 
+    #[hash]
+    collapsed_categories: BTreeSet<OwnedRoomId>,
+
     membership_map: Receiver<MembershipMap>,
     presence_map: Receiver<PresenceMap>,
 
@@ -44,6 +49,8 @@ impl ServerChannels {
             room_watchers: state
                 .room_watchers(hashing::hash_all_rooms_default())
                 .clone(),
+
+            collapsed_categories: BTreeSet::new(),
 
             membership_map: state.membership_map(),
             presence_map: state.presence_map(),
@@ -65,7 +72,16 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                 self.avatar_states_for_hash.insert(uri.clone());
                 Some(ChannelsAction::NeedsMedia(NeedsMedia::avatar(uri)))
             }
+            ChannelsMessage::None => None,
             ChannelsMessage::SetActiveRoom(room) => Some(ChannelsAction::SetActiveRoom(room)),
+            ChannelsMessage::ToggleCategory(id) => {
+                if self.collapsed_categories.contains(&id) {
+                    self.collapsed_categories.remove(&id);
+                } else {
+                    self.collapsed_categories.insert(id);
+                }
+                None
+            }
         }
     }
 
@@ -79,9 +95,11 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
 
         let channels: Arc<Vec<_>> = match &active_server {
             ActiveServer::Dms => self.room_watchers.dm_rooms(),
-            ActiveServer::Server(server) => {
-                Arc::new(self.room_watchers.get_children(server.room_id()))
-            }
+            ActiveServer::Server(server) => Arc::new(
+                self.room_watchers
+                    .get_children(server.room_id())
+                    .unwrap_or_default(),
+            ),
         };
 
         let membership_map = &self.membership_map.borrow();
@@ -115,11 +133,13 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                     render_channel(
                         theme,
                         structure,
-                        active_room_id.clone(),
+                        &active_room_id,
                         r,
                         &self.avatar_cache,
                         membership_map,
                         presence_map,
+                        &self.room_watchers,
+                        &self.collapsed_categories,
                         if r.is_dm() {
                             structure.sidebar.dm_icon_height
                         } else {
@@ -141,22 +161,37 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
 fn render_channel(
     theme: Theme,
     structure: Structure,
-    active_room_id: Option<OwnedRoomId>,
+    active_room_id: &Option<OwnedRoomId>,
     room: &DePlaceRoom,
     avatar_cache: &AvatarCache,
     membership_map: &MembershipMap,
     presence_map: &PresenceMap,
+    room_watchers: &RoomWatchers,
+    collapsed_categories: &BTreeSet<OwnedRoomId>,
     icon_size: f32,
 ) -> Element<'static, ChannelsMessage> {
     let is_active = active_room_id
         .as_ref()
         .is_some_and(|id| id == room.room_id());
 
+    let is_space = room.is_space();
+
     let (icon, name) = if room.is_dm()
         && let Some(other_member) = room.get_other_member(membership_map)
     {
         (
-            render_presence(&other_member, presence_map, theme, icon_size, avatar_cache),
+            render_presence(
+                &other_member,
+                presence_map,
+                theme,
+                icon_size,
+                avatar_cache,
+                if is_active {
+                    theme.solid_hover_bg.into()
+                } else {
+                    theme.solid_bg.into()
+                },
+            ),
             other_member.get_name(),
         )
     } else {
@@ -166,34 +201,125 @@ fn render_channel(
         )
     };
 
-    w::button(
+    let content: Element<'static, ChannelsMessage> = if is_space {
+        let expanded = !collapsed_categories.contains(room.room_id());
+
+        let mut column = w::column![
+            w::button(
+                w::row![
+                    iced_icon!(expanded ? caret_down : caret_right, bold, icon_size,),
+                    w::text(name).height(icon_size).center()
+                ]
+                .spacing(structure.gap)
+                .width(Fill)
+                .padding(padding::vertical(structure.small_gap * 0.75).left(structure.small_gap))
+            )
+            .on_press(ChannelsMessage::ToggleCategory(room.room_id().to_owned()))
+            .padding(0.0)
+            .style(move |_, status| ButtonStyle {
+                background: None,
+                text_color: if status.active() {
+                    theme.text.normal.into()
+                } else {
+                    theme.text.dim.into()
+                },
+                border: Border {
+                    color: if status.active() {
+                        theme.border.into()
+                    } else {
+                        Color::TRANSPARENT
+                    },
+                    width: structure.border_thickness,
+                    radius: structure.inner_border_radius.into()
+                },
+                ..Default::default()
+            })
+        ]
+        .spacing(structure.divider_width);
+
+        if expanded && let Some(children) = room_watchers.get_children(room.room_id()) {
+            let item_height = icon_size + 1.5 * structure.small_gap;
+            let length = children.len();
+
+            let line_height = (item_height + structure.divider_width) * length as f32;
+
+            column = column.push(
+                w::container(w::stack([
+                    w::Column::with_children(children.iter().map(|room| {
+                        w::row![
+                            w::space().width(icon_size),
+                            render_channel(
+                                theme,
+                                structure,
+                                active_room_id,
+                                room,
+                                avatar_cache,
+                                membership_map,
+                                presence_map,
+                                room_watchers,
+                                collapsed_categories,
+                                icon_size,
+                            )
+                        ]
+                        .into()
+                    }))
+                    .spacing(structure.divider_width)
+                    .into(),
+                    w::container(
+                        w::container("")
+                            .width(structure.divider_width)
+                            .height(line_height)
+                            .style(move |_| ContainerStyle {
+                                background: Some(theme.border.into()),
+                                border: border::rounded(structure.divider_width / 2.0),
+                                ..Default::default()
+                            }),
+                    )
+                    .width(icon_size)
+                    .center_x(icon_size)
+                    .into(),
+                ]))
+                .padding(padding::left(structure.small_gap)),
+            );
+        }
+
+        column.into()
+    } else {
         w::row![icon, w::text(name).height(icon_size).center()]
             .spacing(structure.gap)
-            .width(Fill),
-    )
-    .padding(padding::horizontal(structure.small_gap).vertical(structure.small_gap * 0.75))
-    .style(move |_, status| {
-        let selected =
-            is_active || matches!(status, button::Status::Hovered | button::Status::Pressed);
-        ButtonStyle {
-            background: is_active.then_some(theme.solid_hover_bg.into()),
-            text_color: if selected {
-                theme.text.normal.into()
-            } else {
-                theme.text.dim.into()
-            },
-            border: Border {
-                color: if selected {
-                    theme.border.into()
+            .width(Fill)
+            .padding(padding::vertical(structure.small_gap * 0.75).horizontal(structure.small_gap))
+            .into()
+    };
+
+    w::button(content)
+        .padding(0.0)
+        .style(move |_, status| {
+            let selected =
+                is_active || matches!(status, button::Status::Hovered | button::Status::Pressed);
+            ButtonStyle {
+                background: is_active.then_some(theme.solid_hover_bg.into()),
+                text_color: if selected && !is_space {
+                    theme.text.normal.into()
                 } else {
-                    Default::default()
+                    theme.text.dim.into()
                 },
-                width: structure.border_thickness,
-                radius: structure.inner_border_radius.into(),
-            },
-            ..Default::default()
-        }
-    })
-    .on_press_maybe((!is_active).then_some(ChannelsMessage::SetActiveRoom(room.clone())))
-    .into()
+                border: Border {
+                    color: if selected && !is_space {
+                        theme.border.into()
+                    } else {
+                        Default::default()
+                    },
+                    width: structure.border_thickness,
+                    radius: structure.inner_border_radius.into(),
+                },
+                ..Default::default()
+            }
+        })
+        .on_press_maybe(if is_space {
+            Some(ChannelsMessage::None)
+        } else {
+            (!is_active).then_some(ChannelsMessage::SetActiveRoom(room.clone()))
+        })
+        .into()
 }

@@ -4,6 +4,8 @@ use iced::widget::text::LineHeight;
 
 use crate::common::*;
 
+use super::phosphor_icon;
+
 #[derive(Clone)]
 pub enum CornerContent {
     Text {

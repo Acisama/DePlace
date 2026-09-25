@@ -1,8 +1,8 @@
-use crate::common::*;
+use crate::{common::*, components::phosphor_icon};
 use deplace_core::settings::{EnumVariants, MatrixSettingField};
 use enumset::{EnumSet, EnumSetType};
 use iced::{Alignment, Length};
-use phosphor_svgs::icon as icons;
+use macros::iced_icon;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::watch;
 
@@ -372,13 +372,10 @@ pub fn render_subsection<Message: Clone + 'static>(
                     border: border::rounded(structure.divider_width / 2.0),
                     ..Default::default()
                 }),
-            phosphor_icon(
-                if expanded {
-                    icons::caret_up::BOLD
-                } else {
-                    icons::caret_down::BOLD
-                },
-                structure.font_size * 1.2,
+            iced_icon!(
+                expanded ? caret_down : caret_right,
+                bold,
+                structure.font_size * 1.2
             ),
         ]
         .align_y(Alignment::Center)
@@ -402,6 +399,7 @@ pub fn render_subsection<Message: Clone + 'static>(
         .spacing(structure.small_gap)
         .padding(structure.small_gap)
         .width(Fill);
+
     if expanded {
         column = column.push(content);
     }

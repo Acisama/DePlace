@@ -130,14 +130,21 @@ impl RoomWatchers {
         })
     }
 
-    pub fn get_children(&self, parent: &RoomId) -> Vec<DePlaceRoom> {
+    pub fn get_children(&self, parent: &RoomId) -> Option<Vec<DePlaceRoom>> {
         let all_rooms = self.all_rooms.borrow();
-        self.hierarchy
+        let children: Vec<DePlaceRoom> = self
+            .hierarchy
             .borrow()
             .get_children(parent)
             .iter()
             .filter_map(|id| all_rooms.get(id))
-            .collect()
+            .collect();
+
+        if children.is_empty() {
+            None
+        } else {
+            Some(children)
+        }
     }
 
     pub fn get_all_children(&self, parent: &RoomId) -> Vec<DePlaceRoom> {
@@ -188,6 +195,13 @@ impl RoomWatchers {
         });
 
         new_order
+    }
+
+    pub fn get_first_child_of(&self, parent: &RoomId) -> Option<DePlaceRoom> {
+        self.hierarchy
+            .borrow()
+            .get_first_child_of(parent)
+            .and_then(|child| self.all_rooms.borrow().get(&child))
     }
 }
 

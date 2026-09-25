@@ -214,4 +214,10 @@ impl SpaceHierarchy {
             servers: (*self.servers).clone(),
         }
     }
+
+    pub fn get_first_child_of(&self, parent: &RoomId) -> Option<OwnedRoomId> {
+        self.parent_to_children
+            .get(parent)
+            .and_then(|children| children.first().cloned())
+    }
 }

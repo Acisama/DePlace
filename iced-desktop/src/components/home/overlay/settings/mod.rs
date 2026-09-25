@@ -1,4 +1,4 @@
-use crate::common::*;
+use crate::{common::*, components::phosphor_icon};
 use components::{
     AppearanceSection, AppearanceSectionAction, AppearanceSectionMessage, AudioSection,
     AudioSectionAction, AudioSectionMessage, ChatsSection, ChatsSectionAction, ChatsSectionMessage,

@@ -9,7 +9,7 @@ use iced::{
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
 
-use crate::common::*;
+use crate::{common::*, components::phosphor_icon};
 
 use super::timeline::MessageEvent;
 

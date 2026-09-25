@@ -554,27 +554,21 @@ impl AppState {
             let server_id = server.id();
             let breadcrumbs = self.breadcrumbs();
 
-            let new_room_id = match server_id {
-                ActiveServerId::Server(id) => {
-                    breadcrumbs.last_space_ids.get(&id).cloned().or_else(|| {
-                        self.hierarchy()
-                            .parent_to_children
-                            .get(&id)
-                            .and_then(|children| children.first().cloned())
-                    })
-                }
-                ActiveServerId::Dms => breadcrumbs.last_dm_id.clone().or_else(|| {
-                    self.inner
-                        .room_watchers
-                        .dm_rooms()
-                        .iter()
-                        .next()
-                        .map(|r| r.room_id().to_owned())
-                }),
+            let new_room = match server_id {
+                ActiveServerId::Server(id) => breadcrumbs
+                    .last_space_ids
+                    .get(&id)
+                    .cloned()
+                    .and_then(|id| self.inner.room_watchers.get_room(&id))
+                    .or_else(|| self.inner.room_watchers.get_first_child_of(&id)),
+                ActiveServerId::Dms => breadcrumbs
+                    .last_dm_id
+                    .clone()
+                    .and_then(|id| self.inner.room_watchers.get_room(&id))
+                    .or_else(|| self.inner.room_watchers.dm_rooms().iter().next().cloned()),
             };
 
             if change_room {
-                let new_room = new_room_id.and_then(|id| self.inner.room_watchers.get_room(&id));
                 self.set_active_room(new_room).await;
             }
         }
