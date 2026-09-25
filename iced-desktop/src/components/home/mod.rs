@@ -277,11 +277,23 @@ impl Home {
                     })
                 }
                 ChatAction::Perform(task) => Some(HomeAction::Perform(task.map(HomeMessage::Chat))),
+                ChatAction::JoinCall => join_call(&chat.room_id),
+                ChatAction::LeaveCall => leave_call(&chat.room_id),
             }
         } else {
             None
         }
     }
+}
+
+fn join_call(room_id: &RoomId) -> Option<HomeAction> {
+    tracing::trace!("Join room {}", room_id);
+    None
+}
+
+fn leave_call(room_id: &RoomId) -> Option<HomeAction> {
+    tracing::trace!("Leave room {}", room_id);
+    None
 }
 
 impl IcedWidget<HomeMessage, HomeAction> for Home {
