@@ -41,8 +41,8 @@ impl SpaceHierarchy {
 
     fn recompute_all_children(&mut self) {
         let mut new_all_children = BTreeMap::new();
-        let mut all_parents: HashSet<OwnedRoomId> =
-            self.parent_to_children.keys().cloned().collect();
+        let mut new_children_to_parents: BTreeMap<OwnedRoomId, BTreeSet<OwnedRoomId>> =
+            BTreeMap::new();
 
         for parent_id in self.parent_to_children.keys() {
             let mut all_kids = BTreeSet::new();
@@ -57,8 +57,13 @@ impl SpaceHierarchy {
                 if let Some(children) = self.parent_to_children.get(&current_node) {
                     for child in children.iter() {
                         all_kids.insert(child.clone());
-                        all_parents.remove(child);
                         stack.push(child.clone());
+                        if let Some(parents) = new_children_to_parents.get_mut(child) {
+                            parents.insert(parent_id.clone());
+                        } else {
+                            new_children_to_parents
+                                .insert(child.clone(), BTreeSet::from([parent_id.clone()]));
+                        }
                     }
                 }
             }
@@ -66,8 +71,15 @@ impl SpaceHierarchy {
             new_all_children.insert(parent_id.clone(), Arc::new(all_kids.into_iter().collect()));
         }
 
-        self.servers = Arc::new(all_parents.into_iter().collect());
+        self.servers = Arc::new(
+            self.parent_to_children
+                .keys()
+                .filter(|id| !new_children_to_parents.contains_key(*id))
+                .cloned()
+                .collect(),
+        );
         self.parent_to_all_children = Arc::new(new_all_children);
+        self.child_to_parents = Arc::new(new_children_to_parents);
     }
 
     fn sort_children(&mut self, parent: &RoomId) {
@@ -89,9 +101,8 @@ impl SpaceHierarchy {
         let mut new_server_order = Vec::new();
 
         for server in &self.last_server_order.servers {
-            new_server_order.push(server.clone());
-            if self.servers.contains(server) {
-                all_servers.remove(server);
+            if all_servers.remove(server) {
+                new_server_order.push(server.clone());
             }
         }
 

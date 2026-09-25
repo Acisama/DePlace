@@ -237,22 +237,65 @@ fn render_channel(
         ]
         .spacing(structure.divider_width);
 
-        if expanded && let Some(children) = room_watchers.get_children(room.room_id()) {
+        if let Some(children) = room_watchers.get_children(room.room_id()) {
             let item_height = icon_size + 1.5 * structure.small_gap;
-            let length = children.len();
+            if expanded {
+                let length = children.len();
 
-            let line_height = (item_height + structure.divider_width) * length as f32;
+                let line_height = (item_height + structure.divider_width) * length as f32;
 
-            column = column.push(
-                w::container(w::stack([
-                    w::Column::with_children(children.iter().map(|room| {
+                column = column.push(
+                    w::container(w::stack([
+                        w::Column::with_children(children.iter().map(|room| {
+                            w::row![
+                                w::space().width(icon_size),
+                                render_channel(
+                                    theme,
+                                    structure,
+                                    active_room_id,
+                                    room,
+                                    avatar_cache,
+                                    membership_map,
+                                    presence_map,
+                                    room_watchers,
+                                    collapsed_categories,
+                                    icon_size,
+                                )
+                            ]
+                            .into()
+                        }))
+                        .spacing(structure.divider_width)
+                        .into(),
+                        w::container(
+                            w::container("")
+                                .width(structure.divider_width)
+                                .height(line_height)
+                                .style(move |_| ContainerStyle {
+                                    background: Some(theme.border.into()),
+                                    border: border::rounded(structure.divider_width / 2.0),
+                                    ..Default::default()
+                                }),
+                        )
+                        .width(icon_size)
+                        .center_x(icon_size)
+                        .into(),
+                    ]))
+                    .padding(padding::left(structure.small_gap)),
+                );
+            } else if let Some(active_id) = &active_room_id
+                && let Some(active) = children.iter().find(|room| room.room_id() == active_id)
+            {
+                let line_height = item_height + structure.divider_width;
+
+                column = column.push(
+                    w::container(w::stack([
                         w::row![
                             w::space().width(icon_size),
                             render_channel(
                                 theme,
                                 structure,
                                 active_room_id,
-                                room,
+                                active,
                                 avatar_cache,
                                 membership_map,
                                 presence_map,
@@ -261,26 +304,24 @@ fn render_channel(
                                 icon_size,
                             )
                         ]
-                        .into()
-                    }))
-                    .spacing(structure.divider_width)
-                    .into(),
-                    w::container(
-                        w::container("")
-                            .width(structure.divider_width)
-                            .height(line_height)
-                            .style(move |_| ContainerStyle {
-                                background: Some(theme.border.into()),
-                                border: border::rounded(structure.divider_width / 2.0),
-                                ..Default::default()
-                            }),
-                    )
-                    .width(icon_size)
-                    .center_x(icon_size)
-                    .into(),
-                ]))
-                .padding(padding::left(structure.small_gap)),
-            );
+                        .into(),
+                        w::container(
+                            w::container("")
+                                .width(structure.divider_width)
+                                .height(line_height)
+                                .style(move |_| ContainerStyle {
+                                    background: Some(theme.border.into()),
+                                    border: border::rounded(structure.divider_width / 2.0),
+                                    ..Default::default()
+                                }),
+                        )
+                        .width(icon_size)
+                        .center_x(icon_size)
+                        .into(),
+                    ]))
+                    .padding(padding::left(structure.small_gap)),
+                );
+            }
         }
 
         column.into()
