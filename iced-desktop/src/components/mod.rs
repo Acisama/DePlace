@@ -620,3 +620,27 @@ pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
         }))
         .into()
 }
+
+pub fn render_room_with_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
+    room: &DePlaceRoom,
+    presence_map: &PresenceMap,
+    theme: Theme,
+    icon_size: f32,
+    avatar_cache: &AvatarCache,
+    background_color: iced::Color,
+) -> Element<'a, T> {
+    if room.is_dm()
+        && let Some(other_member) = room.dm_other_member()
+    {
+        render_presence(
+            &other_member,
+            presence_map,
+            theme,
+            icon_size,
+            avatar_cache,
+            background_color,
+        )
+    } else {
+        room.render_icon(icon_size, avatar_cache)
+    }
+}

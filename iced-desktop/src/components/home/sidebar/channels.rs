@@ -4,7 +4,7 @@ use deplace_core::state::{ActiveServer, PresenceMap};
 use iced::widget::text::Alignment;
 use macros::{iced_cache, iced_icon};
 
-use crate::common::*;
+use crate::{common::*, components::render_room_with_presence};
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
@@ -297,7 +297,18 @@ fn render_channel(
         column.into()
     } else {
         w::row![
-            room.render_icon(icon_size, avatar_cache),
+            render_room_with_presence(
+                room,
+                presence_map,
+                theme,
+                icon_size,
+                avatar_cache,
+                if is_active {
+                    theme.solid_hover_bg.into()
+                } else {
+                    theme.solid_bg.into()
+                }
+            ),
             w::text(name).height(icon_size).center()
         ]
         .spacing(structure.gap)

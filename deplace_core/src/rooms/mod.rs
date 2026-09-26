@@ -411,6 +411,6 @@ impl ProfileLike for DePlaceRoom {
     }
 
     fn color(&self) -> DePlaceColor {
-        self.inner.color
+        self.inner.color.clone()
     }
 }

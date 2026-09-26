@@ -81,7 +81,7 @@ impl Sidebar {
         }
     }
 
-    pub fn set_member(&mut self, member: RoomMember) {
+    pub fn set_member(&mut self, member: Option<RoomMember>) {
         self.visual_state.insert(SidebarState::Member);
         self.member_profile_card.set_member(member);
         self.calculate_currently_visible();
@@ -91,9 +91,9 @@ impl Sidebar {
         if self.visual_state.contains(SidebarState::MemberList) {
             self.visual_state.remove(SidebarState::MemberList);
         } else {
-            if let Some(member) = self.room.dm_other_member() {
+            if self.room.is_dm() {
                 self.visual_state.insert(SidebarState::MemberList);
-                self.dm_profile_card.set_member(member);
+                self.dm_profile_card.set_member(self.room.dm_other_member());
             } else {
                 self.visual_state.insert(SidebarState::MemberList);
             }
@@ -233,8 +233,6 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         let Some(state) = self.currently_visible else {
             return w::space().into();
         };
-
-        let room = &self.room;
 
         let content = match state {
             SidebarState::Member => w::lazy(self.member_profile_card.clone(), move |p| {

@@ -7,7 +7,7 @@ use macros::iced_cache;
 
 use crate::{
     common::*,
-    components::{context_room_icon, phosphor_icon, render_presence},
+    components::{phosphor_icon, render_room_with_presence},
 };
 
 use super::sidebar::SidebarState;
@@ -113,34 +113,6 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
         };
 
         let icon_size = structure.header.icon_size;
-        let (icon, name) = if let Some(other_member) = room.dm_other_member() {
-            (
-                render_presence(
-                    &other_member,
-                    &self.presence_map.borrow(),
-                    theme,
-                    icon_size,
-                    &self.avatar_cache,
-                    theme.solid_bg.into(),
-                ),
-                other_member.render_name(structure.font_size),
-            )
-        } else {
-            (
-                w::container(context_room_icon(&room, icon_size, &self.avatar_cache))
-                    .style(move |_| ContainerStyle {
-                        text_color: Some(theme.text.normal.into()),
-                        ..Default::default()
-                    })
-                    .into(),
-                w::container(room.render_name(structure.font_size))
-                    .style(move |_| ContainerStyle {
-                        text_color: Some(theme.text.normal.into()),
-                        ..Default::default()
-                    })
-                    .into(),
-            )
-        };
 
         let render_icon = |color, hover_color, icon, message, tooltip| {
             themed_tooltip(
@@ -164,10 +136,20 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             theme,
             structure,
             w::row![
-                w::row![icon, name]
-                    .padding(structure.header.inner_icon_padding())
-                    .align_y(Alignment::Center)
-                    .spacing(structure.small_gap),
+                w::row![
+                    render_room_with_presence(
+                        &room,
+                        &self.presence_map.borrow(),
+                        theme,
+                        icon_size,
+                        &self.avatar_cache,
+                        theme.solid_bg.into()
+                    ),
+                    room.render_name(structure.font_size),
+                ]
+                .padding(structure.header.inner_icon_padding())
+                .align_y(Alignment::Center)
+                .spacing(structure.small_gap),
                 Space::new().width(Fill),
                 render_icon(
                     theme.text.dim.into(),

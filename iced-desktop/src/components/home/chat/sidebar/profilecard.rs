@@ -35,8 +35,8 @@ impl ProfileCard {
         }
     }
 
-    pub fn set_member(&mut self, member: RoomMember) {
-        self.member = Some(member);
+    pub fn set_member(&mut self, member: Option<RoomMember>) {
+        self.member = member;
     }
 }
 
@@ -54,6 +54,18 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
         theme: Theme,
         structure: Structure,
     ) -> iced::Element<'static, ProfileCardMessage> {
-        w::row![w::container("Profile card")].into()
+        let Some(member) = &self.member else {
+            return w::container("No other member present").into();
+        };
+
+        let color = member.color();
+
+        w::row![w::container("").style(move |_| ContainerStyle {
+            background: Some(color.into()),
+            ..Default::default()
+        })]
+        .height(Fill)
+        .width(Fill)
+        .into()
     }
 }
