@@ -202,7 +202,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                             ActiveServerId::Server(id.clone()),
                         )),
                         0.4,
-                        0.15,
+                        structure.icon_gap,
                         theme.solid_bg,
                     )
                     .br(CornerContent::text(

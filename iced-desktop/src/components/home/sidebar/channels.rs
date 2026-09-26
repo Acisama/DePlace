@@ -301,6 +301,7 @@ fn render_channel(
                 room,
                 presence_map,
                 theme,
+                structure,
                 icon_size,
                 avatar_cache,
                 if is_active {

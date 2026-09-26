@@ -553,6 +553,7 @@ pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
     member: &RoomMember,
     presence_map: &PresenceMap,
     theme: Theme,
+    structure: Structure,
     icon_size: f32,
     avatar_cache: &AvatarCache,
     background_color: Color,
@@ -590,7 +591,7 @@ pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
     };
 
     let ratio = 0.25;
-    let bg_circle_size = 0.2;
+    let bg_circle_size = structure.icon_gap;
 
     Stack::new()
         .push(member.render_icon(icon_size, avatar_cache))
@@ -625,6 +626,7 @@ pub fn render_room_with_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
     room: &DePlaceRoom,
     presence_map: &PresenceMap,
     theme: Theme,
+    structure: Structure,
     icon_size: f32,
     avatar_cache: &AvatarCache,
     background_color: iced::Color,
@@ -636,6 +638,7 @@ pub fn render_room_with_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
             &other_member,
             presence_map,
             theme,
+            structure,
             icon_size,
             avatar_cache,
             background_color,

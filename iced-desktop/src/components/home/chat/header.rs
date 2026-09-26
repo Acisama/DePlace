@@ -141,6 +141,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         &room,
                         &self.presence_map.borrow(),
                         theme,
+                        structure,
                         icon_size,
                         &self.avatar_cache,
                         theme.solid_bg.into()

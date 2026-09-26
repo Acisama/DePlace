@@ -51,6 +51,13 @@ impl Header {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct ChatSidebar {
+    pub large_icon_size: f32,
+    pub banner_height: f32,
+    pub font_size: f32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct Chat {
     pub icon_size: f32,
     pub text_size: f32,
@@ -60,6 +67,7 @@ pub struct Chat {
     pub max_media_width: f32,
     pub input_height: f32,
     pub attachment_preview_dimensions: (f32, f32),
+    pub sidebar: ChatSidebar,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -94,6 +102,7 @@ pub struct Structure {
     pub large_font_size: f32,
     pub gap: f32,
     pub small_gap: f32,
+    pub icon_gap: f32,
     pub settings: Settings,
     pub authentification: Authentification,
 }
@@ -109,6 +118,7 @@ impl Default for Structure {
         Self {
             gap,
             small_gap,
+            icon_gap: 0.175,
             inner_border_radius,
             outer_border_radius,
             smaller_border_radius,
@@ -127,6 +137,11 @@ impl Default for Structure {
                 max_media_width: 500.0,
                 input_height: 50.0,
                 attachment_preview_dimensions: (140.0, 100.0),
+                sidebar: ChatSidebar {
+                    large_icon_size: 100.0,
+                    banner_height: 250.0,
+                    font_size: 20.0,
+                },
             },
             header: Header {
                 height: 50.0,

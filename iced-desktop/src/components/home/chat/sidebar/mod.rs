@@ -91,12 +91,7 @@ impl Sidebar {
         if self.visual_state.contains(SidebarState::MemberList) {
             self.visual_state.remove(SidebarState::MemberList);
         } else {
-            if self.room.is_dm() {
-                self.visual_state.insert(SidebarState::MemberList);
-                self.dm_profile_card.set_member(self.room.dm_other_member());
-            } else {
-                self.visual_state.insert(SidebarState::MemberList);
-            }
+            self.visual_state.insert(SidebarState::MemberList);
         }
         self.calculate_currently_visible();
     }
@@ -120,6 +115,10 @@ impl Sidebar {
     }
 
     fn calculate_currently_visible(&mut self) {
+        if self.room.is_dm() {
+            self.dm_profile_card.set_member(self.room.dm_other_member());
+        }
+
         self.currently_visible = [
             SidebarState::Member,
             SidebarState::Search,
@@ -238,9 +237,17 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
             SidebarState::Member => w::lazy(self.member_profile_card.clone(), move |p| {
                 p.view(theme, structure).map(SidebarMessage::ProfileCard)
             }),
-            SidebarState::MemberList => w::lazy(self.member_profile_card.clone(), move |p| {
-                p.view(theme, structure).map(SidebarMessage::ProfileCard)
-            }),
+            SidebarState::MemberList => {
+                if self.room.is_dm() {
+                    w::lazy(self.dm_profile_card.clone(), move |p| {
+                        p.view(theme, structure).map(SidebarMessage::ProfileCard)
+                    })
+                } else {
+                    w::lazy(self.member_profile_card.clone(), move |p| {
+                        p.view(theme, structure).map(SidebarMessage::ProfileCard)
+                    })
+                }
+            }
             _ => return w::container("test").into(),
         };
 
