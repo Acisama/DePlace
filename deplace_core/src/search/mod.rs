@@ -86,23 +86,12 @@ pub struct SearchResultUpdate {
     messages: Vec<TimelineItemContent>,
 }
 
-pub struct PinnedResultsUpdate {
-    id: Uuid,
-    room_id: OwnedRoomId,
-    event: TimelineItemContent,
-}
-
 pub trait SearchExt {
     fn search(
         &self,
         search_id: Uuid,
         search_parameters: SearchParameters,
     ) -> impl Stream<Item = SearchResultUpdate>;
-
-    fn pinned_events(
-        &self,
-        id: Uuid,
-    ) -> impl std::future::Future<Output = Option<impl Stream<Item = PinnedResultsUpdate>>> + Send;
 }
 
 impl SearchExt for DePlaceRoom {
@@ -143,40 +132,5 @@ impl SearchExt for DePlaceRoom {
                     }
                 }
             })
-    }
-
-    async fn pinned_events(&self, id: Uuid) -> Option<impl Stream<Item = PinnedResultsUpdate>> {
-        let room = self.sdk_room().clone();
-
-        let events_ids = match room.load_pinned_events().await {
-            Ok(Some(ids)) => ids,
-            Ok(None) => return None,
-            Err(e) => {
-                tracing::error!("Failed to load pinned events: {:?}", e);
-                return None;
-            }
-        };
-
-        Some(
-            futures::stream::iter(events_ids).filter_map(move |event_id| {
-                let room = room.clone();
-                let event_id = event_id.clone();
-
-                async move {
-                    let room_id = room.room_id().to_owned();
-                    let event = match room.load_event(&event_id).await {
-                        Ok(ev) => TimelineItemContent::from_event(&room, ev).await,
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to load event {event_id} in room {room_id}: {e}"
-                            );
-                            None
-                        }
-                    }?;
-
-                    Some(PinnedResultsUpdate { id, room_id, event })
-                }
-            }),
-        )
     }
 }
