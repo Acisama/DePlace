@@ -1,9 +1,8 @@
-use std::collections::BTreeSet;
-
 use enumset::{EnumSet, EnumSetType};
 use macros::iced_cache;
 use matrix_sdk::room::RoomMember;
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as SdkTimelineItem};
+use profilecard::{ProfileCard, ProfileCardAction, ProfileCardMessage};
 use sweeten::widget::list;
 
 use crate::{common::*, components::home::chat::timeline::messages::ToTimelineItem};
@@ -18,6 +17,8 @@ pub enum SidebarState {
     Search,
 }
 
+mod profilecard;
+
 impl SidebarState {
     fn width(&self, structure: &Structure) -> f32 {
         match self {
@@ -31,14 +32,8 @@ impl SidebarState {
 
 #[derive(Debug, Clone)]
 pub enum SidebarMessage {
+    ProfileCard(ProfileCardMessage),
     PinnedDiffs(Vec<VectorDiff<Arc<SdkTimelineItem>>>),
-    NeedsAvatarUrl(OwnedMxcUri),
-}
-
-impl NeedsAvatarExt for SidebarMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        Self::NeedsAvatarUrl(uri)
-    }
 }
 
 pub enum SidebarAction {
@@ -54,15 +49,17 @@ pub struct Sidebar {
     #[hash]
     currently_visible: Option<SidebarState>,
 
+    #[hash]
+    member_profile_card: ProfileCard,
+    #[hash]
+    dm_profile_card: ProfileCard,
+
     room: DePlaceRoom,
-    avatar_cache: AvatarCache,
 
     pinned_timeline: Option<Arc<Timeline>>,
     content: list::Content<String, Arc<TimelineItem>>,
     #[hash]
     pinned_messages_version: u64,
-
-    member: Option<RoomMember>,
 }
 
 impl Sidebar {
@@ -74,20 +71,19 @@ impl Sidebar {
             currently_visible: None,
 
             room: room.clone(),
-            member: None,
 
             pinned_timeline: None,
             content: list::Content::new(),
             pinned_messages_version: 0,
 
-            avatar_cache: state.avatar_cache().clone(),
-            avatar_states_for_hash: BTreeSet::new(),
+            member_profile_card: ProfileCard::new(state),
+            dm_profile_card: ProfileCard::new(state),
         }
     }
 
     pub fn set_member(&mut self, member: RoomMember) {
         self.visual_state.insert(SidebarState::Member);
-        self.member = Some(member);
+        self.member_profile_card.set_member(member);
         self.calculate_currently_visible();
     }
 
@@ -95,7 +91,12 @@ impl Sidebar {
         if self.visual_state.contains(SidebarState::MemberList) {
             self.visual_state.remove(SidebarState::MemberList);
         } else {
-            self.visual_state.insert(SidebarState::MemberList);
+            if let Some(member) = self.room.dm_other_member() {
+                self.visual_state.insert(SidebarState::MemberList);
+                self.dm_profile_card.set_member(member);
+            } else {
+                self.visual_state.insert(SidebarState::MemberList);
+            }
         }
         self.calculate_currently_visible();
     }
@@ -142,9 +143,10 @@ impl Sidebar {
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
     fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
-            SidebarMessage::NeedsAvatarUrl(url) => {
-                self.avatar_states_for_hash.insert(url.clone());
-                Some(SidebarAction::NeedsMedia(NeedsMedia::avatar(url)))
+            SidebarMessage::ProfileCard(message) => {
+                match self.member_profile_card.update(message)? {
+                    ProfileCardAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
+                }
             }
             SidebarMessage::PinnedDiffs(diffs) => {
                 let room_id = self.room.room_id().to_owned();
@@ -232,13 +234,21 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
             return w::space().into();
         };
 
-        floating_tile(
-            theme,
-            structure,
-            w::container("test")
-                .height(Fill)
-                .width(state.width(&structure)),
-        )
-        .into()
+        let room = &self.room;
+
+        let content = match state {
+            SidebarState::Member => w::lazy(self.member_profile_card.clone(), move |p| {
+                p.view(theme, structure).map(SidebarMessage::ProfileCard)
+            }),
+            SidebarState::MemberList => w::lazy(self.member_profile_card.clone(), move |p| {
+                p.view(theme, structure).map(SidebarMessage::ProfileCard)
+            }),
+            _ => return w::container("test").into(),
+        };
+
+        floating_tile(theme, structure, content)
+            .height(Fill)
+            .width(state.width(&structure))
+            .into()
     }
 }

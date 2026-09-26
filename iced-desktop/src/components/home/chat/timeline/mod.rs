@@ -522,7 +522,7 @@ impl ChatTimeline {
         }
 
         self.restored_scroll = true;
-        return Some(TimelineAction::Run(self.restore_scroll_task()));
+        Some(TimelineAction::Run(self.restore_scroll_task()))
     }
 }
 

@@ -1,7 +1,5 @@
 #![recursion_limit = "256"]
-use crate::state::MembershipMap;
 use colors::DePlaceColor;
-use helpers::RoomExt;
 use matrix_sdk::{
     Client, Room, SessionMeta, SessionTokens, authentication::matrix::MatrixSession,
     room::RoomMember,
@@ -145,25 +143,13 @@ pub fn get_room_name_fallback(room: &Room, fallback: &str) -> String {
         .unwrap_or(fallback.to_string())
 }
 
-pub fn get_dm_room_name(room: &Room, map: &MembershipMap) -> String {
-    if !room.is_dm() {
-        return "Unknown Room".to_string();
-    }
-
-    let other_member = room.get_other_member(map);
-    other_member
-        .map(|m| m.get_name())
-        .unwrap_or("Unknown Room".to_string())
-}
-
 /// Used for anything which has a name, static id and avatar
 pub trait ProfileLike {
     type Id<'a>: AsRef<str>
     where
         Self: 'a;
 
-    const ICON_BORDER_RADIUS_RATIO: f32;
-
+    fn icon_border_radius_ratio(&self) -> f32;
     fn profile_name(&self) -> Option<String>;
     fn profile_avatar(&self) -> Option<OwnedMxcUri>;
     fn profile_id(&self) -> Self::Id<'_>;
@@ -192,7 +178,9 @@ impl ProfileLike for RoomMember {
     where
         Self: 'a;
 
-    const ICON_BORDER_RADIUS_RATIO: f32 = 0.5;
+    fn icon_border_radius_ratio(&self) -> f32 {
+        0.5
+    }
 
     fn profile_name(&self) -> Option<String> {
         Some(self.name().to_string())
@@ -213,7 +201,9 @@ impl ProfileLike for Option<RoomMember> {
     where
         Self: 'a;
 
-    const ICON_BORDER_RADIUS_RATIO: f32 = 0.5;
+    fn icon_border_radius_ratio(&self) -> f32 {
+        0.5
+    }
 
     fn profile_name(&self) -> Option<String> {
         self.as_ref().and_then(|m| m.profile_name())
@@ -236,7 +226,9 @@ impl ProfileLike for Room {
     where
         Self: 'a;
 
-    const ICON_BORDER_RADIUS_RATIO: f32 = 0.25;
+    fn icon_border_radius_ratio(&self) -> f32 {
+        0.25
+    }
 
     fn profile_name(&self) -> Option<String> {
         self.cached_display_name().map(|n| n.to_string())
@@ -257,7 +249,9 @@ impl ProfileLike for Option<Room> {
     where
         Self: 'a;
 
-    const ICON_BORDER_RADIUS_RATIO: f32 = 0.25;
+    fn icon_border_radius_ratio(&self) -> f32 {
+        0.25
+    }
 
     fn profile_name(&self) -> Option<String> {
         self.as_ref().and_then(|r| r.profile_name())
@@ -280,7 +274,9 @@ impl ProfileLike for ActiveServer {
     where
         Self: 'a;
 
-    const ICON_BORDER_RADIUS_RATIO: f32 = 0.25;
+    fn icon_border_radius_ratio(&self) -> f32 {
+        0.25
+    }
 
     fn profile_name(&self) -> Option<String> {
         match self {

@@ -566,7 +566,9 @@ impl ProfileLike for TimelineProfile {
     where
         Self: 'a;
 
-    const ICON_BORDER_RADIUS_RATIO: f32 = 0.5;
+    fn icon_border_radius_ratio(&self) -> f32 {
+        0.5
+    }
 
     fn profile_name(&self) -> Option<String> {
         self.display_name.clone()

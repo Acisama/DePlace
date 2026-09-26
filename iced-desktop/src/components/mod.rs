@@ -290,7 +290,7 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
         size: f32,
         avatar_cache: &AvatarCache,
     ) -> Element<'a, T> {
-        let rounding = size * Self::ICON_BORDER_RADIUS_RATIO;
+        let rounding = size * self.icon_border_radius_ratio();
 
         let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
 

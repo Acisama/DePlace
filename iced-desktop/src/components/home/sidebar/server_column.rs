@@ -40,7 +40,6 @@ pub struct ServerColumn {
     state: AppState,
 
     room_watchers: RoomWatchers,
-    membership_map: Receiver<MembershipMap>,
 
     #[hash]
     hovered_server: Option<ActiveServerId>,
@@ -82,7 +81,6 @@ impl ServerColumn {
                         .hash_all_rooms(hashing::hash_option_room(hashing::hash_notifications())),
                 )
                 .clone(),
-            membership_map: state.membership_map(),
 
             hovered_server: None,
             active_server: state.active_server(),
@@ -146,8 +144,6 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         )));
         let icon_size = structure.server_column.icon_size;
 
-        let membership_map = self.membership_map.borrow();
-
         let column = w::column![pill(
             theme,
             structure,
@@ -184,12 +180,6 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     .map(|server_id| server_id.is_server(&id))
                     .unwrap_or(false);
 
-                let icon = if let Some(other_member) = room.get_other_member(&membership_map) {
-                    other_member.render_icon(icon_size, avatar_cache)
-                } else {
-                    room.render_icon(icon_size, avatar_cache)
-                };
-
                 pill(
                     theme,
                     structure,
@@ -198,7 +188,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     true,
                     corner_badge(
                         w::mouse_area(
-                            w::button(icon)
+                            w::button(room.render_icon(icon_size, avatar_cache))
                                 .padding(0.0)
                                 .style(move |_, _| ButtonStyle {
                                     ..Default::default()

@@ -26,7 +26,6 @@ pub const QUICK_SELECT_INPUT_ID: &str = "quick_select_input";
 pub struct QuickSelect {
     state: AppState,
     avatar_cache: AvatarCache,
-    membership_map: Receiver<MembershipMap>,
 
     room_watchers: RoomWatchers,
 
@@ -85,7 +84,6 @@ impl QuickSelect {
 
         Self {
             avatar_cache: state.avatar_cache().clone(),
-            membership_map: state.membership_map(),
 
             avatar_states_for_hash: BTreeSet::new(),
 
@@ -238,67 +236,56 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
             .width(Length::Fill);
 
         let avatar_cache = &self.avatar_cache;
-        let membership_map = self.membership_map.borrow();
         for (index, room_id) in displayed_rooms.into_iter().enumerate() {
             if let Some(room) = self.room_watchers.get_room(&room_id) {
                 let is_selected = index == self.selected_index;
 
                 let icon_size = structure.font_size * 1.2;
-                let (icon, name) = if room.is_dm()
-                    && let Some(other_member) = room.get_other_member(&membership_map)
-                {
-                    (
-                        other_member.clone().render_icon(icon_size, avatar_cache),
-                        other_member.render_name(structure.font_size),
-                    )
-                } else {
-                    (
-                        context_room_icon(&room, icon_size, avatar_cache),
-                        room.render_name(structure.font_size),
-                    )
-                };
 
-                let item_button = button(w::row![icon, name].spacing(structure.small_gap))
-                    .width(Length::Fill)
-                    .padding(8)
-                    .on_press(QuickSelectMessage::SelectRoom(room_id))
-                    .style(move |_iced_theme, status| {
-                        if is_selected {
-                            button::Style {
-                                background: Some(theme.solid_hover_bg.into()),
-                                text_color: theme.text.normal.into(),
-                                border: iced::Border {
-                                    radius: 6.0.into(),
-                                    width: 1.0,
-                                    color: theme.accent.into(),
-                                },
-                                ..Default::default()
-                            }
-                        } else if matches!(
-                            status,
-                            button::Status::Hovered | button::Status::Pressed
-                        ) {
-                            button::Style {
-                                background: Some(theme.solid_hover_bg.into()),
-                                text_color: theme.text.normal.into(),
-                                border: iced::Border {
-                                    radius: 6.0.into(),
-                                    ..Default::default()
-                                },
-                                ..Default::default()
-                            }
-                        } else {
-                            button::Style {
-                                background: Some(iced::Color::TRANSPARENT.into()),
-                                text_color: theme.text.normal.into(),
-                                border: iced::Border {
-                                    radius: 6.0.into(),
-                                    ..Default::default()
-                                },
-                                ..Default::default()
-                            }
+                let item_button = button(
+                    w::row![
+                        room.render_icon(icon_size, avatar_cache),
+                        room.render_name(structure.font_size)
+                    ]
+                    .spacing(structure.small_gap),
+                )
+                .width(Length::Fill)
+                .padding(8)
+                .on_press(QuickSelectMessage::SelectRoom(room_id))
+                .style(move |_iced_theme, status| {
+                    if is_selected {
+                        button::Style {
+                            background: Some(theme.solid_hover_bg.into()),
+                            text_color: theme.text.normal.into(),
+                            border: iced::Border {
+                                radius: 6.0.into(),
+                                width: 1.0,
+                                color: theme.accent.into(),
+                            },
+                            ..Default::default()
                         }
-                    });
+                    } else if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                        button::Style {
+                            background: Some(theme.solid_hover_bg.into()),
+                            text_color: theme.text.normal.into(),
+                            border: iced::Border {
+                                radius: 6.0.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }
+                    } else {
+                        button::Style {
+                            background: Some(iced::Color::TRANSPARENT.into()),
+                            text_color: theme.text.normal.into(),
+                            border: iced::Border {
+                                radius: 6.0.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }
+                    }
+                });
 
                 room_list = room_list.push(item_button);
             }

@@ -8,7 +8,7 @@ pub use deplace_core::{
     ProfileLike,
     colors::DePlaceColor,
     get_change,
-    helpers::{DisplayString, EventChange, RoomExt, get_current_and_prev},
+    helpers::{DisplayString, EventChange, get_current_and_prev},
     rooms::{DePlaceRoom, RoomWatchers, hashing},
     settings::Settings,
     state::{

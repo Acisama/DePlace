@@ -48,7 +48,6 @@ pub struct Header {
     room_watchers: RoomWatchers,
     room_id: OwnedRoomId,
 
-    membership_map: Receiver<MembershipMap>,
     presence_map: Receiver<PresenceMap>,
 }
 
@@ -57,7 +56,6 @@ impl Header {
         let id = room.room_id().to_owned();
         Self {
             avatar_cache: state.avatar_cache().clone(),
-            membership_map: state.membership_map().clone(),
             presence_map: state.presence_map().clone(),
 
             sidebar_state: EnumSet::new(),
@@ -115,9 +113,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
         };
 
         let icon_size = structure.header.icon_size;
-        let (icon, name) = if room.is_dm()
-            && let Some(other_member) = room.get_other_member(&self.membership_map.borrow())
-        {
+        let (icon, name) = if let Some(other_member) = room.dm_other_member() {
             (
                 render_presence(
                     &other_member,

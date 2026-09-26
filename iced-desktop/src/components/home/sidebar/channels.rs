@@ -4,7 +4,7 @@ use deplace_core::state::{ActiveServer, PresenceMap};
 use iced::widget::text::Alignment;
 use macros::{iced_cache, iced_icon};
 
-use crate::{common::*, components::render_presence};
+use crate::common::*;
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
@@ -35,7 +35,6 @@ pub struct ServerChannels {
     #[hash]
     collapsed_categories: BTreeSet<OwnedRoomId>,
 
-    membership_map: Receiver<MembershipMap>,
     presence_map: Receiver<PresenceMap>,
 
     active_room: Receiver<Option<DePlaceRoom>>,
@@ -52,7 +51,6 @@ impl ServerChannels {
 
             collapsed_categories: BTreeSet::new(),
 
-            membership_map: state.membership_map(),
             presence_map: state.presence_map(),
 
             active_room: state.active_room(),
@@ -102,7 +100,6 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
             ),
         };
 
-        let membership_map = &self.membership_map.borrow();
         let presence_map = &self.presence_map.borrow();
 
         floating_tile(
@@ -136,7 +133,6 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                         &active_room_id,
                         r,
                         &self.avatar_cache,
-                        membership_map,
                         presence_map,
                         &self.room_watchers,
                         &self.collapsed_categories,
@@ -164,7 +160,6 @@ fn render_channel(
     active_room_id: &Option<OwnedRoomId>,
     room: &DePlaceRoom,
     avatar_cache: &AvatarCache,
-    membership_map: &MembershipMap,
     presence_map: &PresenceMap,
     room_watchers: &RoomWatchers,
     collapsed_categories: &BTreeSet<OwnedRoomId>,
@@ -176,30 +171,7 @@ fn render_channel(
 
     let is_space = room.is_space();
 
-    let (icon, name) = if room.is_dm()
-        && let Some(other_member) = room.get_other_member(membership_map)
-    {
-        (
-            render_presence(
-                &other_member,
-                presence_map,
-                theme,
-                icon_size,
-                avatar_cache,
-                if is_active {
-                    theme.solid_hover_bg.into()
-                } else {
-                    theme.solid_bg.into()
-                },
-            ),
-            other_member.get_name(),
-        )
-    } else {
-        (
-            context_room_icon(room, icon_size, avatar_cache),
-            room.get_name(),
-        )
-    };
+    let name = room.get_name();
 
     let content: Element<'static, ChannelsMessage> = if is_space {
         let expanded = !collapsed_categories.contains(room.room_id());
@@ -255,7 +227,6 @@ fn render_channel(
                                     active_room_id,
                                     room,
                                     avatar_cache,
-                                    membership_map,
                                     presence_map,
                                     room_watchers,
                                     collapsed_categories,
@@ -297,7 +268,6 @@ fn render_channel(
                                 active_room_id,
                                 active,
                                 avatar_cache,
-                                membership_map,
                                 presence_map,
                                 room_watchers,
                                 collapsed_categories,
@@ -326,11 +296,14 @@ fn render_channel(
 
         column.into()
     } else {
-        w::row![icon, w::text(name).height(icon_size).center()]
-            .spacing(structure.gap)
-            .width(Fill)
-            .padding(padding::vertical(structure.small_gap * 0.75).horizontal(structure.small_gap))
-            .into()
+        w::row![
+            room.render_icon(icon_size, avatar_cache),
+            w::text(name).height(icon_size).center()
+        ]
+        .spacing(structure.gap)
+        .width(Fill)
+        .padding(padding::vertical(structure.small_gap * 0.75).horizontal(structure.small_gap))
+        .into()
     };
 
     w::button(content)

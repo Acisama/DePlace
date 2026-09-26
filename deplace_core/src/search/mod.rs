@@ -1,7 +1,6 @@
 use std::time::SystemTime;
 
 use futures::{Stream, StreamExt};
-use matrix_sdk::paginators::thread::PaginableThread;
 use matrix_sdk_ui::timeline::TimelineItemContent;
 use ruma::{OwnedRoomId, OwnedUserId};
 use serde::{Deserialize, Serialize};
@@ -81,9 +80,9 @@ impl SearchParameters {
 }
 
 pub struct SearchResultUpdate {
-    id: Uuid,
-    room_id: OwnedRoomId,
-    messages: Vec<TimelineItemContent>,
+    pub id: Uuid,
+    pub room_id: OwnedRoomId,
+    pub messages: Vec<TimelineItemContent>,
 }
 
 pub trait SearchExt {

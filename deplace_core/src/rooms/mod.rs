@@ -7,7 +7,7 @@ use std::{
 
 use futures::StreamExt;
 use matrix_sdk::{
-    Room,
+    Room, RoomMemberships,
     deserialized_responses::SyncOrStrippedState,
     room::{ParentSpace, RoomMember},
     sync::UnreadNotificationsCount,
@@ -21,10 +21,7 @@ use ruma::{
     },
 };
 
-use crate::{
-    ProfileLike,
-    state::{MembershipMap, UserDevice},
-};
+use crate::{ProfileLike, colors::DePlaceColor, state::UserDevice};
 
 #[derive(Debug, Clone)]
 pub struct DePlaceRoom {
@@ -39,18 +36,33 @@ pub use hashing::RoomWatcherHashingConfig;
 pub use hierarchy::SpaceHierarchy;
 pub use watchers::{DmRoomMap, GenericRoomMap, RoomWatchers};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum DePlaceRoomType {
-    Direct,
+    Direct { other_member: Option<RoomMember> },
     Space,
     Call,
     Standard,
 }
 
 impl DePlaceRoomType {
-    fn calculate(room: &Room) -> Self {
+    async fn calculate(room: &Room) -> Self {
         if room.is_dm() {
-            Self::Direct
+            let members = room
+                .members(RoomMemberships::ACTIVE)
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        "Failed to get room members for room {}: {e}",
+                        room.room_id()
+                    )
+                })
+                .unwrap_or_default();
+
+            let own_id = room.own_user_id();
+
+            Self::Direct {
+                other_member: members.iter().find(|m| m.user_id() != own_id).cloned(),
+            }
         } else if room.is_call() {
             Self::Call
         } else if room.is_space() {
@@ -115,6 +127,7 @@ struct DePlaceRoomInner {
     call_participants: BTreeSet<Arc<CallMember>>,
     own_user_is_in_call: bool,
     own_user_device_is_in_call: bool,
+    color: DePlaceColor,
 }
 
 impl DePlaceRoom {
@@ -130,19 +143,12 @@ impl DePlaceRoom {
         self.inner.avatar_url.clone()
     }
 
-    pub fn get_other_member(&self, map: &MembershipMap) -> Option<RoomMember> {
-        map.get(&self.inner.id)?
-            .values()
-            .find(|m| m.user_id() != self.inner.own_id)
-            .cloned()
-    }
-
     pub fn is_dm(&self) -> bool {
-        self.inner.room_type == DePlaceRoomType::Direct
+        matches!(self.inner.room_type, DePlaceRoomType::Direct { .. })
     }
 
     pub fn is_call(&self) -> bool {
-        self.inner.room_type == DePlaceRoomType::Call
+        matches!(self.inner.room_type, DePlaceRoomType::Call)
     }
 
     pub fn is_space(&self) -> bool {
@@ -156,7 +162,7 @@ impl DePlaceRoom {
     pub fn icon(&self) -> &'static str {
         match self.inner.room_type {
             DePlaceRoomType::Call => phosphor_svgs::icon::speaker_high::FILL,
-            DePlaceRoomType::Direct => phosphor_svgs::icon::user::FILL,
+            DePlaceRoomType::Direct { .. } => phosphor_svgs::icon::user::FILL,
             DePlaceRoomType::Standard => phosphor_svgs::icon::hash::BOLD,
             DePlaceRoomType::Space => phosphor_svgs::icon::planet::BOLD,
         }
@@ -193,6 +199,13 @@ impl DePlaceRoom {
 
     pub fn own_user_device_is_in_call(&self) -> bool {
         self.inner.own_user_device_is_in_call
+    }
+
+    pub fn dm_other_member(&self) -> Option<RoomMember> {
+        match &self.inner.room_type {
+            DePlaceRoomType::Direct { other_member } => other_member.clone(),
+            _ => None,
+        }
     }
 }
 
@@ -331,13 +344,34 @@ impl DePlaceRoom {
             }
         };
 
+        let room_type = DePlaceRoomType::calculate(&room).await;
+
+        let (display_name, avatar_url, color) =
+            if let DePlaceRoomType::Direct { other_member } = &room_type {
+                (
+                    Some(other_member.get_name()),
+                    other_member.get_avatar(),
+                    if let Some(member) = &other_member {
+                        member.color()
+                    } else {
+                        room.color()
+                    },
+                )
+            } else {
+                (
+                    room.cached_display_name().map(|d| d.to_string()),
+                    room.avatar_url(),
+                    room.color(),
+                )
+            };
+
         Self {
             inner: Arc::new(DePlaceRoomInner {
-                display_name: room.cached_display_name().map(|d| d.to_string()),
-                room_type: DePlaceRoomType::calculate(&room),
+                display_name,
+                room_type: DePlaceRoomType::calculate(&room).await,
                 id,
                 own_id: room.own_user_id().to_owned(),
-                avatar_url: room.avatar_url(),
+                avatar_url,
                 notification_counts: room.unread_notification_counts().into(),
                 parents,
                 own_user_is_in_call: call_participants
@@ -347,6 +381,7 @@ impl DePlaceRoom {
                     p.member.user_id() == own_device.user_id && p.device_id == own_device.device_id
                 }),
                 call_participants,
+                color,
             }),
             room,
         }
@@ -359,7 +394,9 @@ impl ProfileLike for DePlaceRoom {
     where
         Self: 'a;
 
-    const ICON_BORDER_RADIUS_RATIO: f32 = 0.25;
+    fn icon_border_radius_ratio(&self) -> f32 {
+        if self.is_dm() { 0.5 } else { 0.25 }
+    }
 
     fn profile_id(&self) -> Self::Id<'_> {
         self.room_id().to_owned()
@@ -371,5 +408,9 @@ impl ProfileLike for DePlaceRoom {
 
     fn profile_avatar(&self) -> Option<OwnedMxcUri> {
         self.avatar_url()
+    }
+
+    fn color(&self) -> DePlaceColor {
+        self.inner.color
     }
 }

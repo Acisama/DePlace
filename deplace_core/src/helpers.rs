@@ -1,9 +1,8 @@
 use std::fmt::Display;
 
 use matrix_sdk::{
-    Media, Room,
+    Media,
     media::{MediaFormat, MediaRequestParameters},
-    room::RoomMember,
 };
 use matrix_sdk_ui::timeline::MemberProfileChange;
 use ruma::events::{
@@ -11,7 +10,7 @@ use ruma::events::{
     room::{MediaSource, member::Change},
 };
 
-use crate::{ProfileLike, rooms::DePlaceRoom, state::MembershipMap};
+use crate::{ProfileLike, rooms::DePlaceRoom};
 
 pub trait RoomPlaceholderExt {
     fn get_input_placeholder(&self) -> String;
@@ -182,20 +181,4 @@ macro_rules! get_change {
             |$arg| $body, // The compiler type-checks $arg as &T::PossiblyRedacted here
         )
     };
-}
-
-pub trait RoomExt {
-    fn get_other_member(&self, map: &MembershipMap) -> Option<RoomMember>;
-}
-
-impl RoomExt for Room {
-    fn get_other_member(&self, map: &MembershipMap) -> Option<RoomMember> {
-        let own_id = self.own_user_id();
-        map.get(self.room_id()).and_then(|members| {
-            members
-                .iter()
-                .find(|(id, _)| *id != own_id)
-                .map(|(_, m)| m.clone())
-        })
-    }
 }
