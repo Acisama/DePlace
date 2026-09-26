@@ -11,7 +11,7 @@ use matrix_sdk_ui::Timeline;
 
 use crate::{common::*, components::phosphor_icon};
 
-use super::timeline::MessageEvent;
+use super::timeline::messages::MessageEvent;
 
 #[derive(Debug, Clone)]
 pub enum InputMessage {

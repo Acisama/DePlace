@@ -19,10 +19,9 @@ mod sidebar;
 
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
-    Chat(ChatMessage),
-    Timeline {
+    Chat {
         room_id: OwnedRoomId,
-        message: TimelineMessage,
+        message: ChatMessage,
     },
     EmptyChat(EmptyChatMessage),
     Sidebar(SidebarMessage),
@@ -52,7 +51,7 @@ pub enum HomeAction {
     /// completion.
     Perform(Task<HomeMessage>),
     LoadMediaTask(Task<MediaLoaded>),
-    LoadTimeline(Task<(OwnedRoomId, TimelineMessage)>),
+    LoadTimeline(Task<(OwnedRoomId, ChatMessage)>),
     TimelineScroll {
         room_id: OwnedRoomId,
         direction: PaginationDirection,
@@ -165,7 +164,10 @@ impl Home {
         let id = room.room_id().to_owned();
         self.active_room_id = Some(id.clone());
 
-        let restore_scroll = Task::done((id.clone(), TimelineMessage::RestoreScrollPosition));
+        let restore_scroll = Task::done((
+            id.clone(),
+            ChatMessage::Timeline(TimelineMessage::RestoreScrollPosition),
+        ));
 
         if self.chats.promote(&id) {
             return Some(HomeAction::LoadTimeline(Task::batch([
@@ -192,14 +194,14 @@ impl Home {
         ])))
     }
 
-    fn focus_input_task(&self, id: &OwnedRoomId) -> Task<(OwnedRoomId, TimelineMessage)> {
+    fn focus_input_task(&self, id: &OwnedRoomId) -> Task<(OwnedRoomId, ChatMessage)> {
         let Some(chat) = self.chats.peek(id) else {
             return Task::none();
         };
 
         let id = id.clone();
         chat.focus_input()
-            .map(move |_| (id.clone(), TimelineMessage::None))
+            .map(move |_| (id.clone(), ChatMessage::None))
     }
 
     fn set_active_server_task(&mut self, server: ActiveServer) -> Option<HomeAction> {
@@ -256,8 +258,8 @@ impl Home {
         })))
     }
 
-    fn dispatch_to_chat(&mut self, room_id: &OwnedRoomId, msg: ChatMessage) -> Option<HomeAction> {
-        let Some(chat) = self.chats.get_mut(room_id) else {
+    fn dispatch_to_chat(&mut self, room_id: OwnedRoomId, msg: ChatMessage) -> Option<HomeAction> {
+        let Some(chat) = self.chats.get_mut(&room_id) else {
             tracing::warn!(
                 "Dropping message for room {}: no chat cached for it",
                 room_id
@@ -276,7 +278,12 @@ impl Home {
                         task,
                     })
                 }
-                ChatAction::Perform(task) => Some(HomeAction::Perform(task.map(HomeMessage::Chat))),
+                ChatAction::Perform(task) => Some(HomeAction::Perform(task.map(move |message| {
+                    HomeMessage::Chat {
+                        room_id: room_id.clone(),
+                        message,
+                    }
+                }))),
                 ChatAction::JoinCall => join_call(&chat.room_id),
                 ChatAction::LeaveCall => leave_call(&chat.room_id),
             }
@@ -307,14 +314,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             },
             HomeMessage::ActiveRoomChanged(Some(room)) => self.load_room(room),
             HomeMessage::ActiveRoomChanged(None) => None,
-            HomeMessage::Chat(msg) => {
-                let id = self.active_room_id.clone()?;
-
-                self.dispatch_to_chat(&id, msg)
-            }
-            HomeMessage::Timeline { room_id, message } => {
-                self.dispatch_to_chat(&room_id, ChatMessage::Timeline(message))
-            }
+            HomeMessage::Chat { room_id, message } => self.dispatch_to_chat(room_id, message),
             // TODO: Implement empty chat
             HomeMessage::EmptyChat(_) => {
                 tracing::warn!("Empty chat not yet implemented");
@@ -342,7 +342,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 }
 
                 let id = self.active_room_id.clone()?;
-                self.dispatch_to_chat(&id, ChatMessage::KeyboardEvent(event))
+                self.dispatch_to_chat(id, ChatMessage::KeyboardEvent(event))
             }
             HomeMessage::Overlay(msg) => match self.overlay.update(msg)? {
                 OverlayAction::Run(task) => Some(HomeAction::Run(task)),
@@ -395,7 +395,12 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             .and_then(|id| self.chats.peek(id))
         {
             Some(chat) => w::container(w::lazy(chat.clone(), move |chat| {
-                chat.view(theme, structure).map(HomeMessage::Chat)
+                let room_id = chat.room_id.clone();
+                chat.view(theme, structure)
+                    .map(move |msg| HomeMessage::Chat {
+                        room_id: room_id.clone(),
+                        message: msg,
+                    })
             })),
             None => w::container(w::lazy(self.empty_chat.clone(), move |chat| {
                 chat.view(theme, structure).map(HomeMessage::EmptyChat)

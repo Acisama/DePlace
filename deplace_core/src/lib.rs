@@ -26,6 +26,7 @@ pub mod matrix_api;
 pub mod notifications;
 pub mod profile;
 pub mod rooms;
+pub mod search;
 pub mod settings;
 pub mod state;
 

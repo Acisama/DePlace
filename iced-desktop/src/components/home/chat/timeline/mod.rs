@@ -18,7 +18,9 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as UiTimelineItem};
-use messages::{TimelineItem, TimelineItemAction, TimelineItemMessage};
+use messages::{
+    MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage, ToTimelineItem,
+};
 use sweeten::scrollable::AbsoluteOffset;
 use sweeten::widget::list;
 
@@ -30,9 +32,7 @@ use crate::{
     components::{track_bounds::track_bounds, track_scroll::track_scroll},
 };
 
-pub use messages::MessageEvent;
-pub use messages::ToTimelineItem;
-mod messages;
+pub mod messages;
 
 const LIST_ID: iced::widget::Id = iced::widget::Id::new("list");
 
@@ -491,6 +491,38 @@ impl ChatTimeline {
                 .unwrap_or(true)
             }),
         })
+    }
+
+    pub fn load_timeline(
+        &mut self,
+        timeline: Arc<Timeline>,
+        initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
+        power_levels: Arc<RoomPowerLevels>,
+    ) -> Option<TimelineAction> {
+        let length = initial.len();
+        tracing::debug!(
+            "ChatTimeline for room {} loaded with {} initial items",
+            self.room_id,
+            length
+        );
+        self.timeline = Some(timeline);
+        self.power_levels = power_levels;
+        self.recalculate_with_power_levels();
+
+        self.content = list::Content::with_items((*initial).clone());
+        self.refresh_all_previous_linkage();
+        self.refresh_all_datedividers();
+        self.messages_version += 1;
+
+        if length < 50 {
+            // Not enough content yet to meaningfully snap to
+            // `scroll_position` -- deferred to `Diffs`, once the
+            // top-up below actually lands.
+            return self.pagination_task(PaginationDirection::Backward, 50 - length as u16);
+        }
+
+        self.restored_scroll = true;
+        return Some(TimelineAction::Run(self.restore_scroll_task()));
     }
 }
 

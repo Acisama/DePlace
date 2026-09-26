@@ -148,7 +148,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
 
         let render_icon = |color, hover_color, icon, message, tooltip| {
             themed_tooltip(
-                w::button(phosphor_icon(icon, icon_size))
+                w::button(phosphor_icon(icon, structure.header.button_size))
                     .on_press(message)
                     .style(move |_, status| ButtonStyle {
                         background: None,
@@ -168,8 +168,10 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             theme,
             structure,
             w::row![
-                icon,
-                name,
+                w::row![icon, name]
+                    .padding(structure.header.inner_icon_padding())
+                    .align_y(Alignment::Center)
+                    .spacing(structure.small_gap),
                 Space::new().width(Fill),
                 render_icon(
                     theme.text.dim.into(),
@@ -181,14 +183,18 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     if is_in_call {
                         phosphor_svgs::icon::phone_disconnect::BOLD
                     } else {
-                        phosphor_svgs::icon::phone::BOLD
+                        phosphor_svgs::icon::phone::REGULAR
                     },
                     if is_in_call {
                         HeaderMessage::LeaveCall
                     } else {
                         HeaderMessage::JoinCall
                     },
-                    "Toggle Pins"
+                    if is_in_call {
+                        "Leave Call"
+                    } else {
+                        "Start Voice Call"
+                    }
                 ),
                 render_icon(
                     theme.text.dim.into(),
@@ -196,7 +202,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     if self.sidebar_state.contains(SidebarState::Pins) {
                         phosphor_svgs::icon::push_pin::FILL
                     } else {
-                        phosphor_svgs::icon::push_pin::BOLD
+                        phosphor_svgs::icon::push_pin::REGULAR
                     },
                     HeaderMessage::TogglePins,
                     "Toggle Pins"
@@ -212,9 +218,9 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         }
                     } else {
                         if room.is_dm() {
-                            phosphor_svgs::icon::user_circle::BOLD
+                            phosphor_svgs::icon::user_circle::REGULAR
                         } else {
-                            phosphor_svgs::icon::user_list::BOLD
+                            phosphor_svgs::icon::user_list::REGULAR
                         }
                     },
                     HeaderMessage::ToggleList,
@@ -229,7 +235,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             .spacing(structure.gap),
         )
         .width(Fill)
-        .padding(structure.header.icon_padding())
+        .padding(structure.header.button_padding())
         .height(structure.header.height)
         .into()
     }

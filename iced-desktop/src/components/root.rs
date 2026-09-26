@@ -47,7 +47,7 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
                 }
                 HomeAction::LoadTimeline(task) => {
                     return Some(task.map(|(room_id, message)| {
-                        AppMessage::Home(HomeMessage::Timeline { room_id, message })
+                        AppMessage::Home(HomeMessage::Chat { room_id, message })
                     }));
                 }
                 HomeAction::LoadMediaTask(task) => {
@@ -149,7 +149,7 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
                         }
                         HomeAction::LoadTimeline(task) => {
                             return Some(task.map(|(room_id, message)| {
-                                AppMessage::Home(HomeMessage::Timeline { room_id, message })
+                                AppMessage::Home(HomeMessage::Chat { room_id, message })
                             }));
                         }
                         HomeAction::LoadMediaTask(task) => {

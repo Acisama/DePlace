@@ -6,11 +6,14 @@ use iced::futures::{StreamExt, stream};
 use iced::widget::text_editor;
 use input::{ChatInput, InputAction, InputMessage};
 use macros::iced_cache;
+use matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels;
+use matrix_sdk_ui::Timeline;
 use matrix_sdk_ui::timeline::{
     DateDividerMode, TimelineBuilder, TimelineFocus, TimelineReadReceiptTracking,
 };
 use sidebar::{Sidebar, SidebarAction, SidebarMessage};
-use timeline::{ChatTimeline, TimelineAction, ToTimelineItem};
+use timeline::messages::{TimelineItem, ToTimelineItem};
+use timeline::{ChatTimeline, TimelineAction};
 
 use crate::common::*;
 pub(super) mod empty;
@@ -23,11 +26,19 @@ pub use timeline::TimelineMessage;
 
 #[derive(Debug, Clone)]
 pub enum ChatMessage {
+    None,
     Header(HeaderMessage),
     Timeline(TimelineMessage),
     Input(InputMessage),
     Sidebar(SidebarMessage),
     KeyboardEvent(iced::keyboard::Event),
+    TimelinesLoaded {
+        timeline: Arc<Timeline>,
+        pinned_timeline: Arc<Timeline>,
+        initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
+        pinned_initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
+        power_levels: Arc<RoomPowerLevels>,
+    },
 }
 
 pub enum ChatAction {
@@ -58,17 +69,20 @@ pub struct Chat {
 }
 
 impl Chat {
-    pub fn new(
-        state: &AppState,
-        room: DePlaceRoom,
-    ) -> (Self, Task<(OwnedRoomId, TimelineMessage)>) {
+    pub fn new(state: &AppState, room: DePlaceRoom) -> (Self, Task<(OwnedRoomId, ChatMessage)>) {
         let sdk_room = room.sdk_room().clone();
         let builder = TimelineBuilder::new(&sdk_room)
             .with_date_divider_mode(DateDividerMode::Daily)
             .with_focus(TimelineFocus::Live {
                 hide_threaded_events: false,
             })
-            .track_read_marker_and_receipts(TimelineReadReceiptTracking::AllEvents)
+            .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
+            .add_failed_to_parse(true);
+
+        let pinned_builder = TimelineBuilder::new(&sdk_room)
+            .with_date_divider_mode(DateDividerMode::Daily)
+            .with_focus(TimelineFocus::PinnedEvents)
+            .track_read_marker_and_receipts(TimelineReadReceiptTracking::Disabled)
             .add_failed_to_parse(true);
 
         let room_id = room.room_id().to_owned();
@@ -92,6 +106,24 @@ impl Chat {
             let (initial, updates) = timeline.subscribe().await;
             tracing::debug!(
                 "Subscribed to timeline for room {} with {} initial items",
+                room_id_clone,
+                initial.len()
+            );
+
+            let pinned_timeline = match pinned_builder.build().await {
+                Ok(t) => Arc::new(t),
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to build timeline for room {}: {:?}",
+                        room_id_clone,
+                        e
+                    );
+                    return stream::pending().left_stream(); // never resolves; room stays empty
+                }
+            };
+            let (pinned_initial, pinned_updates) = pinned_timeline.subscribe().await;
+            tracing::debug!(
+                "Subscribed to pinned timeline for room {} with {} initial items",
                 room_id_clone,
                 initial.len()
             );
@@ -127,12 +159,30 @@ impl Chat {
                     .collect(),
             );
 
-            stream::once(future::ready(TimelineMessage::Loaded {
+            let pinned_initial = Arc::new(
+                pinned_initial
+                    .into_iter()
+                    .map(|m| {
+                        (
+                            m.unique_id().0.clone(),
+                            Arc::new(m.convert(&state_clone, room_id_clone.clone())),
+                        )
+                    })
+                    .collect(),
+            );
+
+            stream::once(future::ready(ChatMessage::TimelinesLoaded {
                 timeline,
+                pinned_timeline,
                 initial,
+                pinned_initial,
                 power_levels,
             }))
-            .chain(updates.map(TimelineMessage::Diffs))
+            .chain(updates.map(|diffs| ChatMessage::Timeline(TimelineMessage::Diffs(diffs))))
+            .chain(
+                pinned_updates
+                    .map(|diffs| ChatMessage::Sidebar(SidebarMessage::PinnedDiffs(diffs))),
+            )
             .right_stream()
         })
         .flatten();
@@ -178,6 +228,24 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
         }
 
         match msg {
+            ChatMessage::None => None,
+            ChatMessage::TimelinesLoaded {
+                timeline,
+                pinned_timeline,
+                initial,
+                pinned_initial,
+                power_levels,
+            } => {
+                self.input.timeline = Some(timeline.clone());
+                self.sidebar.load_timeline(pinned_timeline, pinned_initial);
+                if let Some(TimelineAction::Run(task)) =
+                    self.timeline.load_timeline(timeline, initial, power_levels)
+                {
+                    Some(ChatAction::Run(task))
+                } else {
+                    None
+                }
+            }
             ChatMessage::Header(msg) => match self.header.update(msg)? {
                 HeaderAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
                 HeaderAction::TogglePins => {

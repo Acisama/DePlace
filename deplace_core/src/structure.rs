@@ -37,11 +37,16 @@ pub struct Sidebar {
 pub struct Header {
     pub height: f32,
     pub icon_size: f32,
+    pub button_size: f32,
 }
 
 impl Header {
-    pub fn icon_padding(&self) -> f32 {
-        (self.height - self.icon_size) / 2.0
+    pub fn button_padding(&self) -> f32 {
+        (self.height - self.button_size) / 2.0
+    }
+
+    pub fn inner_icon_padding(&self) -> f32 {
+        (self.button_size - self.icon_size) / 2.0
     }
 }
 
@@ -126,6 +131,7 @@ impl Default for Structure {
             header: Header {
                 height: 50.0,
                 icon_size: 20.0,
+                button_size: 25.0,
             },
             sidebar: Sidebar {
                 width: 300.0,
