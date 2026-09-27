@@ -14,7 +14,7 @@ use tokio::sync::watch;
 use toml_edit::{DocumentMut, Item, Table, Value};
 
 use super::update::{get_field_cloud, get_field_local, set_field_cloud};
-use super::{CLOUD_TABLE, SETTINGS_TABLE};
+use super::{CLOUD_TABLE, NameDecoration, SETTINGS_TABLE};
 use serde::{Deserialize, Serialize};
 
 use crate::settings::{
@@ -446,4 +446,12 @@ pub struct Settings {
         default = true
     )]
     pub use_banner_colors: bool,
+    #[setting(
+        name = "Name decoration",
+        description = "How to decorate names in the chat",
+        section = SettingsSection::Appearance,
+        uses_cloud = Some(true),
+        default = NameDecoration::FirstLetter
+    )]
+    pub name_decoration: NameDecoration,
 }

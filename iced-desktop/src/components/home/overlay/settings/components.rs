@@ -22,7 +22,7 @@ section!(
     ]
 );
 
-section!(AppearanceSection, []);
+section!(AppearanceSection, [name_decoration]);
 
 section!(AudioSection, []);
 

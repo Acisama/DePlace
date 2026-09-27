@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::{common::*, components::render_presence};
 use deplace_core::state::PresenceMap;
-use iced::{Alignment, border::Radius};
+use iced::border::Radius;
 use macros::iced_cache;
 use matrix_sdk::room::RoomMember;
 
@@ -99,12 +99,12 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
                     .width(Fill)
                     .height(sidebar.banner_height),
                 Space::new().height(icon_size / 2.0),
-                w::column![member.render_name(sidebar.font_size)]
-                    .padding(padding::left(structure.gap * 2.0))
+                w::column![member.render_name(structure.large_font_size)]
+                    .padding(padding::left(structure.small_gap * 2.0))
             ]
             .into(),
             w::row![
-                Space::new().width(structure.gap * 2.0 - icon_gap / 2.0),
+                Space::new().width(structure.small_gap * 2.0 - icon_gap / 2.0),
                 w::column![
                     Space::new().height(sidebar.banner_height - 2.0 / 3.0 * bg_icon_size),
                     w::stack([

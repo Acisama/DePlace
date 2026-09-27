@@ -3,6 +3,7 @@ use std::hash::Hash;
 use corner_badge::{notch_circle, positioned};
 use deplace_core::ProfileLike;
 use deplace_core::rooms::DePlaceRoom;
+use deplace_core::settings::NameDecoration;
 use deplace_core::state::PresenceMap;
 use deplace_core::state::cache::{AvatarCache, MediaState};
 use deplace_core::structure::Structure;
@@ -15,7 +16,7 @@ use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::widget::image::Handle as ImageHandle;
 use iced::widget::text::{IntoFragment, LineHeight, Rich};
 use iced::widget::{
-    self as w, Canvas, Scrollable, canvas, image, responsive, rich_text, span, svg,
+    self as w, Canvas, Scrollable, Space, canvas, image, responsive, rich_text, span, svg,
 };
 use iced::{Alignment, Color, ContentFit, Font, Point, Renderer, Size, padding};
 use iced::{
@@ -282,9 +283,17 @@ pub trait ProfileRenderExt {
     ) -> Element<'a, T>;
 
     fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T>;
+
+    fn render_name_decorated<'a, T: Clone + 'a>(
+        &self,
+        size: f32,
+        decoration: NameDecoration,
+        text_color: Color,
+    ) -> Element<'a, T>;
 }
 
 impl<Profile: ProfileLike> ProfileRenderExt for Profile {
+    /// Renders the profile's avatar icon.
     fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
         &self,
         size: f32,
@@ -294,17 +303,28 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
 
         let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
 
-        render_avatar(
-            self.profile_avatar(),
-            size,
-            rounding,
-            fallback,
-            avatar_cache,
-        )
+        render_avatar(self.get_avatar(), size, rounding, fallback, avatar_cache)
     }
 
+    /// Renders the profile's name in bold using the profile's color.
     fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T> {
         render_name(self.get_name(), size, self.color().to_iced())
+    }
+
+    /// Renders the profile's name with the normal text color, but decorated with the profile's color.
+    fn render_name_decorated<'a, T: Clone + 'a>(
+        &self,
+        size: f32,
+        decoration: NameDecoration,
+        text_color: Color,
+    ) -> Element<'a, T> {
+        render_name_decorated(
+            self.get_name(),
+            size,
+            decoration,
+            text_color,
+            self.color().into(),
+        )
     }
 }
 
@@ -418,6 +438,86 @@ pub fn render_unknown_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Elemen
 
 pub fn render_loading_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
     render_name("Loading...".to_string(), size, theme.colors.offline.into())
+}
+
+pub fn blend_colors(color_a: Color, color_b: Color, factor: f32) -> Color {
+    let t = factor.clamp(0.0, 1.0);
+
+    Color {
+        r: color_a.r + (color_b.r - color_a.r) * t,
+        g: color_a.g + (color_b.g - color_a.g) * t,
+        b: color_a.b + (color_b.b - color_a.b) * t,
+        a: color_a.a + (color_b.a - color_a.a) * t,
+    }
+}
+
+pub fn render_name_decorated<'a, T: Clone + 'a>(
+    name: String,
+    size: f32,
+    decoration: NameDecoration,
+    text_color: Color,
+    decoration_color: Color,
+) -> Element<'a, T> {
+    match decoration {
+        NameDecoration::None => w::text(name).size(size).color(text_color).into(),
+        NameDecoration::FirstLetter => {
+            let mut chars = name.chars();
+            let Some((first, rest)) = chars.next().map(|first| (first, chars.collect::<String>()))
+            else {
+                return Space::new().into();
+            };
+
+            w::row![
+                w::text(first).size(size).color(decoration_color),
+                w::text(rest).size(size).color(text_color)
+            ]
+            .into()
+        }
+        NameDecoration::Gradient => {
+            let chars = name.chars();
+            let length = name.len();
+
+            w::Row::with_children(chars.enumerate().map(|(i, c)| {
+                let factor = i as f32 / length as f32;
+
+                w::text(c)
+                    .color(blend_colors(decoration_color, text_color, factor))
+                    .size(size)
+                    .into()
+            }))
+            .into()
+        }
+    }
+}
+
+pub fn render_unknown_name_decorated<'a, T: Clone + 'a>(
+    size: f32,
+    decoration: NameDecoration,
+    text_color: Color,
+    theme: Theme,
+) -> Element<'a, T> {
+    render_name_decorated(
+        "Unknown".to_string(),
+        size,
+        decoration,
+        text_color,
+        theme.colors.error.into(),
+    )
+}
+
+pub fn render_loading_name_decorated<'a, T: Clone + 'a>(
+    size: f32,
+    decoration: NameDecoration,
+    text_color: Color,
+    theme: Theme,
+) -> Element<'a, T> {
+    render_name_decorated(
+        "Loading...".to_string(),
+        size,
+        decoration,
+        text_color,
+        theme.colors.offline.into(),
+    )
 }
 
 pub trait StatusExt {

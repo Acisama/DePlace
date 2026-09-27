@@ -54,7 +54,6 @@ impl Header {
 pub struct ChatSidebar {
     pub large_icon_size: f32,
     pub banner_height: f32,
-    pub font_size: f32,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -138,9 +137,8 @@ impl Default for Structure {
                 input_height: 50.0,
                 attachment_preview_dimensions: (140.0, 100.0),
                 sidebar: ChatSidebar {
-                    large_icon_size: 100.0,
+                    large_icon_size: 80.0,
                     banner_height: 250.0,
-                    font_size: 20.0,
                 },
             },
             header: Header {

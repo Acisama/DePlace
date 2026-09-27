@@ -574,7 +574,7 @@ impl ProfileLike for TimelineProfile {
         self.display_name.clone()
     }
 
-    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+    fn get_avatar(&self) -> Option<OwnedMxcUri> {
         self.avatar_url.clone()
     }
 

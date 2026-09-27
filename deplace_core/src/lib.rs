@@ -151,16 +151,12 @@ pub trait ProfileLike {
 
     fn icon_border_radius_ratio(&self) -> f32;
     fn profile_name(&self) -> Option<String>;
-    fn profile_avatar(&self) -> Option<OwnedMxcUri>;
+    fn get_avatar(&self) -> Option<OwnedMxcUri>;
     fn profile_id(&self) -> Self::Id<'_>;
 
     fn get_name(&self) -> String {
         self.profile_name()
             .unwrap_or(self.profile_id().as_ref().to_string())
-    }
-
-    fn get_avatar(&self) -> Option<OwnedMxcUri> {
-        self.profile_avatar()
     }
 
     fn color(&self) -> DePlaceColor {
@@ -186,7 +182,7 @@ impl ProfileLike for RoomMember {
         Some(self.name().to_string())
     }
 
-    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+    fn get_avatar(&self) -> Option<OwnedMxcUri> {
         self.avatar_url().map(|u| u.to_owned())
     }
 
@@ -209,8 +205,8 @@ impl ProfileLike for Option<RoomMember> {
         self.as_ref().and_then(|m| m.profile_name())
     }
 
-    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
-        self.as_ref().and_then(|m| m.profile_avatar())
+    fn get_avatar(&self) -> Option<OwnedMxcUri> {
+        self.as_ref().and_then(|m| m.get_avatar())
     }
 
     fn profile_id(&self) -> Self::Id<'_> {
@@ -234,7 +230,7 @@ impl ProfileLike for Room {
         self.cached_display_name().map(|n| n.to_string())
     }
 
-    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+    fn get_avatar(&self) -> Option<OwnedMxcUri> {
         self.avatar_url()
     }
 
@@ -257,8 +253,8 @@ impl ProfileLike for Option<Room> {
         self.as_ref().and_then(|r| r.profile_name())
     }
 
-    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
-        self.as_ref().and_then(|r| r.avatar_url())
+    fn get_avatar(&self) -> Option<OwnedMxcUri> {
+        self.as_ref().and_then(|r| r.get_avatar())
     }
 
     fn profile_id(&self) -> Self::Id<'_> {
@@ -285,7 +281,7 @@ impl ProfileLike for ActiveServer {
         }
     }
 
-    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+    fn get_avatar(&self) -> Option<OwnedMxcUri> {
         self.as_server().and_then(|s| s.avatar_url())
     }
 

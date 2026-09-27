@@ -110,14 +110,18 @@ pub enum DayOfWeek {
     Sunday,
 }
 
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
 pub enum DataSizeUnit {
-    #[default]
     Bytes,
     Bits,
     Mibibytes,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, EnumVariants)]
+pub enum NameDecoration {
+    None,
+    FirstLetter,
+    Gradient,
 }
 
 #[derive(Debug, Deserialize, Serialize, EnumVariants, EnumConstVec, Hash, EnumSetType)]

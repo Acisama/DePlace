@@ -406,11 +406,11 @@ impl ProfileLike for DePlaceRoom {
         self.display_name()
     }
 
-    fn profile_avatar(&self) -> Option<OwnedMxcUri> {
+    fn get_avatar(&self) -> Option<OwnedMxcUri> {
         self.avatar_url()
     }
 
     fn color(&self) -> DePlaceColor {
-        self.inner.color.clone()
+        self.inner.color
     }
 }

@@ -1,7 +1,10 @@
 use std::collections::BTreeSet;
 
-use deplace_core::state::{ActiveServer, PresenceMap};
-use iced::widget::text::Alignment;
+use deplace_core::{
+    settings::NameDecoration,
+    state::{ActiveServer, PresenceMap},
+};
+use iced::Alignment;
 use macros::{iced_cache, iced_icon};
 
 use crate::{common::*, components::render_room_with_presence};
@@ -35,10 +38,18 @@ pub struct ServerChannels {
     #[hash]
     collapsed_categories: BTreeSet<OwnedRoomId>,
 
+    name_decoration: Receiver<NameDecoration>,
+
     presence_map: Receiver<PresenceMap>,
 
     active_room: Receiver<Option<DePlaceRoom>>,
     active_server: Receiver<ActiveServer>,
+}
+
+impl ExtraHash for ServerChannels {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name_decoration.borrow().hash(state);
+    }
 }
 
 impl ServerChannels {
@@ -52,6 +63,8 @@ impl ServerChannels {
             collapsed_categories: BTreeSet::new(),
 
             presence_map: state.presence_map(),
+
+            name_decoration: state.settings().name_decoration.watch(),
 
             active_room: state.active_room(),
             active_server: state.active_server(),
@@ -101,6 +114,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         };
 
         let presence_map = &self.presence_map.borrow();
+        let name_decoration = *self.name_decoration.borrow();
 
         floating_tile(
             theme,
@@ -115,7 +129,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                         .wrapping(text::Wrapping::None)
                         .center()
                         .width(Fill)
-                        .align_x(Alignment::Left)
+                        .align_x(w::text::Alignment::Left)
                         .height(Fill)
                 )
                 .padding(padding::horizontal(
@@ -136,6 +150,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                         presence_map,
                         &self.room_watchers,
                         &self.collapsed_categories,
+                        name_decoration,
                         if r.is_dm() {
                             structure.sidebar.dm_icon_height
                         } else {
@@ -163,6 +178,7 @@ fn render_channel(
     presence_map: &PresenceMap,
     room_watchers: &RoomWatchers,
     collapsed_categories: &BTreeSet<OwnedRoomId>,
+    name_decoration: NameDecoration,
     icon_size: f32,
 ) -> Element<'static, ChannelsMessage> {
     let is_active = active_room_id
@@ -171,7 +187,8 @@ fn render_channel(
 
     let is_space = room.is_space();
 
-    let name = room.get_name();
+    let name =
+        room.render_name_decorated(structure.font_size, name_decoration, theme.text.dim.into());
 
     let content: Element<'static, ChannelsMessage> = if is_space {
         let expanded = !collapsed_categories.contains(room.room_id());
@@ -180,10 +197,11 @@ fn render_channel(
             w::button(
                 w::row![
                     iced_icon!(expanded ? caret_down : caret_right, bold, icon_size,),
-                    w::text(name).height(icon_size).center()
+                    name,
                 ]
                 .spacing(structure.gap)
                 .width(Fill)
+                .align_y(Alignment::Center)
                 .padding(padding::vertical(structure.small_gap * 0.75).left(structure.small_gap))
             )
             .on_press(ChannelsMessage::ToggleCategory(room.room_id().to_owned()))
@@ -230,6 +248,7 @@ fn render_channel(
                                     presence_map,
                                     room_watchers,
                                     collapsed_categories,
+                                    name_decoration,
                                     icon_size,
                                 )
                             ]
@@ -271,6 +290,7 @@ fn render_channel(
                                 presence_map,
                                 room_watchers,
                                 collapsed_categories,
+                                name_decoration,
                                 icon_size,
                             )
                         ]
@@ -310,9 +330,10 @@ fn render_channel(
                     theme.solid_bg.into()
                 }
             ),
-            w::text(name).height(icon_size).center()
+            name,
         ]
         .spacing(structure.gap)
+        .align_y(Alignment::Center)
         .width(Fill)
         .padding(padding::vertical(structure.small_gap * 0.75).horizontal(structure.small_gap))
         .into()

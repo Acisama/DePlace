@@ -184,6 +184,7 @@ impl_dropdown_widget!(
     deplace_core::settings::DateFormat,
     deplace_core::settings::DayOfWeek,
     deplace_core::settings::DataSizeUnit,
+    deplace_core::settings::NameDecoration,
     chrono_tz::Tz,
 );
 
