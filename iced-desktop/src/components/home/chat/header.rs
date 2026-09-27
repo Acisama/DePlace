@@ -7,7 +7,7 @@ use macros::iced_cache;
 
 use crate::{
     common::*,
-    components::{phosphor_icon, render_room_with_presence},
+    components::{phosphor_icon, render_room_with_presence_map},
 };
 
 use super::sidebar::SidebarState;

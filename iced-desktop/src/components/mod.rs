@@ -24,6 +24,7 @@ use iced::{
 use iced::{Border, Element, widget::Stack};
 use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::OwnedMxcUri;
+use matrix_sdk::ruma::presence::PresenceState;
 use matrix_sdk::ruma::serde::Base64;
 use tile_background::TileBackground;
 
@@ -461,7 +462,7 @@ pub fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
     background_color: Color,
 ) -> Element<'a, T> {
     if room.is_dm() {
-        return render_room_with_presence(
+        return render_room_with_presence_map(
             room,
             presence_map,
             theme,
@@ -708,18 +709,13 @@ pub fn themed_tooltip<'a, T: 'a>(
 
 pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
     member: &RoomMember,
-    presence_map: &PresenceMap,
+    presence: &PresenceState,
     theme: Theme,
     structure: Structure,
     icon_size: f32,
     avatar_cache: &AvatarCache,
     background_color: Color,
 ) -> Element<'a, T> {
-    let presence = presence_map
-        .get(member.user_id())
-        .map(|p| p.presence.clone())
-        .unwrap_or(matrix_sdk::ruma::presence::PresenceState::Offline);
-
     let (color, icon) = match presence {
         matrix_sdk::ruma::presence::PresenceState::Offline => (
             theme.colors.offline.into(),
@@ -779,7 +775,32 @@ pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
         .into()
 }
 
-pub fn render_room_with_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
+pub fn render_presence_with_map<'a, T: 'a + Clone + NeedsAvatarExt>(
+    member: &RoomMember,
+    presence_map: &PresenceMap,
+    theme: Theme,
+    structure: Structure,
+    icon_size: f32,
+    avatar_cache: &AvatarCache,
+    background_color: Color,
+) -> Element<'a, T> {
+    let presence = presence_map
+        .get(member.user_id())
+        .map(|p| p.presence.clone())
+        .unwrap_or(matrix_sdk::ruma::presence::PresenceState::Offline);
+
+    render_presence(
+        member,
+        &presence,
+        theme,
+        structure,
+        icon_size,
+        avatar_cache,
+        background_color,
+    )
+}
+
+pub fn render_room_with_presence_map<'a, T: 'a + Clone + NeedsAvatarExt>(
     room: &DePlaceRoom,
     presence_map: &PresenceMap,
     theme: Theme,
@@ -791,7 +812,7 @@ pub fn render_room_with_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
     if room.is_dm()
         && let Some(other_member) = room.dm_other_member()
     {
-        render_presence(
+        render_presence_with_map(
             &other_member,
             presence_map,
             theme,

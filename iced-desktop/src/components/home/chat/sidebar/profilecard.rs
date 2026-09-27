@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::{common::*, components::render_presence};
+use crate::{common::*, components::render_presence_with_map};
 use deplace_core::state::PresenceMap;
 use iced::border::Radius;
 use macros::iced_cache;
@@ -153,7 +153,7 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
                             Space::new().width(icon_gap / 2.0),
                             w::column![
                                 Space::new().height(icon_gap / 2.0),
-                                render_presence(
+                                render_presence_with_map(
                                     member,
                                     &self.presence_map.borrow(),
                                     theme,

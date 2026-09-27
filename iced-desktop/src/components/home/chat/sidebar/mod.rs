@@ -23,6 +23,7 @@ pub enum SidebarState {
 
 #[derive(Debug, Clone)]
 pub enum SidebarMessage {
+    DmProfileCard(ProfileCardMessage),
     MemberProfileCard(ProfileCardMessage),
     PinnedDiffs(Vec<VectorDiff<Arc<SdkTimelineItem>>>),
     MemberList(MemberListMessage),
@@ -99,7 +100,7 @@ impl Sidebar {
 
             member_profile_card: ProfileCard::new(state),
             dm_profile_card: ProfileCard::new(state),
-            member_list: MemberList::new(state),
+            member_list: MemberList::new(state, room),
         }
     }
 
@@ -182,6 +183,18 @@ impl Sidebar {
     }
 }
 
+fn handle_profile_card_message(
+    profile_card: &mut ProfileCard,
+    message: ProfileCardMessage,
+) -> Option<SidebarAction> {
+    match profile_card.update(message)? {
+        ProfileCardAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
+        ProfileCardAction::Perform(task) => Some(SidebarAction::Perform(
+            task.map(SidebarMessage::MemberProfileCard),
+        )),
+    }
+}
+
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
     fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
@@ -189,12 +202,10 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 MemberListAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
             },
             SidebarMessage::MemberProfileCard(message) => {
-                match self.member_profile_card.update(message)? {
-                    ProfileCardAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
-                    ProfileCardAction::Perform(task) => Some(SidebarAction::Perform(
-                        task.map(SidebarMessage::MemberProfileCard),
-                    )),
-                }
+                handle_profile_card_message(&mut self.member_profile_card, message)
+            }
+            SidebarMessage::DmProfileCard(message) => {
+                handle_profile_card_message(&mut self.dm_profile_card, message)
             }
             SidebarMessage::PinnedDiffs(diffs) => {
                 let room_id = self.room.room_id().to_owned();
@@ -282,22 +293,23 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
             return w::space().into();
         };
 
-        let content = match state {
+        let content: Element<'static, SidebarMessage> = match state {
             SidebarState::Member => w::lazy(self.member_profile_card.clone(), move |p| {
-                p.view(theme, structure)
-                    .map(SidebarMessage::MemberProfileCard)
-            }),
+                p.view(theme, structure).map(SidebarMessage::DmProfileCard)
+            })
+            .into(),
             SidebarState::MemberList => {
                 if self.room.is_dm() {
                     w::lazy(self.dm_profile_card.clone(), move |p| {
                         p.view(theme, structure)
                             .map(SidebarMessage::MemberProfileCard)
                     })
+                    .into()
                 } else {
-                    w::lazy(self.member_profile_card.clone(), move |p| {
-                        p.view(theme, structure)
-                            .map(SidebarMessage::MemberProfileCard)
+                    w::lazy(self.member_list.clone(), move |p| {
+                        p.view(theme, structure).map(SidebarMessage::MemberList)
                     })
+                    .into()
                 }
             }
             _ => return w::container("test").into(),
