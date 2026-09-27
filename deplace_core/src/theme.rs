@@ -88,7 +88,7 @@ impl Default for Theme {
         let solid_hover_bg = DePlaceColor::from_hsla(0.6667 * 360.0, 0.2105, 0.1490, 1.0);
 
         Self {
-            blur: 20.0,
+            blur: 40.0,
             solid_bg,
             solid_hover_bg,
             pill_color: DePlaceColor::from_rgba(1.0, 1.0, 1.0, 1.0),
@@ -118,6 +118,10 @@ impl Default for Theme {
 
 impl Theme {
     pub fn new(file_path: PathBuf) -> Self {
+        if cfg!(debug_assertions) {
+            return Self::default();
+        }
+
         if !file_path.exists() {
             let default = Self::default();
 

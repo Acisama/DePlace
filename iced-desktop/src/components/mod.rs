@@ -27,6 +27,7 @@ use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::serde::Base64;
 use tile_background::TileBackground;
 
+pub(crate) mod animation_clock;
 pub mod authentification;
 pub mod corner_badge;
 pub mod home;

@@ -173,6 +173,10 @@ impl Default for Structure {
 
 impl Structure {
     pub fn new(file_path: PathBuf) -> Self {
+        if cfg!(debug_assertions) {
+            return Self::default();
+        }
+
         if !file_path.exists() {
             let default = Self::default();
 

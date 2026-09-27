@@ -141,23 +141,11 @@ impl Primitive for LoadingPrimitive {
 /// `state`/`prev_state`/`last_changed` are meant to track [`crate::components::Screen`]
 /// transitions (0 = Loading, 1 = Discovery, 2 = Login, 3 = Home); update them
 /// whenever the active screen changes so the shader eases between them.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub(crate) struct LoadingIndicator {
-    start: std::time::Instant,
     last_changed: f32,
     state: f32,
     prev_state: f32,
-}
-
-impl Default for LoadingIndicator {
-    fn default() -> Self {
-        Self {
-            start: std::time::Instant::now(),
-            last_changed: 0.0,
-            state: 0.0,
-            prev_state: 0.0,
-        }
-    }
 }
 
 impl LoadingIndicator {
@@ -170,7 +158,7 @@ impl LoadingIndicator {
 
         self.prev_state = self.state;
         self.state = state;
-        self.last_changed = self.start.elapsed().as_secs_f32();
+        self.last_changed = super::animation_clock::elapsed_seconds();
     }
 }
 
@@ -196,7 +184,7 @@ impl<Message> shader::Program<Message> for LoadingIndicator {
     ) -> LoadingPrimitive {
         LoadingPrimitive {
             uniforms: Uniforms {
-                time: self.start.elapsed().as_secs_f32(),
+                time: super::animation_clock::elapsed_seconds(),
                 last_changed_time: self.last_changed,
                 state: self.state,
                 prev_state: self.prev_state,
