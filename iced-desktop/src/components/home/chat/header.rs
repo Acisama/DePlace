@@ -137,7 +137,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             structure,
             w::row![
                 w::row![
-                    context_room_icon(
+                    w::container(context_room_icon(
                         &room,
                         icon_size,
                         theme,
@@ -145,7 +145,11 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         &self.presence_map.borrow(),
                         &self.avatar_cache,
                         theme.solid_bg.into()
-                    ),
+                    ))
+                    .style(move |_| ContainerStyle {
+                        text_color: Some(theme.text.normal.into()),
+                        ..Default::default()
+                    }),
                     room.render_name(structure.font_size),
                 ]
                 .padding(structure.header.inner_icon_padding())

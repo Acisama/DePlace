@@ -2,12 +2,15 @@ use enumset::{EnumSet, EnumSetType};
 use macros::iced_cache;
 use matrix_sdk::room::RoomMember;
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as SdkTimelineItem};
+use member_list::{MemberList, MemberListAction, MemberListMessage};
 use profilecard::{ProfileCard, ProfileCardAction, ProfileCardMessage};
 use sweeten::widget::list;
 
 use crate::{common::*, components::home::chat::timeline::messages::ToTimelineItem};
 
 use super::timeline::messages::TimelineItem;
+
+mod member_list;
 mod profilecard;
 
 #[derive(Debug, EnumSetType, Hash)]
@@ -22,6 +25,7 @@ pub enum SidebarState {
 pub enum SidebarMessage {
     MemberProfileCard(ProfileCardMessage),
     PinnedDiffs(Vec<VectorDiff<Arc<SdkTimelineItem>>>),
+    MemberList(MemberListMessage),
 }
 
 pub enum SidebarAction {
@@ -38,10 +42,9 @@ pub struct Sidebar {
     #[hash]
     currently_visible: Option<SidebarState>,
 
-    #[hash]
     member_profile_card: ProfileCard,
-    #[hash]
     dm_profile_card: ProfileCard,
+    member_list: MemberList,
 
     room: DePlaceRoom,
 
@@ -49,6 +52,25 @@ pub struct Sidebar {
     content: list::Content<String, Arc<TimelineItem>>,
     #[hash]
     pinned_messages_version: u64,
+}
+
+impl ExtraHash for Sidebar {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if let Some(vis_state) = &self.currently_visible {
+            match vis_state {
+                SidebarState::Member => self.dm_profile_card.hash(state),
+                SidebarState::MemberList => {
+                    if !self.room.is_dm() {
+                        self.member_list.hash(state)
+                    } else {
+                        self.member_profile_card.hash(state)
+                    }
+                }
+                SidebarState::Pins => {}
+                SidebarState::Search => {}
+            }
+        }
+    }
 }
 
 impl Sidebar {
@@ -77,6 +99,7 @@ impl Sidebar {
 
             member_profile_card: ProfileCard::new(state),
             dm_profile_card: ProfileCard::new(state),
+            member_list: MemberList::new(state),
         }
     }
 
@@ -162,6 +185,9 @@ impl Sidebar {
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
     fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
+            SidebarMessage::MemberList(message) => match self.member_list.update(message)? {
+                MemberListAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
+            },
             SidebarMessage::MemberProfileCard(message) => {
                 match self.member_profile_card.update(message)? {
                     ProfileCardAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
