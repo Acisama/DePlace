@@ -28,6 +28,33 @@ impl Default for Keybinds {
     }
 }
 
+#[cfg(feature = "iced_desktop")]
+impl Keybinds {
+    pub fn action_for_key(
+        &self,
+        key: &IcedKey,
+        modifiers: &iced::keyboard::Modifiers,
+    ) -> Option<KeybindAction> {
+        if self.quickselect.matches_key(key, modifiers) {
+            Some(KeybindAction::ToggleQuickselect)
+        } else if self.settings.matches_key(key, modifiers) {
+            Some(KeybindAction::ToggleSettings)
+        } else if self.overview.matches_key(key, modifiers) {
+            Some(KeybindAction::ToggleOverview)
+        } else {
+            None
+        }
+    }
+
+    pub fn action_for_event(&self, event: &iced::keyboard::Event) -> Option<KeybindAction> {
+        let Event::KeyPressed { key, modifiers, .. } = event else {
+            return None;
+        };
+
+        self.action_for_key(key, modifiers)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Shortcut {
     pub modifiers: Modifiers,
@@ -61,14 +88,6 @@ use iced::keyboard::{Event, Key as IcedKey, key::Named};
 
 #[cfg(feature = "iced_desktop")]
 impl Shortcut {
-    pub fn matches(&self, event: &Event) -> bool {
-        if let Event::KeyPressed { key, modifiers, .. } = event {
-            self.matches_key(key, modifiers)
-        } else {
-            false
-        }
-    }
-
     /// Same check as [`Shortcut::matches`], but usable from contexts that
     /// only have the raw key/modifiers, not a full [`Event`] -- e.g.
     /// `text_editor`'s `key_binding` hook.

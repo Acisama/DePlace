@@ -243,8 +243,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         } else {
                             let keybinds = keybinds.borrow();
                             let is_reserved =
-                                keybinds.settings.matches_key(&key.key, &key.modifiers)
-                                    || keybinds.quickselect.matches_key(&key.key, &key.modifiers);
+                                keybinds.action_for_key(&key.key, &key.modifiers).is_some();
                             drop(keybinds);
 
                             if is_reserved {

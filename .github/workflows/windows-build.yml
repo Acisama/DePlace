@@ -10,6 +10,9 @@ env:
   # Bump this when a new GStreamer release comes out.
   # Available versions: https://gstreamer.freedesktop.org/data/pkg/windows/
   GSTREAMER_VERSION: "1.26.11"
+  # The MSI installs to <INSTALLDIR>\1.0\msvc_x86_64 - INSTALLDIR must be
+  # just the base dir below, not this full path, or it nests twice.
+  GST_INSTALL_BASE: "C:\\gstreamer"
   GST_ROOT: "C:\\gstreamer\\1.0\\msvc_x86_64"
 
 jobs:
@@ -44,7 +47,7 @@ jobs:
             # UI never runs, so the "C:\gstreamer\..." path shown in its docs
             # (which is only the UI wizard's suggested default) is not applied
             # automatically and it would otherwise fall back to Program Files.
-            $args = @("/i", "$pwd\$file", "/quiet", "/norestart", "ADDLOCAL=ALL", "INSTALLDIR=${{ env.GST_ROOT }}", "/log", "$pwd\$log")
+            $args = @("/i", "$pwd\$file", "/quiet", "/norestart", "ADDLOCAL=ALL", "INSTALLDIR=${{ env.GST_INSTALL_BASE }}", "/log", "$pwd\$log")
             $p = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
             if ($p.ExitCode -ne 0) {
               Write-Host "---- $log (tail) ----"

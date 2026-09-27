@@ -31,6 +31,7 @@ pub enum ChatMessage {
     Timeline(TimelineMessage),
     Input(InputMessage),
     Sidebar(SidebarMessage),
+    ToggleOverview,
     KeyboardEvent(iced::keyboard::Event),
     TimelinesLoaded {
         timeline: Arc<Timeline>,
@@ -223,12 +224,12 @@ impl Chat {
 
 impl IcedWidget<ChatMessage, ChatAction> for Chat {
     fn update(&mut self, msg: ChatMessage) -> Option<ChatAction> {
-        if let ChatMessage::Timeline(TimelineMessage::Loaded { timeline, .. }) = &msg {
-            self.input.timeline = Some(timeline.clone())
-        }
-
         match msg {
             ChatMessage::None => None,
+            ChatMessage::ToggleOverview => {
+                self.sidebar.toggle_member_list();
+                None
+            }
             ChatMessage::TimelinesLoaded {
                 timeline,
                 pinned_timeline,

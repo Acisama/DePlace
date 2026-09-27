@@ -3,7 +3,11 @@ use chat::{
     Chat, ChatAction, ChatMessage, TimelineMessage,
     empty::{EmptyChat, EmptyChatMessage},
 };
-use deplace_core::{PaginationDirection, keybinds::Keybinds, state::ActiveServer};
+use deplace_core::{
+    PaginationDirection,
+    keybinds::{KeybindAction, Keybinds},
+    state::ActiveServer,
+};
 use iced::widget::stack;
 use lru::LruCache;
 use macros::{iced_cache, nonzero_usize};
@@ -323,12 +327,27 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             HomeMessage::KeyboardEvent(event) => {
                 let keybinds = self.keybinds.borrow();
 
-                if keybinds.quickselect.matches(&event) {
-                    return self.overlay.toggle_quick_select().map(HomeAction::Run);
-                } else if keybinds.settings.matches(&event) {
-                    return self.overlay.toggle_settings().map(HomeAction::Run);
+                if let Some(action) = keybinds.action_for_event(&event) {
+                    drop(keybinds);
+                    match action {
+                        KeybindAction::ToggleQuickselect => {
+                            return self.overlay.toggle_quick_select().map(HomeAction::Run);
+                        }
+                        KeybindAction::ToggleSettings => {
+                            return self.overlay.toggle_settings().map(HomeAction::Run);
+                        }
+                        KeybindAction::ToggleOverview => {
+                            if let Some(room_id) = &self.active_room_id {
+                                return self.dispatch_to_chat(
+                                    room_id.clone(),
+                                    ChatMessage::ToggleOverview,
+                                );
+                            }
+                        }
+                    };
+                } else {
+                    drop(keybinds);
                 }
-                drop(keybinds);
 
                 if self.overlay.is_open() {
                     return match self.overlay.update(OverlayMessage::KeyboardEvent(event))? {
