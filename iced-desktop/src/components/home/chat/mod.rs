@@ -265,6 +265,9 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             },
             ChatMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
                 SidebarAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
+                SidebarAction::Perform(task) => {
+                    Some(ChatAction::Perform(task.map(ChatMessage::Sidebar)))
+                }
             },
             ChatMessage::Timeline(msg) => match self.timeline.update(msg)? {
                 TimelineAction::SetIsReplyingTo { event_id, message } => {

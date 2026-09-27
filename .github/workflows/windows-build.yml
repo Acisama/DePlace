@@ -1,0 +1,89 @@
+name: Windows build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  # Bump this when a new GStreamer release comes out.
+  # Available versions: https://gstreamer.freedesktop.org/data/pkg/windows/
+  GSTREAMER_VERSION: "1.26.11"
+  GST_ROOT: "C:\\gstreamer\\1.0\\msvc_x86_64"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (matches rust_toolchain.toml)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Download GStreamer MSIs
+        shell: pwsh
+        run: |
+          $ver = "${{ env.GSTREAMER_VERSION }}"
+          $base = "https://gstreamer.freedesktop.org/data/pkg/windows/$ver/msvc"
+          Invoke-WebRequest "$base/gstreamer-1.0-msvc-x86_64-$ver.msi" -OutFile gst-runtime.msi
+          Invoke-WebRequest "$base/gstreamer-1.0-devel-msvc-x86_64-$ver.msi" -OutFile gst-devel.msi
+
+      - name: Install GStreamer (runtime + devel, all plugin sets)
+        shell: pwsh
+        run: |
+          Start-Process msiexec.exe -ArgumentList "/i gst-runtime.msi /quiet /norestart ADDLOCAL=ALL" -Wait -NoNewWindow
+          Start-Process msiexec.exe -ArgumentList "/i gst-devel.msi /quiet /norestart ADDLOCAL=ALL" -Wait -NoNewWindow
+
+      - name: Wire up PATH / pkg-config
+        shell: pwsh
+        run: |
+          # GStreamer's own pkg-config.exe must come first on PATH, or the
+          # gstreamer-sys build scripts can pick up a different pkg-config
+          # and fail to resolve the libs.
+          echo "${{ env.GST_ROOT }}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "PKG_CONFIG_PATH=${{ env.GST_ROOT }}\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Sanity-check GStreamer install
+        shell: pwsh
+        run: |
+          & "${{ env.GST_ROOT }}\bin\gst-inspect-1.0.exe" --version
+          $plugins = Get-ChildItem "${{ env.GST_ROOT }}\lib\gstreamer-1.0" -Filter "*.dll"
+          Write-Host "Installed $($plugins.Count) plugin DLLs"
+          if ($plugins.Count -lt 30) {
+            Write-Error "GStreamer plugin install looks incomplete (ADDLOCAL=ALL may not have taken effect)."
+            exit 1
+          }
+
+      - name: Build
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p iced-desktop
+
+      - name: Package with bundled GStreamer
+        shell: pwsh
+        run: |
+          $out = "dist\DePlace"
+          New-Item -ItemType Directory -Force -Path "$out\bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$out\lib\gstreamer-1.0" | Out-Null
+
+          Copy-Item "target\x86_64-pc-windows-msvc\release\iced-desktop.exe" "$out\bin\DePlace.exe"
+
+          # GStreamer's Windows DLLs are relocatable: they look for plugins in
+          # ..\lib\gstreamer-1.0 relative to their own directory, so mirroring
+          # the installer's bin/lib layout next to our exe is enough - no
+          # env vars or code changes needed at runtime.
+          Copy-Item "${{ env.GST_ROOT }}\bin\*.dll" "$out\bin\"
+          Copy-Item "${{ env.GST_ROOT }}\lib\gstreamer-1.0\*.dll" "$out\lib\gstreamer-1.0\"
+
+          Compress-Archive -Path "$out\*" -DestinationPath "DePlace-windows-x86_64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DePlace-windows-x86_64
+          path: DePlace-windows-x86_64.zip

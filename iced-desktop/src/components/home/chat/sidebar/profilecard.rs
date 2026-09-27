@@ -9,6 +9,8 @@ use matrix_sdk::room::RoomMember;
 #[derive(Debug, Clone)]
 pub enum ProfileCardMessage {
     NeedsAvatar(OwnedMxcUri),
+    CopyUserId(OwnedUserId),
+    UserIdCopied,
 }
 
 impl NeedsAvatarExt for ProfileCardMessage {
@@ -19,6 +21,7 @@ impl NeedsAvatarExt for ProfileCardMessage {
 
 pub enum ProfileCardAction {
     NeedsMedia(NeedsMedia),
+    Perform(Task<ProfileCardMessage>),
 }
 
 #[iced_cache(Clone, Debug)]
@@ -61,9 +64,15 @@ impl ProfileCard {
 impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
     fn update(&mut self, message: ProfileCardMessage) -> Option<ProfileCardAction> {
         match message {
+            ProfileCardMessage::UserIdCopied => None,
             ProfileCardMessage::NeedsAvatar(uri) => {
                 Some(ProfileCardAction::NeedsMedia(NeedsMedia::avatar(uri)))
             }
+            ProfileCardMessage::CopyUserId(user_id) => Some(ProfileCardAction::Perform(
+                iced::clipboard::write(user_id.to_string())
+                    .map_err(|_| tracing::error!("Failed to copy to clipboard"))
+                    .map(|_| ProfileCardMessage::UserIdCopied),
+            )),
         }
     }
 
@@ -84,6 +93,8 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
         let icon_gap = structure.icon_gap * icon_size;
         let bg_icon_size = icon_size + icon_gap;
 
+        let id = member.user_id().to_owned();
+
         w::stack([
             w::column![
                 w::container("")
@@ -99,8 +110,27 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
                     .width(Fill)
                     .height(sidebar.banner_height),
                 Space::new().height(icon_size / 2.0),
-                w::column![member.render_name(structure.large_font_size)]
-                    .padding(padding::left(structure.small_gap * 2.0))
+                w::column![
+                    member.render_name(structure.large_font_size),
+                    Space::new().height(structure.small_gap),
+                    w::button(
+                        w::text(id.to_string())
+                            .color(theme.text.dim)
+                            .size(structure.font_size)
+                    )
+                    .padding(0.0)
+                    .on_press(ProfileCardMessage::CopyUserId(id))
+                    .style(move |_, status| ButtonStyle {
+                        background: None,
+                        text_color: if status.active() {
+                            theme.text.normal.into()
+                        } else {
+                            theme.text.dim.into()
+                        },
+                        ..Default::default()
+                    })
+                ]
+                .padding(padding::left(structure.small_gap * 2.0))
             ]
             .into(),
             w::row![

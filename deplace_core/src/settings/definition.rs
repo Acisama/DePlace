@@ -451,7 +451,7 @@ pub struct Settings {
         description = "How to decorate names in the chat",
         section = SettingsSection::Appearance,
         uses_cloud = Some(true),
-        default = NameDecoration::FirstLetter
+        default = NameDecoration::Gradient
     )]
     pub name_decoration: NameDecoration,
 }

@@ -32,12 +32,13 @@ impl SidebarState {
 
 #[derive(Debug, Clone)]
 pub enum SidebarMessage {
-    ProfileCard(ProfileCardMessage),
+    MemberProfileCard(ProfileCardMessage),
     PinnedDiffs(Vec<VectorDiff<Arc<SdkTimelineItem>>>),
 }
 
 pub enum SidebarAction {
     NeedsMedia(NeedsMedia),
+    Perform(Task<SidebarMessage>),
 }
 
 #[iced_cache(Clone, Debug)]
@@ -142,9 +143,12 @@ impl Sidebar {
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
     fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
-            SidebarMessage::ProfileCard(message) => {
+            SidebarMessage::MemberProfileCard(message) => {
                 match self.member_profile_card.update(message)? {
                     ProfileCardAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
+                    ProfileCardAction::Perform(task) => Some(SidebarAction::Perform(
+                        task.map(SidebarMessage::MemberProfileCard),
+                    )),
                 }
             }
             SidebarMessage::PinnedDiffs(diffs) => {
@@ -235,16 +239,19 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
 
         let content = match state {
             SidebarState::Member => w::lazy(self.member_profile_card.clone(), move |p| {
-                p.view(theme, structure).map(SidebarMessage::ProfileCard)
+                p.view(theme, structure)
+                    .map(SidebarMessage::MemberProfileCard)
             }),
             SidebarState::MemberList => {
                 if self.room.is_dm() {
                     w::lazy(self.dm_profile_card.clone(), move |p| {
-                        p.view(theme, structure).map(SidebarMessage::ProfileCard)
+                        p.view(theme, structure)
+                            .map(SidebarMessage::MemberProfileCard)
                     })
                 } else {
                     w::lazy(self.member_profile_card.clone(), move |p| {
-                        p.view(theme, structure).map(SidebarMessage::ProfileCard)
+                        p.view(theme, structure)
+                            .map(SidebarMessage::MemberProfileCard)
                     })
                 }
             }
