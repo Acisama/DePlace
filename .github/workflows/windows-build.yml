@@ -39,8 +39,18 @@ jobs:
       - name: Install GStreamer (runtime + devel, all plugin sets)
         shell: pwsh
         run: |
-          Start-Process msiexec.exe -ArgumentList "/i gst-runtime.msi /quiet /norestart ADDLOCAL=ALL" -Wait -NoNewWindow
-          Start-Process msiexec.exe -ArgumentList "/i gst-devel.msi /quiet /norestart ADDLOCAL=ALL" -Wait -NoNewWindow
+          function Install-Msi($file, $log) {
+            $args = @("/i", "$pwd\$file", "/quiet", "/norestart", "ADDLOCAL=ALL", "/log", "$pwd\$log")
+            $p = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
+            if ($p.ExitCode -ne 0) {
+              Write-Host "---- $log (tail) ----"
+              Get-Content "$pwd\$log" -Tail 100
+              Write-Error "msiexec failed for $file with exit code $($p.ExitCode)"
+              exit 1
+            }
+          }
+          Install-Msi "gst-runtime.msi" "gst-runtime.log"
+          Install-Msi "gst-devel.msi" "gst-devel.log"
 
       - name: Wire up PATH / pkg-config
         shell: pwsh
