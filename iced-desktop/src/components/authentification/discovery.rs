@@ -161,7 +161,7 @@ impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
                     Status::Active => theme.accent.into(),
                     _ => theme.accent.scale_alpha(0.5).into(),
                 }),
-                text_color: theme.background.into(),
+                text_color: theme.solid_bg.into(),
                 border: Border {
                     radius: structure.semi_border_radius().into(),
                     ..Default::default()

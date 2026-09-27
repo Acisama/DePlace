@@ -18,14 +18,14 @@ use iced::widget::text::{IntoFragment, LineHeight, Rich};
 use iced::widget::{
     self as w, Canvas, Scrollable, Space, canvas, image, responsive, rich_text, span, svg,
 };
-use iced::{Alignment, Color, ContentFit, Font, Point, Renderer, Size, padding};
 use iced::{
-    Border, Element,
-    widget::{Container, Stack},
+    Alignment, Color, ContentFit, Fill, Font, Length, Padding, Point, Renderer, Size, padding,
 };
+use iced::{Border, Element, widget::Stack};
 use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::serde::Base64;
+use tile_background::TileBackground;
 
 pub mod authentification;
 pub mod corner_badge;
@@ -33,6 +33,7 @@ pub mod home;
 pub mod on_appear;
 pub mod root;
 pub mod shader;
+pub mod tile_background;
 pub mod track_bounds;
 pub mod track_scroll;
 
@@ -99,21 +100,64 @@ impl<T: Clone> GenericState<T> {
     }
 }
 
+/// A card-like surface used throughout the app (chat, sidebars, settings, auth
+/// screens, ...), returned by [`floating_tile`].
+///
+/// Its background is a fake blur: rather than blurring whatever actually sits
+/// behind the tile, it samples a shared, heavily-downscaled copy of the app's
+/// animated background shader (see [`tile_background`]). That means it never
+/// shows blurred *content* - only a positionally-matching patch of the animated
+/// background - which is enough to sell the frosted-glass look without a real
+/// per-pixel blur pass.
+///
+/// The background is a separate widget layered behind the content (needed to
+/// sample the shared blur texture), so `.padding()`/`.width()`/`.height()`
+/// forward to the content layer rather than being native `Stack` methods.
+pub struct FloatingTile<'a, T> {
+    content: w::Container<'a, T>,
+    background: w::Shader<T, TileBackground>,
+}
+
+impl<'a, T> FloatingTile<'a, T> {
+    pub fn padding(mut self, padding: impl Into<Padding>) -> Self {
+        self.content = self.content.padding(padding);
+        self
+    }
+
+    pub fn width(mut self, width: impl Into<Length>) -> Self {
+        self.content = self.content.width(width);
+        self
+    }
+
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.content = self.content.height(height);
+        self
+    }
+}
+
+impl<'a, T> From<FloatingTile<'a, T>> for Element<'a, T>
+where
+    T: 'a,
+{
+    fn from(tile: FloatingTile<'a, T>) -> Self {
+        Stack::new()
+            .push(tile.content)
+            .push_under(tile.background)
+            .into()
+    }
+}
+
 pub fn floating_tile<'a, T>(
     theme: Theme,
     structure: Structure,
     content: impl Into<Element<'a, T>>,
-) -> Container<'a, T> {
-    use w::container::Style;
-    w::container(content).style(move |_theme| Style {
-        background: Some(theme.background.into()),
-        border: Border {
-            color: theme.border.into(),
-            width: structure.border_thickness,
-            radius: structure.outer_border_radius.into(),
-        },
-        ..Style::default()
-    })
+) -> FloatingTile<'a, T> {
+    FloatingTile {
+        content: w::container(content),
+        background: w::Shader::new(TileBackground::new(theme, structure))
+            .width(Fill)
+            .height(Fill),
+    }
 }
 
 pub fn text_input<T>(
@@ -131,7 +175,7 @@ where
         .size(structure.font_size)
         .padding(structure.small_gap)
         .style(move |_theme, status| Style {
-            background: theme.background.into(),
+            background: theme.solid_bg.into(),
             border: Border {
                 color: if matches!(status, Status::Focused { .. }) {
                     theme.accent.into()
@@ -408,14 +452,26 @@ pub fn phosphor_icon(svg_content: &'static str, size: f32) -> PhosphorIcon {
 
 pub fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
     room: &DePlaceRoom,
-    size: f32,
+    icon_size: f32,
+    theme: Theme,
+    structure: Structure,
+    presence_map: &PresenceMap,
     avatar_cache: &AvatarCache,
+    background_color: Color,
 ) -> Element<'a, T> {
     if room.is_dm() {
-        return room.render_icon(size, avatar_cache);
+        return render_room_with_presence(
+            room,
+            presence_map,
+            theme,
+            structure,
+            icon_size,
+            avatar_cache,
+            background_color,
+        );
     }
 
-    phosphor_icon(room.icon(), size).into()
+    phosphor_icon(room.icon(), icon_size).into()
 }
 
 pub trait IcedWidget<T, V> {
@@ -638,7 +694,7 @@ pub fn themed_tooltip<'a, T: 'a>(
     )
     .delay(std::time::Duration::from_millis(300))
     .style(move |_| w::container::Style {
-        background: Some(theme.background.into()),
+        background: Some(theme.solid_bg.into()),
         border: Border {
             color: theme.border.into(),
             width: structure.border_thickness,
