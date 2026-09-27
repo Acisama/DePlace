@@ -8,6 +8,7 @@ use sweeten::widget::list;
 use crate::{common::*, components::home::chat::timeline::messages::ToTimelineItem};
 
 use super::timeline::messages::TimelineItem;
+mod profilecard;
 
 #[derive(Debug, EnumSetType, Hash)]
 pub enum SidebarState {
@@ -15,19 +16,6 @@ pub enum SidebarState {
     MemberList,
     Pins,
     Search,
-}
-
-mod profilecard;
-
-impl SidebarState {
-    fn width(&self, structure: &Structure) -> f32 {
-        match self {
-            SidebarState::Member => structure.chat_sidebar_width.member,
-            SidebarState::MemberList => structure.chat_sidebar_width.member_list,
-            SidebarState::Pins => structure.chat_sidebar_width.pinned,
-            SidebarState::Search => structure.chat_sidebar_width.search,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -65,11 +53,21 @@ pub struct Sidebar {
 
 impl Sidebar {
     pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
+        let mut visual_state = EnumSet::new();
+
+        if !room.is_dm() {
+            visual_state.insert(SidebarState::MemberList);
+        }
+
         Self {
             state: state.clone(),
 
-            visual_state: EnumSet::new(),
-            currently_visible: None,
+            visual_state,
+            currently_visible: if !room.is_dm() {
+                Some(SidebarState::MemberList)
+            } else {
+                None
+            },
 
             room: room.clone(),
 
@@ -79,6 +77,27 @@ impl Sidebar {
 
             member_profile_card: ProfileCard::new(state),
             dm_profile_card: ProfileCard::new(state),
+        }
+    }
+
+    fn get_width(&self, structure: &Structure) -> f32 {
+        let Some(state) = self.currently_visible else {
+            return 0.0;
+        };
+
+        let width = structure.chat.sidebar.width;
+
+        match state {
+            SidebarState::Member => width.member,
+            SidebarState::MemberList => {
+                if self.room.is_dm() {
+                    width.member
+                } else {
+                    width.member_list
+                }
+            }
+            SidebarState::Pins => width.pinned,
+            SidebarState::Search => width.search,
         }
     }
 
@@ -260,7 +279,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
 
         floating_tile(theme, structure, content)
             .height(Fill)
-            .width(state.width(&structure))
+            .width(self.get_width(&structure))
             .into()
     }
 }

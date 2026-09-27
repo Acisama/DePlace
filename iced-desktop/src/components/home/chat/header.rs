@@ -137,12 +137,12 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             structure,
             w::row![
                 w::row![
-                    render_room_with_presence(
+                    context_room_icon(
                         &room,
-                        &self.presence_map.borrow(),
+                        icon_size,
                         theme,
                         structure,
-                        icon_size,
+                        &self.presence_map.borrow(),
                         &self.avatar_cache,
                         theme.solid_bg.into()
                     ),

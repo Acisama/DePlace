@@ -54,6 +54,7 @@ impl Header {
 pub struct ChatSidebar {
     pub large_icon_size: f32,
     pub banner_height: f32,
+    pub width: ChatSidebarWidth,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -87,7 +88,6 @@ pub struct Authentification {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct Structure {
     pub server_column: ServerColumn,
-    pub chat_sidebar_width: ChatSidebarWidth,
     pub divider_width: f32,
     pub border_thickness: f32,
     pub sidebar: Sidebar,
@@ -139,6 +139,12 @@ impl Default for Structure {
                 sidebar: ChatSidebar {
                     large_icon_size: 80.0,
                     banner_height: 250.0,
+                    width: ChatSidebarWidth {
+                        member: 320.0,
+                        search: 480.0,
+                        pinned: 480.0,
+                        member_list: 240.0,
+                    },
                 },
             },
             header: Header {
@@ -152,12 +158,6 @@ impl Default for Structure {
                 channel_icon_height: 20.0,
             },
             server_column: ServerColumn { icon_size: 40.0 },
-            chat_sidebar_width: ChatSidebarWidth {
-                member: 320.0,
-                search: 480.0,
-                pinned: 480.0,
-                member_list: 240.0,
-            },
             settings: Settings {
                 section_column_width: 300.0,
                 full_width: 1200.0,

@@ -40,7 +40,11 @@ jobs:
         shell: pwsh
         run: |
           function Install-Msi($file, $log) {
-            $args = @("/i", "$pwd\$file", "/quiet", "/norestart", "ADDLOCAL=ALL", "/log", "$pwd\$log")
+            # INSTALLDIR is passed explicitly: in /quiet mode the installer's
+            # UI never runs, so the "C:\gstreamer\..." path shown in its docs
+            # (which is only the UI wizard's suggested default) is not applied
+            # automatically and it would otherwise fall back to Program Files.
+            $args = @("/i", "$pwd\$file", "/quiet", "/norestart", "ADDLOCAL=ALL", "INSTALLDIR=${{ env.GST_ROOT }}", "/log", "$pwd\$log")
             $p = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
             if ($p.ExitCode -ne 0) {
               Write-Host "---- $log (tail) ----"
@@ -51,6 +55,18 @@ jobs:
           }
           Install-Msi "gst-runtime.msi" "gst-runtime.log"
           Install-Msi "gst-devel.msi" "gst-devel.log"
+
+      - name: Locate GStreamer install (diagnostic)
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "Does ${{ env.GST_ROOT }} exist?"
+          Test-Path "${{ env.GST_ROOT }}"
+          Write-Host "Searching C:\ for gst-inspect-1.0.exe (this may take a moment)..."
+          Get-ChildItem -Path C:\ -Filter "gst-inspect-1.0.exe" -Recurse -Force -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty FullName
+          Write-Host "Machine env var GSTREAMER_1_0_ROOT_MSVC_X86_64:"
+          [System.Environment]::GetEnvironmentVariable("GSTREAMER_1_0_ROOT_MSVC_X86_64", "Machine")
 
       - name: Wire up PATH / pkg-config
         shell: pwsh

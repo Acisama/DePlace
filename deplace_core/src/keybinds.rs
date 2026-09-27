@@ -6,6 +6,7 @@ use std::{fmt, path::PathBuf};
 pub struct Keybinds {
     pub settings: Shortcut,
     pub quickselect: Shortcut,
+    pub overview: Shortcut,
 }
 
 impl Default for Keybinds {
@@ -18,6 +19,10 @@ impl Default for Keybinds {
             quickselect: Shortcut {
                 modifiers: Modifiers::CONTROL,
                 key: Key::Character("k".to_string()),
+            },
+            overview: Shortcut {
+                modifiers: Modifiers::CONTROL,
+                key: Key::Character("o".to_string()),
             },
         }
     }
@@ -128,4 +133,11 @@ impl Keybinds {
         let contents = std::fs::read_to_string(keybinds_file).unwrap_or_default();
         toml_edit::de::from_str(&contents).unwrap_or_default()
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum KeybindAction {
+    ToggleQuickselect,
+    ToggleSettings,
+    ToggleOverview,
 }
