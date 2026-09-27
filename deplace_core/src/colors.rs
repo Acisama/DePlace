@@ -23,6 +23,15 @@ impl DePlaceColor {
         CssColor::from_hsla(h, s, lightness, a).into()
     }
 
+    pub fn blend(&self, color: DePlaceColor, factor: f32) -> DePlaceColor {
+        DePlaceColor {
+            r: self.r * (1.0 - factor) + color.r * factor,
+            g: self.g * (1.0 - factor) + color.g * factor,
+            b: self.b * (1.0 - factor) + color.b * factor,
+            a: self.a * (1.0 - factor) + color.a * factor,
+        }
+    }
+
     pub fn set_alpha(&self, alpha: f32) -> DePlaceColor {
         let [h, s, l, _] = self.to_hsla();
         CssColor::from_hsla(h, s, l, alpha).into()

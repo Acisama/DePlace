@@ -1,5 +1,5 @@
 use crate::{common::*, components::phosphor_icon};
-use deplace_core::settings::{EnumVariants, MatrixSettingField};
+use deplace_core::settings::{EnumSetPresets, EnumVariants, MatrixSettingField};
 use enumset::{EnumSet, EnumSetType};
 use iced::{Alignment, Length};
 use macros::iced_icon;
@@ -17,26 +17,8 @@ pub trait SettingWidget:
         field: &MatrixSettingField<Self>,
         theme: Theme,
         structure: Structure,
-        on_change: impl Fn(usize) -> Message + 'static,
+        on_change: impl Fn(Self) -> Message + 'static,
     ) -> Element<'static, Message>;
-
-    fn commit(field: &MatrixSettingField<Self>, idx: usize) -> Self;
-}
-
-/// Computes the new value for a field from a widget selection index and
-/// spawns the task that persists it.
-pub fn commit_task<T: SettingWidget>(
-    field: &MatrixSettingField<T>,
-    settings: &Settings,
-    idx: usize,
-) -> Task<()> {
-    let field = field.clone();
-    let settings = settings.clone();
-    let val = T::commit(&field, idx);
-
-    Task::future(async move {
-        field.set(val, &settings).await;
-    })
 }
 
 impl SettingWidget for bool {
@@ -44,13 +26,13 @@ impl SettingWidget for bool {
         field: &MatrixSettingField<bool>,
         theme: Theme,
         structure: Structure,
-        on_change: impl Fn(usize) -> Message + 'static,
+        on_change: impl Fn(bool) -> Message + 'static,
     ) -> Element<'static, Message> {
         let checked = field.value();
 
         let switch = w::mouse_area(
             sweeten::widget::toggler(checked)
-                .on_toggle(move |_| on_change(0))
+                .on_toggle(on_change)
                 .size(structure.settings.checkbox_height)
                 .style(move |_, status| {
                     let is_toggled = match status {
@@ -78,11 +60,7 @@ impl SettingWidget for bool {
         )
         .interaction(Interaction::Pointer);
 
-        setting_row(field, theme, structure, switch.into(), false)
-    }
-
-    fn commit(field: &MatrixSettingField<bool>, _idx: usize) -> bool {
-        !field.value()
+        setting_row(field, theme, structure, switch.into(), None)
     }
 }
 
@@ -90,30 +68,24 @@ fn render_dropdown<T, Message>(
     field: &MatrixSettingField<T>,
     theme: Theme,
     structure: Structure,
-    on_change: impl Fn(usize) -> Message + 'static,
+    on_change: impl Fn(T) -> Message + 'static,
 ) -> Element<'static, Message>
 where
     T: EnumVariants + Clone + PartialEq + Serialize + DeserializeOwned + Send + Sync + 'static,
     Message: Clone + ToggleCloudExt + 'static,
 {
-    let variants: Vec<(T, &'static str, usize)> = T::all_variants()
-        .enumerate()
-        .map(|(idx, (val, label))| (val, label, idx))
-        .collect();
-    let current = {
-        let value = field.value();
-        let (label, idx) = variants
-            .iter()
-            .find(|(v, _, _)| v == &value)
-            .map(|(_, s, idx)| (*s, *idx))
-            .unwrap_or(("", 0));
-        (value, label, idx)
-    };
+    let variants: Vec<(T, &'static str)> = T::all_variants().collect();
+    let value = field.value();
+    let current = variants
+        .iter()
+        .find(|(v, _)| v == &value)
+        .cloned()
+        .unwrap_or((value, ""));
 
-    let dropdown = w::pick_list(Some(current), variants, move |(_, label, _)| {
+    let dropdown = w::pick_list(Some(current), variants, |(_, label): &(T, &'static str)| {
         (*label).into()
     })
-    .on_select(move |(_, _, idx)| on_change(idx))
+    .on_select(move |(value, _)| on_change(value))
     .width(structure.settings.dropdown_width)
     .text_size(structure.font_size)
     .style(move |_, status| w::pick_list::Style {
@@ -148,14 +120,7 @@ where
         shadow: Default::default(),
     });
 
-    setting_row(field, theme, structure, dropdown.into(), false)
-}
-
-fn commit_dropdown<T: EnumVariants>(idx: usize, fallback: T) -> T {
-    T::all_variants()
-        .nth(idx)
-        .map(|(variant, _)| variant)
-        .unwrap_or(fallback)
+    setting_row(field, theme, structure, dropdown.into(), None)
 }
 
 macro_rules! impl_dropdown_widget {
@@ -166,13 +131,9 @@ macro_rules! impl_dropdown_widget {
                     field: &MatrixSettingField<$ty>,
                     theme: Theme,
                     structure: Structure,
-                    on_change: impl Fn(usize) -> Message + 'static,
+                    on_change: impl Fn($ty) -> Message + 'static,
                 ) -> Element<'static, Message> {
                     render_dropdown(field, theme, structure, on_change)
-                }
-
-                fn commit(field: &MatrixSettingField<$ty>, idx: usize) -> $ty {
-                    commit_dropdown(idx, field.value())
                 }
             }
         )*
@@ -190,28 +151,81 @@ impl_dropdown_widget!(
 
 impl<T> SettingWidget for EnumSet<T>
 where
-    T: EnumSetType + EnumVariants + 'static,
+    T: EnumSetType + EnumVariants + EnumSetPresets + 'static,
     EnumSet<T>: Clone + PartialEq + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     fn render<Message: Clone + ToggleCloudExt + 'static>(
         field: &MatrixSettingField<EnumSet<T>>,
         theme: Theme,
         structure: Structure,
-        on_change: impl Fn(usize) -> Message + 'static,
+        on_change: impl Fn(EnumSet<T>) -> Message + 'static,
     ) -> Element<'static, Message> {
-        let mut variants: Vec<(usize, T, &'static str)> = T::all_variants()
-            .enumerate()
-            .map(|(idx, (variant, label))| (idx, variant, label))
-            .collect();
-        variants.sort_by_key(|(_, _, label)| *label);
-        let active = field.value();
+        let mut variants: Vec<(T, &'static str)> = T::all_variants().collect();
+        variants.sort_by_key(|(_, label)| *label);
+        let active_value = field.value();
 
-        let chips = variants.into_iter().map(|(idx, variant, label)| {
-            let is_active = active.contains(variant);
+        let bg_color = move |is_active| {
+            if is_active {
+                theme.colors.success.set_alpha(0.1).into()
+            } else {
+                theme.background.into()
+            }
+        };
+
+        let row_content = w::Row::with_children(T::SECTIONS.iter().map(|(name, desc, val)| {
+            let is_active = val == &active_value;
+
+            themed_tooltip(
+                w::button(w::text(*name).size(structure.small_font_size).center())
+                    .style(move |_, status| ButtonStyle {
+                        text_color: if status.active() {
+                            theme.text.normal.into()
+                        } else if is_active {
+                            theme.colors.success.into()
+                        } else {
+                            theme.text.dim.into()
+                        },
+                        background: Some(bg_color(is_active)),
+                        border: Border {
+                            color: if status.active() {
+                                theme.accent.into()
+                            } else if is_active {
+                                theme.colors.success.into()
+                            } else {
+                                theme.border.into()
+                            },
+                            width: structure.border_thickness,
+                            radius: structure.semi_border_radius().into(),
+                        },
+                        ..Default::default()
+                    })
+                    .on_press(on_change(*val))
+                    .padding(
+                        padding::horizontal(structure.small_gap)
+                            .vertical(structure.small_gap / 2.0),
+                    ),
+                *desc,
+                structure,
+                theme,
+            )
+            .into()
+        }))
+        .width(Fill)
+        .spacing(structure.small_gap)
+        .into();
+
+        let chips = variants.into_iter().map(|(variant, label)| {
+            let is_active = active_value.contains(variant);
+            let mut new_value = active_value;
+            if is_active {
+                new_value.remove(variant);
+            } else {
+                new_value.insert(variant);
+            }
 
             w::button(w::text(label).size(structure.font_size).center())
                 .padding(structure.small_gap)
-                .on_press(on_change(idx))
+                .on_press(on_change(new_value))
                 .style(move |_, status| ButtonStyle {
                     text_color: if status.active() {
                         theme.text.normal.into()
@@ -220,13 +234,7 @@ where
                     } else {
                         theme.text.dim.into()
                     },
-                    background: is_active.then_some(
-                        Color {
-                            a: 0.1,
-                            ..theme.colors.success.into()
-                        }
-                        .into(),
-                    ),
+                    background: Some(bg_color(is_active)),
                     border: Border {
                         color: if status.active() {
                             theme.accent.into()
@@ -248,19 +256,7 @@ where
             .columns(5)
             .height(Length::Shrink);
 
-        setting_row(field, theme, structure, grid.into(), true)
-    }
-
-    fn commit(field: &MatrixSettingField<EnumSet<T>>, idx: usize) -> EnumSet<T> {
-        let mut current = field.value();
-        if let Some((variant, _)) = T::all_variants().nth(idx) {
-            if current.contains(variant) {
-                current.remove(variant);
-            } else {
-                current.insert(variant);
-            }
-        }
-        current
+        setting_row(field, theme, structure, row_content, Some(grid.into()))
     }
 }
 
@@ -319,8 +315,8 @@ fn setting_row<T, Message: 'static + Clone + ToggleCloudExt>(
     field: &MatrixSettingField<T>,
     theme: Theme,
     structure: Structure,
-    control: Element<'static, Message>,
-    extra_row: bool,
+    row_content: Element<'static, Message>,
+    extra_content: Option<Element<'static, Message>>,
 ) -> Element<'static, Message> {
     let cloud_button = cloud_button(field.local_name, &field.uses_cloud, theme, structure);
     let text = themed_tooltip(
@@ -331,24 +327,18 @@ fn setting_row<T, Message: 'static + Clone + ToggleCloudExt>(
         structure,
         theme,
     );
-    let filler = w::space().width(Fill);
 
-    if extra_row {
-        w::column![
-            w::row![text, filler, cloud_button]
-                .align_y(Alignment::Center)
-                .padding(structure.small_gap / 2.0)
-                .spacing(structure.small_gap),
-            control
-        ]
-        .spacing(structure.small_gap)
-        .into()
-    } else {
-        w::row![text, filler, control, cloud_button]
-            .align_y(Alignment::Center)
-            .padding(structure.small_gap / 2.0)
+    let row = w::row![text, row_content, cloud_button]
+        .align_y(Alignment::Center)
+        .padding(structure.small_gap / 2.0)
+        .spacing(structure.small_gap);
+
+    if let Some(extra_content) = extra_content {
+        w::column![row, extra_content]
             .spacing(structure.small_gap)
             .into()
+    } else {
+        row.into()
     }
 }
 

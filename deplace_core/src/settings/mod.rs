@@ -10,6 +10,12 @@ mod update;
 pub use definition::MatrixSettingField;
 pub use definition::Settings;
 
+/// Trait to provide presets for EnumSet values.
+pub trait EnumSetPresets: EnumSetType + 'static {
+    /// Returns a list of presets for the value, `(section name, section description, value)`.
+    const SECTIONS: &[(&'static str, &'static str, EnumSet<Self>)];
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SettingsSection {
     #[default]
@@ -179,6 +185,10 @@ pub const SYSTEM_MESSAGE_MODES: &[(&str, &str, EnumSet<SystemMessageType>)] = &[
     ),
     ("Full", "Show all system messages", EnumSet::all()),
 ];
+
+impl EnumSetPresets for SystemMessageType {
+    const SECTIONS: &[(&'static str, &'static str, EnumSet<Self>)] = SYSTEM_MESSAGE_MODES;
+}
 
 const SETTINGS_TABLE: &str = "settings";
 const CLOUD_TABLE: &str = "cloud";

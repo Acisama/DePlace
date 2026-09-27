@@ -7,7 +7,7 @@ use deplace_core::{
 use iced::Alignment;
 use macros::{iced_cache, iced_icon};
 
-use crate::{common::*, components::render_room_with_presence};
+use crate::common::*;
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {

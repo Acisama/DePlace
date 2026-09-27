@@ -2,13 +2,13 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{Ident, LitStr, Token, bracketed, parenthesized};
+use syn::{Ident, LitStr, Token, Type, bracketed, parenthesized};
 
-/// One entry inside a `section!` field list: either the bare name of a
-/// `Settings` field, or a nested `section("Title", [ ...items ])` group.
+/// One entry inside a `section!` field list: either `field_name: FieldType`
+/// for a `Settings` field, or a nested `section("Title", [ ...items ])` group.
 enum Item {
     Spacer,
-    Field(Ident),
+    Field(Ident, Type),
     Group(LitStr, Vec<Item>),
 }
 
@@ -20,16 +20,22 @@ impl Parse for Item {
         {
             if ident == "section" {
                 input.parse::<Ident>()?;
+
                 let paren_content;
                 parenthesized!(paren_content in input);
+
                 let title: LitStr = paren_content.parse()?;
                 paren_content.parse::<Token![,]>()?;
+
                 let bracket_content;
                 bracketed!(bracket_content in paren_content);
+
                 let items = Punctuated::<Item, Token![,]>::parse_terminated(&bracket_content)?;
+
                 return Ok(Item::Group(title, items.into_iter().collect()));
             } else if ident == "spacer" {
                 input.parse::<Ident>()?;
+
                 let paren_content;
                 parenthesized!(paren_content in input);
                 return Ok(Item::Spacer);
@@ -37,7 +43,9 @@ impl Parse for Item {
         }
 
         let field: Ident = input.parse()?;
-        Ok(Item::Field(field))
+        input.parse::<Token![:]>()?;
+        let ty: Type = input.parse()?;
+        Ok(Item::Field(field, ty))
     }
 }
 
@@ -87,20 +95,20 @@ fn walk(
     items
         .iter()
         .map(|item| match item {
-            Item::Field(field) => {
+            Item::Field(field, ty) => {
                 let variant = format_ident!("{}", pascal_case(&field.to_string()));
+                let set_name = format_ident!("set_{}", field);
 
                 hash_fields.push(field.clone());
-                message_variants.push(quote! { #variant(usize) });
+                message_variants.push(quote! { #variant(#ty) });
 
                 update_arms.push(quote! {
-                    #message_name::#variant(idx) => Some(#action_name::Run(
-                        crate::components::home::overlay::settings::widgets::commit_task(
-                            &self.settings.#field,
-                            &self.settings,
-                            idx,
-                        ),
-                    ))
+                    #message_name::#variant(value) => {
+                        let settings = self.settings.clone();
+                        Some(#action_name::Run(::iced::Task::future(async move {
+                            settings.#set_name(value).await;
+                        })))
+                    }
                 });
 
                 quote! {
