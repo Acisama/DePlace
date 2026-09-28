@@ -1,8 +1,10 @@
 use std::collections::BTreeSet;
 
-use crate::{common::*, components::render_presence_with_map};
+use crate::{
+    common::*,
+    components::{CopyUserIdExt, render_banner_column},
+};
 use deplace_core::state::PresenceMap;
-use iced::border::Radius;
 use macros::iced_cache;
 use matrix_sdk::room::RoomMember;
 
@@ -16,6 +18,12 @@ pub enum ProfileCardMessage {
 impl NeedsAvatarExt for ProfileCardMessage {
     fn needs_avatar(uri: OwnedMxcUri) -> Self {
         ProfileCardMessage::NeedsAvatar(uri)
+    }
+}
+
+impl CopyUserIdExt for ProfileCardMessage {
+    fn copy_user_id(id: OwnedUserId) -> Self {
+        ProfileCardMessage::CopyUserId(id)
     }
 }
 
@@ -82,99 +90,16 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
         theme: Theme,
         structure: Structure,
     ) -> iced::Element<'static, ProfileCardMessage> {
-        let sidebar = structure.chat.sidebar;
-
         let Some(member) = &self.member else {
             return w::container("No other member present").into();
         };
 
-        let color = member.color();
-
-        let icon_size = sidebar.large_icon_size;
-        let icon_gap = structure.icon_gap * icon_size;
-        let bg_icon_size = icon_size + icon_gap;
-
-        let id = member.user_id().to_owned();
-
-        w::stack([
-            w::column![
-                w::container("")
-                    .style(move |_| ContainerStyle {
-                        background: Some(color.into()),
-                        border: border::rounded(Radius {
-                            top_left: structure.outer_border_radius,
-                            top_right: structure.outer_border_radius,
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    })
-                    .width(Fill)
-                    .height(sidebar.banner_height),
-                Space::new().height(icon_size / 2.0),
-                w::column![
-                    member.render_name(structure.large_font_size),
-                    Space::new().height(structure.small_gap),
-                    w::button(
-                        w::text(id.to_string())
-                            .color(theme.text.dim)
-                            .size(structure.font_size)
-                    )
-                    .padding(0.0)
-                    .on_press(ProfileCardMessage::CopyUserId(id))
-                    .style(move |_, status| ButtonStyle {
-                        background: None,
-                        text_color: if status.active() {
-                            theme.text.normal.into()
-                        } else {
-                            theme.text.dim.into()
-                        },
-                        ..Default::default()
-                    })
-                ]
-                .padding(padding::left(structure.small_gap * 2.0))
-            ]
-            .into(),
-            w::row![
-                Space::new().width(structure.small_gap * 2.0 - icon_gap / 2.0),
-                w::column![
-                    Space::new().height(sidebar.banner_height - 2.0 / 3.0 * bg_icon_size),
-                    w::stack([
-                        w::container(
-                            w::container("")
-                                .width(bg_icon_size)
-                                .height(bg_icon_size)
-                                .style(move |_| ContainerStyle {
-                                    background: Some(theme.solid_bg.into()),
-                                    border: border::rounded(bg_icon_size / 2.0),
-                                    ..Default::default()
-                                })
-                        )
-                        .into(),
-                        w::row![
-                            Space::new().width(icon_gap / 2.0),
-                            w::column![
-                                Space::new().height(icon_gap / 2.0),
-                                render_presence_with_map(
-                                    member,
-                                    &self.presence_map.borrow(),
-                                    theme,
-                                    structure,
-                                    icon_size,
-                                    &self.avatar_cache,
-                                    theme.solid_bg.into()
-                                )
-                            ]
-                        ]
-                        .into()
-                    ])
-                    .width(Fill)
-                ]
-                .width(Fill)
-            ]
-            .into(),
-        ])
-        .height(Fill)
-        .width(Fill)
-        .into()
+        render_banner_column(
+            member,
+            &self.presence_map.borrow(),
+            &self.avatar_cache,
+            theme,
+            structure,
+        )
     }
 }

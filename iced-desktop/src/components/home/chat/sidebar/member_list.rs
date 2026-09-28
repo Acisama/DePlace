@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use deplace_core::state::PresenceMap;
 use iced::{Alignment, Length, widget::svg};
@@ -8,11 +8,22 @@ use matrix_sdk::{
     ruma::{events::presence::PresenceEventContent, presence::PresenceState},
 };
 
-use crate::{common::*, components::render_presence};
+use crate::{
+    common::*,
+    components::{render_presence, track_bounds::track_bounds},
+};
 
 #[derive(Debug, Clone)]
 pub enum MemberListMessage {
-    MemberPressed(RoomMember),
+    None,
+    Bounds {
+        user_id: OwnedUserId,
+        bounds: Rectangle,
+    },
+    MemberPressed {
+        member: RoomMember,
+        bounds: Rectangle,
+    },
     NeedsAvatar(OwnedMxcUri),
 }
 
@@ -24,6 +35,10 @@ impl NeedsAvatarExt for MemberListMessage {
 
 pub enum MemberListAction {
     NeedsMedia(NeedsMedia),
+    ShowProfile {
+        member: RoomMember,
+        bounds: Rectangle,
+    },
 }
 
 #[iced_cache(Debug, Clone)]
@@ -34,6 +49,11 @@ pub struct MemberList {
 
     membership_map: Receiver<MembershipMap>,
     presence_map: Receiver<PresenceMap>,
+
+    #[hash]
+    hovered_member: Option<OwnedUserId>,
+
+    member_bounds: HashMap<OwnedUserId, Rectangle>,
 
     avatar_cache: AvatarCache,
 }
@@ -48,7 +68,11 @@ impl MemberList {
             membership_map: state.membership_map(),
             presence_map: state.presence_map(),
 
+            hovered_member: None,
+
             avatar_cache: state.avatar_cache().clone(),
+
+            member_bounds: HashMap::new(),
 
             avatar_states_for_hash: BTreeSet::new(),
         }
@@ -58,9 +82,18 @@ impl MemberList {
 impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
     fn update(&mut self, message: MemberListMessage) -> Option<MemberListAction> {
         match message {
-            MemberListMessage::MemberPressed(member) => {
-                tracing::trace!("Member pressed: {:?}", member.user_id());
+            MemberListMessage::None => None,
+            MemberListMessage::Bounds { user_id, bounds } => {
+                self.member_bounds.insert(user_id, bounds);
                 None
+            }
+            MemberListMessage::MemberPressed { member, bounds } => {
+                tracing::trace!(
+                    "Member {:?} pressed at bounds {:?}",
+                    member.user_id(),
+                    bounds
+                );
+                Some(MemberListAction::ShowProfile { member, bounds })
             }
             MemberListMessage::NeedsAvatar(uri) => {
                 self.avatar_states_for_hash.insert(uri.clone());
@@ -125,42 +158,56 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                         Space::new().height(structure.small_gap / 4.0)
                     ]
                     .extend(members.iter().map(|(p, member)| {
-                        w::button(
-                            w::row![
-                                render_presence(
-                                    member,
-                                    &p.presence,
-                                    theme,
-                                    structure,
-                                    icon_size,
-                                    avatar_cache,
-                                    theme.solid_bg.into(),
-                                ),
-                                member.render_name(structure.font_size)
-                            ]
-                            .padding(
-                                padding::vertical(structure.small_gap * 0.75)
-                                    .horizontal(structure.small_gap),
+                        let id = member.user_id().to_owned();
+                        let bounds = self.member_bounds.get(&id).cloned();
+
+                        track_bounds(
+                            w::button(
+                                w::row![
+                                    render_presence(
+                                        member,
+                                        &p.presence,
+                                        theme,
+                                        structure,
+                                        icon_size,
+                                        avatar_cache,
+                                        theme.solid_bg.into(),
+                                    ),
+                                    member.render_name(structure.font_size)
+                                ]
+                                .padding(
+                                    padding::vertical(structure.small_gap * 0.75)
+                                        .horizontal(structure.small_gap),
+                                )
+                                .width(Fill)
+                                .spacing(structure.gap)
+                                .align_y(Alignment::Center),
                             )
-                            .width(Fill)
-                            .spacing(structure.gap)
-                            .align_y(Alignment::Center),
-                        )
-                        .padding(0.0)
-                        .style(move |_, status| ButtonStyle {
-                            background: status.active().then_some(theme.solid_hover_bg.into()),
-                            border: Border {
-                                color: if status.active() {
-                                    theme.border.into()
-                                } else {
-                                    Color::TRANSPARENT
+                            .padding(0.0)
+                            .style(move |_, status| ButtonStyle {
+                                background: status.active().then_some(theme.solid_hover_bg.into()),
+                                border: Border {
+                                    color: if status.active() {
+                                        theme.border.into()
+                                    } else {
+                                        Color::TRANSPARENT
+                                    },
+                                    width: structure.border_thickness,
+                                    radius: structure.inner_border_radius.into(),
                                 },
-                                width: structure.border_thickness,
-                                radius: structure.inner_border_radius.into(),
+                                ..Default::default()
+                            })
+                            .on_press_maybe(bounds.map(|bounds| {
+                                MemberListMessage::MemberPressed {
+                                    member: member.clone(),
+                                    bounds,
+                                }
+                            })),
+                            move |bounds| MemberListMessage::Bounds {
+                                user_id: id.clone(),
+                                bounds,
                             },
-                            ..Default::default()
-                        })
-                        .on_press(MemberListMessage::MemberPressed(member.clone()))
+                        )
                         .into()
                     }))
                     .padding(structure.divider_width)

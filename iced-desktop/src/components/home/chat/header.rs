@@ -1,14 +1,11 @@
 use std::collections::BTreeSet;
 
-use deplace_core::state::PresenceMap;
+use deplace_core::{settings::NameDecoration, state::PresenceMap};
 use enumset::EnumSet;
 use iced::Alignment;
 use macros::iced_cache;
 
-use crate::{
-    common::*,
-    components::{phosphor_icon, render_room_with_presence_map},
-};
+use crate::{common::*, components::phosphor_icon};
 
 use super::sidebar::SidebarState;
 
@@ -48,7 +45,15 @@ pub struct Header {
     room_watchers: RoomWatchers,
     room_id: OwnedRoomId,
 
+    name_decoration: Receiver<NameDecoration>,
+
     presence_map: Receiver<PresenceMap>,
+}
+
+impl ExtraHash for Header {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name_decoration.borrow().hash(state);
+    }
 }
 
 impl Header {
@@ -59,6 +64,8 @@ impl Header {
             presence_map: state.presence_map().clone(),
 
             sidebar_state: EnumSet::new(),
+
+            name_decoration: state.settings().name_decoration.watch(),
 
             room_watchers: state
                 .room_watchers(hashing::hash_room_default(id.clone()))
@@ -150,7 +157,11 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         text_color: Some(theme.text.normal.into()),
                         ..Default::default()
                     }),
-                    room.render_name(structure.font_size),
+                    room.render_name_decorated(
+                        structure.font_size,
+                        *self.name_decoration.borrow(),
+                        theme.text.dim.into()
+                    ),
                 ]
                 .padding(structure.header.inner_icon_padding())
                 .align_y(Alignment::Center)

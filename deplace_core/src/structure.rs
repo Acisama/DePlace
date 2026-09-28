@@ -13,7 +13,7 @@ pub struct ChatSidebarWidth {
 impl Default for ChatSidebarWidth {
     fn default() -> Self {
         ChatSidebarWidth {
-            member: 320.0,
+            member: 280.0,
             search: 480.0,
             pinned: 480.0,
             member_list: 240.0,
@@ -138,7 +138,7 @@ impl Default for Structure {
                 attachment_preview_dimensions: (140.0, 100.0),
                 sidebar: ChatSidebar {
                     large_icon_size: 80.0,
-                    banner_height: 250.0,
+                    banner_height: 100.0,
                     width: ChatSidebarWidth {
                         member: 320.0,
                         search: 480.0,

@@ -52,6 +52,10 @@ pub enum ChatAction {
     },
     JoinCall,
     LeaveCall,
+    ShowProfile {
+        member: RoomMember,
+        bounds: Rectangle,
+    },
 }
 
 #[iced_cache(Clone)]
@@ -268,6 +272,9 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 SidebarAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
                 SidebarAction::Perform(task) => {
                     Some(ChatAction::Perform(task.map(ChatMessage::Sidebar)))
+                }
+                SidebarAction::ShowProfile { member, bounds } => {
+                    Some(ChatAction::ShowProfile { member, bounds })
                 }
             },
             ChatMessage::Timeline(msg) => match self.timeline.update(msg)? {

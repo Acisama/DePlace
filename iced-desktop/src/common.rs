@@ -41,6 +41,7 @@ pub use iced::{
 pub use indexmap::IndexMap;
 pub use matrix_sdk::{
     Client, Room,
+    room::RoomMember,
     ruma::{MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId},
 };
 pub use std::hash::Hash;

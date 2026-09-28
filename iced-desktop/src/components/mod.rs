@@ -11,6 +11,7 @@ use deplace_core::theme::{Colors, Theme};
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
 use iced::alignment::{Horizontal, Vertical};
+use iced::border::Radius;
 use iced::font::Weight;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::widget::image::Handle as ImageHandle;
@@ -19,13 +20,14 @@ use iced::widget::{
     self as w, Canvas, Scrollable, Space, canvas, image, responsive, rich_text, span, svg,
 };
 use iced::{
-    Alignment, Color, ContentFit, Fill, Font, Length, Padding, Point, Renderer, Size, padding,
+    Alignment, Color, ContentFit, Fill, Font, Length, Padding, Point, Renderer, Size, border,
+    padding,
 };
 use iced::{Border, Element, widget::Stack};
 use matrix_sdk::room::RoomMember;
-use matrix_sdk::ruma::OwnedMxcUri;
 use matrix_sdk::ruma::presence::PresenceState;
 use matrix_sdk::ruma::serde::Base64;
+use matrix_sdk::ruma::{OwnedMxcUri, OwnedUserId};
 use tile_background::TileBackground;
 
 pub(crate) mod animation_clock;
@@ -824,4 +826,105 @@ pub fn render_room_with_presence_map<'a, T: 'a + Clone + NeedsAvatarExt>(
     } else {
         room.render_icon(icon_size, avatar_cache)
     }
+}
+
+pub trait CopyUserIdExt {
+    fn copy_user_id(id: OwnedUserId) -> Self;
+}
+
+pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + NeedsAvatarExt + 'a>(
+    member: &RoomMember,
+    presence_map: &PresenceMap,
+    avatar_cache: &AvatarCache,
+    theme: Theme,
+    structure: Structure,
+) -> Element<'a, T> {
+    let color = member.color().to_iced();
+    let sidebar = structure.chat.sidebar;
+
+    let icon_size = sidebar.large_icon_size;
+    let icon_gap = structure.icon_gap * icon_size;
+    let bg_icon_size = icon_size + icon_gap;
+
+    let id = member.user_id().to_owned();
+
+    w::stack([
+        w::column![
+            w::container("")
+                .style(move |_| w::container::Style {
+                    background: Some(color.into()),
+                    border: border::rounded(Radius {
+                        top_left: structure.outer_border_radius,
+                        top_right: structure.outer_border_radius,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+                .width(Fill)
+                .height(sidebar.banner_height),
+            Space::new().height(icon_size / 2.0),
+            w::column![
+                member.render_name(structure.large_font_size),
+                Space::new().height(structure.small_gap),
+                w::button(
+                    w::text(id.to_string())
+                        .color(theme.text.dim)
+                        .size(structure.font_size)
+                )
+                .padding(0.0)
+                .on_press(T::copy_user_id(id))
+                .style(move |_, status| w::button::Style {
+                    background: None,
+                    text_color: if status.active() {
+                        theme.text.normal.into()
+                    } else {
+                        theme.text.dim.into()
+                    },
+                    ..Default::default()
+                })
+            ]
+            .padding(padding::left(structure.small_gap * 2.0))
+        ]
+        .into(),
+        w::row![
+            Space::new().width(structure.small_gap * 2.0 - icon_gap / 2.0),
+            w::column![
+                Space::new().height(sidebar.banner_height - 2.0 / 3.0 * bg_icon_size),
+                w::stack([
+                    w::container(
+                        w::container("")
+                            .width(bg_icon_size)
+                            .height(bg_icon_size)
+                            .style(move |_| w::container::Style {
+                                background: Some(theme.solid_bg.into()),
+                                border: border::rounded(bg_icon_size / 2.0),
+                                ..Default::default()
+                            })
+                    )
+                    .into(),
+                    w::row![
+                        Space::new().width(icon_gap / 2.0),
+                        w::column![
+                            Space::new().height(icon_gap / 2.0),
+                            render_presence_with_map(
+                                member,
+                                presence_map,
+                                theme,
+                                structure,
+                                icon_size,
+                                avatar_cache,
+                                theme.solid_bg.into()
+                            )
+                        ]
+                    ]
+                    .into()
+                ])
+                .width(Fill)
+            ]
+            .width(Fill)
+        ]
+        .into(),
+    ])
+    .width(sidebar.width.member)
+    .into()
 }
