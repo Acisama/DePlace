@@ -119,10 +119,15 @@ fn main() -> iced::Result {
             let (_id, open_task) = window::open(window::Settings {
                 maximized: true,
                 icon: Some(icon.clone()),
+                // `application_id` only exists on Linux - `PlatformSpecific` is a
+                // distinct type per platform, not a shared struct with optional fields.
+                #[cfg(target_os = "linux")]
                 platform_specific: window::settings::PlatformSpecific {
                     application_id: APP_NAME.to_string(),
                     ..Default::default()
                 },
+                #[cfg(not(target_os = "linux"))]
+                platform_specific: Default::default(),
                 ..Default::default()
             });
 
