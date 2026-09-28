@@ -13,8 +13,6 @@ use settings::{SETTINGS_INPUT_ID, SettingsAction, SettingsMessage, SettingsView}
 
 use crate::common::*;
 
-use super::sidebar::SidebarMessage;
-
 mod profile;
 mod quick_select;
 mod settings;
@@ -25,6 +23,8 @@ pub struct Overlay {
 
     #[hash]
     overlay_state: Option<OverlayState>,
+
+    membership_map: Receiver<MembershipMap>,
 
     quickselect: QuickSelect,
     settings: SettingsView,
@@ -68,6 +68,8 @@ impl Overlay {
 
             overlay_state: None,
 
+            membership_map: state.membership_map(),
+
             quickselect,
             settings,
             profile: None,
@@ -100,10 +102,15 @@ impl Overlay {
         }
     }
 
-    pub fn open_profile(&mut self, member: RoomMember, bounds: Rectangle) {
-        tracing::trace!("Opening profile for {:?}", member.user_id());
+    pub fn open_profile(&mut self, room_id: OwnedRoomId, user_id: OwnedUserId, bounds: Rectangle) {
+        tracing::trace!("Opening profile for {:?}", user_id);
         self.overlay_state = Some(OverlayState::Profile);
-        self.profile = Some(OverlayProfile::new(&self.state, member, bounds));
+        self.profile = self
+            .membership_map
+            .borrow()
+            .get(&room_id)
+            .and_then(|m| m.get(&user_id).cloned())
+            .map(|member| OverlayProfile::new(&self.state, member, bounds));
     }
 }
 

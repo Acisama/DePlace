@@ -53,7 +53,8 @@ pub enum ChatAction {
     JoinCall,
     LeaveCall,
     ShowProfile {
-        member: RoomMember,
+        room_id: OwnedRoomId,
+        user_id: OwnedUserId,
         bounds: Rectangle,
     },
 }
@@ -273,9 +274,15 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 SidebarAction::Perform(task) => {
                     Some(ChatAction::Perform(task.map(ChatMessage::Sidebar)))
                 }
-                SidebarAction::ShowProfile { member, bounds } => {
-                    Some(ChatAction::ShowProfile { member, bounds })
-                }
+                SidebarAction::ShowProfile {
+                    room_id,
+                    user_id,
+                    bounds,
+                } => Some(ChatAction::ShowProfile {
+                    room_id,
+                    user_id,
+                    bounds,
+                }),
             },
             ChatMessage::Timeline(msg) => match self.timeline.update(msg)? {
                 TimelineAction::SetIsReplyingTo { event_id, message } => {
@@ -289,6 +296,15 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 TimelineAction::Scroll { direction, task } => {
                     Some(ChatAction::TimelineScroll { direction, task })
                 }
+                TimelineAction::OpenProfileOverlay {
+                    room_id,
+                    user_id,
+                    bounds,
+                } => Some(ChatAction::ShowProfile {
+                    room_id,
+                    user_id,
+                    bounds,
+                }),
             },
             ChatMessage::Input(msg) => match self.input.update(msg)? {
                 InputAction::SendMessage(task) => {
@@ -316,6 +332,15 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     TimelineAction::Scroll { direction, task } => {
                         Some(ChatAction::TimelineScroll { direction, task })
                     }
+                    TimelineAction::OpenProfileOverlay {
+                        room_id,
+                        user_id,
+                        bounds,
+                    } => Some(ChatAction::ShowProfile {
+                        room_id,
+                        user_id,
+                        bounds,
+                    }),
                 }
             }
         }

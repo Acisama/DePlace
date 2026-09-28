@@ -57,13 +57,11 @@ impl TimelineItemKind {
                     TimelineDetails::Pending => TimelineDetails::Pending,
                     TimelineDetails::Error(e) => TimelineDetails::Error(e),
                     TimelineDetails::Unavailable => TimelineDetails::Unavailable,
-                    TimelineDetails::Ready(p) => {
-                        TimelineDetails::Ready(Arc::new(TimelineProfile {
-                            display_name: p.display_name,
-                            avatar_url: p.avatar_url,
-                            user_id: sender.clone(),
-                        }))
-                    }
+                    TimelineDetails::Ready(p) => TimelineDetails::Ready(TimelineProfile {
+                        display_name: Arc::new(p.display_name.clone()),
+                        avatar_url: Arc::new(p.avatar_url.clone()),
+                        user_id: Arc::new(sender.clone()),
+                    }),
                 };
                 let event_id = event.event_id().map(|id| id.to_owned());
 
@@ -540,9 +538,9 @@ fn convert_timeline_reply(
                     TimelineDetails::Unavailable => TimelineDetails::Unavailable,
                     TimelineDetails::Pending => TimelineDetails::Pending,
                     TimelineDetails::Ready(p) => TimelineDetails::Ready(TimelineProfile {
-                        display_name: p.display_name.clone(),
-                        avatar_url: p.avatar_url.clone(),
-                        user_id: embedded.sender.clone(),
+                        display_name: Arc::new(p.display_name.clone()),
+                        avatar_url: Arc::new(p.avatar_url.clone()),
+                        user_id: Arc::new(embedded.sender.clone()),
                     }),
                 },
                 content,

@@ -33,7 +33,8 @@ pub enum SidebarAction {
     NeedsMedia(NeedsMedia),
     Perform(Task<SidebarMessage>),
     ShowProfile {
-        member: RoomMember,
+        room_id: OwnedRoomId,
+        user_id: OwnedUserId,
         bounds: Rectangle,
     },
 }
@@ -204,9 +205,15 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         match message {
             SidebarMessage::MemberList(message) => match self.member_list.update(message)? {
                 MemberListAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
-                MemberListAction::ShowProfile { member, bounds } => {
-                    Some(SidebarAction::ShowProfile { member, bounds })
-                }
+                MemberListAction::ShowProfile {
+                    room_id,
+                    user_id,
+                    bounds,
+                } => Some(SidebarAction::ShowProfile {
+                    room_id,
+                    user_id,
+                    bounds,
+                }),
             },
             SidebarMessage::MemberProfileCard(message) => {
                 handle_profile_card_message(&mut self.member_profile_card, message)

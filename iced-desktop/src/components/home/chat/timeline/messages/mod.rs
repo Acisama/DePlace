@@ -1,4 +1,4 @@
-use crate::common::*;
+use crate::{common::*, components::OpenProfileOverlayExt};
 use std::{
     collections::BTreeSet,
     time::{Duration, SystemTime},
@@ -52,6 +52,21 @@ pub enum TimelineItemMessage {
     SetIsReplyingTo(OwnedEventId),
     SetIsEditing(bool),
     MessageEventBounds(Rectangle),
+    OpenProfileOverlay {
+        room_id: OwnedRoomId,
+        user_id: OwnedUserId,
+        bounds: Rectangle,
+    },
+}
+
+impl OpenProfileOverlayExt for TimelineItemMessage {
+    fn open_profile(room_id: OwnedRoomId, user_id: OwnedUserId, bounds: Rectangle) -> Self {
+        Self::OpenProfileOverlay {
+            room_id,
+            user_id,
+            bounds,
+        }
+    }
 }
 
 impl NeedsAvatarExt for TimelineItemMessage {
@@ -69,6 +84,11 @@ pub enum TimelineItemAction {
     },
     MessageEventBounds(Rectangle),
     HoverChanged(bool),
+    OpenProfileOverlay {
+        room_id: OwnedRoomId,
+        user_id: OwnedUserId,
+        bounds: Rectangle,
+    },
 }
 
 /// An item in the timeline
@@ -302,6 +322,15 @@ impl TimelineItem {
 
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
+            TimelineItemMessage::OpenProfileOverlay {
+                room_id,
+                user_id,
+                bounds,
+            } => Some(TimelineItemAction::OpenProfileOverlay {
+                room_id,
+                user_id,
+                bounds,
+            }),
             TimelineItemMessage::MessageEventBounds(bounds) => {
                 Some(TimelineItemAction::MessageEventBounds(bounds))
             }
@@ -393,6 +422,8 @@ impl TimelineItem {
     ) -> iced::Element<'static, TimelineItemMessage> {
         let fallback = w::text(format!("{:?}", self)).into();
 
+        let room_id = self.room_id.clone();
+
         match &self.kind {
             TimelineItemKind::DateDivider {
                 date,
@@ -444,7 +475,9 @@ impl TimelineItem {
                     return w::space().into();
                 }
                 render_event(
-                    w::lazy(event.clone(), move |event| event.view(theme, structure)),
+                    w::lazy(event.clone(), move |event| {
+                        event.view(theme, room_id.clone(), structure)
+                    }),
                     structure,
                     theme,
                     *is_hovered,
@@ -467,7 +500,7 @@ impl TimelineItem {
 
                 render_event(
                     w::lazy(event.clone(), move |event| {
-                        event.view(theme, structure, false)
+                        event.view(room_id.clone(), theme, structure, false)
                     }),
                     structure,
                     theme,
@@ -553,11 +586,11 @@ impl Hash for TimelineItemKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TimelineProfile {
-    pub display_name: Option<String>,
-    pub avatar_url: Option<OwnedMxcUri>,
-    user_id: OwnedUserId,
+    pub display_name: Arc<Option<String>>,
+    pub avatar_url: Arc<Option<OwnedMxcUri>>,
+    user_id: Arc<OwnedUserId>,
 }
 
 impl ProfileLike for TimelineProfile {
@@ -571,11 +604,11 @@ impl ProfileLike for TimelineProfile {
     }
 
     fn profile_name(&self) -> Option<String> {
-        self.display_name.clone()
+        (*self.display_name).clone()
     }
 
     fn get_avatar(&self) -> Option<OwnedMxcUri> {
-        self.avatar_url.clone()
+        (*self.avatar_url).clone()
     }
 
     fn profile_id(&self) -> Self::Id<'_> {
@@ -589,7 +622,7 @@ struct MessageEvent {
 
     event_id: Option<OwnedEventId>,
     sender: OwnedUserId,
-    sender_profile: TimelineDetails<Arc<TimelineProfile>>,
+    sender_profile: TimelineDetails<TimelineProfile>,
 
     in_reply_to: Arc<Vec<ReplyToDetails>>,
 
@@ -881,7 +914,7 @@ struct SystemEvent {
 
     event_id: Option<OwnedEventId>,
     sender: OwnedUserId,
-    sender_profile: TimelineDetails<Arc<TimelineProfile>>,
+    sender_profile: TimelineDetails<TimelineProfile>,
 
     avatar_cache: AvatarCache,
 

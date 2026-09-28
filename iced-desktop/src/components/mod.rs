@@ -20,20 +20,21 @@ use iced::widget::{
     self as w, Canvas, Scrollable, Space, canvas, image, responsive, rich_text, span, svg,
 };
 use iced::{
-    Alignment, Color, ContentFit, Fill, Font, Length, Padding, Point, Renderer, Size, border,
-    padding,
+    Alignment, Color, ContentFit, Fill, Font, Length, Padding, Point, Rectangle, Renderer, Size,
+    border, padding,
 };
 use iced::{Border, Element, widget::Stack};
 use matrix_sdk::room::RoomMember;
 use matrix_sdk::ruma::presence::PresenceState;
 use matrix_sdk::ruma::serde::Base64;
-use matrix_sdk::ruma::{OwnedMxcUri, OwnedUserId};
+use matrix_sdk::ruma::{OwnedMxcUri, OwnedRoomId, OwnedUserId};
 use tile_background::TileBackground;
 
 pub(crate) mod animation_clock;
 pub mod authentification;
 pub mod corner_badge;
 pub mod home;
+pub mod link;
 pub mod on_appear;
 pub mod root;
 pub mod shader;
@@ -323,6 +324,10 @@ pub trait NeedsAvatarExt {
     fn needs_avatar(uri: OwnedMxcUri) -> Self;
 }
 
+pub trait OpenProfileOverlayExt: Sized {
+    fn open_profile(room_id: OwnedRoomId, user_id: OwnedUserId, bounds: Rectangle) -> Self;
+}
+
 pub trait ProfileRenderExt {
     fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
         &self,
@@ -498,6 +503,27 @@ pub fn render_unknown_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Elemen
 
 pub fn render_loading_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
     render_name("Loading...".to_string(), size, theme.colors.offline.into())
+}
+
+pub fn render_profile_name_with_overlay<
+    'a,
+    P: ProfileLike + Clone + 'a,
+    T: Clone + OpenProfileOverlayExt + 'a,
+>(
+    profile: &P,
+    room_id: OwnedRoomId,
+    user_id: OwnedUserId,
+    size: f32,
+) -> Element<'a, T> {
+    let profile = profile.clone();
+    let color = profile.color().into();
+
+    link::link(
+        render_name(profile.get_name(), size, color),
+        color,
+        move |bounds| T::open_profile(room_id.clone(), user_id.clone(), bounds),
+    )
+    .into()
 }
 
 pub fn blend_colors(color_a: Color, color_b: Color, factor: f32) -> Color {

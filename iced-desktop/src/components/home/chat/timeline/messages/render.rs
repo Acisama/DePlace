@@ -29,7 +29,7 @@ use crate::{
     components::{
         InsetShadow,
         home::chat::timeline::messages::{SystemEvent, SystemMessage},
-        phosphor_icon,
+        phosphor_icon, render_profile_name_with_overlay,
         track_bounds::track_bounds,
     },
 };
@@ -89,6 +89,7 @@ pub fn render_event(
 impl MessageEvent {
     pub fn view(
         &self,
+        room_id: OwnedRoomId,
         theme: Theme,
         structure: Structure,
         as_dummy: bool,
@@ -159,17 +160,22 @@ impl MessageEvent {
                 match &self.sender_profile {
                     TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
                         Some(unknown_icon(size, rounding, theme)),
-                        Some(name_row(render_unknown_name(size, theme))),
+                        Some(name_row(render_unknown_name(text_size, theme))),
                         theme.colors.error,
                     ),
                     TimelineDetails::Pending => (
                         Some(loading_icon(size, rounding, theme)),
-                        Some(name_row(render_loading_name(size, theme))),
+                        Some(name_row(render_loading_name(text_size, theme))),
                         theme.colors.offline,
                     ),
                     TimelineDetails::Ready(p) => (
                         Some(p.render_icon(size, &self.avatar_cache)),
-                        Some(name_row(p.render_name(text_size))),
+                        Some(name_row(render_profile_name_with_overlay(
+                            p,
+                            room_id.clone(),
+                            p.profile_id().to_owned(),
+                            text_size,
+                        ))),
                         p.color(),
                     ),
                 }
@@ -213,7 +219,12 @@ impl MessageEvent {
                         ),
                         TimelineDetails::Ready(p) => (
                             p.render_icon(small_icon_size, &self.avatar_cache),
-                            p.render_name(small_text_size),
+                            render_profile_name_with_overlay(
+                                p,
+                                room_id.clone(),
+                                p.profile_id().to_owned(),
+                                small_text_size,
+                            ),
                             p.color(),
                         ),
                     };
@@ -801,6 +812,7 @@ impl SystemEvent {
     pub fn view(
         &self,
         theme: Theme,
+        room_id: OwnedRoomId,
         structure: Structure,
     ) -> Element<'static, TimelineItemMessage> {
         let (icon, icon_color) = self.content.icon(theme);
@@ -813,7 +825,12 @@ impl SystemEvent {
                 render_unknown_name(text_size, theme)
             }
             TimelineDetails::Pending => render_loading_name(text_size, theme),
-            TimelineDetails::Ready(p) => p.render_name(text_size),
+            TimelineDetails::Ready(p) => render_profile_name_with_overlay(
+                p,
+                room_id.clone(),
+                p.profile_id().to_owned(),
+                text_size,
+            ),
         };
 
         w::row![
@@ -1082,3 +1099,9 @@ impl ReplyContent {
         }
     }
 }
+
+// fn render_member_name(
+//     member: RoomMember,
+//     message_id: String,
+// ) -> iced::Element<'static, TimelineItemMessage> {
+// }

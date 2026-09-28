@@ -290,8 +290,12 @@ impl Home {
                 }))),
                 ChatAction::JoinCall => join_call(&chat.room_id),
                 ChatAction::LeaveCall => leave_call(&chat.room_id),
-                ChatAction::ShowProfile { member, bounds } => {
-                    self.overlay.open_profile(member, bounds);
+                ChatAction::ShowProfile {
+                    room_id,
+                    user_id,
+                    bounds,
+                } => {
+                    self.overlay.open_profile(room_id, user_id, bounds);
                     None
                 }
             }

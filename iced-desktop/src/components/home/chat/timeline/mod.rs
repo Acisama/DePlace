@@ -81,6 +81,11 @@ pub enum TimelineAction {
         direction: PaginationDirection,
         task: Task<bool>,
     },
+    OpenProfileOverlay {
+        room_id: OwnedRoomId,
+        user_id: OwnedUserId,
+        bounds: Rectangle,
+    },
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
 
@@ -551,6 +556,18 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     return None;
                 };
                 let res = match Arc::make_mut(item).update(message)? {
+                    TimelineItemAction::OpenProfileOverlay {
+                        room_id,
+                        user_id,
+                        bounds,
+                    } => Some(TimelineAction::OpenProfileOverlay {
+                        room_id,
+                        user_id,
+                        bounds: Rectangle {
+                            y: bounds.y - self.scrolled_from_top,
+                            ..bounds
+                        },
+                    }),
                     TimelineItemAction::HoverChanged(hovered) => {
                         if hovered {
                             if let Some(old_id) = &self.hovered_item_id

@@ -36,7 +36,8 @@ impl NeedsAvatarExt for MemberListMessage {
 pub enum MemberListAction {
     NeedsMedia(NeedsMedia),
     ShowProfile {
-        member: RoomMember,
+        room_id: OwnedRoomId,
+        user_id: OwnedUserId,
         bounds: Rectangle,
     },
 }
@@ -93,7 +94,11 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                     member.user_id(),
                     bounds
                 );
-                Some(MemberListAction::ShowProfile { member, bounds })
+                Some(MemberListAction::ShowProfile {
+                    room_id: self.room_id.clone(),
+                    user_id: member.user_id().to_owned(),
+                    bounds,
+                })
             }
             MemberListMessage::NeedsAvatar(uri) => {
                 self.avatar_states_for_hash.insert(uri.clone());
