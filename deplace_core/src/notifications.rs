@@ -1,5 +1,7 @@
+#[cfg(not(windows))]
 use std::sync::Arc;
 
+#[cfg(not(windows))]
 use dashmap::DashMap;
 use matrix_sdk::{
     Client, Room,
@@ -7,23 +9,26 @@ use matrix_sdk::{
     media::{MediaEventContent, MediaFormat, MediaThumbnailSettings},
     room::RoomMember,
 };
-use notify_rust::{Notification, NotificationHandle, NotificationResponse};
+use notify_rust::Notification;
+#[cfg(not(windows))]
+use notify_rust::{NotificationHandle, NotificationResponse};
+#[cfg(not(windows))]
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId,
-    api::client::receipt::create_receipt::v3::ReceiptType,
-    events::{
-        receipt::ReceiptThread,
-        room::{
-            MediaSource,
-            message::{MessageType, OriginalSyncRoomMessageEvent},
-        },
+    EventId, OwnedEventId, OwnedRoomId, api::client::receipt::create_receipt::v3::ReceiptType,
+    events::receipt::ReceiptThread,
+};
+use ruma::{
+    events::room::{
+        MediaSource,
+        message::{MessageType, OriginalSyncRoomMessageEvent},
     },
     push::{Action, Tweak},
 };
 
+#[cfg(not(windows))]
+use crate::rooms::DePlaceRoom;
 use crate::{
     APP_HUMAN_NAME,
-    rooms::DePlaceRoom,
     state::{AppState, ImportantPaths},
 };
 
@@ -119,8 +124,6 @@ pub async fn on_message(
     if !actions.iter().any(|a| a.should_notify()) {
         return;
     }
-
-    let notification_manager = state.notification_manager();
 
     let is_highlight = actions
         .iter()
@@ -240,28 +243,47 @@ pub async fn on_message(
         notification
     };
 
-    let handle = match notification.show() {
-        Ok(handle) => handle,
-        Err(e) => {
-            tracing::warn!("Failed to send notification: {:?}", e);
-            return;
-        }
-    };
+    // On Windows, notify-rust's notifications are fire-and-forget: there's no
+    // handle to track, so "Mark as Read"/"Dismiss" actions and updating an
+    // already-shown notification aren't available there.
+    #[cfg(windows)]
+    if let Err(e) = notification.show() {
+        tracing::warn!("Failed to send notification: {:?}", e);
+    }
 
-    notification_manager.add_room_notification(
-        event.event_id,
-        room.room_id().to_owned(),
-        handle,
-        state.clone(),
-        room,
-    );
+    #[cfg(not(windows))]
+    {
+        let handle = match notification.show() {
+            Ok(handle) => handle,
+            Err(e) => {
+                tracing::warn!("Failed to send notification: {:?}", e);
+                return;
+            }
+        };
+
+        state.notification_manager().add_room_notification(
+            event.event_id,
+            room.room_id().to_owned(),
+            handle,
+            state.clone(),
+            room,
+        );
+    }
 }
 
+// Windows notifications are fire-and-forget (no handle to track), so there's
+// nothing for the manager to do there - see the `show()` call in `on_message`.
+#[cfg(windows)]
+#[derive(Default, Debug, Clone)]
+pub struct NotificationManager;
+
+#[cfg(not(windows))]
 #[derive(Default, Debug, Clone)]
 pub struct NotificationManager {
     room_notifications: Arc<DashMap<OwnedEventId, NotificationHandle>>,
 }
 
+#[cfg(not(windows))]
 impl NotificationManager {
     pub fn add_room_notification(
         &self,
