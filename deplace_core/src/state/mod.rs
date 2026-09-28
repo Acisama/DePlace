@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::Result;
 use futures::{Stream, stream};
+use indexmap::IndexMap;
 use matrix_sdk::{
     Client,
     room::RoomMember,
@@ -17,7 +18,7 @@ use ruma::{RoomId, events::presence::PresenceEventContent};
 use tokio::sync::watch::{self, Receiver, Ref, Sender};
 
 use crate::{
-    APP_NAME,
+    APP_NAME, ProfileLike,
     keybinds::Keybinds,
     matrix_api::account_data::{
         BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data,
@@ -96,7 +97,7 @@ pub struct UserDevice {
     pub device_id: OwnedDeviceId,
 }
 
-pub type MembershipMap = HashMap<OwnedRoomId, HashMap<OwnedUserId, RoomMember>>;
+pub type MembershipMap = HashMap<OwnedRoomId, IndexMap<OwnedUserId, RoomMember>>;
 pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
 
 pub mod cache;
@@ -493,9 +494,9 @@ impl AppState {
     pub(crate) fn add_membership(&self, room_id: OwnedRoomId, member: RoomMember) {
         self.inner.membership_version.send_modify(|v| *v += 1);
         self.inner.membership_map.send_if_modified(|cur| {
-            cur.entry(room_id)
-                .or_default()
-                .insert(member.user_id().to_owned(), member);
+            let entry = cur.entry(room_id).or_default();
+            entry.insert(member.user_id().to_owned(), member);
+            entry.sort_by_cached_key(|_, m| m.get_name());
             true
         });
     }

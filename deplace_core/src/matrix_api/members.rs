@@ -1,8 +1,11 @@
+use indexmap::IndexMap;
 use matrix_sdk::{Client, Room, RoomMemberships, event_handler::Ctx, room::RoomMember};
 use ruma::{OwnedUserId, events::room::member::OriginalSyncRoomMemberEvent};
-use std::collections::HashMap;
 
-use crate::state::{AppState, MembershipMap};
+use crate::{
+    ProfileLike,
+    state::{AppState, MembershipMap},
+};
 
 async fn handle_member_event(ev: OriginalSyncRoomMemberEvent, room: Room, state: Ctx<AppState>) {
     let member = match room.get_member(&ev.sender).await {
@@ -24,7 +27,7 @@ pub async fn set_membership_map(rooms: Vec<Room>, state: AppState) {
     let mut membership_map = MembershipMap::default();
 
     for room in rooms {
-        let members: HashMap<OwnedUserId, RoomMember> = room
+        let mut members: IndexMap<OwnedUserId, RoomMember> = room
             .members(RoomMemberships::ACTIVE)
             .await
             .map_err(|e| {
@@ -34,6 +37,8 @@ pub async fn set_membership_map(rooms: Vec<Room>, state: AppState) {
             .into_iter()
             .map(|m| (m.user_id().to_owned(), m))
             .collect();
+        members.sort_by_cached_key(|_, m| m.get_name());
+
         membership_map.insert(room.room_id().into(), members);
     }
     state.set_membership_map(membership_map);

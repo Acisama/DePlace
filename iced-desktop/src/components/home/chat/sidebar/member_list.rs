@@ -3,12 +3,16 @@ use std::collections::BTreeSet;
 use deplace_core::state::PresenceMap;
 use iced::{Alignment, Length, widget::svg};
 use macros::iced_cache;
-use matrix_sdk::ruma::{events::presence::PresenceEventContent, presence::PresenceState};
+use matrix_sdk::{
+    room::RoomMember,
+    ruma::{events::presence::PresenceEventContent, presence::PresenceState},
+};
 
-use crate::common::*;
+use crate::{common::*, components::render_presence};
 
 #[derive(Debug, Clone)]
 pub enum MemberListMessage {
+    MemberPressed(RoomMember),
     NeedsAvatar(OwnedMxcUri),
 }
 
@@ -54,7 +58,12 @@ impl MemberList {
 impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
     fn update(&mut self, message: MemberListMessage) -> Option<MemberListAction> {
         match message {
+            MemberListMessage::MemberPressed(member) => {
+                tracing::trace!("Member pressed: {:?}", member.user_id());
+                None
+            }
             MemberListMessage::NeedsAvatar(uri) => {
+                self.avatar_states_for_hash.insert(uri.clone());
                 Some(MemberListAction::NeedsMedia(NeedsMedia::avatar(uri)))
             }
         }
@@ -85,6 +94,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
             .partition(|(presence, _)| !matches!(presence.presence, PresenceState::Offline));
 
         let mut heading_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
+        let mut column_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
 
         let icon = |text, icon, color, heading: &mut Vec<Element<'static, MemberListMessage>>| {
             heading.push(
@@ -102,9 +112,67 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
             );
         };
 
+        let icon_size = structure.sidebar.dm_icon_height;
+        let avatar_cache = &self.avatar_cache;
+
+        let expand_column =
+            |text,
+             members: Vec<(PresenceEventContent, RoomMember)>,
+             column: &mut Vec<Element<'static, MemberListMessage>>| {
+                column.push(
+                    w::column![
+                        w::text(text).color(theme.text.dim),
+                        Space::new().height(structure.small_gap / 4.0)
+                    ]
+                    .extend(members.iter().map(|(p, member)| {
+                        w::button(
+                            w::row![
+                                render_presence(
+                                    member,
+                                    &p.presence,
+                                    theme,
+                                    structure,
+                                    icon_size,
+                                    avatar_cache,
+                                    theme.solid_bg.into(),
+                                ),
+                                member.render_name(structure.font_size)
+                            ]
+                            .padding(
+                                padding::vertical(structure.small_gap * 0.75)
+                                    .horizontal(structure.small_gap),
+                            )
+                            .width(Fill)
+                            .spacing(structure.gap)
+                            .align_y(Alignment::Center),
+                        )
+                        .padding(0.0)
+                        .style(move |_, status| ButtonStyle {
+                            background: status.active().then_some(theme.solid_hover_bg.into()),
+                            border: Border {
+                                color: if status.active() {
+                                    theme.border.into()
+                                } else {
+                                    Color::TRANSPARENT
+                                },
+                                width: structure.border_thickness,
+                                radius: structure.inner_border_radius.into(),
+                            },
+                            ..Default::default()
+                        })
+                        .on_press(MemberListMessage::MemberPressed(member.clone()))
+                        .into()
+                    }))
+                    .padding(structure.divider_width)
+                    .into(),
+                );
+            };
+
         if !online_members.is_empty() {
+            let length = online_members.len().to_string();
+
             icon(
-                online_members.len().to_string(),
+                length.clone(),
                 include_bytes!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/../assets/indicators/online.svg"
@@ -113,11 +181,19 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                 theme.colors.online.into(),
                 &mut heading_children,
             );
+
+            expand_column(
+                format!("Online — {}", length),
+                online_members,
+                &mut column_children,
+            );
         }
 
         if !offline_members.is_empty() {
+            let length = offline_members.len().to_string();
+
             icon(
-                offline_members.len().to_string(),
+                length.clone(),
                 include_bytes!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/../assets/indicators/offline.svg"
@@ -125,6 +201,12 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                 .to_vec(),
                 theme.colors.offline.into(),
                 &mut heading_children,
+            );
+
+            expand_column(
+                format!("Offline — {}", length),
+                offline_members,
+                &mut column_children,
             );
         }
 
@@ -137,6 +219,8 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
             .width(Fill)
             .center_x(Length::Fill)
         ]
+        .extend(column_children)
+        .spacing(structure.gap)
         .width(Fill)
         .height(Fill)
         .padding(structure.gap)

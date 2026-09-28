@@ -66,6 +66,7 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
         match message {
             ProfileCardMessage::UserIdCopied => None,
             ProfileCardMessage::NeedsAvatar(uri) => {
+                self.avatar_states_for_hash.insert(uri.clone());
                 Some(ProfileCardAction::NeedsMedia(NeedsMedia::avatar(uri)))
             }
             ProfileCardMessage::CopyUserId(user_id) => Some(ProfileCardAction::Perform(
