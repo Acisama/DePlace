@@ -59,18 +59,6 @@ jobs:
           Install-Msi "gst-runtime.msi" "gst-runtime.log"
           Install-Msi "gst-devel.msi" "gst-devel.log"
 
-      - name: Locate GStreamer install (diagnostic)
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "Does ${{ env.GST_ROOT }} exist?"
-          Test-Path "${{ env.GST_ROOT }}"
-          Write-Host "Searching C:\ for gst-inspect-1.0.exe (this may take a moment)..."
-          Get-ChildItem -Path C:\ -Filter "gst-inspect-1.0.exe" -Recurse -Force -ErrorAction SilentlyContinue |
-            Select-Object -ExpandProperty FullName
-          Write-Host "Machine env var GSTREAMER_1_0_ROOT_MSVC_X86_64:"
-          [System.Environment]::GetEnvironmentVariable("GSTREAMER_1_0_ROOT_MSVC_X86_64", "Machine")
-
       - name: Wire up PATH / pkg-config
         shell: pwsh
         run: |
