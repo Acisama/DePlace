@@ -3,60 +3,11 @@ use quote::quote;
 use syn::{
     DeriveInput, Expr, ExprLit, Fields, Lit, Path, Token, parse_macro_input, punctuated::Punctuated,
 };
-use tailwind::StyleList;
-
-mod tailwind;
-
-mod section;
-
-mod settings;
 
 mod iced_cache;
-
 mod phosphor_icon;
-
-#[proc_macro]
-pub fn tailwind_div(input: TokenStream) -> TokenStream {
-    let StyleList {
-        base_calls,
-        hover_calls,
-    } = syn::parse_macro_input!(input as StyleList);
-
-    let base_methods = base_calls.into_iter().map(|call| {
-        let name = &call.name;
-        match &call.args {
-            Some(args) => quote! { .#name(#args) },
-            None => quote! { .#name() },
-        }
-    });
-
-    let hover_methods: Vec<_> = hover_calls
-        .into_iter()
-        .map(|call| {
-            let name = &call.name;
-            match &call.args {
-                Some(args) => quote! { .#name(#args) },
-                None => quote! { .#name() },
-            }
-        })
-        .collect();
-
-    let hover_block = if !hover_methods.is_empty() {
-        quote! {
-            .hover(|style| style #( #hover_methods )* )
-        }
-    } else {
-        quote! {}
-    };
-
-    let expanded = quote! {
-        gpui::div()
-            #( #base_methods )*
-            #hover_block
-    };
-
-    TokenStream::from(expanded)
-}
+mod section;
+mod settings;
 
 /// Generates a settings-section widget struct from a declarative field tree.
 ///

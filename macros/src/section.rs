@@ -8,7 +8,7 @@ use syn::{Ident, LitStr, Token, Type, bracketed, parenthesized};
 /// for a `Settings` field, or a nested `section("Title", [ ...items ])` group.
 enum Item {
     Spacer,
-    Field(Ident, Type),
+    Field(Ident, Box<Type>),
     Group(LitStr, Vec<Item>),
 }
 
@@ -45,7 +45,7 @@ impl Parse for Item {
         let field: Ident = input.parse()?;
         input.parse::<Token![:]>()?;
         let ty: Type = input.parse()?;
-        Ok(Item::Field(field, ty))
+        Ok(Item::Field(field, Box::new(ty)))
     }
 }
 

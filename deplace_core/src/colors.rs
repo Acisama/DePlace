@@ -41,11 +41,6 @@ impl DePlaceColor {
         CssColor::new(self.r, self.g, self.b, self.a).to_hsla()
     }
 
-    #[cfg(feature = "desktop")]
-    pub fn to_gpui(&self) -> gpui::Hsla {
-        self.into()
-    }
-
     #[cfg(feature = "iced_desktop")]
     pub fn to_iced(self) -> iced::Color {
         self.into()
@@ -90,14 +85,6 @@ impl From<CssColor> for DePlaceColor {
             b: color.b,
             a: color.a,
         }
-    }
-}
-
-#[cfg(feature = "desktop")]
-impl From<&DePlaceColor> for gpui::Hsla {
-    fn from(val: &DePlaceColor) -> Self {
-        let [h, s, l, a] = val.to_hsla();
-        gpui::hsla(h / 360.0, s, l, a)
     }
 }
 

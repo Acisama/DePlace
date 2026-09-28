@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
   "deplace_core",
-  # "desktop",
   "iced-desktop",
   "macros",
 ]
@@ -26,7 +25,6 @@ enumset = { version = "1.1.14", features = ["serde"] }
 futures = "0.3.34"
 futures-util = "0.3"
 getrandom = { version = "0.4.0-rc.1" }
-gpui = { git = "https://github.com/zed-industries/zed" }
 iced = {
   git = "https://github.com/acisama/iced",
   version = "0.15.0-dev",
@@ -85,24 +83,3 @@ uuid = { version = "1.24.0", features = ["v7"] }
 # iced_core = { path = "../iced/core" }
 # iced_graphics = { path = "../iced/graphics" }
 # iced_wgpu = { path = "../iced/wgpu" }
-
-[patch."https://github.com/zed-industries/zed"]
-collections = { git = "https://github.com/acisama/zed", branch = "main" }
-gpui = { git = "https://github.com/acisama/zed", branch = "main", version = "=0.2.2" }
-gpui_linux = { git = "https://github.com/acisama/zed", branch = "main" }
-gpui_macos = { git = "https://github.com/acisama/zed", branch = "main" }
-gpui_macros = { git = "https://github.com/acisama/zed", branch = "main" }
-gpui_platform = { git = "https://github.com/acisama/zed", branch = "main" }
-gpui_util = { git = "https://github.com/acisama/zed", branch = "main" }
-gpui_web = { git = "https://github.com/acisama/zed", branch = "main" }
-gpui_wgpu = { git = "https://github.com/acisama/zed", branch = "main" }
-gpui_windows = { git = "https://github.com/acisama/zed", branch = "main" }
-http_client = { git = "https://github.com/acisama/zed", branch = "main" }
-media = { git = "https://github.com/acisama/zed", branch = "main" }
-# gpui = { path = "/home/eriko/zed/crates/gpui" }
-# gpui_linux = { path = "/home/eriko/zed/crates/gpui_linux" }
-# gpui_macos = { path = "/home/eriko/zed/crates/gpui_macos" }
-# gpui_macros = { path = "/home/eriko/zed/crates/gpui_macros" }
-# gpui_web = { path = "/home/eriko/zed/crates/gpui_web" }
-# gpui_wgpu = { path = "/home/eriko/zed/crates/gpui_wgpu" }
-# gpui_windows = { path = "/home/eriko/zed/crates/gpui_windows" }
