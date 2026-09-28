@@ -100,7 +100,30 @@ jobs:
 
           Compress-Archive -Path "$out\*" -DestinationPath "DePlace-windows-x86_64.zip"
 
+      - name: Sign release archive
+        shell: pwsh
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          Invoke-WebRequest "https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip" -OutFile minisign.zip
+          Expand-Archive minisign.zip -DestinationPath minisign
+          $minisign = "minisign\minisign-win64\x86_64\minisign.exe"
+
+          # Written to a temp file only for the lifetime of this ephemeral runner;
+          # GitHub also masks the secret's value in all logs automatically.
+          Set-Content -Path seckey.txt -Value $env:MINISIGN_SECRET_KEY -NoNewline
+
+          & $minisign -S -s seckey.txt -m DePlace-windows-x86_64.zip -t "DePlace $($env:GITHUB_REF_NAME)"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "minisign signing failed"
+            exit 1
+          }
+
+          Remove-Item seckey.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: DePlace-windows-x86_64
-          path: DePlace-windows-x86_64.zip
+          path: |
+            DePlace-windows-x86_64.zip
+            DePlace-windows-x86_64.zip.minisig
