@@ -51,28 +51,6 @@ pub struct ServerColumn {
     avatar_cache: AvatarCache,
 }
 
-// impl ExtraHash for ServerColumn {
-//     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-//         for room in self.dm_rooms.borrow().values() {
-//             let count = room.unread_notification_counts();
-//             count.highlight_count.hash(state);
-//             count.notification_count.hash(state);
-//         }
-
-//         for id in self.server_order.borrow().iter() {
-//             let ptac = self.parent_to_all_children.borrow();
-//             let Some(rooms) = ptac.get(id) else {
-//                 continue;
-//             };
-//             for room in rooms.values() {
-//                 let count = room.unread_notification_counts();
-//                 count.highlight_count.hash(state);
-//                 count.notification_count.hash(state);
-//             }
-//         }
-//     }
-// }
-
 impl ServerColumn {
     pub fn new(state: &AppState) -> Self {
         Self {
@@ -209,21 +187,25 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         hovered,
                         true,
                         corner_badge(
-                            w::mouse_area(
-                                w::button(room.render_icon(icon_size, avatar_cache))
-                                    .padding(0.0)
-                                    .style(move |_, _| ButtonStyle {
-                                        ..Default::default()
-                                    })
-                                    .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
-                            )
-                            .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
-                                id.clone(),
-                            )))
-                            .on_exit(
-                                ServerColumnMessage::ServerHoverEnded(ActiveServerId::Server(
-                                    id.clone(),
-                                )),
+                            help_view.call(
+                                HelpKey::Sidebar(SidebarHelpKey::DmsWithNotifications),
+                                "Direct messages with unread notifications or ongoing calls",
+                                w::mouse_area(
+                                    w::button(room.render_icon(icon_size, avatar_cache))
+                                        .padding(0.0)
+                                        .style(move |_, _| ButtonStyle {
+                                            ..Default::default()
+                                        })
+                                        .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
+                                )
+                                .on_enter(ServerColumnMessage::ServerHovered(
+                                    ActiveServerId::Server(id.clone()),
+                                ))
+                                .on_exit(
+                                    ServerColumnMessage::ServerHoverEnded(ActiveServerId::Server(
+                                        id.clone(),
+                                    )),
+                                ),
                             ),
                             0.4,
                             structure.icon_gap,
@@ -243,15 +225,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         let mut column = w::column![home_icon];
 
         if !dm_notification_pills.is_empty() {
-            column = column.push(
-                help_view
-                    .call(
-                        HelpKey::Sidebar(SidebarHelpKey::DmsWithNotifications),
-                        "Direct messages with unread activity show up here even when collapsed.",
-                        w::column(dm_notification_pills).spacing(structure.gap),
-                    )
-                    .radius(icon_size / 2.0),
-            );
+            column = column.push(w::column(dm_notification_pills).spacing(structure.gap));
         }
 
         let servers = sweeten::widget::column(self.room_watchers.servers().iter().enumerate().map(
