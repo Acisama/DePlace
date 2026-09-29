@@ -106,7 +106,7 @@ impl<'a, T: 'a> CornerBadge<'a, T> {
 fn corner_glyph<'a, T: 'a>(content: &CornerContent, diameter: f32) -> Element<'a, T> {
     match content {
         CornerContent::Text { text, color, .. } => weighted_text(text.clone(), Weight::ExtraBold)
-            .size(diameter * 0.7)
+            .size((diameter * 0.7).max(1.0))
             .line_height(LineHeight::Relative(1.0))
             .color(*color)
             .center()

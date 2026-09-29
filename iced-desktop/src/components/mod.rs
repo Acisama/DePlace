@@ -307,7 +307,7 @@ pub fn text_icon<'a, T: 'a>(
 ) -> Element<'a, T> {
     Stack::new()
         .push(
-            w::container(weighted_text(text, Weight::Bold).size(size / 2.0))
+            w::container(weighted_text(text, Weight::Bold).size((size / 2.0).max(1.0)))
                 .width(size)
                 .height(size)
                 .center(size)
