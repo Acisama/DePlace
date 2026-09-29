@@ -27,8 +27,11 @@ use phosphor_svgs::icon as icons;
 use crate::{
     common::*,
     components::{
-        InsetShadow,
-        home::chat::timeline::messages::{SystemEvent, SystemMessage},
+        HelpView, InsetShadow,
+        home::{
+            MessageHelpKey,
+            chat::timeline::messages::{SystemEvent, SystemMessage},
+        },
         phosphor_icon, render_profile_name_with_overlay,
         track_bounds::track_bounds,
     },
@@ -93,6 +96,8 @@ impl MessageEvent {
         theme: Theme,
         structure: Structure,
         as_dummy: bool,
+        help_state: HelpState<HelpKey>,
+        index: usize,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let pre_col_width = structure.small_gap * 1.5;
         let text_size = structure.chat.text_size;
@@ -107,12 +112,27 @@ impl MessageEvent {
         );
 
         let mut column = w::Column::new();
+        let help_view = create_help_view(help_state, theme, TimelineItemMessage::HelpHover);
 
         if let Some(text_content) = text_content {
-            column = column.push(text_content);
+            column = column.push(help_view.call(
+                HelpKey::Message {
+                    key: MessageHelpKey::TextContent,
+                    index,
+                },
+                "The text content of the message",
+                text_content,
+            ));
         }
         if let Some(other_content) = other_content {
-            column = column.push(other_content);
+            column = column.push(help_view.call(
+                HelpKey::Message {
+                    key: MessageHelpKey::OtherContent,
+                    index,
+                },
+                "The other content of the message",
+                other_content,
+            ));
         }
 
         let highlight_color = if self.is_replying_to && !as_dummy {
@@ -136,46 +156,81 @@ impl MessageEvent {
                 let size = structure.chat.icon_size;
                 let rounding = size / 2.0;
 
-                let name_row = move |name_view: Element<'static, TimelineItemMessage>| {
-                    Element::from(
-                        w::row![
-                            name_view,
-                            w::text(format_message_long_date(
-                                self.timestamp,
-                                *self.timezone.borrow(),
-                                *self.hour_format.borrow(),
-                                *self.date_format.borrow(),
-                            ))
-                            .line_height(LineHeight::Relative(1.0))
-                            .size(structure.chat.small_text_size)
-                            .color(theme.text.dim)
-                            .align_y(Alignment::End)
-                        ]
-                        .spacing(structure.small_gap)
-                        .padding(padding::bottom(structure.small_gap / 2.0))
-                        .align_y(Alignment::End),
-                    )
+                let name_row =
+                    move |name_view: Element<'static, TimelineItemMessage>,
+                          help_view: &HelpView<TimelineItemMessage>| {
+                        Element::from(
+                            w::row![
+                                help_view.call(
+                                    HelpKey::Message {
+                                        key: MessageHelpKey::Name,
+                                        index,
+                                    },
+                                    "The name of the user who sent this message",
+                                    name_view
+                                ),
+                                help_view.call(
+                                    HelpKey::Message {
+                                        key: MessageHelpKey::Date,
+                                        index,
+                                    },
+                                    "The date and time this message was sent",
+                                    w::text(format_message_long_date(
+                                        self.timestamp,
+                                        *self.timezone.borrow(),
+                                        *self.hour_format.borrow(),
+                                        *self.date_format.borrow(),
+                                    ))
+                                    .line_height(LineHeight::Relative(1.0))
+                                    .size(structure.chat.small_text_size)
+                                    .color(theme.text.dim)
+                                    .align_y(Alignment::End)
+                                )
+                            ]
+                            .spacing(structure.small_gap)
+                            .padding(padding::bottom(structure.small_gap / 2.0))
+                            .align_y(Alignment::End),
+                        )
+                    };
+
+                let icon = move |content,
+                                 help_view: &HelpView<TimelineItemMessage>|
+                      -> Element<'static, TimelineItemMessage> {
+                    help_view
+                        .call(
+                            HelpKey::Message {
+                                key: MessageHelpKey::Icon,
+                                index,
+                            },
+                            "The icon of the user who sent this message",
+                            content,
+                        )
+                        .radius(size / 2.0)
+                        .into()
                 };
 
                 match &self.sender_profile {
                     TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
-                        Some(unknown_icon(size, rounding, theme)),
-                        Some(name_row(render_unknown_name(text_size, theme))),
+                        Some(icon(unknown_icon(size, rounding, theme), &help_view)),
+                        Some(name_row(render_unknown_name(text_size, theme), &help_view)),
                         theme.colors.error,
                     ),
                     TimelineDetails::Pending => (
-                        Some(loading_icon(size, rounding, theme)),
-                        Some(name_row(render_loading_name(text_size, theme))),
+                        Some(icon(loading_icon(size, rounding, theme), &help_view)),
+                        Some(name_row(render_loading_name(text_size, theme), &help_view)),
                         theme.colors.offline,
                     ),
                     TimelineDetails::Ready(p) => (
-                        Some(p.render_icon(size, &self.avatar_cache)),
-                        Some(name_row(render_profile_name_with_overlay(
-                            p,
-                            room_id.clone(),
-                            p.profile_id().to_owned(),
-                            text_size,
-                        ))),
+                        Some(icon(p.render_icon(size, &self.avatar_cache), &help_view)),
+                        Some(name_row(
+                            render_profile_name_with_overlay(
+                                p,
+                                room_id.clone(),
+                                p.profile_id().to_owned(),
+                                text_size,
+                            ),
+                            &help_view,
+                        )),
                         p.color(),
                     ),
                 }
@@ -189,137 +244,158 @@ impl MessageEvent {
 
         let pill_width = pre_col_width / 3.0;
 
-        let replies = w::Column::with_children(self.in_reply_to.iter().map(|repl| {
-            let (icon, name, color, content) = match &repl.event {
-                TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
-                    unknown_icon(small_icon_size, small_icon_size / 2.0, theme),
-                    render_unknown_name(small_text_size, theme),
-                    theme.colors.error,
-                    w::text("Failed to get reply")
-                        .color(theme.colors.error)
-                        .into(),
-                ),
-                TimelineDetails::Pending => (
-                    loading_icon(small_icon_size, small_icon_size / 2.0, theme),
-                    render_loading_name(small_text_size, theme),
-                    theme.colors.offline,
-                    w::text("Loading...").color(theme.colors.offline).into(),
-                ),
-                TimelineDetails::Ready(p) => {
-                    let (icon, name, color) = match &p.sender_profile {
-                        TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
-                            unknown_icon(small_icon_size, small_icon_size / 2.0, theme),
-                            render_unknown_name(small_text_size, theme),
-                            theme.colors.error,
-                        ),
-                        TimelineDetails::Pending => (
-                            loading_icon(small_icon_size, small_icon_size / 2.0, theme),
-                            render_loading_name(small_text_size, theme),
-                            theme.colors.offline,
-                        ),
-                        TimelineDetails::Ready(p) => (
-                            p.render_icon(small_icon_size, &self.avatar_cache),
-                            render_profile_name_with_overlay(
-                                p,
-                                room_id.clone(),
-                                p.profile_id().to_owned(),
-                                small_text_size,
+        let replies = w::Column::with_children(self.in_reply_to.iter().enumerate().map(
+            |(reply_index, repl)| {
+                let (icon, name, color, content) = match &repl.event {
+                    TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
+                        unknown_icon(small_icon_size, small_icon_size / 2.0, theme),
+                        render_unknown_name(small_text_size, theme),
+                        theme.colors.error,
+                        w::text("Failed to get reply")
+                            .color(theme.colors.error)
+                            .into(),
+                    ),
+                    TimelineDetails::Pending => (
+                        loading_icon(small_icon_size, small_icon_size / 2.0, theme),
+                        render_loading_name(small_text_size, theme),
+                        theme.colors.offline,
+                        w::text("Loading...").color(theme.colors.offline).into(),
+                    ),
+                    TimelineDetails::Ready(p) => {
+                        let (icon, name, color) = match &p.sender_profile {
+                            TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
+                                unknown_icon(small_icon_size, small_icon_size / 2.0, theme),
+                                render_unknown_name(small_text_size, theme),
+                                theme.colors.error,
                             ),
-                            p.color(),
-                        ),
-                    };
+                            TimelineDetails::Pending => (
+                                loading_icon(small_icon_size, small_icon_size / 2.0, theme),
+                                render_loading_name(small_text_size, theme),
+                                theme.colors.offline,
+                            ),
+                            TimelineDetails::Ready(p) => (
+                                p.render_icon(small_icon_size, &self.avatar_cache),
+                                render_profile_name_with_overlay(
+                                    p,
+                                    room_id.clone(),
+                                    p.profile_id().to_owned(),
+                                    small_text_size,
+                                ),
+                                p.color(),
+                            ),
+                        };
 
-                    let content = p.content.view(theme, small_text_size);
+                        let content = p.content.view(theme, small_text_size);
 
-                    (icon, name, color, content)
-                }
-            };
+                        (icon, name, color, content)
+                    }
+                };
 
-            w::row![
-                w::container(
-                    w::container(Space::new())
-                        .style(move |_| ContainerStyle {
-                            background: Some(color.into()),
-                            border: border::rounded(pill_width / 2.0),
-                            ..Default::default()
-                        })
-                        .width(pill_width)
-                        .height(Fill)
-                )
-                .height(Fill)
-                .padding(padding::right(pill_width)),
-                w::column![
-                    w::row![icon, w::text(" ").size(small_text_size), name]
-                        .align_y(Alignment::Center),
-                    content
-                ]
-            ]
-            .height(Shrink)
-            .into()
-        }))
+                help_view
+                    .call(
+                        HelpKey::Message {
+                            key: MessageHelpKey::Reply(reply_index),
+                            index,
+                        },
+                        "A message this message directly or indirectly replies to",
+                        w::row![
+                            w::container(
+                                w::container(Space::new())
+                                    .style(move |_| ContainerStyle {
+                                        background: Some(color.into()),
+                                        border: border::rounded(pill_width / 2.0),
+                                        ..Default::default()
+                                    })
+                                    .width(pill_width)
+                                    .height(Fill)
+                            )
+                            .height(Fill)
+                            .padding(padding::right(pill_width)),
+                            w::column![
+                                w::row![icon, w::text(" ").size(small_text_size), name]
+                                    .align_y(Alignment::Center),
+                                content
+                            ]
+                        ]
+                        .height(Shrink),
+                    )
+                    .into()
+            },
+        ))
         .spacing(structure.small_gap)
         .padding(padding::top(pill_width));
 
-        w::container(
-            w::row![
-                if let Some(highlight_color) = highlight_color {
-                    w::container(
-                        w::container("")
-                            .width(pill_width)
-                            .height(Length::Fill)
-                            .style(move |_| ContainerStyle {
-                                border: border::rounded(pill_width / 2.0),
-                                background: Some(highlight_color.into()),
-                                ..Default::default()
-                            }),
-                    )
-                    .height(Length::Fill)
-                    .padding(pill_width)
-                } else {
-                    w::container("").width(pre_col_width)
+        help_view
+            .call(
+                HelpKey::Message {
+                    key: MessageHelpKey::Message,
+                    index,
                 },
-                w::column![
+                "A message sent in the current room",
+                w::container(
                     w::row![
-                        Space::new().width(structure.chat_col_width() - pre_col_width),
-                        replies
-                    ]
-                    .padding(padding::bottom(
-                        if !self.in_reply_to.is_empty() {
-                            structure.small_gap
+                        if let Some(highlight_color) = highlight_color {
+                            w::container(
+                                w::container("")
+                                    .width(pill_width)
+                                    .height(Length::Fill)
+                                    .style(move |_| ContainerStyle {
+                                        border: border::rounded(pill_width / 2.0),
+                                        background: Some(highlight_color.into()),
+                                        ..Default::default()
+                                    }),
+                            )
+                            .height(Length::Fill)
+                            .padding(pill_width)
                         } else {
-                            0.0
-                        }
-                    )),
-                    w::row![
+                            w::container("").width(pre_col_width)
+                        },
                         w::column![
-                            Space::new().height(structure.divider_width),
-                            icon.unwrap_or(Space::new().width(structure.chat.icon_size).into()),
-                            Space::new().height(structure.divider_width),
-                        ],
-                        Space::new().width(pre_col_width),
-                        w::column![name.unwrap_or(Space::new().into()), column].padding(
-                            padding::bottom(if as_dummy {
-                                structure.small_gap / 2.0
-                            } else {
-                                0.0
-                            })
-                        )
+                            w::row![
+                                Space::new().width(structure.chat_col_width() - pre_col_width),
+                                replies
+                            ]
+                            .padding(padding::bottom(
+                                if !self.in_reply_to.is_empty() {
+                                    structure.small_gap
+                                } else {
+                                    0.0
+                                }
+                            )),
+                            w::row![
+                                w::column![
+                                    Space::new().height(structure.divider_width),
+                                    icon.unwrap_or(
+                                        Space::new().width(structure.chat.icon_size).into()
+                                    ),
+                                    Space::new().height(structure.divider_width),
+                                ],
+                                Space::new().width(pre_col_width),
+                                w::column![name.unwrap_or(Space::new().into()), column].padding(
+                                    padding::bottom(if as_dummy {
+                                        structure.small_gap / 2.0
+                                    } else {
+                                        0.0
+                                    })
+                                )
+                            ]
+                        ]
                     ]
-                ]
-            ]
-            .height(Length::Shrink),
-        )
-        .style(move |_| ContainerStyle {
-            background,
-            border: border::rounded(if !as_dummy {
-                structure.semi_border_radius() + structure.border_thickness
-            } else {
-                0.0
-            }),
-            ..Default::default()
-        })
-        .width(Fill)
-        .into()
+                    .height(Length::Shrink),
+                )
+                .style(move |_| ContainerStyle {
+                    background,
+                    border: border::rounded(if !as_dummy {
+                        structure.semi_border_radius() + structure.border_thickness
+                    } else {
+                        0.0
+                    }),
+                    ..Default::default()
+                })
+                .width(Fill),
+            )
+            .radius(structure.inner_border_radius)
+            .into()
     }
 }
 

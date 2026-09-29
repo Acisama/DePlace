@@ -137,7 +137,12 @@ impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, DiscoveryMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        _: HelpState<HelpKey>,
+    ) -> Element<'static, DiscoveryMessage> {
         let input: iced::widget::TextInput<'static, DiscoveryMessage> = text_input(
             "https://matrix.example.org",
             &self.homeserver_url,

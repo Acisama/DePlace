@@ -40,6 +40,7 @@ pub enum ChatMessage {
         pinned_initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
         power_levels: Arc<RoomPowerLevels>,
     },
+    HelpHover(Option<HelpKey>),
 }
 
 pub enum ChatAction {
@@ -57,6 +58,7 @@ pub enum ChatAction {
         user_id: OwnedUserId,
         bounds: Rectangle,
     },
+    HelpHover(Option<HelpKey>),
 }
 
 #[iced_cache(Clone)]
@@ -231,6 +233,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
     fn update(&mut self, msg: ChatMessage) -> Option<ChatAction> {
         match msg {
             ChatMessage::None => None,
+            ChatMessage::HelpHover(help) => Some(ChatAction::HelpHover(help)),
             ChatMessage::ToggleOverview => {
                 self.sidebar.toggle_member_list();
                 None
@@ -268,6 +271,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 }
                 HeaderAction::JoinCall => Some(ChatAction::JoinCall),
                 HeaderAction::LeaveCall => Some(ChatAction::LeaveCall),
+                HeaderAction::HelpHover(help) => Some(ChatAction::HelpHover(help)),
             },
             ChatMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
                 SidebarAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
@@ -283,8 +287,10 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     user_id,
                     bounds,
                 }),
+                SidebarAction::HelpHover(key) => Some(ChatAction::HelpHover(key)),
             },
             ChatMessage::Timeline(msg) => match self.timeline.update(msg)? {
+                TimelineAction::HelpHover(help_key) => Some(ChatAction::HelpHover(help_key)),
                 TimelineAction::SetIsReplyingTo { event_id, message } => {
                     self.input.set_replies_to(message, event_id);
                     None
@@ -315,6 +321,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     self.timeline.remove_replying();
                     None
                 }
+                InputAction::HelpOver(help) => Some(ChatAction::HelpHover(help)),
             },
             ChatMessage::KeyboardEvent(event) => {
                 match self
@@ -341,22 +348,36 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                         user_id,
                         bounds,
                     }),
+                    TimelineAction::HelpHover(help_key) => Some(ChatAction::HelpHover(help_key)),
                 }
             }
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, ChatMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> Element<'static, ChatMessage> {
+        let help_view = create_help_view(help_state, theme, ChatMessage::HelpHover);
+
         let main_content = floating_tile(
             theme,
             structure,
             w::column![
-                w::lazy(self.timeline.clone(), move |timeline| timeline
-                    .view(theme, structure)
-                    .map(ChatMessage::Timeline)),
-                w::lazy(self.input.clone(), move |input| input
-                    .view(theme, structure)
-                    .map(ChatMessage::Input)),
+                w::lazy(
+                    (self.timeline.clone(), help_state),
+                    move |(timeline, help_state)| timeline
+                        .view(theme, structure, *help_state)
+                        .map(ChatMessage::Timeline),
+                ),
+                w::lazy(
+                    (self.input.clone(), help_state),
+                    move |(input, help_state)| input
+                        .view(theme, structure, *help_state)
+                        .map(ChatMessage::Input)
+                ),
             ]
             .padding(Padding {
                 top: structure.border_thickness,
@@ -370,20 +391,44 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
         .height(Fill)
         .width(Fill);
 
-        let sidebar = w::lazy(self.sidebar.clone(), move |sidebar| {
-            sidebar.view(theme, structure).map(ChatMessage::Sidebar)
-        });
+        let main_content = help_view
+            .call(
+                HelpKey::Chat(super::ChatHelpKey::MainPanel),
+                "The main chat panel",
+                main_content,
+            )
+            .radius(structure.outer_border_radius);
 
-        w::column![
-            w::lazy(self.header.clone(), move |header| {
-                header.view(theme, structure).map(ChatMessage::Header)
-            }),
-            w::row![main_content, sidebar]
+        let sidebar = w::lazy(
+            (self.sidebar.clone(), help_state),
+            move |(sidebar, help_state)| {
+                sidebar
+                    .view(theme, structure, *help_state)
+                    .map(ChatMessage::Sidebar)
+            },
+        );
+
+        help_view
+            .call(
+                HelpKey::Chat(super::ChatHelpKey::Chat),
+                "The chat in the active room",
+                w::column![
+                    w::lazy(
+                        (self.header.clone(), help_state),
+                        move |(header, help_state)| {
+                            header
+                                .view(theme, structure, *help_state)
+                                .map(ChatMessage::Header)
+                        }
+                    ),
+                    w::row![main_content, sidebar]
+                        .height(Fill)
+                        .spacing(structure.small_gap)
+                ]
                 .height(Fill)
-                .spacing(structure.small_gap)
-        ]
-        .height(Fill)
-        .spacing(structure.small_gap)
-        .into()
+                .spacing(structure.small_gap),
+            )
+            .radius(structure.outer_border_radius)
+            .into()
     }
 }

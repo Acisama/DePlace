@@ -57,6 +57,7 @@ pub enum TimelineItemMessage {
         user_id: OwnedUserId,
         bounds: Rectangle,
     },
+    HelpHover(Option<HelpKey>),
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
@@ -89,6 +90,7 @@ pub enum TimelineItemAction {
         user_id: OwnedUserId,
         bounds: Rectangle,
     },
+    HelpHover(Option<HelpKey>),
 }
 
 /// An item in the timeline
@@ -322,6 +324,7 @@ impl TimelineItem {
 
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
+            TimelineItemMessage::HelpHover(help) => Some(TimelineItemAction::HelpHover(help)),
             TimelineItemMessage::OpenProfileOverlay {
                 room_id,
                 user_id,
@@ -419,10 +422,14 @@ impl TimelineItem {
         theme: Theme,
         structure: Structure,
         is_focused: bool,
+        help_state: HelpState<HelpKey>,
+        index: usize,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let fallback = w::text(format!("{:?}", self)).into();
 
         let room_id = self.room_id.clone();
+
+        let help_view = create_help_view(help_state, theme, TimelineItemMessage::HelpHover);
 
         match &self.kind {
             TimelineItemKind::DateDivider {
@@ -499,9 +506,19 @@ impl TimelineItem {
                 let connects_previous = event.connects_previous;
 
                 render_event(
-                    w::lazy(event.clone(), move |event| {
-                        event.view(room_id.clone(), theme, structure, false)
-                    }),
+                    w::lazy(
+                        (event.clone(), help_state.clone(), index),
+                        move |(event, help_state, index)| {
+                            event.view(
+                                room_id.clone(),
+                                theme,
+                                structure,
+                                false,
+                                *help_state,
+                                *index,
+                            )
+                        },
+                    ),
                     structure,
                     theme,
                     is_hovered,

@@ -253,7 +253,7 @@ pub fn section(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn view(&self, theme: crate::common::Theme, structure: crate::common::Structure) -> ::iced::Element<'static, #message_name> {
+            fn view(&self, theme: crate::common::Theme, structure: crate::common::Structure, help_state: crate::common::HelpState<crate::common::HelpKey>) -> ::iced::Element<'static, #message_name> {
                 use ::iced::widget as w;
 
                 w::column![ #(#views),* ]

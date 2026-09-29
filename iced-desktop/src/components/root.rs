@@ -180,17 +180,26 @@ impl IcedWidget<AppMessage, Task<AppMessage>> for Screen {
         None
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, AppMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> Element<'static, AppMessage> {
         match self {
             Screen::Loading => Space::new().into(),
-            Screen::Discovery(discovery) => {
-                discovery.view(theme, structure).map(AppMessage::Discovery)
-            }
-            Screen::Login(login) => login.view(theme, structure).map(AppMessage::Login),
+            Screen::Discovery(discovery) => discovery
+                .view(theme, structure, help_state)
+                .map(AppMessage::Discovery),
+            Screen::Login(login) => login
+                .view(theme, structure, help_state)
+                .map(AppMessage::Login),
             Screen::Verification(verification) => verification
-                .view(theme, structure)
+                .view(theme, structure, help_state)
                 .map(AppMessage::Verification),
-            Screen::Home(home) => home.view(theme, structure).map(AppMessage::Home),
+            Screen::Home(home) => home
+                .view(theme, structure, help_state)
+                .map(AppMessage::Home),
         }
     }
 }
@@ -329,7 +338,7 @@ impl Root {
         Stack::new()
             .push(background)
             .push(w::lazy(&self.screen, move |screen| {
-                screen.view(theme, structure)
+                screen.view(theme, structure, HelpState::default())
             }))
             .into()
     }

@@ -5,6 +5,8 @@ use server_column::{ServerColumn, ServerColumnAction, ServerColumnMessage};
 
 use crate::common::*;
 
+use super::SidebarHelpKey;
+
 mod channels;
 mod pill;
 mod server_column;
@@ -13,6 +15,7 @@ mod server_column;
 pub enum SidebarMessage {
     ServerColumn(ServerColumnMessage),
     Channels(ChannelsMessage),
+    HelpHover(Option<HelpKey>),
 }
 
 pub enum SidebarAction {
@@ -20,6 +23,7 @@ pub enum SidebarAction {
     ChangeRoom(Option<DePlaceRoom>),
     ChangeServer(ActiveServer),
     Run(Task<()>),
+    HelpHover(Option<HelpKey>),
 }
 
 #[iced_cache(Clone)]
@@ -42,6 +46,7 @@ impl Sidebar {
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
     fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
+            SidebarMessage::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             SidebarMessage::ServerColumn(msg) => match self.server_column.update(msg)? {
                 ServerColumnAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
                 ServerColumnAction::SetActiveServer(server) => {
@@ -51,29 +56,50 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                     Some(SidebarAction::ChangeRoom(Some(room)))
                 }
                 ServerColumnAction::Run(task) => Some(SidebarAction::Run(task)),
+                ServerColumnAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             },
             SidebarMessage::Channels(msg) => match self.channels.update(msg)? {
                 ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
                 ChannelsAction::SetActiveRoom(room) => Some(SidebarAction::ChangeRoom(Some(room))),
+                ChannelsAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             },
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, SidebarMessage> {
-        w::row![
-            w::lazy(self.server_column.clone(), move |server_column| {
-                server_column
-                    .view(theme, structure)
-                    .map(SidebarMessage::ServerColumn)
-            }),
-            Space::new().width(structure.small_gap),
-            w::lazy(self.channels.clone(), move |channels| {
-                channels
-                    .view(theme, structure)
-                    .map(SidebarMessage::Channels)
-            }),
-        ]
-        .height(Fill)
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> Element<'static, SidebarMessage> {
+        help(
+            help_state,
+            theme,
+            HelpKey::Sidebar(SidebarHelpKey::Sidebar),
+            "The sidebar, used for room navigation",
+            w::row![
+                w::lazy(
+                    (self.server_column.clone(), help_state),
+                    move |(server_column, help_state)| {
+                        server_column
+                            .view(theme, structure, *help_state)
+                            .map(SidebarMessage::ServerColumn)
+                    }
+                ),
+                Space::new().width(structure.small_gap),
+                w::lazy(
+                    (self.channels.clone(), help_state),
+                    move |(channels, help_state)| {
+                        channels
+                            .view(theme, structure, *help_state)
+                            .map(SidebarMessage::Channels)
+                    }
+                ),
+            ]
+            .height(Fill),
+            SidebarMessage::HelpHover,
+        )
+        .radius(structure.outer_border_radius)
         .into()
     }
 }

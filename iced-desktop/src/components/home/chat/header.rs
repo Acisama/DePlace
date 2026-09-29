@@ -5,7 +5,10 @@ use enumset::EnumSet;
 use iced::Alignment;
 use macros::iced_cache;
 
-use crate::{common::*, components::phosphor_icon};
+use crate::{
+    common::*,
+    components::{home::HeaderHelpKey, phosphor_icon},
+};
 
 use super::sidebar::SidebarState;
 
@@ -17,6 +20,7 @@ pub enum HeaderMessage {
     NeedsAvatar(OwnedMxcUri),
     LeaveCall,
     JoinCall,
+    HelpHover(Option<HelpKey>),
 }
 
 impl NeedsAvatarExt for HeaderMessage {
@@ -32,6 +36,7 @@ pub enum HeaderAction {
     ToggleList,
     JoinCall,
     LeaveCall,
+    HelpHover(Option<HelpKey>),
 }
 
 #[iced_cache(Clone)]
@@ -81,6 +86,7 @@ impl Header {
 impl IcedWidget<HeaderMessage, HeaderAction> for Header {
     fn update(&mut self, msg: HeaderMessage) -> Option<HeaderAction> {
         match msg {
+            HeaderMessage::HelpHover(help) => Some(HeaderAction::HelpHover(help)),
             HeaderMessage::NeedsAvatar(uri) => {
                 self.avatar_states_for_hash.insert(uri.clone());
                 Some(HeaderAction::NeedsMedia(NeedsMedia::avatar(uri)))
@@ -114,16 +120,24 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, HeaderMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> Element<'static, HeaderMessage> {
         let Some(room) = self.room_watchers.get_room(&self.room_id) else {
             return w::Space::new().into();
         };
 
+        let help_view = create_help_view(help_state, theme, HeaderMessage::HelpHover);
+
         let icon_size = structure.header.icon_size;
+        let button_size = structure.header.button_size;
 
         let render_icon = |color, hover_color, icon, message, tooltip| {
             themed_tooltip(
-                w::button(phosphor_icon(icon, structure.header.button_size))
+                w::button(phosphor_icon(icon, button_size))
                     .on_press(message)
                     .style(move |_, status| ButtonStyle {
                         background: None,
@@ -139,98 +153,127 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
 
         let is_in_call = room.own_user_is_in_call();
 
-        floating_tile(
-            theme,
-            structure,
-            w::row![
+        let content =
+            floating_tile(
+                theme,
+                structure,
                 w::row![
-                    w::container(context_room_icon(
-                        &room,
-                        icon_size,
-                        theme,
-                        structure,
-                        &self.presence_map.borrow(),
-                        &self.avatar_cache,
-                        theme.solid_bg.into()
-                    ))
+                    w::row![
+                    w::container(help_view.call(
+                        HelpKey::Header(HeaderHelpKey::HeaderIcon),
+                        "The icon of the active room, shows other user's icon in dms",
+                        context_room_icon(
+                            &room,
+                            icon_size,
+                            theme,
+                            structure,
+                            &self.presence_map.borrow(),
+                            &self.avatar_cache,
+                            theme.solid_bg.into()
+                        )
+                    ).radius(icon_size * 0.25))
                     .style(move |_| ContainerStyle {
                         text_color: Some(theme.text.normal.into()),
                         ..Default::default()
                     }),
-                    room.render_name_decorated(
-                        structure.font_size,
-                        *self.name_decoration.borrow(),
-                        theme.text.dim.into()
+                    help_view.call(
+                        HelpKey::Header(HeaderHelpKey::HeaderName),
+                        "The name of the active room, shows the other user's display name in dms",
+                        room.render_name_decorated(
+                            structure.font_size,
+                            *self.name_decoration.borrow(),
+                            theme.text.dim.into()
+                        ),
                     ),
                 ]
-                .padding(structure.header.inner_icon_padding())
+                    .padding(structure.header.inner_icon_padding())
+                    .align_y(Alignment::Center)
+                    .spacing(structure.small_gap),
+                    Space::new().width(Fill),
+                    help_view.call(
+                        HelpKey::Header(HeaderHelpKey::CallButton),
+                        "Button to start or leave a voice call",
+                        render_icon(
+                            theme.text.dim.into(),
+                            if is_in_call {
+                                theme.colors.red.into()
+                            } else {
+                                theme.colors.green.into()
+                            },
+                            if is_in_call {
+                                phosphor_svgs::icon::phone_disconnect::BOLD
+                            } else {
+                                phosphor_svgs::icon::phone::REGULAR
+                            },
+                            if is_in_call {
+                                HeaderMessage::LeaveCall
+                            } else {
+                                HeaderMessage::JoinCall
+                            },
+                            if is_in_call {
+                                "Leave Call"
+                            } else {
+                                "Start Voice Call"
+                            }
+                        )
+                    ).radius(button_size * 0.25),
+                    help_view.call(
+                        HelpKey::Header(HeaderHelpKey::OpenPins),
+                        "Button to toggle pins in the current room",
+                        render_icon(
+                            theme.text.dim.into(),
+                            theme.colors.yellow.into(),
+                            if self.sidebar_state.contains(SidebarState::Pins) {
+                                phosphor_svgs::icon::push_pin::FILL
+                            } else {
+                                phosphor_svgs::icon::push_pin::REGULAR
+                            },
+                            HeaderMessage::TogglePins,
+                            "Toggle Pins"
+                        )
+                    ).radius(button_size * 0.25),
+                    help_view.call(
+                        HelpKey::Header(HeaderHelpKey::OpenMemberList),
+                        "Button to toggle the member list in the current room or the other user's profile if in a DM",
+                        render_icon(
+                            theme.text.dim.into(),
+                            theme.colors.green.into(),
+                            if self.sidebar_state.contains(SidebarState::MemberList) {
+                                if room.is_dm() {
+                                    phosphor_svgs::icon::user_circle::FILL
+                                } else {
+                                    phosphor_svgs::icon::user_list::FILL
+                                }
+                            } else {
+                                if room.is_dm() {
+                                    phosphor_svgs::icon::user_circle::REGULAR
+                                } else {
+                                    phosphor_svgs::icon::user_list::REGULAR
+                                }
+                            },
+                            HeaderMessage::ToggleList,
+                            if room.is_dm() {
+                                "Toggle User Profile"
+                            } else {
+                                "Toggle Member List"
+                            },
+                        )
+                    ).radius(button_size * 0.25),
+                ]
                 .align_y(Alignment::Center)
-                .spacing(structure.small_gap),
-                Space::new().width(Fill),
-                render_icon(
-                    theme.text.dim.into(),
-                    if is_in_call {
-                        theme.colors.red.into()
-                    } else {
-                        theme.colors.green.into()
-                    },
-                    if is_in_call {
-                        phosphor_svgs::icon::phone_disconnect::BOLD
-                    } else {
-                        phosphor_svgs::icon::phone::REGULAR
-                    },
-                    if is_in_call {
-                        HeaderMessage::LeaveCall
-                    } else {
-                        HeaderMessage::JoinCall
-                    },
-                    if is_in_call {
-                        "Leave Call"
-                    } else {
-                        "Start Voice Call"
-                    }
-                ),
-                render_icon(
-                    theme.text.dim.into(),
-                    theme.colors.yellow.into(),
-                    if self.sidebar_state.contains(SidebarState::Pins) {
-                        phosphor_svgs::icon::push_pin::FILL
-                    } else {
-                        phosphor_svgs::icon::push_pin::REGULAR
-                    },
-                    HeaderMessage::TogglePins,
-                    "Toggle Pins"
-                ),
-                render_icon(
-                    theme.text.dim.into(),
-                    theme.colors.green.into(),
-                    if self.sidebar_state.contains(SidebarState::MemberList) {
-                        if room.is_dm() {
-                            phosphor_svgs::icon::user_circle::FILL
-                        } else {
-                            phosphor_svgs::icon::user_list::FILL
-                        }
-                    } else {
-                        if room.is_dm() {
-                            phosphor_svgs::icon::user_circle::REGULAR
-                        } else {
-                            phosphor_svgs::icon::user_list::REGULAR
-                        }
-                    },
-                    HeaderMessage::ToggleList,
-                    if room.is_dm() {
-                        "Toggle User Profile"
-                    } else {
-                        "Toggle Member List"
-                    },
-                ),
-            ]
-            .align_y(Alignment::Center)
-            .spacing(structure.gap),
-        )
-        .width(Fill)
-        .padding(structure.header.button_padding())
-        .height(structure.header.height)
-        .into()
+                .spacing(structure.gap),
+            )
+            .width(Fill)
+            .padding(structure.header.button_padding())
+            .height(structure.header.height);
+
+        help_view
+            .call(
+                HelpKey::Header(HeaderHelpKey::Header),
+                "The chat header",
+                content,
+            )
+            .radius(structure.outer_border_radius)
+            .into()
     }
 }

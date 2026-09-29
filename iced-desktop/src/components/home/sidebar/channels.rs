@@ -4,10 +4,13 @@ use deplace_core::{
     settings::NameDecoration,
     state::{ActiveServer, PresenceMap},
 };
-use iced::Alignment;
+use iced::{Alignment, border::Radius};
 use macros::{iced_cache, iced_icon};
 
-use crate::common::*;
+use crate::{
+    common::*,
+    components::{HelpView, home::SidebarHelpKey},
+};
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
@@ -17,6 +20,7 @@ pub enum ChannelsMessage {
     ToggleCategory(OwnedRoomId),
     RoomHovered(OwnedRoomId),
     RoomUnhovered(OwnedRoomId),
+    HelpHover(Option<HelpKey>),
 }
 
 impl NeedsAvatarExt for ChannelsMessage {
@@ -28,6 +32,7 @@ impl NeedsAvatarExt for ChannelsMessage {
 pub enum ChannelsAction {
     SetActiveRoom(DePlaceRoom),
     NeedsMedia(NeedsMedia),
+    HelpHover(Option<HelpKey>),
 }
 
 #[iced_cache(Clone)]
@@ -85,6 +90,7 @@ impl ServerChannels {
 impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
     fn update(&mut self, msg: ChannelsMessage) -> Option<ChannelsAction> {
         match msg {
+            ChannelsMessage::HelpHover(key) => Some(ChannelsAction::HelpHover(key)),
             ChannelsMessage::RoomHovered(id) => {
                 self.hovered_room_id = Some(id);
                 None
@@ -112,7 +118,12 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, ChannelsMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> Element<'static, ChannelsMessage> {
         let active_server = self.active_server.borrow().clone();
         let active_room_id = self
             .active_room
@@ -134,56 +145,103 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         let presence_map = &self.presence_map.borrow();
         let name_decoration = *self.name_decoration.borrow();
 
-        floating_tile(
+        let help_view = create_help_view(help_state, theme, ChannelsMessage::HelpHover);
+
+        let (whole_key, name_key, column_key) = if active_server.is_dms() {
+            (
+                "The dm column",
+                "You are in direct messages",
+                "Your direct message conversations",
+            )
+        } else {
+            (
+                "The channels column",
+                "The name of the active server",
+                "Channels in this server",
+            )
+        };
+
+        let room_list = Column::with_children(channels.iter().enumerate().map(|(i, r)| {
+            render_channel(
+                theme,
+                structure,
+                &active_room_id,
+                &hovered_room_id,
+                r,
+                &self.avatar_cache,
+                presence_map,
+                &self.room_watchers,
+                &self.collapsed_categories,
+                name_decoration,
+                if r.is_dm() {
+                    structure.sidebar.dm_icon_height
+                } else {
+                    structure.sidebar.channel_icon_height
+                },
+                &help_view,
+                i,
+            )
+        }))
+        .spacing(structure.divider_width)
+        .padding(structure.small_gap);
+
+        let room_list = help_view.call(
+            HelpKey::Sidebar(SidebarHelpKey::ChannelsColumn),
+            column_key,
+            room_list,
+        );
+
+        let help_view = create_help_view(help_state, theme, ChannelsMessage::HelpHover);
+
+        let content = floating_tile(
             theme,
             structure,
             w::column![
-                w::container(
-                    weighted_text(active_server.get_name(), Weight::Bold)
-                        .size(structure.large_font_size)
-                        .style(move |_| TextStyle {
-                            color: Some(theme.text.normal.into())
-                        })
-                        .wrapping(text::Wrapping::None)
-                        .center()
-                        .width(Fill)
-                        .align_x(w::text::Alignment::Left)
-                        .height(Fill)
-                )
-                .padding(padding::horizontal(
-                    (structure.header.height - structure.large_font_size) / 2.0
-                ))
-                .height(structure.header.height),
+                help_view
+                    .call(
+                        HelpKey::Sidebar(SidebarHelpKey::ServerName),
+                        name_key,
+                        w::container(
+                            weighted_text(active_server.get_name(), Weight::Bold)
+                                .size(structure.large_font_size)
+                                .style(move |_| TextStyle {
+                                    color: Some(theme.text.normal.into())
+                                })
+                                .wrapping(text::Wrapping::None)
+                                .center()
+                                .width(Fill)
+                                .align_x(w::text::Alignment::Left)
+                                .height(Fill)
+                        )
+                        .padding(padding::horizontal(
+                            (structure.header.height - structure.large_font_size) / 2.0
+                        ))
+                        .height(structure.header.height),
+                    )
+                    .radius(Radius {
+                        top_left: structure.outer_border_radius,
+                        top_right: structure.outer_border_radius,
+                        bottom_left: 0.0,
+                        bottom_right: 0.0,
+                    }),
                 w::container(Space::new())
                     .width(Fill)
                     .height(structure.border_thickness)
                     .style(move |_| ContainerStyle::default().background(theme.border)),
-                Column::with_children(channels.iter().map(|r| {
-                    render_channel(
-                        theme,
-                        structure,
-                        &active_room_id,
-                        &hovered_room_id,
-                        r,
-                        &self.avatar_cache,
-                        presence_map,
-                        &self.room_watchers,
-                        &self.collapsed_categories,
-                        name_decoration,
-                        if r.is_dm() {
-                            structure.sidebar.dm_icon_height
-                        } else {
-                            structure.sidebar.channel_icon_height
-                        },
-                    )
-                }))
-                .spacing(structure.divider_width)
-                .padding(structure.small_gap)
+                room_list
             ],
         )
         .width(structure.sidebar.width)
-        .height(Fill)
-        .into()
+        .height(Fill);
+
+        help_view
+            .call(
+                HelpKey::Sidebar(SidebarHelpKey::Channels),
+                whole_key,
+                content,
+            )
+            .radius(structure.outer_border_radius)
+            .into()
     }
 }
 
@@ -200,6 +258,8 @@ fn render_channel(
     collapsed_categories: &BTreeSet<OwnedRoomId>,
     name_decoration: NameDecoration,
     icon_size: f32,
+    help_view: &HelpView<ChannelsMessage>,
+    index: usize,
 ) -> Element<'static, ChannelsMessage> {
     let is_active = active_room_id
         .as_ref()
@@ -230,19 +290,24 @@ fn render_channel(
     let content: Element<'static, ChannelsMessage> = if is_space {
         let expanded = !collapsed_categories.contains(room.room_id());
 
-        let mut column = w::column![
+        let mut column =
+            w::column![
             w::mouse_area(
                 w::button(
-                    w::row![
-                        iced_icon!(expanded ? caret_down : caret_right, bold, icon_size,),
-                        name,
-                    ]
-                    .spacing(structure.gap)
-                    .width(Fill)
-                    .align_y(Alignment::Center)
-                    .padding(
-                        padding::vertical(structure.small_gap * 0.75).left(structure.small_gap)
-                    )
+                    help_view.call(
+                        HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
+                        "Channel",
+                        w::row![
+                            iced_icon!(expanded ? caret_down : caret_right, bold, icon_size,),
+                            name,
+                        ]
+                        .spacing(structure.gap)
+                        .width(Fill)
+                        .align_y(Alignment::Center)
+                        .padding(
+                            padding::vertical(structure.small_gap * 0.75).left(structure.small_gap)
+                        )
+                    ).radius(structure.inner_border_radius)
                 )
                 .on_press(ChannelsMessage::ToggleCategory(room.room_id().to_owned()))
                 .padding(0.0)
@@ -264,7 +329,7 @@ fn render_channel(
             .on_enter(ChannelsMessage::RoomHovered(id.clone()))
             .on_exit(ChannelsMessage::RoomUnhovered(id.clone()))
         ]
-        .spacing(structure.divider_width);
+            .spacing(structure.divider_width);
 
         if let Some(children) = room_watchers.get_children(room.room_id()) {
             let item_height = icon_size + 1.5 * structure.small_gap;
@@ -290,6 +355,8 @@ fn render_channel(
                                     collapsed_categories,
                                     name_decoration,
                                     icon_size,
+                                    help_view,
+                                    usize::MAX,
                                 )
                             ]
                             .into()
@@ -333,6 +400,8 @@ fn render_channel(
                                 collapsed_categories,
                                 name_decoration,
                                 icon_size,
+                                help_view,
+                                usize::MAX,
                             )
                         ]
                         .into(),
@@ -357,23 +426,31 @@ fn render_channel(
 
         column.into()
     } else {
-        w::row![
-            context_room_icon(
-                room,
-                icon_size,
-                theme,
-                structure,
-                presence_map,
-                avatar_cache,
-                bg
-            ),
-            name,
-        ]
-        .spacing(structure.gap)
-        .align_y(Alignment::Center)
-        .width(Fill)
-        .padding(padding::vertical(structure.small_gap * 0.75).horizontal(structure.small_gap))
-        .into()
+        help_view
+            .call(
+                HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
+                if room.is_dm() { "A dm" } else { "A channel" },
+                w::row![
+                    context_room_icon(
+                        room,
+                        icon_size,
+                        theme,
+                        structure,
+                        presence_map,
+                        avatar_cache,
+                        bg
+                    ),
+                    name,
+                ]
+                .spacing(structure.gap)
+                .align_y(Alignment::Center)
+                .width(Fill)
+                .padding(
+                    padding::vertical(structure.small_gap * 0.75).horizontal(structure.small_gap),
+                ),
+            )
+            .radius(structure.inner_border_radius)
+            .into()
     };
 
     w::mouse_area(

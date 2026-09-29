@@ -68,6 +68,7 @@ pub enum TimelineMessage {
     RestoreScrollPosition,
     KeyboardEvent(iced::keyboard::Event),
     ScrollTo(Option<Rectangle>),
+    HelpHover(Option<HelpKey>),
 }
 
 pub enum TimelineAction {
@@ -86,6 +87,7 @@ pub enum TimelineAction {
         user_id: OwnedUserId,
         bounds: Rectangle,
     },
+    HelpHover(Option<HelpKey>),
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
 
@@ -534,6 +536,7 @@ impl ChatTimeline {
 impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     fn update(&mut self, message: TimelineMessage) -> Option<TimelineAction> {
         match message {
+            TimelineMessage::HelpHover(help_key) => Some(TimelineAction::HelpHover(help_key)),
             TimelineMessage::ButtonsHovered { id, hovered } => {
                 if self.hovered_item_id.as_deref() != Some(id.as_str()) {
                     return None;
@@ -549,13 +552,16 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         self.hovered_item_id = None;
                     }
                 }
+                None
             }
             TimelineMessage::Item { id, message } => {
                 let Some(item) = self.content.get_mut(&id) else {
                     tracing::warn!("No item found for id {}", id);
                     return None;
                 };
+
                 let res = match Arc::make_mut(item).update(message)? {
+                    TimelineItemAction::HelpHover(help) => Some(TimelineAction::HelpHover(help)),
                     TimelineItemAction::OpenProfileOverlay {
                         room_id,
                         user_id,
@@ -629,7 +635,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     Arc::make_mut(item).set_is_hovered(true);
                 }
 
-                return res;
+                res
             }
             TimelineMessage::Loaded {
                 timeline,
@@ -659,7 +665,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 }
 
                 self.restored_scroll = true;
-                return Some(TimelineAction::Run(self.restore_scroll_task()));
+                Some(TimelineAction::Run(self.restore_scroll_task()))
             }
             TimelineMessage::Diffs(diffs) => {
                 tracing::debug!(
@@ -782,7 +788,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                 if !self.restored_scroll && !self.content.is_empty() {
                     self.restored_scroll = true;
-                    return Some(TimelineAction::Run(self.restore_scroll_task()));
+                    Some(TimelineAction::Run(self.restore_scroll_task()))
+                } else {
+                    None
                 }
             }
             TimelineMessage::Scroll {
@@ -791,15 +799,15 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             } => {
                 self.scroll_position = position;
 
-                if let Some(direction) = direction {
-                    return self.pagination_task(direction, 30);
-                }
+                direction.and_then(|d| self.pagination_task(d, 30))
             }
             TimelineMessage::ScrolledFromTop(offset) => {
                 self.scrolled_from_top = offset;
+                None
             }
             TimelineMessage::ChatAreaBounds(bounds) => {
                 self.tile_bounds = bounds;
+                None
             }
             TimelineMessage::RestoreScrollPosition => {
                 if self.content.is_empty() {
@@ -809,7 +817,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 }
 
                 self.restored_scroll = true;
-                return Some(TimelineAction::Run(self.restore_scroll_task()));
+                Some(TimelineAction::Run(self.restore_scroll_task()))
             }
             TimelineMessage::KeyboardEvent(event) => {
                 if let iced::keyboard::Event::KeyPressed { key, .. } = event {
@@ -886,28 +894,36 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             }
                             new_focus_index += 1;
                         }
+                        None
+                    } else {
+                        None
                     }
+                } else {
+                    None
                 }
             }
             TimelineMessage::ScrollTo(opt_rect) => {
                 let rect = opt_rect?;
                 tracing::debug!("Item to scroll to is at y: {}", rect.y);
-                return Some(TimelineAction::Run(scroll_to::<()>(
+                Some(TimelineAction::Run(scroll_to::<()>(
                     SCROLLABLE_ID,
                     AbsoluteOffset {
                         x: rect.x,
                         y: rect.y,
                     },
                     w::operation::Animation::Smooth,
-                )));
+                )))
             }
-            TimelineMessage::None => {}
-        };
-
-        None
+            TimelineMessage::None => None,
+        }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, TimelineMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> iced::Element<'static, TimelineMessage> {
         let reached_top = self.reached_top;
         let reached_bottom = self.reached_bottom;
         let loading_top = self.loading_top;
@@ -920,18 +936,20 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 w::container(track_scroll(
                     themed_scrollable(
                         w::container(
-                            list(self.content.clone(), move |_index, id, item| {
+                            list(self.content.clone(), move |index, id, item| {
                                 let is_focused =
                                     focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
-                                w::lazy((item.clone(), is_focused), move |(item, is_focused)| {
-                                    let id = id.clone();
-                                    item.view(theme, structure, *is_focused).map(move |msg| {
-                                        TimelineMessage::Item {
-                                            id: id.clone(),
-                                            message: msg,
-                                        }
-                                    })
-                                })
+                                w::lazy(
+                                    (item.clone(), is_focused, help_state),
+                                    move |(item, is_focused, help_state)| {
+                                        let id = id.clone();
+                                        item.view(theme, structure, *is_focused, *help_state, index)
+                                            .map(move |msg| TimelineMessage::Item {
+                                                id: id.clone(),
+                                                message: msg,
+                                            })
+                                    },
+                                )
                                 .into()
                             })
                             .id(LIST_ID),

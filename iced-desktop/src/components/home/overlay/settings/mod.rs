@@ -92,7 +92,12 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, SettingsMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> iced::Element<'static, SettingsMessage> {
         let text_size = structure.font_size;
 
         let render_section = move |section: SettingsSection, icon: &'static str| {
@@ -139,23 +144,23 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
         let content: iced::Element<'static, SettingsMessage> = match self.active_section {
             SettingsSection::General => self
                 .general
-                .view(theme, structure)
+                .view(theme, structure, help_state)
                 .map(SettingsMessage::General),
             SettingsSection::Appearance => self
                 .appearance
-                .view(theme, structure)
+                .view(theme, structure, help_state)
                 .map(SettingsMessage::Appearance),
             SettingsSection::Audio => self
                 .audio
-                .view(theme, structure)
+                .view(theme, structure, help_state)
                 .map(SettingsMessage::Audio),
             SettingsSection::Chats => self
                 .chats
-                .view(theme, structure)
+                .view(theme, structure, help_state)
                 .map(SettingsMessage::Chats),
             SettingsSection::Updates => self
                 .updates
-                .view(theme, structure)
+                .view(theme, structure, help_state)
                 .map(SettingsMessage::Updates),
             SettingsSection::Profile => w::text("test").into(),
         };

@@ -10,7 +10,7 @@ use matrix_sdk::{
 
 use crate::{
     common::*,
-    components::{render_presence, track_bounds::track_bounds},
+    components::{home::ChatSidebarHelpKey, render_presence, track_bounds::track_bounds},
 };
 
 #[derive(Debug, Clone)]
@@ -25,6 +25,7 @@ pub enum MemberListMessage {
         bounds: Rectangle,
     },
     NeedsAvatar(OwnedMxcUri),
+    HelpHover(Option<HelpKey>),
 }
 
 impl NeedsAvatarExt for MemberListMessage {
@@ -40,6 +41,7 @@ pub enum MemberListAction {
         user_id: OwnedUserId,
         bounds: Rectangle,
     },
+    HelpHover(Option<HelpKey>),
 }
 
 #[iced_cache(Debug, Clone)]
@@ -83,6 +85,7 @@ impl MemberList {
 impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
     fn update(&mut self, message: MemberListMessage) -> Option<MemberListAction> {
         match message {
+            MemberListMessage::HelpHover(help_key) => Some(MemberListAction::HelpHover(help_key)),
             MemberListMessage::None => None,
             MemberListMessage::Bounds { user_id, bounds } => {
                 self.member_bounds.insert(user_id, bounds);
@@ -111,6 +114,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         &self,
         theme: Theme,
         structure: Structure,
+        help_state: HelpState<HelpKey>,
     ) -> iced::Element<'static, MemberListMessage> {
         let presence_map = self.presence_map.borrow();
         let (online_members, offline_members): (Vec<_>, Vec<_>) = self
@@ -134,18 +138,31 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         let mut heading_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
         let mut column_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
 
-        let icon = |text, icon, color, heading: &mut Vec<Element<'static, MemberListMessage>>| {
+        let help_view = create_help_view(help_state, theme, MemberListMessage::HelpHover);
+
+        let icon = |text,
+                    icon,
+                    color,
+                    key,
+                    help,
+                    heading: &mut Vec<Element<'static, MemberListMessage>>| {
             heading.push(
-                svg(iced::advanced::svg::Handle::from_memory(icon))
-                    .width(structure.large_font_size * 0.6)
-                    .height(structure.large_font_size * 0.6)
-                    .style(move |_, _| w::svg::Style { color: Some(color) })
-                    .into(),
-            );
-            heading.push(
-                w::text(text)
-                    .size(structure.large_font_size)
-                    .color(color)
+                help_view
+                    .call(
+                        key,
+                        help,
+                        w::row![
+                            svg(iced::advanced::svg::Handle::from_memory(icon))
+                                .width(structure.large_font_size * 0.6)
+                                .height(structure.large_font_size * 0.6)
+                                .style(move |_, _| w::svg::Style { color: Some(color) }),
+                            w::text(text).size(structure.large_font_size).color(color)
+                        ]
+                        .spacing(structure.gap)
+                        .padding(padding::horizontal(structure.gap / 2.0))
+                        .align_y(Alignment::Center),
+                    )
+                    .radius(structure.inner_border_radius)
                     .into(),
             );
         };
@@ -156,67 +173,77 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         let expand_column =
             |text,
              members: Vec<(PresenceEventContent, RoomMember)>,
+             key,
+             help,
              column: &mut Vec<Element<'static, MemberListMessage>>| {
                 column.push(
-                    w::column![
-                        w::text(text).color(theme.text.dim),
-                        Space::new().height(structure.small_gap / 4.0)
-                    ]
-                    .extend(members.iter().map(|(p, member)| {
-                        let id = member.user_id().to_owned();
-                        let bounds = self.member_bounds.get(&id).cloned();
+                    help_view
+                        .call(
+                            key,
+                            help,
+                            w::column![
+                                w::text(text).color(theme.text.dim),
+                                Space::new().height(structure.small_gap / 4.0)
+                            ]
+                            .extend(members.iter().map(|(p, member)| {
+                                let id = member.user_id().to_owned();
+                                let bounds = self.member_bounds.get(&id).cloned();
 
-                        track_bounds(
-                            w::button(
-                                w::row![
-                                    render_presence(
-                                        member,
-                                        &p.presence,
-                                        theme,
-                                        structure,
-                                        icon_size,
-                                        avatar_cache,
-                                        theme.solid_bg.into(),
+                                track_bounds(
+                                    w::button(
+                                        w::row![
+                                            render_presence(
+                                                member,
+                                                &p.presence,
+                                                theme,
+                                                structure,
+                                                icon_size,
+                                                avatar_cache,
+                                                theme.solid_bg.into(),
+                                            ),
+                                            member.render_name(structure.font_size)
+                                        ]
+                                        .padding(
+                                            padding::vertical(structure.small_gap * 0.75)
+                                                .horizontal(structure.small_gap),
+                                        )
+                                        .width(Fill)
+                                        .spacing(structure.gap)
+                                        .align_y(Alignment::Center),
+                                    )
+                                    .padding(0.0)
+                                    .style(move |_, status| ButtonStyle {
+                                        background: status
+                                            .active()
+                                            .then_some(theme.solid_hover_bg.into()),
+                                        border: Border {
+                                            color: if status.active() {
+                                                theme.border.into()
+                                            } else {
+                                                Color::TRANSPARENT
+                                            },
+                                            width: structure.border_thickness,
+                                            radius: structure.inner_border_radius.into(),
+                                        },
+                                        ..Default::default()
+                                    })
+                                    .on_press_maybe(
+                                        bounds.map(|bounds| MemberListMessage::MemberPressed {
+                                            member: member.clone(),
+                                            bounds,
+                                        }),
                                     ),
-                                    member.render_name(structure.font_size)
-                                ]
-                                .padding(
-                                    padding::vertical(structure.small_gap * 0.75)
-                                        .horizontal(structure.small_gap),
-                                )
-                                .width(Fill)
-                                .spacing(structure.gap)
-                                .align_y(Alignment::Center),
-                            )
-                            .padding(0.0)
-                            .style(move |_, status| ButtonStyle {
-                                background: status.active().then_some(theme.solid_hover_bg.into()),
-                                border: Border {
-                                    color: if status.active() {
-                                        theme.border.into()
-                                    } else {
-                                        Color::TRANSPARENT
+                                    move |bounds| MemberListMessage::Bounds {
+                                        user_id: id.clone(),
+                                        bounds,
                                     },
-                                    width: structure.border_thickness,
-                                    radius: structure.inner_border_radius.into(),
-                                },
-                                ..Default::default()
-                            })
-                            .on_press_maybe(bounds.map(|bounds| {
-                                MemberListMessage::MemberPressed {
-                                    member: member.clone(),
-                                    bounds,
-                                }
-                            })),
-                            move |bounds| MemberListMessage::Bounds {
-                                user_id: id.clone(),
-                                bounds,
-                            },
+                                )
+                                .into()
+                            }))
+                            .padding(structure.divider_width),
                         )
-                        .into()
-                    }))
-                    .padding(structure.divider_width)
-                    .into(),
+                        .radius(structure.inner_border_radius)
+                        .into(),
                 );
             };
 
@@ -231,12 +258,16 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                 ))
                 .to_vec(),
                 theme.colors.online.into(),
+                HelpKey::ChatSidebar(ChatSidebarHelpKey::OnlineMemberCount),
+                "How many online members are in the current room",
                 &mut heading_children,
             );
 
             expand_column(
                 format!("Online — {}", length),
                 online_members,
+                HelpKey::ChatSidebar(ChatSidebarHelpKey::OnlineMembers),
+                "List of online members in the current room",
                 &mut column_children,
             );
         }
@@ -252,21 +283,23 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                 ))
                 .to_vec(),
                 theme.colors.offline.into(),
+                HelpKey::ChatSidebar(ChatSidebarHelpKey::OfflineMemberCount),
+                "How many offline members are in the current room",
                 &mut heading_children,
             );
 
             expand_column(
                 format!("Offline — {}", length),
                 offline_members,
+                HelpKey::ChatSidebar(ChatSidebarHelpKey::OfflineMembers),
+                "List of offline members in the current room",
                 &mut column_children,
             );
         }
 
         w::column![
             w::container(
-                w::Row::with_children(heading_children.into_iter())
-                    .spacing(structure.gap)
-                    .align_y(Alignment::Center)
+                w::Row::with_children(heading_children.into_iter()).align_y(Alignment::Center)
             )
             .width(Fill)
             .center_x(Length::Fill)

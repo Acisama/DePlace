@@ -21,6 +21,77 @@ use overlay::{Overlay, OverlayAction, OverlayMessage};
 mod chat;
 mod sidebar;
 
+/// Identifies a help-mode target. Give each distinct explorable element its
+/// own variant; see [`crate::components::help_mode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HelpKey {
+    Sidebar(SidebarHelpKey),
+    Chat(ChatHelpKey),
+    ChatSidebar(ChatSidebarHelpKey),
+    Header(HeaderHelpKey),
+    Message { key: MessageHelpKey, index: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HeaderHelpKey {
+    Header,
+    HeaderIcon,
+    HeaderName,
+    CallButton,
+    OpenPins,
+    OpenMemberList,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ChatHelpKey {
+    Chat,
+    MainPanel,
+    Input,
+    UploadButton,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SidebarHelpKey {
+    Sidebar,
+    HomeIcon,
+    ServerColumn,
+    DmsWithNotifications,
+    Servers,
+    Server(usize),
+
+    ChannelsColumn,
+    Dms,
+    ServerName,
+    Channels,
+    Channel(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ChatSidebarHelpKey {
+    ChatSidebar,
+    PinnedMessage,
+    SearchResultMessage,
+    Banner,
+    BannerUserIcon,
+    MemberName,
+    MemberId,
+    OnlineMembers,
+    OfflineMembers,
+    OnlineMemberCount,
+    OfflineMemberCount,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MessageHelpKey {
+    Message,
+    Date,
+    Name,
+    Icon,
+    Reply(usize),
+    TextContent,
+    OtherContent,
+}
+
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
     Chat {
@@ -40,6 +111,9 @@ pub enum HomeMessage {
     },
     SettingsChanged,
     SyncTick,
+    HelpToggle,
+    HelpHover(Option<HelpKey>),
+    HelpExit,
 }
 
 pub enum HomeAction {
@@ -82,6 +156,9 @@ pub struct Home {
 
     #[hash]
     overlay: Overlay,
+
+    #[hash]
+    help: HelpState<HelpKey>,
 }
 
 impl ExtraHash for Home {
@@ -114,6 +191,8 @@ impl Home {
             chats: LruCache::new(nonzero_usize!(100)),
 
             empty_chat: EmptyChat::new(),
+
+            help: HelpState::default(),
 
             state: state.clone(),
         };
@@ -208,6 +287,11 @@ impl Home {
             .map(move |_| (id.clone(), ChatMessage::None))
     }
 
+    fn set_help_hovered(&mut self, key: Option<HelpKey>) -> Option<HomeAction> {
+        self.help.hovered = key;
+        None
+    }
+
     fn set_active_server_task(&mut self, server: ActiveServer) -> Option<HomeAction> {
         let state = self.state.clone();
         Some(HomeAction::Run(Task::future(async move {
@@ -273,6 +357,10 @@ impl Home {
 
         if let Some(action) = chat.update(msg) {
             match action {
+                ChatAction::HelpHover(help) => {
+                    self.set_help_hovered(help);
+                    None
+                }
                 ChatAction::Run(task) => Some(HomeAction::Run(task)),
                 ChatAction::NeedsMedia(needs_media) => self.load_media_task(needs_media),
                 ChatAction::TimelineScroll { direction, task } => {
@@ -323,6 +411,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 SidebarAction::ChangeRoom(room) => self.set_active_room_task(room),
                 SidebarAction::ChangeServer(server) => self.set_active_server_task(server),
                 SidebarAction::Run(task) => Some(HomeAction::Run(task)),
+                SidebarAction::HelpHover(key) => self.set_help_hovered(key),
             },
             HomeMessage::ActiveRoomChanged(Some(room)) => self.load_room(room),
             HomeMessage::ActiveRoomChanged(None) => None,
@@ -351,6 +440,10 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                                     ChatMessage::ToggleOverview,
                                 );
                             }
+                        }
+                        KeybindAction::ToggleHelp => {
+                            self.help.active = !self.help.active;
+                            return None;
                         }
                     };
                 } else {
@@ -408,29 +501,54 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 None
             }
             HomeMessage::SyncTick => None,
+            HomeMessage::HelpToggle => {
+                self.help.active = true;
+                None
+            }
+            HomeMessage::HelpHover(key) => self.set_help_hovered(key),
+            HomeMessage::HelpExit => {
+                self.help.active = false;
+                self.help.hovered = None;
+                None
+            }
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, HomeMessage> {
-        let sidebar = w::lazy(self.sidebar.clone(), move |sidebar| {
-            sidebar.view(theme, structure).map(HomeMessage::Sidebar)
-        });
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        _: HelpState<HelpKey>,
+    ) -> Element<'static, HomeMessage> {
+        let help_state = self.help;
+        let sidebar = w::lazy(
+            (self.sidebar.clone(), help_state),
+            move |(sidebar, help_state)| {
+                sidebar
+                    .view(theme, structure, *help_state)
+                    .map(HomeMessage::Sidebar)
+            },
+        );
 
         let chat = match self
             .active_room_id
             .as_ref()
             .and_then(|id| self.chats.peek(id))
         {
-            Some(chat) => w::container(w::lazy(chat.clone(), move |chat| {
-                let room_id = chat.room_id.clone();
-                chat.view(theme, structure)
-                    .map(move |msg| HomeMessage::Chat {
-                        room_id: room_id.clone(),
-                        message: msg,
-                    })
-            })),
+            Some(chat) => w::container(w::lazy(
+                (chat.clone(), help_state),
+                move |(chat, help_state)| {
+                    let room_id = chat.room_id.clone();
+                    chat.view(theme, structure, *help_state)
+                        .map(move |msg| HomeMessage::Chat {
+                            room_id: room_id.clone(),
+                            message: msg,
+                        })
+                },
+            )),
             None => w::container(w::lazy(self.empty_chat.clone(), move |chat| {
-                chat.view(theme, structure).map(HomeMessage::EmptyChat)
+                chat.view(theme, structure, help_state)
+                    .map(HomeMessage::EmptyChat)
             }))
             .padding(structure.gap),
         }
@@ -446,10 +564,19 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
 
         if self.overlay.is_open() {
             let overlay = w::lazy(self.overlay.clone(), move |overlay| {
-                overlay.view(theme, structure).map(HomeMessage::Overlay)
+                overlay
+                    .view(theme, structure, help_state)
+                    .map(HomeMessage::Overlay)
             });
             stack = stack.push(overlay);
         }
-        stack.into()
+
+        help_root(
+            &self.help,
+            stack,
+            HomeMessage::HelpHover,
+            HomeMessage::HelpExit,
+        )
+        .into()
     }
 }

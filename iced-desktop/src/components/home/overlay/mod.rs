@@ -6,7 +6,6 @@ use iced::{
     widget::{container, mouse_area, operation::focus},
 };
 use macros::iced_cache;
-use matrix_sdk::room::RoomMember;
 use profile::{OverlayProfile, ProfileAction, ProfileMessage};
 use quick_select::{QUICK_SELECT_INPUT_ID, QuickSelect, QuickSelectAction, QuickSelectMessage};
 use settings::{SETTINGS_INPUT_ID, SettingsAction, SettingsMessage, SettingsView};
@@ -197,6 +196,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
         &self,
         theme: crate::common::Theme,
         structure: crate::common::Structure,
+        help_state: HelpState<HelpKey>,
     ) -> iced::Element<'static, OverlayMessage> {
         let Some(state) = &self.overlay_state else {
             return Space::new().into();
@@ -207,17 +207,19 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 let Some(profile) = &self.profile else {
                     return Space::new().into();
                 };
-                profile.view(theme, structure).map(OverlayMessage::Profile)
+                profile
+                    .view(theme, structure, help_state)
+                    .map(OverlayMessage::Profile)
             }
             OverlayState::QuickSelect | OverlayState::Settings => {
                 let content = match state {
                     OverlayState::QuickSelect => self
                         .quickselect
-                        .view(theme, structure)
+                        .view(theme, structure, help_state)
                         .map(OverlayMessage::QuickSelect),
                     OverlayState::Settings => self
                         .settings
-                        .view(theme, structure)
+                        .view(theme, structure, help_state)
                         .map(OverlayMessage::Settings),
                     OverlayState::Profile => Space::new().into(),
                 };

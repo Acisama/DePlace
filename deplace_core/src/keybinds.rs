@@ -7,6 +7,7 @@ pub struct Keybinds {
     pub settings: Shortcut,
     pub quickselect: Shortcut,
     pub overview: Shortcut,
+    pub help_mode: Shortcut,
 }
 
 impl Default for Keybinds {
@@ -23,6 +24,10 @@ impl Default for Keybinds {
             overview: Shortcut {
                 modifiers: Modifiers::CONTROL,
                 key: Key::Character("o".to_string()),
+            },
+            help_mode: Shortcut {
+                modifiers: Modifiers::CONTROL,
+                key: Key::Character("h".to_string()),
             },
         }
     }
@@ -41,6 +46,8 @@ impl Keybinds {
             Some(KeybindAction::ToggleSettings)
         } else if self.overview.matches_key(key, modifiers) {
             Some(KeybindAction::ToggleOverview)
+        } else if self.help_mode.matches_key(key, modifiers) {
+            Some(KeybindAction::ToggleHelp)
         } else {
             None
         }
@@ -159,4 +166,5 @@ pub enum KeybindAction {
     ToggleQuickselect,
     ToggleSettings,
     ToggleOverview,
+    ToggleHelp,
 }

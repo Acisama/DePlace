@@ -73,7 +73,12 @@ impl IcedWidget<ProfileMessage, ProfileAction> for OverlayProfile {
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, ProfileMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> iced::Element<'static, ProfileMessage> {
         let bounds = self.bounds;
         let member = self.member.clone();
         let presence_map = self.presence_map.borrow().clone();

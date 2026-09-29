@@ -27,6 +27,7 @@ pub enum SidebarMessage {
     MemberProfileCard(ProfileCardMessage),
     PinnedDiffs(Vec<VectorDiff<Arc<SdkTimelineItem>>>),
     MemberList(MemberListMessage),
+    HelpHover(Option<HelpKey>),
 }
 
 pub enum SidebarAction {
@@ -37,6 +38,7 @@ pub enum SidebarAction {
         user_id: OwnedUserId,
         bounds: Rectangle,
     },
+    HelpHover(Option<HelpKey>),
 }
 
 #[iced_cache(Clone, Debug)]
@@ -203,6 +205,7 @@ fn handle_profile_card_message(
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
     fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
+            SidebarMessage::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             SidebarMessage::MemberList(message) => match self.member_list.update(message)? {
                 MemberListAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
                 MemberListAction::ShowProfile {
@@ -214,6 +217,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                     user_id,
                     bounds,
                 }),
+                MemberListAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             },
             SidebarMessage::MemberProfileCard(message) => {
                 handle_profile_card_message(&mut self.member_profile_card, message)
@@ -302,36 +306,69 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> iced::Element<'static, SidebarMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> iced::Element<'static, SidebarMessage> {
         let Some(state) = self.currently_visible else {
             return w::space().into();
         };
 
         let content: Element<'static, SidebarMessage> = match state {
-            SidebarState::Member => w::lazy(self.member_profile_card.clone(), move |p| {
-                p.view(theme, structure).map(SidebarMessage::DmProfileCard)
-            })
+            SidebarState::Member => w::lazy(
+                (self.member_profile_card.clone(), help_state),
+                move |(p, help_state)| {
+                    p.view(theme, structure, *help_state)
+                        .map(SidebarMessage::DmProfileCard)
+                },
+            )
             .into(),
             SidebarState::MemberList => {
                 if self.room.is_dm() {
-                    w::lazy(self.dm_profile_card.clone(), move |p| {
-                        p.view(theme, structure)
-                            .map(SidebarMessage::MemberProfileCard)
-                    })
+                    w::lazy(
+                        (self.dm_profile_card.clone(), help_state),
+                        move |(p, help_state)| {
+                            p.view(theme, structure, *help_state)
+                                .map(SidebarMessage::MemberProfileCard)
+                        },
+                    )
                     .into()
                 } else {
-                    w::lazy(self.member_list.clone(), move |p| {
-                        p.view(theme, structure).map(SidebarMessage::MemberList)
-                    })
+                    w::lazy(
+                        (self.member_list.clone(), help_state),
+                        move |(p, help_state)| {
+                            p.view(theme, structure, *help_state)
+                                .map(SidebarMessage::MemberList)
+                        },
+                    )
                     .into()
                 }
             }
             _ => return w::container("test").into(),
         };
 
-        floating_tile(theme, structure, content)
-            .height(Fill)
-            .width(self.get_width(&structure))
-            .into()
+        help(
+            help_state,
+            theme,
+            HelpKey::ChatSidebar(crate::components::home::ChatSidebarHelpKey::ChatSidebar),
+            format!(
+                "The chat sidebar, currently showing {}",
+                match state {
+                    SidebarState::Member => "a specific member",
+                    SidebarState::MemberList if self.room.is_dm() => "the other member",
+                    SidebarState::MemberList => "the member list",
+                    SidebarState::Pins => "pinned messages",
+                    SidebarState::Search => "search results",
+                }
+            ),
+            floating_tile(theme, structure, content)
+                .height(Fill)
+                .width(self.get_width(&structure)),
+            SidebarMessage::HelpHover,
+        )
+        .radius(structure.outer_border_radius)
+        .into()
     }
 }

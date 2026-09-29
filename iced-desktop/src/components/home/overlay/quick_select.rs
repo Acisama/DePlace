@@ -193,7 +193,12 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
         }
     }
 
-    fn view(&self, theme: Theme, structure: Structure) -> Element<'static, QuickSelectMessage> {
+    fn view(
+        &self,
+        theme: Theme,
+        structure: Structure,
+        help_state: HelpState<HelpKey>,
+    ) -> Element<'static, QuickSelectMessage> {
         let displayed_rooms = self.get_displayed_rooms();
 
         let mut input_field = text_input("Search for rooms...", self.input.clone())
