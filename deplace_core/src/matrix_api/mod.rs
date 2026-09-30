@@ -113,19 +113,11 @@ where
 /// that is logged into the account. This client will not have the encryption
 /// keys and will have to get them either using the recovery key or from another
 /// device that has them
-pub async fn login<F, Fut>(method: LoginMethod<F, Fut>) -> LoginResult
+pub async fn login<F, Fut>(method: LoginMethod<F, Fut>, paths: ImportantPaths) -> LoginResult
 where
     F: FnOnce(String) -> Fut + Send + 'static,
     Fut: Future<Output = matrix_sdk::Result<()>> + Send + 'static,
 {
-    let paths = match ImportantPaths::new() {
-        Ok(paths) => paths,
-        Err(error) => {
-            tracing::error!("Failed to create important paths: {:?}", error);
-            return LoginResult::Error(error.to_string());
-        }
-    };
-
     let (url, temp_client) = match method {
         LoginMethod::Credentials {
             username,

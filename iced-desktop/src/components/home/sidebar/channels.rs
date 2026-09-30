@@ -215,20 +215,18 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                         HelpKey::Sidebar(SidebarHelpKey::ServerName),
                         name_key,
                         w::row![
-                            pan(w::container(
-                                weighted_text(active_server_name, Weight::Bold)
-                                    .size(structure.large_font_size)
-                                    .style(move |_| TextStyle {
-                                        color: Some(theme.text.normal.into())
-                                    })
-                                    .wrapping(text::Wrapping::None)
-                                    .center()
-                                    .align_x(w::text::Alignment::Left)
-                                    .height(Fill)
-                            )
+                            w::container(pan(weighted_text(active_server_name, Weight::Bold)
+                                .size(structure.large_font_size)
+                                .style(move |_| TextStyle {
+                                    color: Some(theme.text.normal.into())
+                                })
+                                .wrapping(text::Wrapping::None)
+                                .center()
+                                .align_x(w::text::Alignment::Left)
+                                .height(Fill)))
                             .padding(padding::horizontal(
                                 (structure.header.height - structure.large_font_size) / 2.0
-                            )))
+                            ))
                             .width(Fill)
                             .height(Fill),
                             w::container(

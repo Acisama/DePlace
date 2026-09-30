@@ -1,7 +1,10 @@
 use crate::common::*;
 use std::future::Ready;
 
-use deplace_core::matrix_api::{LoginResult, login};
+use deplace_core::{
+    matrix_api::{LoginResult, login},
+    state::ImportantPaths,
+};
 use iced::widget::{Id, button::Status};
 // use iced::{
 //     Border, Element,
@@ -49,6 +52,8 @@ pub struct Login {
     password: String,
     state: GenericState<AppState>,
 
+    paths: ImportantPaths,
+
     current_check: Option<iced::task::Handle>,
 }
 
@@ -66,13 +71,14 @@ type DummyFn = fn(String) -> DummyFut;
 const USERNAME_ID: Id = Id::new("login-username");
 
 impl Login {
-    pub fn new(client: matrix_sdk::Client) -> (Self, Task<LoginMessage>) {
+    pub fn new(client: matrix_sdk::Client, paths: ImportantPaths) -> (Self, Task<LoginMessage>) {
         let mut login = Self {
             client,
             username: "".to_string(),
             password: "".to_string(),
             state: GenericState::Checking,
             current_check: None,
+            paths,
         };
         login.check_inputs();
 
@@ -114,14 +120,14 @@ impl IcedWidget<LoginMessage, LoginAction> for Login {
                 let username = self.username.clone();
                 let password = self.password.clone();
 
-                let (task, handle) = Task::future(login(deplace_core::matrix_api::LoginMethod::<
-                    DummyFn,
-                    DummyFut,
-                >::Credentials {
-                    old_client,
-                    username,
-                    password,
-                }))
+                let (task, handle) = Task::future(login(
+                    deplace_core::matrix_api::LoginMethod::<DummyFn, DummyFut>::Credentials {
+                        old_client,
+                        username,
+                        password,
+                    },
+                    self.paths.clone(),
+                ))
                 .abortable();
                 self.current_check = Some(handle.abort_on_drop());
 
