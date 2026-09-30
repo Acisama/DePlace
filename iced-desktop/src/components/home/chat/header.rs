@@ -192,7 +192,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                             theme.text.dim.into()
                         ),
                     ),
-                ]
+                ].align_y(Alignment::Center)
                     .padding(if room.is_dm() {
                         0.0
                     } else {

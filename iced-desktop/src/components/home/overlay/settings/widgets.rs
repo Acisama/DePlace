@@ -328,7 +328,7 @@ fn setting_row<T, Message: 'static + Clone + ToggleCloudExt>(
         theme,
     );
 
-    let row = w::row![text, row_content, cloud_button]
+    let row = w::row![text, Space::new().width(Fill), row_content, cloud_button]
         .align_y(Alignment::Center)
         .padding(structure.small_gap / 2.0)
         .spacing(structure.small_gap);
