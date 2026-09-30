@@ -236,17 +236,22 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                 let counts: NotificationCounts =
                     children.iter().map(|r| r.notification_counts()).sum();
 
-                let content = w::mouse_area(room.render_icon(icon_size, avatar_cache))
-                    .interaction(Interaction::Pointer)
-                    .on_release(ServerColumnMessage::ChangeActiveServer(
-                        ActiveServer::Server(room.clone()),
-                    ))
-                    .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
-                        id.clone(),
-                    )))
-                    .on_exit(ServerColumnMessage::ServerHoverEnded(
-                        ActiveServerId::Server(id.clone()),
-                    ));
+                let content = w::mouse_area(themed_tooltip(
+                    room.render_icon(icon_size, avatar_cache),
+                    room.get_name(),
+                    structure,
+                    theme,
+                ))
+                .interaction(Interaction::Pointer)
+                .on_release(ServerColumnMessage::ChangeActiveServer(
+                    ActiveServer::Server(room.clone()),
+                ))
+                .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
+                    id.clone(),
+                )))
+                .on_exit(ServerColumnMessage::ServerHoverEnded(
+                    ActiveServerId::Server(id.clone()),
+                ));
 
                 pill(
                     theme,

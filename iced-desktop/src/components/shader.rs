@@ -159,6 +159,7 @@ impl LoadingIndicator {
         self.prev_state = self.state;
         self.state = state;
         self.last_changed = super::animation_clock::elapsed_seconds();
+        super::animation_clock::set_screen_state(self.state, self.prev_state, self.last_changed);
     }
 }
 

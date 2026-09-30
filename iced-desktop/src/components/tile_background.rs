@@ -277,11 +277,12 @@ impl TileBackgroundPipeline {
     ) {
         self.resize(device, size);
 
+        let (state, prev_state, last_changed_time) = animation_clock::screen_state();
         let scene_uniforms = SceneUniforms {
             time,
-            last_changed_time: 0.0,
-            state: 4.0,
-            prev_state: 4.0,
+            last_changed_time,
+            state,
+            prev_state,
             resolution: [size.0 as f32, size.1 as f32],
             _pad: [0.0; 2],
         };
