@@ -3,7 +3,8 @@ pub use crate::components::{
     StatusExt, context_room_icon, corner_badge, create_help_view, floating_tile,
     help_mode::{Caption, HelpState, help, help_root},
     home::HelpKey,
-    loading_icon, on_appear, render_avatar, render_loading_name, render_name, render_unknown_name,
+    loading_icon, on_appear, pan, render_avatar, render_loading_name, render_name,
+    render_unknown_name,
     text_icon, text_input, themed_scrollable, themed_tooltip, unknown_icon, weighted_text,
 };
 pub use deplace_core::{

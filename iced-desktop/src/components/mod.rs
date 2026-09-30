@@ -40,6 +40,7 @@ pub mod help_mode;
 pub mod home;
 pub mod link;
 pub mod on_appear;
+pub mod pan;
 pub mod root;
 pub mod shader;
 pub mod tile_background;
@@ -47,6 +48,7 @@ pub mod track_bounds;
 pub mod track_scroll;
 
 pub use corner_badge::{CornerContent, corner_badge};
+pub use pan::pan;
 pub use on_appear::on_appear;
 
 pub struct HelpView<T> {
