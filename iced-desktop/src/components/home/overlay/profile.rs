@@ -77,7 +77,7 @@ impl IcedWidget<ProfileMessage, ProfileAction> for OverlayProfile {
         &self,
         theme: Theme,
         structure: Structure,
-        help_state: HelpState<HelpKey>,
+        _help_state: HelpState<HelpKey>,
     ) -> iced::Element<'static, ProfileMessage> {
         let bounds = self.bounds;
         let member = self.member.clone();

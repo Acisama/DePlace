@@ -224,7 +224,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                                 .center()
                                 .align_x(w::text::Alignment::Left)
                                 .height(Fill)))
-                            .padding(padding::horizontal(
+                            .padding(padding::left(
                                 (structure.header.height - structure.large_font_size) / 2.0
                             ))
                             .width(Fill)
