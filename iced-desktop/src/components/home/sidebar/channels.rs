@@ -150,17 +150,15 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
 
         let help_view = create_help_view(help_state, theme, ChannelsMessage::HelpHover);
 
-        let (whole_key, name_key, column_key) = if active_server.is_dms() {
+        let (whole_key, name_key) = if active_server.is_dms() {
             (
-                "The dm column",
+                "An view of your direct message conversations",
                 "You are in direct messages",
-                "Your direct message conversations",
             )
         } else {
             (
-                "The channels column",
+                "An view of channels in the active server",
                 "The name of the active server",
-                "Channels in this server",
             )
         };
 
@@ -188,19 +186,6 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         .spacing(structure.divider_width)
         .height(Fill)
         .padding(structure.small_gap);
-
-        let room_list = help_view
-            .call(
-                HelpKey::Sidebar(SidebarHelpKey::ChannelsColumn),
-                column_key,
-                room_list,
-            )
-            .radius(Radius {
-                top_left: 0.0,
-                top_right: 0.0,
-                bottom_left: structure.outer_border_radius,
-                bottom_right: structure.outer_border_radius,
-            });
 
         let help_view = create_help_view(help_state, theme, ChannelsMessage::HelpHover);
 

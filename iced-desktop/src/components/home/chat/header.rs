@@ -21,6 +21,7 @@ pub enum HeaderMessage {
     LeaveCall,
     JoinCall,
     HelpHover(Option<HelpKey>),
+    OpenHelpMenu,
 }
 
 impl NeedsAvatarExt for HeaderMessage {
@@ -37,6 +38,7 @@ pub enum HeaderAction {
     JoinCall,
     LeaveCall,
     HelpHover(Option<HelpKey>),
+    OpenHelpMenu,
 }
 
 #[iced_cache(Clone)]
@@ -86,6 +88,7 @@ impl Header {
 impl IcedWidget<HeaderMessage, HeaderAction> for Header {
     fn update(&mut self, msg: HeaderMessage) -> Option<HeaderAction> {
         match msg {
+            HeaderMessage::OpenHelpMenu => Some(HeaderAction::OpenHelpMenu),
             HeaderMessage::HelpHover(help) => Some(HeaderAction::HelpHover(help)),
             HeaderMessage::NeedsAvatar(uri) => {
                 self.avatar_states_for_hash.insert(uri.clone());
@@ -200,7 +203,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     Space::new().width(Fill),
                     help_view.call(
                         HelpKey::Header(HeaderHelpKey::CallButton),
-                        "Button to start or leave a voice call",
+                        "Call button, press it to start or leave a voice call",
                         render_icon(
                             theme.text.dim.into(),
                             if is_in_call {
@@ -267,6 +270,17 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                             },
                         )
                     ).radius(button_size * 0.25),
+                    help_view.call(
+                        HelpKey::Header(HeaderHelpKey::HelpButton),
+                        "Help button, press to open this menu",
+                        render_icon(
+                            theme.text.dim.into(),
+                            theme.accent.into(),
+                            phosphor_svgs::icon::question::REGULAR,
+                            HeaderMessage::OpenHelpMenu,
+                            "Open Help Menu"
+                        )
+                    ).radius(button_size * 0.25)
                 ]
                 .align_y(Alignment::Center)
                 .spacing(structure.gap),

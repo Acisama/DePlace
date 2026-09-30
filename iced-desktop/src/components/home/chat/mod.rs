@@ -59,6 +59,7 @@ pub enum ChatAction {
         bounds: Rectangle,
     },
     HelpHover(Option<HelpKey>),
+    OpenHelpMenu,
 }
 
 #[iced_cache(Clone)]
@@ -257,6 +258,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             }
             ChatMessage::Header(msg) => match self.header.update(msg)? {
                 HeaderAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
+                HeaderAction::OpenHelpMenu => Some(ChatAction::OpenHelpMenu),
                 HeaderAction::TogglePins => {
                     self.sidebar.toggle_pins();
                     None

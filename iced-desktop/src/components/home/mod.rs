@@ -40,6 +40,8 @@ pub enum HeaderHelpKey {
     CallButton,
     OpenPins,
     OpenMemberList,
+    SearchInput,
+    HelpButton,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -61,10 +63,9 @@ pub enum SidebarHelpKey {
 
     QuickselectButton,
 
-    ChannelsColumn,
+    Channels,
     Dms,
     ServerName,
-    Channels,
     Channel(usize),
 
     Account,
@@ -364,6 +365,10 @@ impl Home {
 
         if let Some(action) = chat.update(msg) {
             match action {
+                ChatAction::OpenHelpMenu => {
+                    self.help.active = true;
+                    None
+                }
                 ChatAction::HelpHover(help) => {
                     self.set_help_hovered(help);
                     None
