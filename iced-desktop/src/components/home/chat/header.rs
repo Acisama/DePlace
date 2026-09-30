@@ -209,7 +209,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                                 theme.colors.green.into()
                             },
                             if is_in_call {
-                                phosphor_svgs::icon::phone_disconnect::BOLD
+                                phosphor_svgs::icon::phone_disconnect::FILL
                             } else {
                                 phosphor_svgs::icon::phone::REGULAR
                             },

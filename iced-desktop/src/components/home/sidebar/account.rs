@@ -1,6 +1,6 @@
 use deplace_core::state::UserDevice;
 use iced::Alignment;
-use macros::iced_cache;
+use macros::{iced_cache, iced_icon};
 use std::collections::BTreeSet;
 
 use crate::{common::*, components::home::SidebarHelpKey};
@@ -102,7 +102,29 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
                         fallback,
                         &self.avatar_cache
                     ),
-                    render_name(display_name, structure.font_size, color)
+                    render_name(display_name, structure.font_size, color),
+                    Space::new().width(Fill),
+                    help_view.call(
+                        HelpKey::Sidebar(SidebarHelpKey::SettingsButton),
+                        "Settings button, press to open settings",
+                        w::button(iced_icon!(gear, regular, button_size))
+                            .style(move |_, status| ButtonStyle {
+                                background: None,
+                                text_color: if status.active() {
+                                    theme.text.normal.into()
+                                } else {
+                                    theme.text.dim.into()
+                                },
+                                border: Border {
+                                    color,
+                                    width: 0.0,
+                                    radius: structure.inner_border_radius.into()
+                                },
+                                ..Default::default()
+                            })
+                            .padding(0.0)
+                            .on_press(AccountMessage::OpenSettings)
+                    ),
                 ]
                 .align_y(Alignment::Center)
                 .spacing(structure.small_gap),
