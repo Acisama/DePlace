@@ -21,6 +21,7 @@ pub enum ChannelsMessage {
     RoomHovered(OwnedRoomId),
     RoomUnhovered(OwnedRoomId),
     HelpHover(Option<HelpKey>),
+    OpenQuickselect,
 }
 
 impl NeedsAvatarExt for ChannelsMessage {
@@ -33,6 +34,7 @@ pub enum ChannelsAction {
     SetActiveRoom(DePlaceRoom),
     NeedsMedia(NeedsMedia),
     HelpHover(Option<HelpKey>),
+    OpenQuickselect,
 }
 
 #[iced_cache(Clone)]
@@ -90,6 +92,7 @@ impl ServerChannels {
 impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
     fn update(&mut self, msg: ChannelsMessage) -> Option<ChannelsAction> {
         match msg {
+            ChannelsMessage::OpenQuickselect => Some(ChannelsAction::OpenQuickselect),
             ChannelsMessage::HelpHover(key) => Some(ChannelsAction::HelpHover(key)),
             ChannelsMessage::RoomHovered(id) => {
                 self.hovered_room_id = Some(id);
@@ -183,15 +186,25 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
             )
         }))
         .spacing(structure.divider_width)
+        .height(Fill)
         .padding(structure.small_gap);
 
-        let room_list = help_view.call(
-            HelpKey::Sidebar(SidebarHelpKey::ChannelsColumn),
-            column_key,
-            room_list,
-        );
+        let room_list = help_view
+            .call(
+                HelpKey::Sidebar(SidebarHelpKey::ChannelsColumn),
+                column_key,
+                room_list,
+            )
+            .radius(Radius {
+                top_left: 0.0,
+                top_right: 0.0,
+                bottom_left: structure.outer_border_radius,
+                bottom_right: structure.outer_border_radius,
+            });
 
         let help_view = create_help_view(help_state, theme, ChannelsMessage::HelpHover);
+
+        let active_server_name = active_server.get_name();
 
         let content = floating_tile(
             theme,
@@ -201,21 +214,57 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                     .call(
                         HelpKey::Sidebar(SidebarHelpKey::ServerName),
                         name_key,
-                        w::container(
-                            weighted_text(active_server.get_name(), Weight::Bold)
-                                .size(structure.large_font_size)
-                                .style(move |_| TextStyle {
-                                    color: Some(theme.text.normal.into())
-                                })
-                                .wrapping(text::Wrapping::None)
-                                .center()
-                                .width(Fill)
-                                .align_x(w::text::Alignment::Left)
-                                .height(Fill)
-                        )
-                        .padding(padding::horizontal(
-                            (structure.header.height - structure.large_font_size) / 2.0
-                        ))
+                        w::row![
+                            themed_tooltip(
+                                w::container(
+                                    weighted_text(active_server_name.clone(), Weight::Bold)
+                                        .size(structure.large_font_size)
+                                        .style(move |_| TextStyle {
+                                            color: Some(theme.text.normal.into())
+                                        })
+                                        .wrapping(text::Wrapping::None)
+                                        .center()
+                                        .width(Fill)
+                                        .align_x(w::text::Alignment::Left)
+                                        .height(Fill)
+                                )
+                                .clip(true)
+                                .padding(padding::horizontal(
+                                    (structure.header.height - structure.large_font_size) / 2.0
+                                )),
+                                active_server_name,
+                                structure,
+                                theme,
+                            ),
+                            w::container(
+                                help_view
+                                    .call(
+                                        HelpKey::Sidebar(SidebarHelpKey::QuickselectButton),
+                                        "Quickselect button, press to open quickselect",
+                                        w::button(iced_icon!(
+                                            compass_rose,
+                                            fill,
+                                            structure.header.height - structure.small_gap * 3.0
+                                        ))
+                                        .style(move |_, status| ButtonStyle {
+                                            background: status
+                                                .active()
+                                                .then_some(theme.solid_hover_bg.into()),
+                                            text_color: if status.active() {
+                                                theme.text.normal.into()
+                                            } else {
+                                                theme.text.dim.into()
+                                            },
+                                            border: border::rounded(structure.inner_border_radius),
+                                            ..Default::default()
+                                        })
+                                        .on_press(ChannelsMessage::OpenQuickselect)
+                                        .padding(structure.small_gap / 2.0)
+                                    )
+                                    .radius(structure.inner_border_radius)
+                            )
+                            .padding(structure.small_gap)
+                        ]
                         .height(structure.header.height),
                     )
                     .radius(Radius {

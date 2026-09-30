@@ -28,6 +28,7 @@ pub enum SidebarAction {
     Run(Task<()>),
     HelpHover(Option<HelpKey>),
     OpenSettings,
+    OpenQuickselect,
 }
 
 #[iced_cache(Clone)]
@@ -69,6 +70,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
                 ChannelsAction::SetActiveRoom(room) => Some(SidebarAction::ChangeRoom(Some(room))),
                 ChannelsAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
+                ChannelsAction::OpenQuickselect => Some(SidebarAction::OpenQuickselect),
             },
             SidebarMessage::Account(msg) => match self.account.update(msg)? {
                 AccountAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),

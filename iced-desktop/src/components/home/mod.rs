@@ -59,6 +59,8 @@ pub enum SidebarHelpKey {
     Servers,
     Server(usize),
 
+    QuickselectButton,
+
     ChannelsColumn,
     Dms,
     ServerName,
@@ -419,6 +421,10 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 SidebarAction::HelpHover(key) => self.set_help_hovered(key),
                 SidebarAction::OpenSettings => {
                     self.overlay.toggle_settings();
+                    None
+                }
+                SidebarAction::OpenQuickselect => {
+                    self.overlay.toggle_quick_select();
                     None
                 }
             },

@@ -115,11 +115,7 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
                                 } else {
                                     theme.text.dim.into()
                                 },
-                                border: Border {
-                                    color,
-                                    width: 0.0,
-                                    radius: structure.inner_border_radius.into()
-                                },
+                                border: border::rounded(structure.inner_border_radius),
                                 ..Default::default()
                             })
                             .padding(0.0)
