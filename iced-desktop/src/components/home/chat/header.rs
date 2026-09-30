@@ -164,14 +164,18 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         "The icon of the active room, shows other user's icon in dms",
                         context_room_icon(
                             &room,
-                            icon_size,
+                            if room.is_dm() {
+                                button_size
+                            } else {
+                                icon_size
+                            },
                             theme,
                             structure,
                             &self.presence_map.borrow(),
                             &self.avatar_cache,
                             theme.solid_bg.into()
                         )
-                    ).radius(icon_size * 0.25))
+                    ).radius(if room.is_dm() { button_size * 0.5 } else {icon_size * 0.25 }))
                     .style(move |_| ContainerStyle {
                         text_color: Some(theme.text.normal.into()),
                         ..Default::default()
@@ -186,7 +190,11 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         ),
                     ),
                 ]
-                    .padding(structure.header.inner_icon_padding())
+                    .padding(if room.is_dm() {
+                        0.0
+                    } else {
+                        structure.header.inner_icon_padding()
+                    })
                     .align_y(Alignment::Center)
                     .spacing(structure.small_gap),
                     Space::new().width(Fill),

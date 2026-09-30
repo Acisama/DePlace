@@ -1,3 +1,4 @@
+use account::{AccountAction, AccountMessage, AccountView};
 use channels::{ChannelsAction, ChannelsMessage, ServerChannels};
 use deplace_core::state::ActiveServer;
 use macros::iced_cache;
@@ -7,6 +8,7 @@ use crate::common::*;
 
 use super::SidebarHelpKey;
 
+mod account;
 mod channels;
 mod pill;
 mod server_column;
@@ -16,6 +18,7 @@ pub enum SidebarMessage {
     ServerColumn(ServerColumnMessage),
     Channels(ChannelsMessage),
     HelpHover(Option<HelpKey>),
+    Account(AccountMessage),
 }
 
 pub enum SidebarAction {
@@ -24,6 +27,7 @@ pub enum SidebarAction {
     ChangeServer(ActiveServer),
     Run(Task<()>),
     HelpHover(Option<HelpKey>),
+    OpenSettings,
 }
 
 #[iced_cache(Clone)]
@@ -32,6 +36,8 @@ pub struct Sidebar {
     server_column: ServerColumn,
     #[hash]
     channels: ServerChannels,
+    #[hash]
+    account: AccountView,
 }
 
 impl Sidebar {
@@ -39,6 +45,7 @@ impl Sidebar {
         Self {
             server_column: ServerColumn::new(state),
             channels: ServerChannels::new(state),
+            account: AccountView::new(state),
         }
     }
 }
@@ -63,6 +70,11 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 ChannelsAction::SetActiveRoom(room) => Some(SidebarAction::ChangeRoom(Some(room))),
                 ChannelsAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             },
+            SidebarMessage::Account(msg) => match self.account.update(msg)? {
+                AccountAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
+                AccountAction::OpenSettings => Some(SidebarAction::OpenSettings),
+                AccountAction::HelpHover(help) => Some(SidebarAction::HelpHover(help)),
+            },
         }
     }
 
@@ -72,21 +84,16 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         structure: Structure,
         help_state: HelpState<HelpKey>,
     ) -> Element<'static, SidebarMessage> {
-        help(
-            help_state,
-            theme,
-            HelpKey::Sidebar(SidebarHelpKey::Sidebar),
-            "The sidebar, used for room navigation",
-            w::row![
-                w::lazy(
-                    (self.server_column.clone(), help_state),
-                    move |(server_column, help_state)| {
-                        server_column
-                            .view(theme, structure, *help_state)
-                            .map(SidebarMessage::ServerColumn)
-                    }
-                ),
-                Space::new().width(structure.small_gap),
+        let content = w::row![
+            w::lazy(
+                (self.server_column.clone(), help_state),
+                move |(server_column, help_state)| {
+                    server_column
+                        .view(theme, structure, *help_state)
+                        .map(SidebarMessage::ServerColumn)
+                }
+            ),
+            w::column![
                 w::lazy(
                     (self.channels.clone(), help_state),
                     move |(channels, help_state)| {
@@ -95,8 +102,29 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                             .map(SidebarMessage::Channels)
                     }
                 ),
+                w::container("Other test"),
+                w::lazy(
+                    (self.account.clone(), help_state),
+                    move |(account, help_state)| {
+                        account
+                            .view(theme, structure, *help_state)
+                            .map(SidebarMessage::Account)
+                    }
+                ),
+                w::container("Other test2")
             ]
-            .height(Fill),
+            .height(Fill)
+            .spacing(structure.small_gap),
+        ]
+        .spacing(structure.small_gap)
+        .height(Fill);
+
+        help(
+            help_state,
+            theme,
+            HelpKey::Sidebar(SidebarHelpKey::Sidebar),
+            "The sidebar, used for room navigation",
+            content,
             SidebarMessage::HelpHover,
         )
         .radius(structure.outer_border_radius)

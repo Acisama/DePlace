@@ -64,6 +64,11 @@ pub enum SidebarHelpKey {
     ServerName,
     Channels,
     Channel(usize),
+
+    Account,
+    SettingsButton,
+    AccountIcon,
+    AccountName,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -412,6 +417,10 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 SidebarAction::ChangeServer(server) => self.set_active_server_task(server),
                 SidebarAction::Run(task) => Some(HomeAction::Run(task)),
                 SidebarAction::HelpHover(key) => self.set_help_hovered(key),
+                SidebarAction::OpenSettings => {
+                    self.overlay.toggle_settings();
+                    None
+                }
             },
             HomeMessage::ActiveRoomChanged(Some(room)) => self.load_room(room),
             HomeMessage::ActiveRoomChanged(None) => None,

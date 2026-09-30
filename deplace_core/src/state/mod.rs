@@ -14,7 +14,7 @@ use matrix_sdk::{
     room::RoomMember,
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
 };
-use ruma::{RoomId, events::presence::PresenceEventContent};
+use ruma::{OwnedMxcUri, RoomId, events::presence::PresenceEventContent};
 use tokio::sync::watch::{self, Receiver, Ref, Sender};
 
 use crate::{
@@ -193,6 +193,9 @@ struct AppStateInner {
     pub own_device: Arc<UserDevice>,
     pub settings: Settings,
 
+    own_display_name: Sender<Option<String>>,
+    own_avatar_url: Sender<Option<OwnedMxcUri>>,
+
     keybinds: Sender<Keybinds>,
     room_watchers: RoomWatchers,
 
@@ -294,6 +297,9 @@ impl AppState {
 
         let (keybinds, _) = watch::channel(keybinds);
 
+        let (own_display_name, _) = watch::channel(None);
+        let (own_avatar_url, _) = watch::channel(None);
+
         Ok(Self {
             inner: Arc::new(AppStateInner {
                 #[cfg(feature = "iced_desktop")]
@@ -310,6 +316,9 @@ impl AppState {
                 window_title,
                 window_focused: Mutex::new(false),
                 important_paths,
+
+                own_display_name,
+                own_avatar_url,
 
                 notification_manager: NotificationManager::default(),
 
@@ -357,6 +366,26 @@ impl AppState {
         let mut watchers = self.inner.room_watchers.clone();
         watchers.hash_config = config;
         watchers
+    }
+
+    pub fn own_display_name(&self) -> Receiver<Option<String>> {
+        self.inner.own_display_name.subscribe()
+    }
+
+    pub fn set_own_display_name(&self, name: Option<String>) {
+        if let Err(e) = self.inner.own_display_name.send(name) {
+            tracing::error!("Failed to set own display name: {}", e);
+        }
+    }
+
+    pub fn own_avatar_url(&self) -> Receiver<Option<OwnedMxcUri>> {
+        self.inner.own_avatar_url.subscribe()
+    }
+
+    pub fn set_own_avatar_url(&self, url: Option<OwnedMxcUri>) {
+        if let Err(e) = self.inner.own_avatar_url.send(url) {
+            tracing::error!("Failed to set own avatar url: {}", e);
+        }
     }
 
     pub fn get_children(&self, parent: &RoomId) -> Arc<Vec<OwnedRoomId>> {

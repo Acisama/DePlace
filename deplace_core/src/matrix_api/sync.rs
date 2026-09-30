@@ -70,6 +70,22 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
         }
     };
 
+    let account = state.client().account();
+
+    match account.get_display_name().await {
+        Ok(name) => state.set_own_display_name(name),
+        Err(e) => {
+            tracing::error!("Failed to get own display name: {}", e);
+        }
+    }
+
+    match account.get_avatar_url().await {
+        Ok(url) => state.set_own_avatar_url(url),
+        Err(e) => {
+            tracing::error!("Failed to get own avatar url: {}", e);
+        }
+    }
+
     handle_presences(&result.presence, state);
 
     state.bump_sync_tick();

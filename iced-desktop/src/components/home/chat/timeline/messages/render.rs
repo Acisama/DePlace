@@ -1105,6 +1105,7 @@ impl ReplyContent {
                 w::text(" ").size(text_size),
                 text_view
             ]
+            .align_y(Alignment::Center)
             .into()
         } else {
             text_view.into()
@@ -1117,11 +1118,11 @@ impl ReplyContent {
             ReplyContent::CallInvite => theme.text.normal,
             ReplyContent::Emote(_) => theme.text.normal,
             ReplyContent::Error(_) => theme.colors.error,
-            ReplyContent::Location => theme.text.normal,
-            ReplyContent::Media => theme.colors.success,
-            ReplyContent::Poll => theme.text.normal,
+            ReplyContent::Location => theme.text.dim,
+            ReplyContent::Media => theme.text.dim,
+            ReplyContent::Poll => theme.text.dim,
             ReplyContent::Redacted => theme.text.dim,
-            ReplyContent::RtcNotification(_) => theme.text.normal,
+            ReplyContent::RtcNotification(_) => theme.text.dim,
             ReplyContent::System(_) => theme.text.dim,
             ReplyContent::Text(_) => theme.text.normal,
         }
