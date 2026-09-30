@@ -102,7 +102,6 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                             .map(SidebarMessage::Channels)
                     }
                 ),
-                w::container("Other test"),
                 w::lazy(
                     (self.account.clone(), help_state),
                     move |(account, help_state)| {
@@ -111,7 +110,6 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                             .map(SidebarMessage::Account)
                     }
                 ),
-                w::container("Other test2")
             ]
             .height(Fill)
             .spacing(structure.small_gap),

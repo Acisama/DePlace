@@ -35,8 +35,8 @@ pub struct AccountView {
 
 impl ExtraHash for AccountView {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // self.own_display_name.borrow().hash(state);
-        // self.own_avatar_url.borrow().hash(state);
+        self.own_display_name.borrow().hash(state);
+        self.own_avatar_url.borrow().hash(state);
     }
 }
 
