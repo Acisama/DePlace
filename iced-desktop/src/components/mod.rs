@@ -24,7 +24,7 @@ use iced::widget::{
 };
 use iced::{
     Alignment, Color, ContentFit, Fill, Font, Length, Padding, Point, Rectangle, Renderer, Size,
-    border, padding,
+    border, never, padding,
 };
 use iced::{Border, Element, widget::Stack};
 use matrix_sdk::room::RoomMember;
@@ -48,8 +48,8 @@ pub mod track_bounds;
 pub mod track_scroll;
 
 pub use corner_badge::{CornerContent, corner_badge};
-pub use pan::pan;
 pub use on_appear::on_appear;
+pub use pan::pan;
 
 pub struct HelpView<T> {
     help_state: HelpState<HelpKey>,
@@ -612,14 +612,21 @@ pub fn render_name_decorated<'a, T: Clone + 'a>(
             let chars = name.chars();
             let length = name.len();
 
-            w::Row::with_children(chars.enumerate().map(|(i, c)| {
-                let factor = i as f32 / length as f32;
+            w::text::Rich::with_spans(
+                chars
+                    .enumerate()
+                    .map(|(i, c)| {
+                        let factor = i as f32 / length as f32;
 
-                w::text(c)
-                    .color(blend_colors(decoration_color, text_color, factor))
-                    .size(size)
-                    .into()
-            }))
+                        iced::advanced::text::Span::new(c).color(blend_colors(
+                            decoration_color,
+                            text_color,
+                            factor,
+                        ))
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .on_link_click(never)
             .into()
         }
     }
