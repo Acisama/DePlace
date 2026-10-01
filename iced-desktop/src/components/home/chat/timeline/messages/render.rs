@@ -77,9 +77,9 @@ pub fn render_event(
     };
 
     w::container(
-        w::mouse_area(content_element)
-            .on_enter(TimelineItemMessage::EventEnter)
-            .on_exit(TimelineItemMessage::EventExit),
+        sweeten::widget::mouse_area(content_element)
+            .on_enter(|_, _| TimelineItemMessage::EventEnter)
+            .on_exit(|_, _| TimelineItemMessage::EventExit),
     )
     .padding(padding::top(if previous_is_event && !connect_previous {
         gap

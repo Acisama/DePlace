@@ -26,6 +26,7 @@ use sweeten::widget::list;
 
 use phosphor_svgs::icon as icons;
 
+use crate::components::home::overlay::{ContextMenu, ContextMenuKind};
 use crate::components::phosphor_icon;
 use crate::{
     common::*,
@@ -59,6 +60,7 @@ pub enum TimelineMessage {
         hovered: bool,
     },
     ChatAreaBounds(Rectangle),
+    ContextMenu(ContextMenu),
     /// Sent whenever this room becomes the active one (whether freshly
     /// created or reused from the LRU cache) to explicitly snap the
     /// scrollable back to where this room was left -- its own widget state
@@ -88,6 +90,7 @@ pub enum TimelineAction {
         bounds: Rectangle,
     },
     HelpHover(Option<HelpKey>),
+    ContextMenu(ContextMenu),
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
 
@@ -261,6 +264,7 @@ impl ChatTimeline {
         {
             Arc::make_mut(item).remove_replying();
         }
+        self.replying_to = None;
     }
 
     // TODO: Actually use this
@@ -536,6 +540,7 @@ impl ChatTimeline {
 impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     fn update(&mut self, message: TimelineMessage) -> Option<TimelineAction> {
         match message {
+            TimelineMessage::ContextMenu(menu) => Some(TimelineAction::ContextMenu(menu)),
             TimelineMessage::HelpHover(help_key) => Some(TimelineAction::HelpHover(help_key)),
             TimelineMessage::ButtonsHovered { id, hovered } => {
                 if self.hovered_item_id.as_deref() != Some(id.as_str()) {
@@ -924,6 +929,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         structure: Structure,
         help_state: HelpState<HelpKey>,
     ) -> iced::Element<'static, TimelineMessage> {
+        let Some(timeline) = self.timeline.clone() else {
+            return Space::new().into();
+        };
+
         let reached_top = self.reached_top;
         let reached_bottom = self.reached_bottom;
         let loading_top = self.loading_top;
@@ -997,11 +1006,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             )
             .height(Fill);
 
-        if let Some(hovered_item_id) = &self.hovered_item_id
-            && let Some(bounds) = self.message_event_bounds.get(hovered_item_id).cloned()
+        if let Some(hovered_item_id) = self.hovered_item_id.clone()
+            && let Some(bounds) = self.message_event_bounds.get(&hovered_item_id).cloned()
             && let Some((Some(event_id), (is_own, is_editable, can_be_replied_to))) = self
                 .content
-                .get(hovered_item_id)
+                .get(&hovered_item_id)
                 .map(|item| (item.event_id(), item.booleans()))
         {
             let can_edit = is_editable && self.user_can_send;
@@ -1016,35 +1025,69 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             let scrolled_from_top = self.scrolled_from_top;
             let tile_bounds = self.tile_bounds;
 
-            stack = stack.push(
-                w::float(render_timeline_item_buttons(
-                    structure,
-                    theme,
-                    event_id.clone(),
-                    hovered_item_id.clone(),
-                    can_edit,
-                    can_reply,
-                    can_pin,
-                    can_redact,
-                ))
-                .translate(move |own_bounds, _| {
-                    let target_x = bounds.x + bounds.width - own_bounds.width;
-                    let target_y = bounds.y - scrolled_from_top - own_bounds.height / 2.0;
+            let menu_timeline = timeline.clone();
+            let menu_event_id = event_id.clone();
+            let menu_item_id = hovered_item_id.clone();
 
-                    // Never let the buttons render outside the chat tile --
-                    // clamp the target into `tile_bounds` before converting
-                    // it into an offset from the float's own position.
-                    let min_x = tile_bounds.x;
-                    let max_x = (tile_bounds.x + tile_bounds.width - own_bounds.width).max(min_x);
-                    let min_y = tile_bounds.y;
-                    let max_y = (tile_bounds.y + tile_bounds.height - own_bounds.height).max(min_y);
+            let context_menu_catcher: Element<'static, ContextMenu> = w::float(
+                sweeten::widget::mouse_area(Space::new().width(bounds.width).height(bounds.height))
+                    .on_right_press(move |position, _| ContextMenu {
+                        // `position` is local to this catcher's own bounds (per
+                        // sweeten's `position_in`), so shift it by the row's
+                        // absolute position to land in the same window-space
+                        // coordinates as `bounds`.
+                        position: Point::new(
+                            bounds.x + position.x,
+                            bounds.y - scrolled_from_top + position.y,
+                        ),
+                        kind: ContextMenuKind::Message {
+                            timeline: menu_timeline.clone(),
+                            event_id: menu_event_id.clone(),
+                            item_id: menu_item_id.clone(),
+                        },
+                    }),
+            )
+            .translate(move |own_bounds, _| {
+                let target_x = bounds.x;
+                let target_y = bounds.y - scrolled_from_top;
 
-                    let clamped_x = target_x.clamp(min_x, max_x);
-                    let clamped_y = target_y.clamp(min_y, max_y);
+                Vector::new(target_x - own_bounds.x, target_y - own_bounds.y)
+            })
+            .into();
 
-                    Vector::new(clamped_x - own_bounds.x, clamped_y - own_bounds.y)
-                }),
-            );
+            stack = stack
+                .push(context_menu_catcher.map(TimelineMessage::ContextMenu))
+                .push(
+                    w::float(render_timeline_item_buttons(
+                        structure,
+                        theme,
+                        event_id.clone(),
+                        hovered_item_id.clone(),
+                        can_edit,
+                        can_reply,
+                        can_pin,
+                        can_redact,
+                    ))
+                    .translate(move |own_bounds, _| {
+                        let target_x = bounds.x + bounds.width - own_bounds.width;
+                        let target_y = bounds.y - scrolled_from_top - own_bounds.height / 2.0;
+
+                        // Never let the buttons render outside the chat tile --
+                        // clamp the target into `tile_bounds` before converting
+                        // it into an offset from the float's own position.
+                        let min_x = tile_bounds.x;
+                        let max_x =
+                            (tile_bounds.x + tile_bounds.width - own_bounds.width).max(min_x);
+                        let min_y = tile_bounds.y;
+                        let max_y =
+                            (tile_bounds.y + tile_bounds.height - own_bounds.height).max(min_y);
+
+                        let clamped_x = target_x.clamp(min_x, max_x);
+                        let clamped_y = target_y.clamp(min_y, max_y);
+
+                        Vector::new(clamped_x - own_bounds.x, clamped_y - own_bounds.y)
+                    }),
+                );
         }
 
         track_bounds(stack, TimelineMessage::ChatAreaBounds).into()

@@ -1,3 +1,4 @@
+use context_menu::{ContextMenuAction, ContextMenuMessage};
 use deplace_core::state::AppState;
 use iced::{
     Color,
@@ -12,9 +13,12 @@ use settings::{SETTINGS_INPUT_ID, SettingsAction, SettingsMessage, SettingsView}
 
 use crate::common::*;
 
+mod context_menu;
 mod profile;
 mod quick_select;
 mod settings;
+
+pub use context_menu::{ContextMenu, ContextMenuKind};
 
 #[iced_cache(Clone)]
 pub struct Overlay {
@@ -48,13 +52,15 @@ pub enum OverlayMessage {
     QuickSelect(QuickSelectMessage),
     Settings(SettingsMessage),
     KeyboardEvent(iced::keyboard::Event),
+    ContextMenu(ContextMenuMessage),
 }
 
-#[derive(Clone, Hash, PartialEq)]
+#[derive(Clone, PartialEq, Hash)]
 enum OverlayState {
     QuickSelect,
     Settings,
     Profile,
+    ContextMenu(ContextMenu),
 }
 
 impl Overlay {
@@ -111,6 +117,11 @@ impl Overlay {
             .and_then(|m| m.get(&user_id).cloned())
             .map(|member| OverlayProfile::new(&self.state, member, bounds));
     }
+
+    pub fn open_context_menu(&mut self, menu: ContextMenu) {
+        tracing::trace!("Opening context menu at {:?}", menu.position);
+        self.overlay_state = Some(OverlayState::ContextMenu(menu));
+    }
 }
 
 #[derive(Debug)]
@@ -119,6 +130,11 @@ pub enum OverlayAction {
     Perform(Task<OverlayMessage>),
     NeedsMedia(NeedsMedia),
     ChangeRoom(Option<DePlaceRoom>),
+    SetIsReplyingTo {
+        item_id: String,
+        room_id: OwnedRoomId,
+        event_id: OwnedEventId,
+    },
 }
 
 impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
@@ -174,6 +190,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 }
                 OverlayState::Settings => None,
                 OverlayState::Profile => None,
+                OverlayState::ContextMenu { .. } => None,
             },
             OverlayMessage::Profile(message) => {
                 if let Some(profile) = &mut self.profile {
@@ -184,6 +201,26 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                                 .map_err(|_| tracing::error!("Failed to copy to clipboard"))
                                 .map(|_| OverlayMessage::Profile(ProfileMessage::UserIdCopied)),
                         )),
+                    }
+                } else {
+                    None
+                }
+            }
+            OverlayMessage::ContextMenu(message) => {
+                if let Some(OverlayState::ContextMenu(menu)) = &mut self.overlay_state {
+                    match menu.update(message)? {
+                        ContextMenuAction::SetReplyingTo {
+                            item_id,
+                            room_id,
+                            event_id,
+                        } => {
+                            self.overlay_state = None;
+                            Some(OverlayAction::SetIsReplyingTo {
+                                item_id,
+                                room_id,
+                                event_id,
+                            })
+                        }
                     }
                 } else {
                     None
@@ -211,6 +248,9 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                     .view(theme, structure, help_state)
                     .map(OverlayMessage::Profile)
             }
+            OverlayState::ContextMenu(menu) => menu
+                .view(theme, structure, help_state)
+                .map(OverlayMessage::ContextMenu),
             OverlayState::QuickSelect | OverlayState::Settings => {
                 let content = match state {
                     OverlayState::QuickSelect => self
@@ -221,7 +261,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                         .settings
                         .view(theme, structure, help_state)
                         .map(OverlayMessage::Settings),
-                    OverlayState::Profile => Space::new().into(),
+                    _ => Space::new().into(),
                 };
 
                 let dialog = container(content).padding(structure.gap);

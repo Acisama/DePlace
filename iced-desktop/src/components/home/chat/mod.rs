@@ -22,7 +22,9 @@ mod input;
 mod sidebar;
 mod timeline;
 
-pub use timeline::TimelineMessage;
+pub use timeline::{TimelineMessage, messages::TimelineItemMessage};
+
+use super::overlay::ContextMenu;
 
 #[derive(Debug, Clone)]
 pub enum ChatMessage {
@@ -60,6 +62,7 @@ pub enum ChatAction {
     },
     HelpHover(Option<HelpKey>),
     OpenHelpMenu,
+    ContextMenu(ContextMenu),
 }
 
 #[iced_cache(Clone)]
@@ -228,6 +231,31 @@ impl Chat {
     pub fn touch_all(&mut self) {
         self.timeline.touch_all();
     }
+
+    fn handle_timeline_message(&mut self, message: TimelineMessage) -> Option<ChatAction> {
+        match self.timeline.update(message)? {
+            TimelineAction::SetIsReplyingTo { event_id, message } => {
+                self.input.set_replies_to(message, event_id);
+                None
+            }
+            TimelineAction::Run(task) => Some(ChatAction::Run(task)),
+            TimelineAction::NeedsMedia(needs_media) => Some(ChatAction::NeedsMedia(needs_media)),
+            TimelineAction::Scroll { direction, task } => {
+                Some(ChatAction::TimelineScroll { direction, task })
+            }
+            TimelineAction::OpenProfileOverlay {
+                room_id,
+                user_id,
+                bounds,
+            } => Some(ChatAction::ShowProfile {
+                room_id,
+                user_id,
+                bounds,
+            }),
+            TimelineAction::HelpHover(help_key) => Some(ChatAction::HelpHover(help_key)),
+            TimelineAction::ContextMenu(menu) => Some(ChatAction::ContextMenu(menu)),
+        }
+    }
 }
 
 impl IcedWidget<ChatMessage, ChatAction> for Chat {
@@ -291,29 +319,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 }),
                 SidebarAction::HelpHover(key) => Some(ChatAction::HelpHover(key)),
             },
-            ChatMessage::Timeline(msg) => match self.timeline.update(msg)? {
-                TimelineAction::HelpHover(help_key) => Some(ChatAction::HelpHover(help_key)),
-                TimelineAction::SetIsReplyingTo { event_id, message } => {
-                    self.input.set_replies_to(message, event_id);
-                    None
-                }
-                TimelineAction::Run(task) => Some(ChatAction::Run(task)),
-                TimelineAction::NeedsMedia(needs_media) => {
-                    Some(ChatAction::NeedsMedia(needs_media))
-                }
-                TimelineAction::Scroll { direction, task } => {
-                    Some(ChatAction::TimelineScroll { direction, task })
-                }
-                TimelineAction::OpenProfileOverlay {
-                    room_id,
-                    user_id,
-                    bounds,
-                } => Some(ChatAction::ShowProfile {
-                    room_id,
-                    user_id,
-                    bounds,
-                }),
-            },
+            ChatMessage::Timeline(msg) => self.handle_timeline_message(msg),
             ChatMessage::Input(msg) => match self.input.update(msg)? {
                 InputAction::SendMessage(task) => {
                     self.timeline.remove_replying();
@@ -326,32 +332,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 InputAction::HelpOver(help) => Some(ChatAction::HelpHover(help)),
             },
             ChatMessage::KeyboardEvent(event) => {
-                match self
-                    .timeline
-                    .update(TimelineMessage::KeyboardEvent(event))?
-                {
-                    TimelineAction::SetIsReplyingTo { event_id, message } => {
-                        self.input.set_replies_to(message, event_id);
-                        None
-                    }
-                    TimelineAction::Run(task) => Some(ChatAction::Run(task)),
-                    TimelineAction::NeedsMedia(needs_media) => {
-                        Some(ChatAction::NeedsMedia(needs_media))
-                    }
-                    TimelineAction::Scroll { direction, task } => {
-                        Some(ChatAction::TimelineScroll { direction, task })
-                    }
-                    TimelineAction::OpenProfileOverlay {
-                        room_id,
-                        user_id,
-                        bounds,
-                    } => Some(ChatAction::ShowProfile {
-                        room_id,
-                        user_id,
-                        bounds,
-                    }),
-                    TimelineAction::HelpHover(help_key) => Some(ChatAction::HelpHover(help_key)),
-                }
+                self.handle_timeline_message(TimelineMessage::KeyboardEvent(event))
             }
         }
     }

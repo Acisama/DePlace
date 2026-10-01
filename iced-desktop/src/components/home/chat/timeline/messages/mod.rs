@@ -429,8 +429,6 @@ impl TimelineItem {
 
         let room_id = self.room_id.clone();
 
-        let help_view = create_help_view(help_state, theme, TimelineItemMessage::HelpHover);
-
         match &self.kind {
             TimelineItemKind::DateDivider {
                 date,
@@ -507,7 +505,7 @@ impl TimelineItem {
 
                 render_event(
                     w::lazy(
-                        (event.clone(), help_state.clone(), index),
+                        (event.clone(), help_state, index),
                         move |(event, help_state, index)| {
                             event.view(
                                 room_id.clone(),

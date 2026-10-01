@@ -1,6 +1,6 @@
 use crate::common::*;
 use chat::{
-    Chat, ChatAction, ChatMessage, TimelineMessage,
+    Chat, ChatAction, ChatMessage, TimelineItemMessage, TimelineMessage,
     empty::{EmptyChat, EmptyChatMessage},
 };
 use deplace_core::{
@@ -365,6 +365,10 @@ impl Home {
 
         if let Some(action) = chat.update(msg) {
             match action {
+                ChatAction::ContextMenu(menu) => {
+                    self.overlay.open_context_menu(menu);
+                    None
+                }
                 ChatAction::OpenHelpMenu => {
                     self.help.active = true;
                     None
@@ -401,6 +405,28 @@ impl Home {
             }
         } else {
             None
+        }
+    }
+
+    fn handle_overlay_message(&mut self, message: OverlayMessage) -> Option<HomeAction> {
+        match self.overlay.update(message)? {
+            OverlayAction::Perform(task) => {
+                Some(HomeAction::Perform(task.map(HomeMessage::Overlay)))
+            }
+            OverlayAction::Run(task) => Some(HomeAction::Run(task)),
+            OverlayAction::NeedsMedia(media) => self.load_media_task(media),
+            OverlayAction::ChangeRoom(room) => self.set_active_room_task(room),
+            OverlayAction::SetIsReplyingTo {
+                item_id,
+                room_id,
+                event_id,
+            } => self.dispatch_to_chat(
+                room_id,
+                ChatMessage::Timeline(TimelineMessage::Item {
+                    id: item_id,
+                    message: TimelineItemMessage::SetIsReplyingTo(event_id),
+                }),
+            ),
         }
     }
 }
@@ -471,27 +497,13 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 }
 
                 if self.overlay.is_open() {
-                    return match self.overlay.update(OverlayMessage::KeyboardEvent(event))? {
-                        OverlayAction::Perform(task) => {
-                            Some(HomeAction::Perform(task.map(HomeMessage::Overlay)))
-                        }
-                        OverlayAction::Run(task) => Some(HomeAction::Run(task)),
-                        OverlayAction::NeedsMedia(media) => self.load_media_task(media),
-                        OverlayAction::ChangeRoom(room) => self.set_active_room_task(room),
-                    };
+                    return self.handle_overlay_message(OverlayMessage::KeyboardEvent(event));
                 }
 
                 let id = self.active_room_id.clone()?;
                 self.dispatch_to_chat(id, ChatMessage::KeyboardEvent(event))
             }
-            HomeMessage::Overlay(msg) => match self.overlay.update(msg)? {
-                OverlayAction::Run(task) => Some(HomeAction::Run(task)),
-                OverlayAction::Perform(task) => {
-                    Some(HomeAction::Perform(task.map(HomeMessage::Overlay)))
-                }
-                OverlayAction::NeedsMedia(media) => self.load_media_task(media),
-                OverlayAction::ChangeRoom(room) => self.set_active_room_task(room),
-            },
+            HomeMessage::Overlay(message) => self.handle_overlay_message(message),
             HomeMessage::MediaLoaded(media) => {
                 let chat = self
                     .active_room_id
