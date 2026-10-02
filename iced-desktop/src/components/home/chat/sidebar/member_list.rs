@@ -153,12 +153,12 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                         help,
                         w::row![
                             svg(iced::advanced::svg::Handle::from_memory(icon))
-                                .width(structure.large_font_size * 0.6)
-                                .height(structure.large_font_size * 0.6)
+                                .width(structure.semi_font_size() * 0.6)
+                                .height(structure.semi_font_size() * 0.6)
                                 .style(move |_, _| w::svg::Style { color: Some(color) }),
-                            w::text(text).size(structure.large_font_size).color(color)
+                            w::text(text).size(structure.semi_font_size()).color(color)
                         ]
-                        .spacing(structure.gap)
+                        .spacing(structure.small_gap)
                         .padding(padding::horizontal(structure.gap / 2.0))
                         .align_y(Alignment::Center),
                     )

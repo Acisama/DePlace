@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::future;
 
 use deplace_core::PaginationDirection;
@@ -24,7 +25,7 @@ mod timeline;
 
 pub use timeline::{TimelineMessage, messages::TimelineItemMessage};
 
-use super::overlay::ContextMenu;
+use super::overlay::{ContextMenu, ModifyItem};
 
 #[derive(Debug, Clone)]
 pub enum ChatMessage {
@@ -63,6 +64,7 @@ pub enum ChatAction {
     HelpHover(Option<HelpKey>),
     OpenHelpMenu,
     ContextMenu(ContextMenu),
+    OpenModifyItem(ModifyItem),
 }
 
 #[iced_cache(Clone)]
@@ -100,6 +102,15 @@ impl Chat {
         let room_id = room.room_id().to_owned();
 
         let state_clone = state.clone();
+
+        let initial_pinned_event_ids: BTreeSet<OwnedEventId> = room
+            .sdk_room()
+            .pinned_event_ids()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        let pinned_ids_clone = initial_pinned_event_ids.clone();
 
         let room_id_clone = room_id.clone();
         let stream = stream::once(async move {
@@ -165,7 +176,11 @@ impl Chat {
                     .map(|m| {
                         (
                             m.unique_id().0.clone(),
-                            Arc::new(m.convert(&state_clone, room_id_clone.clone())),
+                            Arc::new(m.convert(
+                                &state_clone,
+                                room_id_clone.clone(),
+                                &pinned_ids_clone,
+                            )),
                         )
                     })
                     .collect(),
@@ -177,7 +192,11 @@ impl Chat {
                     .map(|m| {
                         (
                             m.unique_id().0.clone(),
-                            Arc::new(m.convert(&state_clone, room_id_clone.clone())),
+                            Arc::new(m.convert(
+                                &state_clone,
+                                room_id_clone.clone(),
+                                &pinned_ids_clone,
+                            )),
                         )
                     })
                     .collect(),
@@ -190,11 +209,18 @@ impl Chat {
                 pinned_initial,
                 power_levels,
             }))
-            .chain(updates.map(|diffs| ChatMessage::Timeline(TimelineMessage::Diffs(diffs))))
-            .chain(
-                pinned_updates
-                    .map(|diffs| ChatMessage::Sidebar(SidebarMessage::PinnedDiffs(diffs))),
-            )
+            .chain(stream::select(
+                updates.map(|diffs| ChatMessage::Timeline(TimelineMessage::Diffs(diffs))),
+                stream::select(
+                    pinned_updates
+                        .map(|diffs| ChatMessage::Sidebar(SidebarMessage::PinnedDiffs(diffs))),
+                    sdk_room.pinned_event_ids_stream().map(|ids| {
+                        ChatMessage::Timeline(TimelineMessage::PinnedEventIds(
+                            ids.into_iter().collect(),
+                        ))
+                    }),
+                ),
+            ))
             .right_stream()
         })
         .flatten();
@@ -202,7 +228,7 @@ impl Chat {
         (
             Self {
                 header: Header::new(state, &room),
-                timeline: ChatTimeline::new(state, &room),
+                timeline: ChatTimeline::new(state, &room, initial_pinned_event_ids),
                 input: ChatInput::new(state, &room),
                 sidebar: Sidebar::new(state, &room),
 
@@ -254,6 +280,7 @@ impl Chat {
             }),
             TimelineAction::HelpHover(help_key) => Some(ChatAction::HelpHover(help_key)),
             TimelineAction::ContextMenu(menu) => Some(ChatAction::ContextMenu(menu)),
+            TimelineAction::OpenModifyItem(modify) => Some(ChatAction::OpenModifyItem(modify)),
         }
     }
 }

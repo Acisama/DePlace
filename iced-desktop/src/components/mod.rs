@@ -609,6 +609,7 @@ pub fn render_name_decorated<'a, T: Clone + 'a>(
             ]
             .into()
         }
+        NameDecoration::FullColor => w::text(name).size(size).color(decoration_color).into(),
         NameDecoration::Gradient => {
             let chars = name.chars();
             let length = name.len();
@@ -619,11 +620,9 @@ pub fn render_name_decorated<'a, T: Clone + 'a>(
                     .map(|(i, c)| {
                         let factor = i as f32 / length as f32;
 
-                        iced::advanced::text::Span::new(c).color(blend_colors(
-                            decoration_color,
-                            text_color,
-                            factor,
-                        ))
+                        iced::advanced::text::Span::new(c)
+                            .size(size)
+                            .color(blend_colors(decoration_color, text_color, factor))
                     })
                     .collect::<Vec<_>>(),
             )

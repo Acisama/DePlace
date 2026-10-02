@@ -55,18 +55,18 @@ pub fn render_event(
 ) -> Element<'static, TimelineItemMessage> {
     let inner_container = w::container(content)
         .width(Fill)
-        .style(move |_| {
-            ContainerStyle::default().border(
-                border::rounded(structure.inner_border_radius)
-                    .width(structure.border_thickness)
-                    .color(if is_focused {
-                        theme.colors.red
-                    } else if is_hovered {
-                        theme.border
-                    } else {
-                        DePlaceColor::TRANSPARENT
-                    }),
-            )
+        .style(move |_| ContainerStyle {
+            border: border::rounded(structure.inner_border_radius)
+                .width(structure.border_thickness)
+                .color(if is_focused {
+                    theme.colors.red
+                } else if is_hovered {
+                    theme.border
+                } else {
+                    DePlaceColor::TRANSPARENT
+                }),
+            background: is_hovered.then_some(theme.backdrop.scale_alpha(0.5).into()),
+            ..Default::default()
         })
         .padding(structure.border_thickness);
 

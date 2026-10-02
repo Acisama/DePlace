@@ -402,6 +402,10 @@ impl Home {
                     self.overlay.open_profile(room_id, user_id, bounds);
                     None
                 }
+                ChatAction::OpenModifyItem(modify) => {
+                    self.overlay.open_modify_item(modify);
+                    None
+                }
             }
         } else {
             None

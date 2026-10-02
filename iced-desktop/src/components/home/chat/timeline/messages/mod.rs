@@ -58,6 +58,11 @@ pub enum TimelineItemMessage {
         bounds: Rectangle,
     },
     HelpHover(Option<HelpKey>),
+    OpenPinMenu {
+        event_id: OwnedEventId,
+        is_pinned: bool,
+    },
+    OpenDeleteMenu(OwnedEventId),
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
@@ -91,6 +96,11 @@ pub enum TimelineItemAction {
         bounds: Rectangle,
     },
     HelpHover(Option<HelpKey>),
+    OpenPinMenu {
+        event_id: OwnedEventId,
+        is_pinned: bool,
+    },
+    OpenDeleteMenu(OwnedEventId),
 }
 
 /// An item in the timeline
@@ -114,6 +124,24 @@ impl TimelineItem {
         };
 
         event.event_id.clone()
+    }
+
+    pub fn event_id_ref(&self) -> Option<&OwnedEventId> {
+        let TimelineItemKind::Message { message: event, .. } = &self.kind else {
+            return None;
+        };
+
+        event.event_id.as_ref()
+    }
+
+    pub fn is_pinned(&self) -> bool {
+        matches!(&self.kind, TimelineItemKind::Message { message, .. } if message.is_pinned)
+    }
+
+    pub fn set_pinned(&mut self, pinned: bool) {
+        if let TimelineItemKind::Message { message, .. } = &mut self.kind {
+            Arc::make_mut(message).is_pinned = pinned;
+        }
     }
 
     pub fn is_date_divider(&self) -> bool {
@@ -324,6 +352,16 @@ impl TimelineItem {
 
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
+            TimelineItemMessage::OpenPinMenu {
+                event_id,
+                is_pinned,
+            } => Some(TimelineItemAction::OpenPinMenu {
+                event_id,
+                is_pinned,
+            }),
+            TimelineItemMessage::OpenDeleteMenu(event_id) => {
+                Some(TimelineItemAction::OpenDeleteMenu(event_id))
+            }
             TimelineItemMessage::HelpHover(help) => Some(TimelineItemAction::HelpHover(help)),
             TimelineItemMessage::OpenProfileOverlay {
                 room_id,
@@ -657,6 +695,9 @@ struct MessageEvent {
 
     is_highlighted: bool,
     contains_only_emojis: bool,
+
+    #[hash]
+    is_pinned: bool,
 
     shield: TimelineEventShieldState,
 

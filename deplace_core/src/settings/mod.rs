@@ -128,6 +128,7 @@ pub enum NameDecoration {
     None,
     FirstLetter,
     Gradient,
+    FullColor,
 }
 
 #[derive(Debug, Deserialize, Serialize, EnumVariants, EnumConstVec, Hash, EnumSetType)]

@@ -66,6 +66,7 @@ pub struct Theme {
     pub text: Text,
     pub border: DePlaceColor,
     pub background: DePlaceColor,
+    pub backdrop: DePlaceColor,
     pub solid_hover_bg: DePlaceColor,
     pub solid_bg: DePlaceColor,
 
@@ -94,6 +95,7 @@ impl Default for Theme {
             pill_color: DePlaceColor::from_rgba(1.0, 1.0, 1.0, 1.0),
             border: DePlaceColor::from_hsla(0.0, 0.0, 0.2, 1.0),
             background: DePlaceColor::from_hsla(0.6667 * 360.0, 0.5000, 0.0214, 0.4),
+            backdrop: DePlaceColor::from_rgba(0.0, 0.0, 0.0, 0.6),
             text: Text {
                 muted: muted_color,
                 dim: DePlaceColor::from_hsla(0.66 * 360.0, 0.15, 0.4, 1.0),

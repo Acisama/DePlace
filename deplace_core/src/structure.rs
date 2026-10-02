@@ -212,6 +212,10 @@ impl Structure {
         (self.inner_border_radius + self.smaller_border_radius) / 2.0
     }
 
+    pub fn semi_font_size(&self) -> f32 {
+        (self.large_font_size + self.font_size) / 2.0
+    }
+
     pub fn chat_col_width(&self) -> f32 {
         self.chat.icon_size + 3.0 * self.small_gap
     }

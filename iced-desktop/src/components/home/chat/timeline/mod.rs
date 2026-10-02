@@ -26,7 +26,7 @@ use sweeten::widget::list;
 
 use phosphor_svgs::icon as icons;
 
-use crate::components::home::overlay::{ContextMenu, ContextMenuKind};
+use crate::components::home::overlay::{ContextMenu, ContextMenuKind, ModifyItem};
 use crate::components::phosphor_icon;
 use crate::{
     common::*,
@@ -43,6 +43,7 @@ pub enum TimelineMessage {
         id: String,
         message: TimelineItemMessage,
     },
+    PinnedEventIds(BTreeSet<OwnedEventId>),
     Loaded {
         timeline: Arc<Timeline>,
         initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
@@ -91,6 +92,7 @@ pub enum TimelineAction {
     },
     HelpHover(Option<HelpKey>),
     ContextMenu(ContextMenu),
+    OpenModifyItem(ModifyItem),
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
 
@@ -121,6 +123,9 @@ pub struct ChatTimeline {
     #[hash]
     room_id: OwnedRoomId,
     own_user_id: OwnedUserId,
+
+    #[hash]
+    previous_pinned_event_ids: BTreeSet<OwnedEventId>,
 
     avatar_cache: AvatarCache,
     thumbnail_cache: ThumbnailCache,
@@ -181,7 +186,11 @@ impl ExtraHash for ChatTimeline {
 }
 
 impl ChatTimeline {
-    pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
+    pub fn new(
+        state: &AppState,
+        room: &DePlaceRoom,
+        initial_pinned_event_ids: BTreeSet<OwnedEventId>,
+    ) -> Self {
         let power_levels = Arc::new(RoomPowerLevels::new(
             matrix_sdk::ruma::events::room::power_levels::RoomPowerLevelsSource::None,
             &AuthorizationRules::V12,
@@ -215,6 +224,8 @@ impl ChatTimeline {
 
             room_id: room.room_id().to_owned(),
             own_user_id,
+
+            previous_pinned_event_ids: initial_pinned_event_ids,
 
             avatar_cache: state.avatar_cache().clone(),
             thumbnail_cache: state.thumbnail_cache().clone(),
@@ -540,6 +551,27 @@ impl ChatTimeline {
 impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     fn update(&mut self, message: TimelineMessage) -> Option<TimelineAction> {
         match message {
+            TimelineMessage::PinnedEventIds(pinned_ids) => {
+                for event_id in self.previous_pinned_event_ids.symmetric_difference(&pinned_ids) {
+                    let Some(id) = self.content.index_map().values().find_map(|item| {
+                        if item.event_id_ref() == Some(event_id) {
+                            Some(item.id.clone())
+                        } else {
+                            None
+                        }
+                    }) else {
+                        continue;
+                    };
+
+                    if let Some(item) = self.content.get_mut(&id) {
+                        Arc::make_mut(item).set_pinned(pinned_ids.contains(event_id));
+                    }
+                }
+
+                self.previous_pinned_event_ids = pinned_ids;
+
+                None
+            }
             TimelineMessage::ContextMenu(menu) => Some(TimelineAction::ContextMenu(menu)),
             TimelineMessage::HelpHover(help_key) => Some(TimelineAction::HelpHover(help_key)),
             TimelineMessage::ButtonsHovered { id, hovered } => {
@@ -560,12 +592,30 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 None
             }
             TimelineMessage::Item { id, message } => {
+                let Some(timeline) = &self.timeline else {
+                    return None;
+                };
+
                 let Some(item) = self.content.get_mut(&id) else {
                     tracing::warn!("No item found for id {}", id);
                     return None;
                 };
 
                 let res = match Arc::make_mut(item).update(message)? {
+                    TimelineItemAction::OpenDeleteMenu(event_id) => {
+                        Some(TimelineAction::OpenModifyItem(ModifyItem::delete(
+                            timeline.clone(),
+                            event_id,
+                        )))
+                    }
+                    TimelineItemAction::OpenPinMenu {
+                        event_id,
+                        is_pinned,
+                    } => Some(TimelineAction::OpenModifyItem(ModifyItem::pin(
+                        timeline.clone(),
+                        event_id,
+                        is_pinned,
+                    ))),
                     TimelineItemAction::HelpHover(help) => Some(TimelineAction::HelpHover(help)),
                     TimelineItemAction::OpenProfileOverlay {
                         room_id,
@@ -683,14 +733,18 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 let room_id = self.room_id.clone();
                 let state = self.state.clone();
 
-                for diff in diffs.into_iter().map(|d| {
-                    d.map(|m| {
+                for diff in diffs {
+                    let diff = diff.map(|m| {
                         (
                             m.unique_id().0.clone(),
-                            Arc::new(m.convert(&state, room_id.clone())),
+                            Arc::new(m.convert(
+                                &state,
+                                room_id.clone(),
+                                &self.previous_pinned_event_ids,
+                            )),
                         )
-                    })
-                }) {
+                    });
+
                     match diff {
                         VectorDiff::Append { values } => {
                             for (key, value) in values {
@@ -1008,10 +1062,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
         if let Some(hovered_item_id) = self.hovered_item_id.clone()
             && let Some(bounds) = self.message_event_bounds.get(&hovered_item_id).cloned()
-            && let Some((Some(event_id), (is_own, is_editable, can_be_replied_to))) = self
-                .content
-                .get(&hovered_item_id)
-                .map(|item| (item.event_id(), item.booleans()))
+            && let Some((Some(event_id), (is_own, is_editable, can_be_replied_to), is_pinned)) =
+                self.content
+                    .get(&hovered_item_id)
+                    .map(|item| (item.event_id(), item.booleans(), item.is_pinned()))
         {
             let can_edit = is_editable && self.user_can_send;
             let can_reply = can_be_replied_to && self.user_can_send;
@@ -1046,6 +1100,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             room_id: menu_room_id.clone(),
                             event_id: menu_event_id.clone(),
                             item_id: menu_item_id.clone(),
+
+                            is_pinned,
+
                             can_edit,
                             can_reply,
                             can_pin,
@@ -1069,6 +1126,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         theme,
                         event_id.clone(),
                         hovered_item_id.clone(),
+                        is_pinned,
                         can_edit,
                         can_reply,
                         can_pin,
@@ -1106,6 +1164,7 @@ fn render_timeline_item_buttons(
     theme: Theme,
     event_id: OwnedEventId,
     item_id: String,
+    is_pinned: bool,
     can_edit: bool,
     can_reply: bool,
     can_pin: bool,
@@ -1162,8 +1221,15 @@ fn render_timeline_item_buttons(
 
     if can_pin {
         buttons.push(button(
-            icons::push_pin::BOLD,
-            TimelineItemMessage::SetIsReplyingTo(event_id.clone()),
+            if is_pinned {
+                icons::push_pin_slash::BOLD
+            } else {
+                icons::push_pin::BOLD
+            },
+            TimelineItemMessage::OpenPinMenu {
+                event_id: event_id.clone(),
+                is_pinned,
+            },
             theme.colors.yellow,
             theme.colors.yellow,
             theme.solid_bg,
@@ -1173,7 +1239,7 @@ fn render_timeline_item_buttons(
     if can_redact {
         buttons.push(button(
             icons::trash::BOLD,
-            TimelineItemMessage::SetIsReplyingTo(event_id.clone()),
+            TimelineItemMessage::OpenDeleteMenu(event_id.clone()),
             theme.colors.error,
             theme.colors.error,
             theme.solid_bg,

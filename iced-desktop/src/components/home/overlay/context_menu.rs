@@ -7,11 +7,13 @@ use crate::{
     components::{equal_width::equal_width, phosphor_icon},
 };
 
+use super::ModifyItem;
+
 #[derive(Clone, Debug)]
 pub enum MessageMessage {
     SetReplyingTo,
     Delete,
-    Pin,
+    Pin(bool),
     Edit,
 }
 
@@ -20,7 +22,7 @@ pub enum ContextMenuMessage {
     Message {
         timeline: Arc<Timeline>,
         room_id: OwnedRoomId,
-        event_id: Option<OwnedEventId>,
+        event_id: OwnedEventId,
         item_id: String,
         message: MessageMessage,
     },
@@ -32,6 +34,7 @@ pub enum ContextMenuAction {
         room_id: OwnedRoomId,
         event_id: OwnedEventId,
     },
+    OpenModifyItem(ModifyItem),
 }
 
 #[iced_cache(Clone, Debug, PartialEq)]
@@ -55,6 +58,9 @@ pub enum ContextMenuKind {
         room_id: OwnedRoomId,
         event_id: OwnedEventId,
         item_id: String,
+
+        is_pinned: bool,
+
         can_edit: bool,
         can_reply: bool,
         can_pin: bool,
@@ -94,22 +100,17 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                 item_id,
                 message,
             } => match message {
-                MessageMessage::SetReplyingTo => {
-                    let Some(event_id) = event_id else {
-                        tracing::warn!("No event_id for SetReplyingTo action");
-                        return None;
-                    };
-
-                    Some(ContextMenuAction::SetReplyingTo {
-                        item_id,
-                        room_id,
-                        event_id,
-                    })
-                }
-                // TODO
-                MessageMessage::Delete => None,
-                // TODO
-                MessageMessage::Pin => None,
+                MessageMessage::SetReplyingTo => Some(ContextMenuAction::SetReplyingTo {
+                    item_id,
+                    room_id,
+                    event_id,
+                }),
+                MessageMessage::Delete => Some(ContextMenuAction::OpenModifyItem(
+                    ModifyItem::delete(timeline, event_id),
+                )),
+                MessageMessage::Pin(is_pinned) => Some(ContextMenuAction::OpenModifyItem(
+                    ModifyItem::pin(timeline, event_id, is_pinned),
+                )),
                 // TODO
                 MessageMessage::Edit => None,
             },
@@ -134,6 +135,9 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     room_id,
                     event_id,
                     item_id,
+
+                    is_pinned,
+
                     can_edit,
                     can_reply,
                     can_pin,
@@ -145,6 +149,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     room_id.clone(),
                     event_id.clone(),
                     item_id.clone(),
+                    *is_pinned,
                     *can_edit,
                     *can_reply,
                     *can_pin,
@@ -185,6 +190,7 @@ fn render_message_context_menu(
     room_id: OwnedRoomId,
     event_id: OwnedEventId,
     item_id: String,
+    is_pinned: bool,
     can_edit: bool,
     can_reply: bool,
     can_pin: bool,
@@ -195,7 +201,7 @@ fn render_message_context_menu(
     let message = move |message| ContextMenuMessage::Message {
         timeline: timeline.clone(),
         room_id: room_id.clone(),
-        event_id: Some(event_id.clone()),
+        event_id: event_id.clone(),
         item_id: item_id.clone(),
         message,
     };
@@ -237,9 +243,17 @@ fn render_message_context_menu(
                 theme.colors.yellow,
                 theme.solid_bg,
                 theme.colors.yellow,
-                phosphor_svgs::icon::push_pin::BOLD,
-                "Pin this message",
-                message(MessageMessage::Pin),
+                if is_pinned {
+                    phosphor_svgs::icon::push_pin_slash::BOLD
+                } else {
+                    phosphor_svgs::icon::push_pin::BOLD
+                },
+                if is_pinned {
+                    "Unpin this message"
+                } else {
+                    "Pin this message"
+                },
+                message(MessageMessage::Pin(is_pinned)),
             )
             .into(),
         );

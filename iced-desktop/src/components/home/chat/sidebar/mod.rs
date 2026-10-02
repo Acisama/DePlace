@@ -1,3 +1,5 @@
+use std::collections::{BTreeSet, HashSet};
+
 use enumset::{EnumSet, EnumSetType};
 use macros::iced_cache;
 use matrix_sdk::room::RoomMember;
@@ -241,7 +243,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                     d.map(|m| {
                         (
                             m.unique_id().0.clone(),
-                            Arc::new(m.convert(&state, room_id.clone())),
+                            Arc::new(m.convert(&state, room_id.clone(), &BTreeSet::new())),
                         )
                     })
                 }) {

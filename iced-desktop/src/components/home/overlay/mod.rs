@@ -1,12 +1,12 @@
 use context_menu::{ContextMenuAction, ContextMenuMessage};
 use deplace_core::state::AppState;
 use iced::{
-    Color,
     Length::Fill,
     Task,
     widget::{container, mouse_area, operation::focus},
 };
 use macros::iced_cache;
+use modify_item::{ModifyItemAction, ModifyItemMessage};
 use profile::{OverlayProfile, ProfileAction, ProfileMessage};
 use quick_select::{QUICK_SELECT_INPUT_ID, QuickSelect, QuickSelectAction, QuickSelectMessage};
 use settings::{SETTINGS_INPUT_ID, SettingsAction, SettingsMessage, SettingsView};
@@ -14,11 +14,13 @@ use settings::{SETTINGS_INPUT_ID, SettingsAction, SettingsMessage, SettingsView}
 use crate::common::*;
 
 mod context_menu;
+mod modify_item;
 mod profile;
 mod quick_select;
 mod settings;
 
 pub use context_menu::{ContextMenu, ContextMenuKind};
+pub use modify_item::ModifyItem;
 
 #[iced_cache(Clone)]
 pub struct Overlay {
@@ -53,6 +55,7 @@ pub enum OverlayMessage {
     Settings(SettingsMessage),
     KeyboardEvent(iced::keyboard::Event),
     ContextMenu(ContextMenuMessage),
+    ModifyItem(ModifyItemMessage),
 }
 
 #[derive(Clone, PartialEq, Hash)]
@@ -61,6 +64,7 @@ enum OverlayState {
     Settings,
     Profile,
     ContextMenu(ContextMenu),
+    ModifyItem(ModifyItem),
 }
 
 impl Overlay {
@@ -122,6 +126,10 @@ impl Overlay {
         tracing::trace!("Opening context menu at {:?}", menu.position);
         self.overlay_state = Some(OverlayState::ContextMenu(menu));
     }
+
+    pub fn open_modify_item(&mut self, modify: ModifyItem) {
+        self.overlay_state = Some(OverlayState::ModifyItem(modify));
+    }
 }
 
 #[derive(Debug)]
@@ -140,6 +148,19 @@ pub enum OverlayAction {
 impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
     fn update(&mut self, message: OverlayMessage) -> Option<OverlayAction> {
         match message {
+            OverlayMessage::ModifyItem(message) => {
+                if let Some(OverlayState::ModifyItem(item)) = &mut self.overlay_state {
+                    match item.update(message)? {
+                        ModifyItemAction::Run(task) => Some(OverlayAction::Run(task)),
+                        ModifyItemAction::Close => {
+                            self.overlay_state = None;
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
             OverlayMessage::Close => {
                 self.overlay_state = None;
                 None
@@ -190,7 +211,8 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 }
                 OverlayState::Settings => None,
                 OverlayState::Profile => None,
-                OverlayState::ContextMenu { .. } => None,
+                OverlayState::ContextMenu(_) => None,
+                OverlayState::ModifyItem(_) => None,
             },
             OverlayMessage::Profile(message) => {
                 if let Some(profile) = &mut self.profile {
@@ -220,6 +242,10 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                                 room_id,
                                 event_id,
                             })
+                        }
+                        ContextMenuAction::OpenModifyItem(modify) => {
+                            self.overlay_state = Some(OverlayState::ModifyItem(modify));
+                            None
                         }
                     }
                 } else {
@@ -251,46 +277,53 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
             OverlayState::ContextMenu(menu) => menu
                 .view(theme, structure, help_state)
                 .map(OverlayMessage::ContextMenu),
-            OverlayState::QuickSelect | OverlayState::Settings => {
-                let content = match state {
-                    OverlayState::QuickSelect => self
-                        .quickselect
-                        .view(theme, structure, help_state)
-                        .map(OverlayMessage::QuickSelect),
-                    OverlayState::Settings => self
-                        .settings
-                        .view(theme, structure, help_state)
-                        .map(OverlayMessage::Settings),
-                    _ => Space::new().into(),
-                };
-
-                let dialog = container(content).padding(structure.gap);
-
-                container(dialog)
-                    .width(Fill)
-                    .height(Fill)
-                    .center(Fill)
-                    .style(|_theme| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
-                        ..Default::default()
-                    })
-                    .into()
-            }
+            OverlayState::QuickSelect => render_with_backdrop(
+                theme,
+                structure,
+                self.quickselect
+                    .view(theme, structure, help_state)
+                    .map(OverlayMessage::QuickSelect),
+            ),
+            OverlayState::Settings => render_with_backdrop(
+                theme,
+                structure,
+                self.settings
+                    .view(theme, structure, help_state)
+                    .map(OverlayMessage::Settings),
+            ),
+            OverlayState::ModifyItem(modify) => render_with_backdrop(
+                theme,
+                structure,
+                modify
+                    .view(theme, structure, help_state)
+                    .map(OverlayMessage::ModifyItem),
+            ),
         };
 
         let area = mouse_area(backdrop).on_press(OverlayMessage::Close);
 
-        // Unlike the blocking modals (quick select, settings), the context
-        // menu must not force a mouse interaction over its full-screen
-        // backdrop: doing so would make the `Stack` levitate the cursor for
-        // every layer underneath for every event (not just the ones this
-        // backdrop actually captures), which makes `cursor.is_over(..)`
-        // report `false` everywhere below -- silently breaking hover and
-        // right-click handling on the timeline until this overlay closes.
         if matches!(state, OverlayState::ContextMenu(_)) {
             area.into()
         } else {
             area.interaction(iced::mouse::Interaction::Idle).into()
         }
     }
+}
+
+fn render_with_backdrop(
+    theme: Theme,
+    structure: Structure,
+    content: Element<'static, OverlayMessage>,
+) -> Element<'static, OverlayMessage> {
+    let dialog = container(content).padding(structure.gap);
+
+    container(dialog)
+        .width(Fill)
+        .height(Fill)
+        .center(Fill)
+        .style(move |_| container::Style {
+            background: Some(theme.backdrop.into()),
+            ..Default::default()
+        })
+        .into()
 }

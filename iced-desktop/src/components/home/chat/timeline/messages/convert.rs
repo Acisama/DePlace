@@ -22,21 +22,35 @@ use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
 use matrix_sdk_ui::timeline::{TimelineDetails, TimelineItem as UiTimelineItem};
 
 pub trait ToTimelineItem {
-    fn convert(self, state: &AppState, room_id: OwnedRoomId) -> TimelineItem;
+    fn convert(
+        self,
+        state: &AppState,
+        room_id: OwnedRoomId,
+        pinned_event_ids: &BTreeSet<OwnedEventId>,
+    ) -> TimelineItem;
 }
 
 impl ToTimelineItem for Arc<UiTimelineItem> {
-    fn convert(self, state: &AppState, room_id: OwnedRoomId) -> TimelineItem {
+    fn convert(
+        self,
+        state: &AppState,
+        room_id: OwnedRoomId,
+        pinned_event_ids: &BTreeSet<OwnedEventId>,
+    ) -> TimelineItem {
         TimelineItem {
             id: self.unique_id().0.clone(),
             room_id,
-            kind: TimelineItemKind::from_ui(self.kind(), state),
+            kind: TimelineItemKind::from_ui(self.kind(), state, pinned_event_ids),
         }
     }
 }
 
 impl TimelineItemKind {
-    fn from_ui(value: &UiTimelineItemKind, state: &AppState) -> Self {
+    fn from_ui(
+        value: &UiTimelineItemKind,
+        state: &AppState,
+        pinned_event_ids: &BTreeSet<OwnedEventId>,
+    ) -> Self {
         match value {
             UiTimelineItemKind::Virtual(virt) => match virt {
                 VirtualTimelineItem::ReadMarker => TimelineItemKind::ReadMarker,
@@ -231,7 +245,6 @@ impl TimelineItemKind {
                                 hour_format: settings.hour_format.watch(),
                                 date_format: settings.date_format.watch(),
 
-                                event_id,
                                 sender,
                                 sender_profile,
 
@@ -245,6 +258,11 @@ impl TimelineItemKind {
                                 ),
 
                                 reactions: Arc::new(m.reactions.clone()),
+
+                                is_pinned: event_id
+                                    .as_ref()
+                                    .is_some_and(|id| pinned_event_ids.contains(id)),
+                                event_id,
 
                                 connects_previous: false,
 
