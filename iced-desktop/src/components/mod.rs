@@ -36,6 +36,7 @@ use tile_background::TileBackground;
 pub(crate) mod animation_clock;
 pub mod authentification;
 pub mod corner_badge;
+pub mod equal_width;
 pub mod help_mode;
 pub mod home;
 pub mod link;

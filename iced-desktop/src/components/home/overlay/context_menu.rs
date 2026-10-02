@@ -1,7 +1,11 @@
+use iced::Alignment;
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
 
-use crate::common::*;
+use crate::{
+    common::*,
+    components::{equal_width::equal_width, phosphor_icon},
+};
 
 #[derive(Clone, Debug)]
 pub enum MessageMessage {
@@ -37,12 +41,24 @@ pub struct ContextMenu {
     pub kind: ContextMenuKind,
 }
 
+impl ExtraHash for ContextMenu {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.position.x.to_bits().hash(state);
+        self.position.y.to_bits().hash(state);
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum ContextMenuKind {
     Message {
         timeline: Arc<Timeline>,
+        room_id: OwnedRoomId,
         event_id: OwnedEventId,
         item_id: String,
+        can_edit: bool,
+        can_reply: bool,
+        can_pin: bool,
+        can_redact: bool,
     },
 }
 
@@ -106,10 +122,40 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
         structure: Structure,
         _help_state: HelpState<HelpKey>,
     ) -> iced::Element<'static, ContextMenuMessage> {
-        let position = self.position;
+        const SIZE: f32 = 200.0;
 
-        w::container(
-            w::container(Space::new().width(100.0).height(100.0)).style(move |_| ContainerStyle {
+        let position = self.position;
+        let kind = self.kind.clone();
+
+        w::responsive(move |size| {
+            let content = match &kind {
+                ContextMenuKind::Message {
+                    timeline,
+                    room_id,
+                    event_id,
+                    item_id,
+                    can_edit,
+                    can_reply,
+                    can_pin,
+                    can_redact,
+                } => render_message_context_menu(
+                    theme,
+                    structure,
+                    timeline.clone(),
+                    room_id.clone(),
+                    event_id.clone(),
+                    item_id.clone(),
+                    *can_edit,
+                    *can_reply,
+                    *can_pin,
+                    *can_redact,
+                ),
+            };
+
+            let left = position.x.min(size.width - SIZE).max(0.0);
+            let top = position.y.min(size.height - SIZE).max(0.0);
+
+            w::container(w::container(content).style(move |_| ContainerStyle {
                 background: Some(theme.solid_bg.into()),
                 border: Border {
                     color: theme.border.into(),
@@ -117,16 +163,140 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     radius: structure.inner_border_radius.into(),
                 },
                 ..Default::default()
-            }),
-        )
-        .width(Fill)
-        .height(Fill)
-        .padding(Padding {
-            top: position.y,
-            left: position.x,
-            right: 0.0,
-            bottom: 0.0,
+            }))
+            .width(Fill)
+            .height(Fill)
+            .padding(Padding {
+                top,
+                left,
+                right: 0.0,
+                bottom: 0.0,
+            })
         })
         .into()
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_message_context_menu(
+    theme: Theme,
+    structure: Structure,
+    timeline: Arc<Timeline>,
+    room_id: OwnedRoomId,
+    event_id: OwnedEventId,
+    item_id: String,
+    can_edit: bool,
+    can_reply: bool,
+    can_pin: bool,
+    can_redact: bool,
+) -> Element<'static, ContextMenuMessage> {
+    let mut buttons = Vec::new();
+
+    let message = move |message| ContextMenuMessage::Message {
+        timeline: timeline.clone(),
+        room_id: room_id.clone(),
+        event_id: Some(event_id.clone()),
+        item_id: item_id.clone(),
+        message,
+    };
+
+    if can_edit {
+        buttons.push(
+            render_context_menu_button(
+                structure,
+                theme.text.dim,
+                theme.text.normal,
+                theme.solid_hover_bg,
+                phosphor_svgs::icon::pencil_simple::BOLD,
+                "Edit this message",
+                message(MessageMessage::Edit),
+            )
+            .into(),
+        );
+    }
+
+    if can_reply {
+        buttons.push(
+            render_context_menu_button(
+                structure,
+                theme.text.dim,
+                theme.text.normal,
+                theme.solid_hover_bg,
+                phosphor_svgs::icon::arrow_bend_up_left::BOLD,
+                "Reply to this message",
+                message(MessageMessage::SetReplyingTo),
+            )
+            .into(),
+        );
+    }
+
+    if can_pin {
+        buttons.push(
+            render_context_menu_button(
+                structure,
+                theme.colors.yellow,
+                theme.solid_bg,
+                theme.colors.yellow,
+                phosphor_svgs::icon::push_pin::BOLD,
+                "Pin this message",
+                message(MessageMessage::Pin),
+            )
+            .into(),
+        );
+    }
+
+    if can_redact {
+        buttons.push(
+            render_context_menu_button(
+                structure,
+                theme.colors.red,
+                theme.solid_bg,
+                theme.colors.red,
+                phosphor_svgs::icon::trash::BOLD,
+                "Redact this message",
+                message(MessageMessage::Delete),
+            )
+            .into(),
+        );
+    }
+
+    if buttons.is_empty() {
+        Space::new().into()
+    } else {
+        w::container(equal_width(buttons))
+            .padding(structure.small_gap)
+            .into()
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_context_menu_button(
+    structure: Structure,
+    text_color: DePlaceColor,
+    hover_text_color: DePlaceColor,
+    hover_bg_color: DePlaceColor,
+    icon: &'static str,
+    label: &'static str,
+    message: ContextMenuMessage,
+) -> w::Button<'static, ContextMenuMessage> {
+    w::button(
+        w::row![
+            phosphor_icon(icon, structure.font_size),
+            w::text(label).size(structure.font_size)
+        ]
+        .spacing(structure.small_gap)
+        .align_y(Alignment::Center),
+    )
+    .padding(structure.small_gap)
+    .style(move |_, status| ButtonStyle {
+        background: status.active().then_some(hover_bg_color.into()),
+        text_color: if status.active() {
+            hover_text_color.into()
+        } else {
+            text_color.into()
+        },
+        border: border::rounded(structure.semi_border_radius()),
+        ..Default::default()
+    })
+    .on_press(message)
 }

@@ -1026,6 +1026,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             let tile_bounds = self.tile_bounds;
 
             let menu_timeline = timeline.clone();
+            let menu_room_id = self.room_id.clone();
             let menu_event_id = event_id.clone();
             let menu_item_id = hovered_item_id.clone();
 
@@ -1042,8 +1043,13 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         ),
                         kind: ContextMenuKind::Message {
                             timeline: menu_timeline.clone(),
+                            room_id: menu_room_id.clone(),
                             event_id: menu_event_id.clone(),
                             item_id: menu_item_id.clone(),
+                            can_edit,
+                            can_reply,
+                            can_pin,
+                            can_redact,
                         },
                     }),
             )

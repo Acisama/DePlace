@@ -278,9 +278,19 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
             }
         };
 
-        mouse_area(backdrop)
-            .on_press(OverlayMessage::Close)
-            .interaction(iced::mouse::Interaction::Idle)
-            .into()
+        let area = mouse_area(backdrop).on_press(OverlayMessage::Close);
+
+        // Unlike the blocking modals (quick select, settings), the context
+        // menu must not force a mouse interaction over its full-screen
+        // backdrop: doing so would make the `Stack` levitate the cursor for
+        // every layer underneath for every event (not just the ones this
+        // backdrop actually captures), which makes `cursor.is_over(..)`
+        // report `false` everywhere below -- silently breaking hover and
+        // right-click handling on the timeline until this overlay closes.
+        if matches!(state, OverlayState::ContextMenu(_)) {
+            area.into()
+        } else {
+            area.interaction(iced::mouse::Interaction::Idle).into()
+        }
     }
 }
