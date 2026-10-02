@@ -23,7 +23,10 @@ mod input;
 mod sidebar;
 mod timeline;
 
-pub use timeline::{TimelineMessage, messages::TimelineItemMessage};
+pub use timeline::{
+    TimelineMessage,
+    messages::{MessageEvent, TimelineItemMessage},
+};
 
 use super::overlay::{ContextMenu, ModifyItem};
 

@@ -552,7 +552,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     fn update(&mut self, message: TimelineMessage) -> Option<TimelineAction> {
         match message {
             TimelineMessage::PinnedEventIds(pinned_ids) => {
-                for event_id in self.previous_pinned_event_ids.symmetric_difference(&pinned_ids) {
+                for event_id in self
+                    .previous_pinned_event_ids
+                    .symmetric_difference(&pinned_ids)
+                {
                     let Some(id) = self.content.index_map().values().find_map(|item| {
                         if item.event_id_ref() == Some(event_id) {
                             Some(item.id.clone())
@@ -603,19 +606,25 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                 let res = match Arc::make_mut(item).update(message)? {
                     TimelineItemAction::OpenDeleteMenu(event_id) => {
-                        Some(TimelineAction::OpenModifyItem(ModifyItem::delete(
-                            timeline.clone(),
-                            event_id,
-                        )))
+                        item.message_event().map(|event| {
+                            TimelineAction::OpenModifyItem(ModifyItem::delete(
+                                timeline.clone(),
+                                event_id,
+                                event,
+                            ))
+                        })
                     }
                     TimelineItemAction::OpenPinMenu {
                         event_id,
                         is_pinned,
-                    } => Some(TimelineAction::OpenModifyItem(ModifyItem::pin(
-                        timeline.clone(),
-                        event_id,
-                        is_pinned,
-                    ))),
+                    } => item.message_event().map(|event| {
+                        TimelineAction::OpenModifyItem(ModifyItem::pin(
+                            timeline.clone(),
+                            event_id,
+                            event,
+                            is_pinned,
+                        ))
+                    }),
                     TimelineItemAction::HelpHover(help) => Some(TimelineAction::HelpHover(help)),
                     TimelineItemAction::OpenProfileOverlay {
                         room_id,
@@ -1062,10 +1071,19 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
         if let Some(hovered_item_id) = self.hovered_item_id.clone()
             && let Some(bounds) = self.message_event_bounds.get(&hovered_item_id).cloned()
-            && let Some((Some(event_id), (is_own, is_editable, can_be_replied_to), is_pinned)) =
-                self.content
-                    .get(&hovered_item_id)
-                    .map(|item| (item.event_id(), item.booleans(), item.is_pinned()))
+            && let Some((
+                Some(event_id),
+                (is_own, is_editable, can_be_replied_to),
+                is_pinned,
+                Some(message),
+            )) = self.content.get(&hovered_item_id).map(|item| {
+                (
+                    item.event_id(),
+                    item.booleans(),
+                    item.is_pinned(),
+                    item.message_event(),
+                )
+            })
         {
             let can_edit = is_editable && self.user_can_send;
             let can_reply = can_be_replied_to && self.user_can_send;
@@ -1083,6 +1101,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             let menu_room_id = self.room_id.clone();
             let menu_event_id = event_id.clone();
             let menu_item_id = hovered_item_id.clone();
+            let menu_event = message.clone();
 
             let context_menu_catcher: Element<'static, ContextMenu> = w::float(
                 sweeten::widget::mouse_area(Space::new().width(bounds.width).height(bounds.height))
@@ -1097,6 +1116,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         ),
                         kind: ContextMenuKind::Message {
                             timeline: menu_timeline.clone(),
+                            event: menu_event.clone(),
                             room_id: menu_room_id.clone(),
                             event_id: menu_event_id.clone(),
                             item_id: menu_item_id.clone(),

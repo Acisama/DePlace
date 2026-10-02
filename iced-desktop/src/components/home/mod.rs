@@ -321,7 +321,7 @@ impl Home {
         Some(HomeAction::LoadMediaTask(Task::future(async move {
             match needs_media {
                 NeedsMedia::Avatar { uri } => {
-                    let (media, success) = state.avatar_cache().load_avatar(uri.clone()).await;
+                    let (media, success) = state.avatar_cache().load_content(&uri).await;
                     tracing::trace!(
                         "Loading of avatar {uri} finished: {}",
                         if success { "success" } else { "failure" }
@@ -331,7 +331,7 @@ impl Home {
                 NeedsMedia::Thumbnail { source, key } => {
                     let (media, success) = state
                         .thumbnail_cache()
-                        .load_thumbnail(source.clone(), key)
+                        .load_content_with_key(&source, key)
                         .await;
                     tracing::trace!(
                         "Loading of thumbnail {} finished: {}",
@@ -342,7 +342,7 @@ impl Home {
                 }
                 NeedsMedia::Video { source } => {
                     let unique_key = source.unique_key();
-                    let (media, success) = state.video_cache().load_video(source).await;
+                    let (media, success) = state.video_cache().load_content(&source).await;
                     tracing::trace!(
                         "Loading of video {} finished: {}",
                         unique_key,

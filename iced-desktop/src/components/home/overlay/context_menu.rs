@@ -4,7 +4,7 @@ use matrix_sdk_ui::Timeline;
 
 use crate::{
     common::*,
-    components::{equal_width::equal_width, phosphor_icon},
+    components::{equal_width::equal_width, home::chat::MessageEvent, phosphor_icon},
 };
 
 use super::ModifyItem;
@@ -21,6 +21,7 @@ pub enum MessageMessage {
 pub enum ContextMenuMessage {
     Message {
         timeline: Arc<Timeline>,
+        event: Arc<MessageEvent>,
         room_id: OwnedRoomId,
         event_id: OwnedEventId,
         item_id: String,
@@ -55,6 +56,7 @@ impl ExtraHash for ContextMenu {
 pub enum ContextMenuKind {
     Message {
         timeline: Arc<Timeline>,
+        event: Arc<MessageEvent>,
         room_id: OwnedRoomId,
         event_id: OwnedEventId,
         item_id: String,
@@ -95,6 +97,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
         match message {
             ContextMenuMessage::Message {
                 timeline,
+                event,
                 event_id,
                 room_id,
                 item_id,
@@ -106,10 +109,10 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     event_id,
                 }),
                 MessageMessage::Delete => Some(ContextMenuAction::OpenModifyItem(
-                    ModifyItem::delete(timeline, event_id),
+                    ModifyItem::delete(timeline, event_id, event),
                 )),
                 MessageMessage::Pin(is_pinned) => Some(ContextMenuAction::OpenModifyItem(
-                    ModifyItem::pin(timeline, event_id, is_pinned),
+                    ModifyItem::pin(timeline, event_id, event, is_pinned),
                 )),
                 // TODO
                 MessageMessage::Edit => None,
@@ -132,6 +135,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
             let content = match &kind {
                 ContextMenuKind::Message {
                     timeline,
+                    event,
                     room_id,
                     event_id,
                     item_id,
@@ -146,6 +150,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     theme,
                     structure,
                     timeline.clone(),
+                    event.clone(),
                     room_id.clone(),
                     event_id.clone(),
                     item_id.clone(),
@@ -187,6 +192,7 @@ fn render_message_context_menu(
     theme: Theme,
     structure: Structure,
     timeline: Arc<Timeline>,
+    event: Arc<MessageEvent>,
     room_id: OwnedRoomId,
     event_id: OwnedEventId,
     item_id: String,
@@ -200,6 +206,7 @@ fn render_message_context_menu(
 
     let message = move |message| ContextMenuMessage::Message {
         timeline: timeline.clone(),
+        event: event.clone(),
         room_id: room_id.clone(),
         event_id: event_id.clone(),
         item_id: item_id.clone(),

@@ -151,7 +151,10 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
             OverlayMessage::ModifyItem(message) => {
                 if let Some(OverlayState::ModifyItem(item)) = &mut self.overlay_state {
                     match item.update(message)? {
-                        ModifyItemAction::Run(task) => Some(OverlayAction::Run(task)),
+                        ModifyItemAction::Run(task) => {
+                            self.overlay_state = None;
+                            Some(OverlayAction::Run(task))
+                        }
                         ModifyItemAction::Close => {
                             self.overlay_state = None;
                             None

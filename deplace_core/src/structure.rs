@@ -90,6 +90,7 @@ pub struct Structure {
     pub server_column: ServerColumn,
     pub divider_width: f32,
     pub border_thickness: f32,
+    pub modify_menu_width: f32,
     pub sidebar: Sidebar,
     pub header: Header,
     pub chat: Chat,
@@ -126,6 +127,7 @@ impl Default for Structure {
             large_font_size: 19.0,
             divider_width: 2.0,
             border_thickness: 1.0,
+            modify_menu_width: 500.0,
 
             chat: Chat {
                 icon_size: 40.0,

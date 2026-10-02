@@ -109,10 +109,10 @@ impl<T: Clone> Hash for GenericState<T> {
 }
 
 pub fn weighted_text<'a, T>(
-    text: impl Into<String>,
+    text: impl IntoFragment<'a>,
     weight: iced::font::Weight,
 ) -> Rich<'a, (), T> {
-    rich_text([span(text.into()).font(Font {
+    rich_text([span(text).font(Font {
         weight,
         ..Default::default()
     })])

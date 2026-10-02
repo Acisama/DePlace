@@ -4,8 +4,8 @@ pub use crate::components::{
     help_mode::{Caption, HelpState, help, help_root},
     home::HelpKey,
     loading_icon, on_appear, pan, render_avatar, render_loading_name, render_name,
-    render_unknown_name,
-    text_icon, text_input, themed_scrollable, themed_tooltip, unknown_icon, weighted_text,
+    render_unknown_name, text_icon, text_input, themed_scrollable, themed_tooltip, unknown_icon,
+    weighted_text,
 };
 pub use deplace_core::{
     ProfileLike,
@@ -16,7 +16,10 @@ pub use deplace_core::{
     settings::Settings,
     state::{
         AppState, MembershipMap,
-        cache::{AvatarCache, MediaLoaded, MediaState, NeedsMedia, ThumbnailCache, VideoCache},
+        cache::{
+            AvatarCache, CacheLoadingExt, CacheLoadingWithKeyExt, MediaLoaded, MediaState,
+            NeedsMedia, ThumbnailCache, VideoCache,
+        },
         roles::ExtraHash,
     },
     structure::Structure,
