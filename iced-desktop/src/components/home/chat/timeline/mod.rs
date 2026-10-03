@@ -912,6 +912,15 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         {
                             if item.message_event().is_some() {
                                 tracing::debug!("Focusing message on index {new_focus_index}");
+
+                                // Mark the previously and newly focused message to be updated
+                                // by calling the get_mut method. The messages will then be
+                                // internally marked as updated and be rerendered.
+                                if let Some(old_id) = self.focused_message_id.take() {
+                                    self.content.get_mut(&old_id);
+                                }
+                                self.content.get_mut(id);
+
                                 self.focused_message_id = Some(id.clone());
 
                                 // let task = operate(sweeten::widget::list::FindItemBounds::new(
@@ -947,6 +956,15 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         {
                             if item.message_event().is_some() {
                                 tracing::debug!("Focusing message on index {new_focus_index}");
+
+                                // Mark the previously and newly focused message to be updated
+                                // by calling the get_mut method. The messages will then be
+                                // internally marked as updated and be rerendered.
+                                if let Some(old_id) = self.focused_message_id.take() {
+                                    self.content.get_mut(&old_id);
+                                }
+                                self.content.get_mut(id);
+
                                 self.focused_message_id = Some(id.clone());
 
                                 // let task = operate(sweeten::widget::list::FindItemBounds::new(
