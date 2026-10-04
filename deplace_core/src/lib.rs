@@ -23,6 +23,7 @@ pub mod keybinds;
 pub mod matrix_api;
 pub mod notifications;
 pub mod profile;
+pub mod rich_text;
 pub mod rooms;
 pub mod search;
 pub mod settings;

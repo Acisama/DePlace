@@ -7,6 +7,7 @@ use std::{
 use chrono_tz::Tz;
 use deplace_core::{
     formatting::format_date_divider,
+    rich_text::{FormattedBody, MessageLink},
     settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType},
     state::cache::VideoCache,
 };
@@ -35,6 +36,7 @@ use matrix_sdk_ui::timeline::{
 };
 
 mod convert;
+mod formatted_body;
 mod render;
 
 pub use convert::ToTimelineItem;
@@ -63,7 +65,7 @@ pub enum TimelineItemMessage {
         is_pinned: bool,
     },
     OpenDeleteMenu(OwnedEventId),
-    LinkClick,
+    LinkClick(MessageLink),
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
@@ -102,6 +104,7 @@ pub enum TimelineItemAction {
         is_pinned: bool,
     },
     OpenDeleteMenu(OwnedEventId),
+    LinkClick(MessageLink),
 }
 
 /// An item in the timeline
@@ -353,7 +356,7 @@ impl TimelineItem {
 
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
-            TimelineItemMessage::LinkClick => None,
+            TimelineItemMessage::LinkClick(link) => Some(TimelineItemAction::LinkClick(link)),
             TimelineItemMessage::OpenPinMenu {
                 event_id,
                 is_pinned,
@@ -466,6 +469,7 @@ impl TimelineItem {
         index: usize,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let fallback = w::text(format!("{:?}", self)).into();
+        let render_error_message = |text: String| w::text(text).color(theme.colors.error).into();
 
         let room_id = self.room_id.clone();
 
@@ -499,8 +503,18 @@ impl TimelineItem {
                 .spacing(structure.small_gap)
                 .into()
             }
-            TimelineItemKind::FailedToParseMessageLike { .. } => fallback,
-            TimelineItemKind::FailedToParseState { .. } => fallback,
+            TimelineItemKind::FailedToParseMessageLike { event_type, error } => {
+                render_error_message(format!(
+                    "Failed to parse message like: event_type={event_type:?}, error={error:?}"
+                ))
+            }
+            TimelineItemKind::FailedToParseState {
+                event_type,
+                state_key,
+                error,
+            } => render_error_message(format!(
+                "Failed to parse state: event_type={event_type:?}, state_key={state_key:?}, error={error:?}"
+            )),
             TimelineItemKind::ReadMarker => w::container(
                 w::container(Space::new())
                     .width(Fill)
@@ -519,13 +533,16 @@ impl TimelineItem {
                 if !event.should_show(*system_messages_to_show.borrow()) {
                     return w::space().into();
                 }
+
+                let is_hovered = *is_hovered;
+
                 render_event(
                     w::lazy(event.clone(), move |event| {
-                        event.view(theme, room_id.clone(), structure)
+                        event.view(theme, room_id.clone(), structure, is_hovered)
                     }),
                     structure,
                     theme,
-                    *is_hovered,
+                    is_hovered,
                     false,
                     *previous_is_event,
                     false,
@@ -607,7 +624,6 @@ enum TimelineItemKind {
 
 impl Hash for TimelineItemKind {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Other things are static, so hashing doesn't need to include them
         match self {
             TimelineItemKind::Message {
                 message: event,
@@ -637,6 +653,7 @@ impl Hash for TimelineItemKind {
                 depends_on_system_messages.hash(state);
                 system_messages_to_show.borrow().hash(state);
             }
+            // Other things are static, so hashing doesn't need to include them
             _ => {}
         }
     }
@@ -774,12 +791,12 @@ pub enum MessageContent {
     Audio,
     Emote {
         body: Option<String>,
-        formatted_body: Option<CustomBody>,
+        formatted_body: Option<FormattedBody>,
     },
     Empty,
     File {
         caption: Option<String>,
-        formatted_caption: Option<CustomBody>,
+        formatted_caption: Option<FormattedBody>,
         filename: String,
         source: MediaSource,
         info: Option<Box<FileInfo>>,
@@ -792,14 +809,14 @@ pub enum MessageContent {
     Location,
     Notice {
         body: Option<String>,
-        formatted_body: Option<CustomBody>,
+        formatted_body: Option<FormattedBody>,
     },
     ServerNotice {
         body: Option<String>,
     },
     Text {
         body: Option<String>,
-        formatted_body: Option<CustomBody>,
+        formatted_body: Option<FormattedBody>,
         _url_previews: Option<Vec<UrlPreview>>,
     },
     Video {
@@ -809,7 +826,7 @@ pub enum MessageContent {
     /// Body is only present if the client doesn't support the key verification framework, this client doesn't support it
     VerificationRequest {
         body: Option<String>,
-        formatted_body: Option<CustomBody>,
+        formatted_body: Option<FormattedBody>,
     },
     Sticker,
     Poll,
@@ -891,7 +908,7 @@ pub struct ImageMessage {
     #[hash]
     caption: Option<String>,
     #[hash]
-    formatted_caption: Option<CustomBody>,
+    formatted_caption: Option<FormattedBody>,
 
     blur_preview: Option<ImageHandle>,
 
@@ -918,7 +935,7 @@ pub struct VideoMessage {
     #[hash]
     caption: Option<String>,
     #[hash]
-    formatted_caption: Option<CustomBody>,
+    formatted_caption: Option<FormattedBody>,
 
     blur_preview: Option<ImageHandle>,
 
@@ -948,7 +965,6 @@ struct ReplyToDetails {
 
 #[derive(Debug)]
 struct ReplyEvent {
-    sender: OwnedUserId,
     sender_profile: TimelineDetails<TimelineProfile>,
     content: ReplyContent,
 }
@@ -974,12 +990,23 @@ struct SystemEvent {
     timestamp: SystemTime,
 
     event_id: Option<OwnedEventId>,
-    sender: OwnedUserId,
     sender_profile: TimelineDetails<TimelineProfile>,
+
+    timezone: Receiver<Tz>,
+    hour_format: Receiver<HourFormat>,
+    date_format: Receiver<DateFormat>,
 
     avatar_cache: AvatarCache,
 
     content: Arc<SystemMessage>,
+}
+
+impl ExtraHash for SystemEvent {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.timezone.borrow().hash(state);
+        self.hour_format.borrow().hash(state);
+        self.date_format.borrow().hash(state);
+    }
 }
 
 impl SystemEvent {

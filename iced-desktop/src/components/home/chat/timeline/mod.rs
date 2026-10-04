@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use chrono_tz::Tz;
 use deplace_core::PaginationDirection;
+use deplace_core::rich_text::MessageLink;
 use deplace_core::settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType};
 use enumset::EnumSet;
 use iced::Vector;
@@ -605,6 +606,20 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 };
 
                 let res = match Arc::make_mut(item).update(message)? {
+                    TimelineItemAction::LinkClick(link) => {
+                        tracing::trace!("Link click: {:?}", link);
+
+                        match link {
+                            MessageLink::Url(url) => {
+                                Some(TimelineAction::Run(Task::future(async move {
+                                    if let Err(e) = open::that(&url) {
+                                        tracing::error!("Failed to open link: {e}");
+                                    }
+                                })))
+                            }
+                            _ => None,
+                        }
+                    }
                     TimelineItemAction::OpenDeleteMenu(event_id) => {
                         item.message_event().map(|event| {
                             TimelineAction::OpenModifyItem(ModifyItem::delete(

@@ -1,13 +1,17 @@
-use deplace_core::formatting::{
-    fit_dimensions, format_bytes, format_message_long_date, format_message_short_date,
+use deplace_core::{
+    formatting::{
+        fit_dimensions, format_bytes, format_message_long_date, format_message_short_date,
+    },
+    rich_text::FormattedBody,
 };
 use iced::{
     Alignment, Background,
     Length::{self, Shrink},
     gradient::Linear,
+    never,
     widget::{
         span,
-        text::{LineHeight, Rich, Span},
+        text::{LineHeight, Rich},
     },
 };
 use iced_video_player::VideoPlayer;
@@ -39,7 +43,7 @@ use crate::{
 
 use super::{
     ImageMessage, MessageContent, MessageEvent, ReplyContent, RtcNotification, TimelineItemMessage,
-    VideoMessage,
+    VideoMessage, formatted_body::FormattedBodyView,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -116,23 +120,14 @@ impl MessageEvent {
         let mut column = w::Column::new();
         let help_view = create_help_view(help_state, theme, TimelineItemMessage::HelpHover);
 
-        if let Some(mut text_content) = text_content {
-            if self.is_edited {
-                text_content.extend([
-                    w::span(" ").size(text_size),
-                    w::span(" (edited)")
-                        .size(structure.chat.small_text_size)
-                        .color(theme.text.dim),
-                ]);
-            }
-
+        if let Some(text_content) = text_content {
             column = column.push(help_view.call(
                 HelpKey::Message {
                     key: MessageHelpKey::TextContent,
                     index,
                 },
                 "The text content of the message",
-                w::text::Rich::with_spans(text_content),
+                text_content,
             ));
         }
         if let Some(other_content) = other_content {
@@ -433,7 +428,7 @@ impl MessageContent {
         is_local_echo: bool,
         contains_only_emojis: bool,
     ) -> (
-        Option<Vec<Span<'static>>>,
+        Option<Element<'static, TimelineItemMessage>>,
         Option<Element<'static, TimelineItemMessage>>,
     ) {
         let mut text_size = structure.chat.text_size;
@@ -443,7 +438,7 @@ impl MessageContent {
         }
 
         let render_text_color =
-            |text: String, color: Color| vec![w::span(text).size(text_size).color(color)];
+            |text: String, color: Color| w::text(text).size(text_size).color(color);
         let render_normal_text = |text: String| {
             render_text_color(
                 text,
@@ -463,12 +458,23 @@ impl MessageContent {
         };
         let itallic_text = |text: String| {
             (
-                Some(vec![w::span(text).font(Font {
-                    style: iced::font::Style::Italic,
-                    ..Default::default()
-                })]),
+                Some(
+                    w::rich_text![w::span(text).font(Font {
+                        style: iced::font::Style::Italic,
+                        ..Default::default()
+                    })]
+                    .on_link_click(never)
+                    .into(),
+                ),
                 None,
             )
+        };
+
+        let render_body = |body: &Option<String>, formatted_body: &Option<FormattedBody>| {
+            formatted_body
+                .as_ref()
+                .map(|f| f.view(theme, structure, is_local_echo))
+                .or_else(|| body.as_ref().map(|t| render_normal_text(t.clone()).into()))
         };
 
         match &self {
@@ -476,11 +482,7 @@ impl MessageContent {
             MessageContent::Emote {
                 body,
                 formatted_body,
-            } => (
-                body.as_ref()
-                    .map(|t| vec![w::span(t.clone()).size(text_size).color(theme.text.normal)]),
-                None,
-            ),
+            } => (render_body(body, formatted_body), None),
             MessageContent::Empty => itallic_text("Empty".to_string()),
             MessageContent::File { .. } => {
                 render_warning_text("File messages are not yet implemented")
@@ -522,8 +524,7 @@ impl MessageContent {
                 }
 
                 (
-                    // TODO: Actually use image caption
-                    None,
+                    render_body(&image.caption, &image.formatted_caption),
                     Some(
                         w::mouse_area(stack)
                             .on_enter(TimelineItemMessage::MediaMouseEnter)
@@ -550,15 +551,19 @@ impl MessageContent {
             }
             MessageContent::Poll => render_warning_text("Poll messages are not yet implemented"),
             MessageContent::Redacted => (
-                Some(vec![
-                    w::span("Redacted")
-                        .font(Font {
-                            style: iced::font::Style::Italic,
-                            ..Default::default()
-                        })
-                        .color(theme.text.dim)
-                        .size(text_size),
-                ]),
+                Some(
+                    w::rich_text![
+                        w::span("Redacted")
+                            .font(Font {
+                                style: iced::font::Style::Italic,
+                                ..Default::default()
+                            })
+                            .color(theme.text.dim)
+                            .size(text_size)
+                    ]
+                    .on_link_click(never)
+                    .into(),
+                ),
                 None,
             ),
             MessageContent::Sticker => {
@@ -568,20 +573,14 @@ impl MessageContent {
                 body,
                 formatted_body,
                 ..
-            } => (
-                body.as_ref().map(|t| render_normal_text(t.clone()).into()),
-                None,
-            ),
+            } => (render_body(body, formatted_body), None),
             MessageContent::UnableToDecrypt => {
                 itallic_text("Unable to decrypt message".to_string())
             }
             MessageContent::VerificationRequest {
                 body,
                 formatted_body,
-            } => (
-                body.as_ref().map(|t| render_normal_text(t.clone()).into()),
-                None,
-            ),
+            } => (render_body(body, formatted_body), None),
             MessageContent::Video { video, is_hovered } => {
                 let mut stack = Stack::new().push(w::lazy(video.clone(), move |video| {
                     video.video_view(theme, structure)
@@ -619,8 +618,7 @@ impl MessageContent {
                 }
 
                 (
-                    // TODO: Actually use image caption
-                    None,
+                    render_body(&video.caption, &video.formatted_caption),
                     Some(
                         w::mouse_area(stack)
                             .on_enter(TimelineItemMessage::MediaMouseEnter)
@@ -900,6 +898,7 @@ impl SystemEvent {
         theme: Theme,
         room_id: OwnedRoomId,
         structure: Structure,
+        is_hovered: bool,
     ) -> Element<'static, TimelineItemMessage> {
         let (icon, icon_color) = self.content.icon(theme);
 
@@ -919,12 +918,34 @@ impl SystemEvent {
             ),
         };
 
+        let content = self.content.render_content(theme, structure, sender_name);
+        let content = if is_hovered {
+            w::row![
+                content,
+                Element::from(
+                    w::text(format_message_long_date(
+                        self.timestamp,
+                        *self.timezone.borrow(),
+                        *self.hour_format.borrow(),
+                        *self.date_format.borrow(),
+                    ))
+                    .size(structure.chat.text_size)
+                    .color(theme.text.dim),
+                )
+            ]
+            .align_y(Alignment::Center)
+            .spacing(structure.small_gap)
+            .into()
+        } else {
+            content
+        };
+
         w::row![
             w::container(phosphor_icon(icon, structure.chat.text_size))
                 .style(move |_| ContainerStyle::default().color(icon_color))
                 .width(col_width)
                 .center_x(col_width),
-            self.content.render_content(theme, structure, sender_name)
+            content,
         ]
         .padding(padding::vertical(structure.small_gap / 2.0))
         .align_y(Alignment::Center)
@@ -1164,7 +1185,7 @@ impl ReplyContent {
             ReplyContent::Media => "Click to see media".into(),
             ReplyContent::Poll => "Click to see poll".into(),
             ReplyContent::Redacted => "Redacted".into(),
-            ReplyContent::RtcNotification(_) => "RTC notification".into(),
+            ReplyContent::RtcNotification(text) => text.into(),
             ReplyContent::System(text) => text.into(),
             ReplyContent::Text(text) => text.into(),
         }

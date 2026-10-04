@@ -1,3 +1,4 @@
+use deplace_core::rich_text::FormattedBody;
 use matrix_sdk::ruma::events::StateEventType;
 use std::collections::BTreeSet;
 use std::time::SystemTime;
@@ -92,9 +93,12 @@ impl TimelineItemKind {
                             event: Box::new(SystemEvent {
                                 timestamp,
                                 event_id,
-                                sender,
                                 sender_profile,
                                 content: Arc::new($content),
+
+                                timezone: state.settings().timezone.watch(),
+                                hour_format: state.settings().hour_format.watch(),
+                                date_format: state.settings().date_format.watch(),
 
                                 avatar_cache: state.avatar_cache().clone(),
                                 avatar_states_for_hash: BTreeSet::new(),
@@ -304,12 +308,15 @@ impl MessageContent {
         let thumbnail_cache = state.thumbnail_cache().clone();
         let video_cache = state.video_cache().clone();
 
-        match value {
+        let result = match value {
             MsgLikeKind::Message(msg) => match msg.msgtype() {
                 MessageType::Audio(_) => MessageContent::Audio,
                 MessageType::Emote(emote) => MessageContent::Emote {
                     body: string_to_option(&emote.body),
-                    formatted_body: None,
+                    formatted_body: emote
+                        .formatted
+                        .as_ref()
+                        .map(|f| FormattedBody::parse_formatted_body(&f.body)),
                 },
                 MessageType::File(file) => MessageContent::File {
                     caption: file.caption().map(|s| s.to_string()),
@@ -322,7 +329,9 @@ impl MessageContent {
                 MessageType::Image(image) => MessageContent::Image {
                     image: ImageMessage {
                         caption: image.caption().map(|s| s.to_string()),
-                        formatted_caption: None,
+                        formatted_caption: image
+                            .formatted_caption()
+                            .map(|f| FormattedBody::parse_formatted_body(&f.body)),
 
                         blur_preview: image.info.as_ref().and_then(|info| {
                             info.thumbhash
@@ -347,24 +356,36 @@ impl MessageContent {
                 MessageType::Location(_) => MessageContent::Location,
                 MessageType::Notice(notice) => MessageContent::Notice {
                     body: string_to_option(&notice.body),
-                    formatted_body: None,
+                    formatted_body: notice
+                        .formatted
+                        .as_ref()
+                        .map(|f| FormattedBody::parse_formatted_body(&f.body)),
                 },
                 MessageType::ServerNotice(server_notice) => MessageContent::ServerNotice {
                     body: string_to_option(&server_notice.body),
                 },
                 MessageType::Text(text) => MessageContent::Text {
                     body: string_to_option(&text.body),
-                    formatted_body: None,
+                    formatted_body: text
+                        .formatted
+                        .as_ref()
+                        .map(|f| FormattedBody::parse_formatted_body(&f.body)),
                     _url_previews: text.url_previews.clone(),
                 },
                 MessageType::VerificationRequest(request) => MessageContent::VerificationRequest {
                     body: string_to_option(&request.body),
-                    formatted_body: None,
+                    formatted_body: request
+                        .formatted
+                        .as_ref()
+                        .map(|f| FormattedBody::parse_formatted_body(&f.body)),
                 },
                 MessageType::Video(video) => MessageContent::Video {
                     video: VideoMessage {
                         caption: video.caption().map(|s| s.to_string()),
-                        formatted_caption: None,
+                        formatted_caption: video
+                            .formatted
+                            .as_ref()
+                            .map(|f| FormattedBody::parse_formatted_body(&f.body)),
 
                         blur_preview: video.info.as_ref().and_then(|info| {
                             info.thumbhash
@@ -398,7 +419,13 @@ impl MessageContent {
             MsgLikeKind::Sticker(_) => MessageContent::Sticker,
             MsgLikeKind::UnableToDecrypt(_) => MessageContent::UnableToDecrypt,
             MsgLikeKind::Redacted => MessageContent::Redacted,
+        };
+
+        if matches!(&result, MessageContent::Text { body, .. } | MessageContent::Emote { body, .. } if body.is_none())
+        {
+            return MessageContent::Empty;
         }
+        result
     }
 }
 
@@ -552,7 +579,6 @@ fn convert_timeline_reply(
         ReplyToDetails {
             event_id,
             event: TimelineDetails::Ready(ReplyEvent {
-                sender: embedded.sender.clone(),
                 sender_profile: match &embedded.sender_profile {
                     TimelineDetails::Error(e) => TimelineDetails::Error(e.clone()),
                     TimelineDetails::Unavailable => TimelineDetails::Unavailable,

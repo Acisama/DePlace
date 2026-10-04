@@ -23,6 +23,7 @@ macros.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-ui.workspace = true
 nucleo.workspace = true
+open.workspace = true
 phosphor-svgs.workspace = true
 serde.workspace = true
 serde_json.workspace = true
