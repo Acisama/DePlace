@@ -1,4 +1,6 @@
-use deplace_core::formatting::{fit_dimensions, format_bytes, format_message_long_date};
+use deplace_core::formatting::{
+    fit_dimensions, format_bytes, format_message_long_date, format_message_short_date,
+};
 use iced::{
     Alignment, Background,
     Length::{self, Shrink},
@@ -90,6 +92,7 @@ pub fn render_event(
 }
 
 impl MessageEvent {
+    #[allow(clippy::too_many_arguments)]
     pub fn view(
         &self,
         room_id: OwnedRoomId,
@@ -98,6 +101,7 @@ impl MessageEvent {
         as_dummy: bool,
         help_state: HelpState<HelpKey>,
         index: usize,
+        is_hovered: bool,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let pre_col_width = structure.small_gap * 1.5;
         let text_size = structure.chat.text_size;
@@ -151,6 +155,9 @@ impl MessageEvent {
             ))
         });
 
+        let timezone = *self.timezone.borrow();
+        let hour_format = *self.hour_format.borrow();
+
         let (icon, name, _) = if show_header {
             {
                 let size = structure.chat.icon_size;
@@ -177,8 +184,8 @@ impl MessageEvent {
                                     "The date and time this message was sent",
                                     w::text(format_message_long_date(
                                         self.timestamp,
-                                        *self.timezone.borrow(),
-                                        *self.hour_format.borrow(),
+                                        timezone,
+                                        hour_format,
                                         *self.date_format.borrow(),
                                     ))
                                     .line_height(LineHeight::Relative(1.0))
@@ -365,9 +372,21 @@ impl MessageEvent {
                             w::row![
                                 w::column![
                                     Space::new().height(structure.divider_width),
-                                    icon.unwrap_or(
-                                        Space::new().width(structure.chat.icon_size).into()
-                                    ),
+                                    icon.or_else(|| is_hovered.then(|| w::text(
+                                        format_message_short_date(
+                                            self.timestamp,
+                                            timezone,
+                                            hour_format
+                                        )
+                                    )
+                                    .color(theme.text.dim)
+                                    .size(structure.chat.small_text_size)
+                                    .width(structure.chat.icon_size)
+                                    .center()
+                                    .into()))
+                                        .unwrap_or(
+                                            Space::new().width(structure.chat.icon_size).into()
+                                        ),
                                     Space::new().height(structure.divider_width),
                                 ],
                                 Space::new().width(pre_col_width),

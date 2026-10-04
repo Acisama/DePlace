@@ -126,7 +126,7 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
 
         let content = self
             .event
-            .view(room_id, theme, structure, true, help_state, 0)
+            .view(room_id, theme, structure, true, help_state, 0, false)
             .map(|_| ModifyItemMessage::None);
 
         let cancel_button = render_dialogue_button(

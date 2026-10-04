@@ -236,8 +236,16 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             .height(structure.border_thickness)
                             .width(Fill),
                         w::container(
-                            msg.view(self.room_id.clone(), theme, structure, true, help_state, 0)
-                                .map(|_| InputMessage::None)
+                            msg.view(
+                                self.room_id.clone(),
+                                theme,
+                                structure,
+                                true,
+                                help_state,
+                                0,
+                                false
+                            )
+                            .map(|_| InputMessage::None)
                         )
                     ])
                     .style(move |_| ContainerStyle {

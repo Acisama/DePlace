@@ -552,6 +552,7 @@ impl TimelineItem {
                                 false,
                                 *help_state,
                                 *index,
+                                is_hovered,
                             )
                         },
                     ),

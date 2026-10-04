@@ -69,9 +69,15 @@ pub fn format_date_divider(date: SystemTime, timezone: Tz) -> String {
     }
 }
 
-pub fn format_message_short_date(date: SystemTime, timezone: Tz) -> String {
+pub fn format_message_short_date(
+    date: SystemTime,
+    timezone: Tz,
+    hour_format: HourFormat,
+) -> String {
+    let format_str = hour_format.date_format();
+
     let date = DateTime::<Utc>::from(date).with_timezone(&timezone);
-    date.format("%H:%M").to_string()
+    date.format(format_str).to_string()
 }
 
 /// Fits `(w, h)` into `(max_w, max_h)` preserving aspect ratio, then grows the result back up
