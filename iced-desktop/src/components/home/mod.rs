@@ -6,7 +6,7 @@ use chat::{
 use deplace_core::{
     PaginationDirection,
     keybinds::{KeybindAction, Keybinds},
-    state::ActiveServer,
+    state::{ActiveServer, cache::CacheResultStatus},
 };
 use iced::widget::stack;
 use lru::LruCache;
@@ -321,34 +321,56 @@ impl Home {
         Some(HomeAction::LoadMediaTask(Task::future(async move {
             match needs_media {
                 NeedsMedia::Avatar { uri } => {
-                    let (media, success) = state.avatar_cache().load_content(&uri).await;
-                    tracing::trace!(
-                        "Loading of avatar {uri} finished: {}",
-                        if success { "success" } else { "failure" }
-                    );
-                    media
+                    let res = state.avatar_cache().load_content(&uri).await;
+                    match res.status {
+                        CacheResultStatus::CacheHit => {}
+                        CacheResultStatus::Success => {
+                            tracing::trace!("Loading of avatar {uri} finished successfully");
+                        }
+                        CacheResultStatus::Failure(e) => {
+                            tracing::error!("Loading of avatar {uri} failed: {e}");
+                        }
+                    }
+                    res.loaded
                 }
                 NeedsMedia::Thumbnail { source, key } => {
-                    let (media, success) = state
+                    let res = state
                         .thumbnail_cache()
                         .load_content_with_key(&source, key)
                         .await;
-                    tracing::trace!(
-                        "Loading of thumbnail {} finished: {}",
-                        source.unique_key(),
-                        if success { "success" } else { "failure" }
-                    );
-                    media
+                    match res.status {
+                        CacheResultStatus::CacheHit => {}
+                        CacheResultStatus::Success => {
+                            tracing::trace!(
+                                "Loading of thumbnail {} finished successfully",
+                                source.unique_key()
+                            );
+                        }
+                        CacheResultStatus::Failure(e) => {
+                            tracing::error!(
+                                "Loading of thumbnail {} failed: {e}",
+                                source.unique_key()
+                            );
+                        }
+                    }
+                    res.loaded
                 }
                 NeedsMedia::Video { source } => {
                     let unique_key = source.unique_key();
-                    let (media, success) = state.video_cache().load_content(&source).await;
-                    tracing::trace!(
-                        "Loading of video {} finished: {}",
-                        unique_key,
-                        if success { "success" } else { "failure" }
-                    );
-                    media
+                    let res = state.video_cache().load_content(&source).await;
+                    match res.status {
+                        CacheResultStatus::CacheHit => {}
+                        CacheResultStatus::Success => {
+                            tracing::trace!(
+                                "Loading of video {} finished successfully",
+                                unique_key
+                            );
+                        }
+                        CacheResultStatus::Failure(e) => {
+                            tracing::error!("Loading of video {} failed: {e}", unique_key);
+                        }
+                    }
+                    res.loaded
                 }
             }
         })))

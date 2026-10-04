@@ -43,12 +43,25 @@ impl<T> std::hash::Hash for MediaState<T> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum CacheResultStatus {
+    Success,
+    Failure(String),
+    CacheHit,
+}
+
+#[derive(Debug, Clone)]
+pub struct CacheLoadingResult {
+    pub loaded: MediaLoaded,
+    pub status: CacheResultStatus,
+}
+
 /// Extention trait for caches for loading content where the source can be used to  generate the key
 pub trait CacheLoadingExt<T> {
     fn load_content(
         &self,
         source: &T,
-    ) -> impl std::future::Future<Output = (MediaLoaded, bool)> + Send;
+    ) -> impl std::future::Future<Output = CacheLoadingResult> + Send;
 }
 
 /// Extention trait for caches for loading content where the key cannot be generated from the source and must be provided separately
@@ -57,7 +70,7 @@ pub trait CacheLoadingWithKeyExt<T, K> {
         &self,
         source: &T,
         key: K,
-    ) -> impl std::future::Future<Output = (MediaLoaded, bool)> + Send;
+    ) -> impl std::future::Future<Output = CacheLoadingResult> + Send;
 }
 
 #[derive(Clone, Debug)]
@@ -127,17 +140,23 @@ mod iced_caches {
 
     use iced::widget::image::Handle as ImageHandle;
 
-    use super::{CacheLoadingExt, CacheLoadingWithKeyExt, MediaCache, MediaLoaded, MediaState};
+    use super::{
+        CacheLoadingExt, CacheLoadingResult, CacheLoadingWithKeyExt, CacheResultStatus, MediaCache,
+        MediaLoaded, MediaState,
+    };
 
     pub type AvatarCache = MediaCache<OwnedMxcUri, iced::widget::image::Handle>;
 
     impl CacheLoadingExt<OwnedMxcUri> for AvatarCache {
         /// Loads an avatar with the given URI and returns MediaLoaded and a boolean indicating whether it was successfully loaded.
-        async fn load_content(&self, uri: &OwnedMxcUri) -> (MediaLoaded, bool) {
+        async fn load_content(&self, uri: &OwnedMxcUri) -> CacheLoadingResult {
             let media_res = MediaLoaded::Avatar { uri: uri.clone() };
 
             if self.cache.get(uri).is_some() {
-                return (media_res, true);
+                return CacheLoadingResult {
+                    loaded: media_res,
+                    status: CacheResultStatus::CacheHit,
+                };
             }
 
             self.cache.insert(uri.clone(), MediaState::Loading);
@@ -147,19 +166,22 @@ mod iced_caches {
                 format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(100), uint!(100))),
             };
 
-            let mut success = true;
+            let mut status = CacheResultStatus::Success;
             let res = match self.client.media().get_media_content(&request, true).await {
                 Ok(bytes) => MediaState::loaded(iced::widget::image::Handle::from_bytes(bytes)),
                 Err(e) => {
                     tracing::error!("Failed to fetch media: {e}");
-                    success = false;
+                    status = CacheResultStatus::Failure(e.to_string());
                     MediaState::Failed
                 }
             };
 
             self.cache.insert(uri.clone(), res);
 
-            (media_res, success)
+            CacheLoadingResult {
+                loaded: media_res,
+                status,
+            }
         }
     }
 
@@ -171,12 +193,15 @@ mod iced_caches {
             &self,
             source: &MediaSource,
             key: (String, u64, u64),
-        ) -> (MediaLoaded, bool) {
+        ) -> CacheLoadingResult {
             let media_res = MediaLoaded::Thumbnail { key: key.clone() };
 
             if self.cache.get(&key).is_some() {
                 tracing::warn!("Thumbnail already cached: {key:?}");
-                return (media_res, true);
+                return CacheLoadingResult {
+                    loaded: media_res,
+                    status: CacheResultStatus::CacheHit,
+                };
             }
 
             self.cache.insert(key.clone(), MediaState::Loading);
@@ -189,33 +214,39 @@ mod iced_caches {
                 )),
             };
 
-            let mut success = true;
+            let mut status = CacheResultStatus::Success;
             let res = match self.client.media().get_media_content(&request, true).await {
                 Ok(bytes) => MediaState::loaded(iced::widget::image::Handle::from_bytes(bytes)),
                 Err(e) => {
                     tracing::error!("Failed to fetch media: {e}");
-                    success = false;
+                    status = CacheResultStatus::Failure(e.to_string());
                     MediaState::Failed
                 }
             };
 
             self.cache.insert(key, res);
 
-            (media_res, success)
+            CacheLoadingResult {
+                loaded: media_res,
+                status,
+            }
         }
     }
 
     pub type VideoCache = MediaCache<String, (Arc<Video>, Arc<matrix_sdk::media::MediaFileHandle>)>;
 
     impl CacheLoadingExt<MediaSource> for VideoCache {
-        async fn load_content(&self, source: &MediaSource) -> (MediaLoaded, bool) {
+        async fn load_content(&self, source: &MediaSource) -> CacheLoadingResult {
             use matrix_sdk::media::UniqueKey;
 
             let key = &source.unique_key();
             let media_res = MediaLoaded::Video { key: key.clone() };
 
             if self.cache.get(key).is_some() {
-                return (media_res, true);
+                return CacheLoadingResult {
+                    loaded: media_res,
+                    status: CacheResultStatus::CacheHit,
+                };
             }
 
             self.cache.insert(key.clone(), MediaState::Loading);
@@ -225,7 +256,7 @@ mod iced_caches {
                 format: MediaFormat::File,
             };
 
-            let mut success = true;
+            let mut status = CacheResultStatus::Success;
             let res = match self
                 .client
                 .media()
@@ -237,7 +268,10 @@ mod iced_caches {
                         Ok(url) => url,
                         Err(_) => {
                             tracing::error!("Failed to parse video file path");
-                            return (media_res, false);
+                            return CacheLoadingResult {
+                                loaded: media_res,
+                                status,
+                            };
                         }
                     };
 
@@ -249,35 +283,41 @@ mod iced_caches {
                         }
                         Err(e) => {
                             tracing::error!("Failed to play video file: {e}");
-                            success = false;
+                            status = CacheResultStatus::Failure(e.to_string());
                             MediaState::Failed
                         }
                     }
                 }
                 Err(e) => {
                     tracing::error!("Failed to fetch media: {e}");
-                    success = false;
+                    status = CacheResultStatus::Failure(e.to_string());
                     MediaState::Failed
                 }
             };
 
             self.cache.insert(key.clone(), res);
 
-            (media_res, success)
+            CacheLoadingResult {
+                loaded: media_res,
+                status,
+            }
         }
     }
 
     pub type ImageCache = MediaCache<String, ImageHandle>;
 
     impl CacheLoadingExt<MediaSource> for ImageCache {
-        async fn load_content(&self, source: &MediaSource) -> (MediaLoaded, bool) {
+        async fn load_content(&self, source: &MediaSource) -> CacheLoadingResult {
             use matrix_sdk::media::UniqueKey;
 
             let key = &source.unique_key();
             let media_res = MediaLoaded::Video { key: key.clone() };
 
             if self.cache.get(key).is_some() {
-                return (media_res, true);
+                return CacheLoadingResult {
+                    loaded: media_res,
+                    status: CacheResultStatus::CacheHit,
+                };
             }
 
             self.cache.insert(key.clone(), MediaState::Loading);
@@ -287,19 +327,22 @@ mod iced_caches {
                 format: MediaFormat::File,
             };
 
-            let mut success = true;
+            let mut status = CacheResultStatus::Success;
             let res = match self.client.media().get_media_content(request, true).await {
                 Ok(bytes) => MediaState::Loaded(Arc::new(ImageHandle::from_bytes(bytes))),
                 Err(e) => {
                     tracing::error!("Failed to fetch media: {e}");
-                    success = false;
+                    status = CacheResultStatus::Failure(e.to_string());
                     MediaState::Failed
                 }
             };
 
             self.cache.insert(key.clone(), res);
 
-            (media_res, success)
+            CacheLoadingResult {
+                loaded: media_res,
+                status,
+            }
         }
     }
 }
