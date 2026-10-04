@@ -1,8 +1,7 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 
 use enumset::{EnumSet, EnumSetType};
 use macros::iced_cache;
-use matrix_sdk::room::RoomMember;
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as SdkTimelineItem};
 use member_list::{MemberList, MemberListAction, MemberListMessage};
 use profilecard::{ProfileCard, ProfileCardAction, ProfileCardMessage};
@@ -132,12 +131,6 @@ impl Sidebar {
             SidebarState::Pins => width.pinned,
             SidebarState::Search => width.search,
         }
-    }
-
-    pub fn set_member(&mut self, member: Option<RoomMember>) {
-        self.visual_state.insert(SidebarState::Member);
-        self.member_profile_card.set_member(member);
-        self.calculate_currently_visible();
     }
 
     pub fn toggle_member_list(&mut self) {
