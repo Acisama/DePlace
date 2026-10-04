@@ -37,7 +37,12 @@ pub async fn set_membership_map(rooms: Vec<Room>, state: AppState) {
             .into_iter()
             .map(|m| (m.user_id().to_owned(), m))
             .collect();
-        members.sort_by_cached_key(|_, m| m.get_name().to_lowercase());
+        members.sort_by_cached_key(|_, m| {
+            (
+                m.profile_name().map(|n| n.to_lowercase()),
+                m.user_id().to_owned(),
+            )
+        });
 
         membership_map.insert(room.room_id().into(), members);
     }

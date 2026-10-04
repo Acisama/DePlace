@@ -525,7 +525,12 @@ impl AppState {
         self.inner.membership_map.send_if_modified(|cur| {
             let entry = cur.entry(room_id).or_default();
             entry.insert(member.user_id().to_owned(), member);
-            entry.sort_by_cached_key(|_, m| m.get_name());
+            entry.sort_by_cached_key(|_, m| {
+                (
+                    m.profile_name().map(|n| n.to_lowercase()),
+                    m.user_id().to_owned(),
+                )
+            });
             true
         });
     }
