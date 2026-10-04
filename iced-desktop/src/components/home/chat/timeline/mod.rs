@@ -1011,7 +1011,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         help_state: HelpState<HelpKey>,
     ) -> iced::Element<'static, TimelineMessage> {
         let Some(timeline) = self.timeline.clone() else {
-            return Space::new().into();
+            return Space::new().width(Fill).height(Fill).into();
         };
 
         let reached_top = self.reached_top;
@@ -1045,7 +1045,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             .id(LIST_ID),
                         )
                         .padding(padding::bottom(structure.gap * 3.0))
-                        .width(Fill),
+                        .width(Fill)
+                        .height(Fill)
+                        .align_bottom(Fill),
                         theme,
                         structure,
                     )
