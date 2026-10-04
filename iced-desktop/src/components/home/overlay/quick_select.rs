@@ -129,6 +129,11 @@ impl QuickSelect {
             Vec::new()
         }
     }
+
+    fn clear(&mut self) {
+        self.input = String::from("");
+        self.selected_index = 0;
+    }
 }
 
 impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
@@ -177,6 +182,10 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                                     self.selected_index -= 1;
                                 }
                             }
+                            Key::Named(Named::Escape) => {
+                                self.clear();
+                                return Some(QuickSelectAction::Close);
+                            }
                             // Key::Named(Named::Enter) => {
                             //     if let Some(room_id) = displayed_rooms.get(self.selected_index) {
                             //         let room = self.state.client().get_room(room_id);
@@ -196,6 +205,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
             }
             QuickSelectMessage::SelectRoom(room_id) => {
                 let room = self.room_watchers.get_room(&room_id);
+                self.clear();
                 tracing::trace!("Quick selected room {room_id}");
                 Some(QuickSelectAction::ChangeRoom(room.clone()))
             }

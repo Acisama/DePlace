@@ -93,10 +93,10 @@ impl Overlay {
         tracing::trace!("Toggling quick select");
         if self.overlay_state == Some(OverlayState::QuickSelect) {
             self.overlay_state = None;
-            Some(focus(QUICK_SELECT_INPUT_ID))
+            None
         } else {
             self.overlay_state = Some(OverlayState::QuickSelect);
-            None
+            Some(focus(QUICK_SELECT_INPUT_ID))
         }
     }
 
@@ -104,10 +104,10 @@ impl Overlay {
         tracing::trace!("Toggling settings");
         if self.overlay_state == Some(OverlayState::Settings) {
             self.overlay_state = None;
-            Some(focus(SETTINGS_INPUT_ID))
+            None
         } else {
             self.overlay_state = Some(OverlayState::Settings);
-            None
+            Some(focus(SETTINGS_INPUT_ID))
         }
     }
 
