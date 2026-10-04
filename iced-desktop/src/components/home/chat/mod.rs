@@ -306,12 +306,12 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             } => {
                 self.input.timeline = Some(timeline.clone());
                 self.sidebar.load_timeline(pinned_timeline, pinned_initial);
-                if let Some(TimelineAction::Run(task)) =
-                    self.timeline.load_timeline(timeline, initial, power_levels)
-                {
-                    Some(ChatAction::Run(task))
-                } else {
-                    None
+                match self.timeline.load_timeline(timeline, initial, power_levels) {
+                    Some(TimelineAction::Run(task)) => Some(ChatAction::Run(task)),
+                    Some(TimelineAction::Scroll { direction, task }) => {
+                        Some(ChatAction::TimelineScroll { direction, task })
+                    }
+                    _ => None,
                 }
             }
             ChatMessage::Header(msg) => match self.header.update(msg)? {

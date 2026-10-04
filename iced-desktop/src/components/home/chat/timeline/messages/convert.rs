@@ -262,6 +262,8 @@ impl TimelineItemKind {
                                 is_pinned: event_id
                                     .as_ref()
                                     .is_some_and(|id| pinned_event_ids.contains(id)),
+                                is_edited: m.as_message().map(|m| m.is_edited()).unwrap_or(false),
+
                                 event_id,
 
                                 connects_previous: false,

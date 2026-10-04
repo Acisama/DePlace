@@ -165,7 +165,7 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
                     cancel_button,
                     render_dialogue_button(
                         structure,
-                        "Put a pin in",
+                        "Put a pin in it",
                         ModifyItemMessage::Pin,
                         Some(theme.solid_bg.blend(theme.colors.yellow, 0.1)),
                         theme.colors.yellow,

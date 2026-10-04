@@ -63,6 +63,7 @@ pub enum TimelineItemMessage {
         is_pinned: bool,
     },
     OpenDeleteMenu(OwnedEventId),
+    LinkClick,
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
@@ -352,6 +353,7 @@ impl TimelineItem {
 
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
+            TimelineItemMessage::LinkClick => None,
             TimelineItemMessage::OpenPinMenu {
                 event_id,
                 is_pinned,
@@ -699,6 +701,8 @@ struct MessageEvent {
 
     #[hash]
     is_pinned: bool,
+    #[hash]
+    is_edited: bool,
 
     shield: TimelineEventShieldState,
 

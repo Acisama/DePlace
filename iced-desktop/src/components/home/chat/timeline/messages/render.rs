@@ -5,14 +5,12 @@ use iced::{
     Alignment, Background,
     Length::{self, Shrink},
     gradient::Linear,
-    never,
     widget::{
         span,
-        text::{LineHeight, Rich},
+        text::{LineHeight, Rich, Span},
     },
 };
 use iced_video_player::VideoPlayer;
-use macros::iced_icon;
 use matrix_sdk::{
     media::UniqueKey,
     ruma::{
@@ -118,14 +116,23 @@ impl MessageEvent {
         let mut column = w::Column::new();
         let help_view = create_help_view(help_state, theme, TimelineItemMessage::HelpHover);
 
-        if let Some(text_content) = text_content {
+        if let Some(mut text_content) = text_content {
+            if self.is_edited {
+                text_content.extend([
+                    w::span(" ").size(text_size),
+                    w::span(" (edited)")
+                        .size(structure.chat.small_text_size)
+                        .color(theme.text.dim),
+                ]);
+            }
+
             column = column.push(help_view.call(
                 HelpKey::Message {
                     key: MessageHelpKey::TextContent,
                     index,
                 },
                 "The text content of the message",
-                text_content,
+                w::text::Rich::with_spans(text_content),
             ));
         }
         if let Some(other_content) = other_content {
@@ -426,7 +433,7 @@ impl MessageContent {
         is_local_echo: bool,
         contains_only_emojis: bool,
     ) -> (
-        Option<Element<'static, TimelineItemMessage>>,
+        Option<Vec<Span<'static>>>,
         Option<Element<'static, TimelineItemMessage>>,
     ) {
         let mut text_size = structure.chat.text_size;
@@ -436,7 +443,7 @@ impl MessageContent {
         }
 
         let render_text_color =
-            |text: String, color: Color| w::text(text).color(color).size(text_size);
+            |text: String, color: Color| vec![w::span(text).size(text_size).color(color)];
         let render_normal_text = |text: String| {
             render_text_color(
                 text,
@@ -456,16 +463,10 @@ impl MessageContent {
         };
         let itallic_text = |text: String| {
             (
-                Some(
-                    w::rich_text![w::span(text).font(Font {
-                        style: iced::font::Style::Italic,
-                        ..Default::default()
-                    })]
-                    .color(theme.text.dim)
-                    .on_link_click(never)
-                    .size(text_size)
-                    .into(),
-                ),
+                Some(vec![w::span(text).font(Font {
+                    style: iced::font::Style::Italic,
+                    ..Default::default()
+                })]),
                 None,
             )
         };
@@ -476,11 +477,8 @@ impl MessageContent {
                 body,
                 formatted_body,
             } => (
-                body.as_ref().map(|t| {
-                    render_normal_text(t.clone())
-                        .size(structure.chat.text_size * 1.5)
-                        .into()
-                }),
+                body.as_ref()
+                    .map(|t| vec![w::span(t.clone()).size(text_size).color(theme.text.normal)]),
                 None,
             ),
             MessageContent::Empty => itallic_text("Empty".to_string()),
@@ -552,22 +550,15 @@ impl MessageContent {
             }
             MessageContent::Poll => render_warning_text("Poll messages are not yet implemented"),
             MessageContent::Redacted => (
-                Some(
-                    w::row![
-                        w::container(iced_icon!(trash, bold, text_size))
-                            .style(move |_| ContainerStyle::default().color(theme.text.dim)),
-                        w::rich_text![w::span("Redacted").font(Font {
+                Some(vec![
+                    w::span("Redacted")
+                        .font(Font {
                             style: iced::font::Style::Italic,
                             ..Default::default()
-                        })]
+                        })
                         .color(theme.text.dim)
-                        .on_link_click(never)
-                        .size(text_size)
-                    ]
-                    .spacing(structure.small_gap / 2.0)
-                    .align_y(Alignment::Center)
-                    .into(),
-                ),
+                        .size(text_size),
+                ]),
                 None,
             ),
             MessageContent::Sticker => {
