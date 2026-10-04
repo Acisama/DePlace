@@ -48,6 +48,7 @@ pub enum MemberListAction {
 pub struct MemberList {
     state: AppState,
 
+    #[hash]
     room_id: OwnedRoomId,
 
     membership_map: Receiver<MembershipMap>,
