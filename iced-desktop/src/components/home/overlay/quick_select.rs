@@ -14,7 +14,7 @@ use iced::{
 };
 use macros::iced_cache;
 use nucleo::{
-    Config, Nucleo,
+    Config, Injector, Nucleo,
     pattern::{CaseMatching, Normalization},
 };
 
@@ -36,6 +36,8 @@ pub struct QuickSelect {
     selected_index: usize,
 
     matcher: Arc<Mutex<Nucleo<OwnedRoomId>>>,
+    injector: Injector<OwnedRoomId>,
+    pooled_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -65,22 +67,7 @@ impl QuickSelect {
         let matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, 1);
         let injector = matcher.injector();
 
-        let mut added_rooms = HashSet::new();
-        let mut add_room = |room: DePlaceRoom| {
-            let room_id = room.room_id().to_owned();
-            if added_rooms.insert(room_id.clone()) {
-                let name = room.get_name();
-                injector.push(room_id, |_, dst| {
-                    dst[0] = name.into();
-                });
-            }
-        };
-
         let room_watchers = state.room_watchers(hashing::hash_all_rooms_default());
-
-        for room in room_watchers.all_rooms().get_all_rooms() {
-            add_room(room);
-        }
 
         Self {
             avatar_cache: state.avatar_cache().clone(),
@@ -92,11 +79,34 @@ impl QuickSelect {
             state: state.clone(),
             input: String::new(),
             matcher: Arc::new(Mutex::new(matcher)),
+            injector,
+            pooled_rooms: Arc::new(Mutex::new(HashSet::new())),
             selected_index: 0,
         }
     }
 
+    // Keeps the matcher pool in sync with room_watchers instead of a fixed snapshot from new().
+    fn sync_room_pool(&self) {
+        let Ok(mut pooled_rooms) = self.pooled_rooms.lock() else {
+            return;
+        };
+
+        for room in self.room_watchers.all_rooms().get_all_rooms() {
+            if pooled_rooms.contains(room.room_id()) {
+                continue;
+            }
+            let room_id = room.room_id().to_owned();
+            pooled_rooms.insert(room_id.clone());
+            let name = room.get_name();
+            self.injector.push(room_id, move |_, dst| {
+                dst[0] = name.clone().into();
+            });
+        }
+    }
+
     fn get_displayed_rooms(&self) -> Vec<OwnedRoomId> {
+        self.sync_room_pool();
+
         if self.input.trim().is_empty() {
             let client = self.state.client();
             self.state
