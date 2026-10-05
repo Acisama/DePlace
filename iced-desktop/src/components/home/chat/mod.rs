@@ -268,6 +268,9 @@ impl Chat {
                 None
             }
             TimelineAction::Run(task) => Some(ChatAction::Run(task)),
+            TimelineAction::Perform(task) => {
+                Some(ChatAction::Perform(task.map(ChatMessage::Timeline)))
+            }
             TimelineAction::NeedsMedia(needs_media) => Some(ChatAction::NeedsMedia(needs_media)),
             TimelineAction::Scroll { direction, task } => {
                 Some(ChatAction::TimelineScroll { direction, task })

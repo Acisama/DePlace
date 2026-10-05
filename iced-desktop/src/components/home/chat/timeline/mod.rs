@@ -82,6 +82,7 @@ pub enum TimelineAction {
         event_id: OwnedEventId,
     },
     Run(Task<()>),
+    Perform(Task<TimelineMessage>),
     Scroll {
         direction: PaginationDirection,
         task: Task<bool>,
@@ -938,13 +939,12 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                                 self.focused_message_id = Some(id.clone());
 
-                                // let task = operate(sweeten::widget::list::FindItemBounds::new(
-                                //     Some(LIST_ID),
-                                //     new_focus_index,
-                                // ))
-                                // .map(TimelineMessage::ScrollTo);
-                                // return Some(TimelineAction::Perform(task));
-                                return None;
+                                let task = operate(sweeten::widget::list::FindItemBounds::new(
+                                    Some(LIST_ID),
+                                    new_focus_index,
+                                ))
+                                .map(TimelineMessage::ScrollTo);
+                                return Some(TimelineAction::Perform(task));
                             }
                             if new_focus_index == 0 {
                                 break;
@@ -982,13 +982,12 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                                 self.focused_message_id = Some(id.clone());
 
-                                // let task = operate(sweeten::widget::list::FindItemBounds::new(
-                                //     Some(LIST_ID),
-                                //     new_focus_index,
-                                // ))
-                                // .map(TimelineMessage::ScrollTo);
-                                // return Some(TimelineAction::Perform(task));
-                                return None;
+                                let task = operate(sweeten::widget::list::FindItemBounds::new(
+                                    Some(LIST_ID),
+                                    new_focus_index,
+                                ))
+                                .map(TimelineMessage::ScrollTo);
+                                return Some(TimelineAction::Perform(task));
                             }
                             if new_focus_index >= length - 1 {
                                 break;
