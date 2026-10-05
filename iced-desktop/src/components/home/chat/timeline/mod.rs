@@ -1068,6 +1068,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     .spacing(structure.small_gap)
                     .width(Fill)
                     .anchor_bottom()
+                    .smooth_scroll(true)
                     .on_scroll(move |scroll| {
                         let viewport = scroll.destination();
 
