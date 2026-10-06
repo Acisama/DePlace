@@ -110,11 +110,16 @@ impl MessageEvent {
 
         let show_header = as_dummy || !self.connects_previous;
 
+        let default = IndexMap::new();
+        let borrow = &self.membership_map.borrow();
+        let membership_map = borrow.get(&room_id).unwrap_or(&default);
+
         let (text_content, other_content) = self.content.view(
             theme,
             structure,
             self.is_local_echo(),
             self.contains_only_emojis,
+            membership_map,
         );
 
         let mut column = w::Column::new();
@@ -427,6 +432,7 @@ impl MessageContent {
         structure: Structure,
         is_local_echo: bool,
         contains_only_emojis: bool,
+        membership_map: &IndexMap<OwnedUserId, RoomMember>,
     ) -> (
         Option<Element<'static, TimelineItemMessage>>,
         Option<Element<'static, TimelineItemMessage>>,
@@ -473,7 +479,7 @@ impl MessageContent {
         let render_body = |body: &Option<String>, formatted_body: &Option<FormattedBody>| {
             formatted_body
                 .as_ref()
-                .map(|f| f.view(theme, structure, is_local_echo))
+                .map(|f| f.view(theme, structure, is_local_echo, membership_map))
                 .or_else(|| body.as_ref().map(|t| render_normal_text(t.clone()).into()))
         };
 

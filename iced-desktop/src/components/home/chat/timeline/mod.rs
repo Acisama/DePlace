@@ -3,7 +3,6 @@ use std::rc::Rc;
 
 use chrono_tz::Tz;
 use deplace_core::PaginationDirection;
-use deplace_core::rich_text::MessageLink;
 use deplace_core::settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType};
 use enumset::EnumSet;
 use iced::Vector;
@@ -102,6 +101,8 @@ const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollab
 pub struct ChatTimeline {
     state: AppState,
     timeline: Option<Arc<Timeline>>,
+
+    membership_map: Receiver<MembershipMap>,
 
     // TODO: Add logic to update this
     power_levels: Arc<RoomPowerLevels>,
@@ -205,6 +206,7 @@ impl ChatTimeline {
         let mut timeline = Self {
             state: state.clone(),
             timeline: None,
+            membership_map: state.membership_map(),
 
             system_messages_to_show: settings.system_messages_to_show.watch(),
             timezone: settings.timezone.watch(),
@@ -608,18 +610,16 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                 let res = match Arc::make_mut(item).update(message)? {
                     TimelineItemAction::LinkClick(link) => {
-                        tracing::trace!("Link click: {:?}", link);
-
-                        match link {
-                            MessageLink::Url(url) => {
-                                Some(TimelineAction::Run(Task::future(async move {
-                                    if let Err(e) = open::that(&url) {
-                                        tracing::error!("Failed to open link: {e}");
-                                    }
-                                })))
+                        tracing::trace!("Link click: {}", link);
+                        Some(TimelineAction::Run(Task::future(async move {
+                            if let Err(e) = open::that(&link) {
+                                tracing::error!("Failed to open link: {e}");
                             }
-                            _ => None,
-                        }
+                        })))
+                    }
+                    TimelineItemAction::Mention(mention) => {
+                        tracing::trace!("Mention click: {:?}", mention);
+                        None
                     }
                     TimelineItemAction::OpenDeleteMenu(event_id) => {
                         item.message_event().map(|event| {

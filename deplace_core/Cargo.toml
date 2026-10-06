@@ -36,6 +36,7 @@ mime_guess.workspace = true
 notify-rust = "4.18.0"
 phosphor-svgs.workspace = true
 ruma.workspace = true
+ruma-html.workspace = true
 scraper = "0.27.0"
 serde.workspace = true
 serde_json.workspace = true

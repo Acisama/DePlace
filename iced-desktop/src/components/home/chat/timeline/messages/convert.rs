@@ -243,6 +243,9 @@ impl TimelineItemKind {
                             is_editable: event.is_editable(),
                             can_be_replied_to: event.can_be_replied_to(),
                             message: Arc::new(MessageEvent {
+                                state: state.clone(),
+                                membership_map: state.membership_map(),
+
                                 timestamp,
 
                                 timezone: settings.timezone.watch(),

@@ -7,7 +7,7 @@ use std::{
 use chrono_tz::Tz;
 use deplace_core::{
     formatting::format_date_divider,
-    rich_text::{FormattedBody, MessageLink},
+    rich_text::{FormattedBody, Mention},
     settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType},
     state::cache::VideoCache,
 };
@@ -65,7 +65,8 @@ pub enum TimelineItemMessage {
         is_pinned: bool,
     },
     OpenDeleteMenu(OwnedEventId),
-    LinkClick(MessageLink),
+    Mention(Mention),
+    LinkClick(String),
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
@@ -104,7 +105,8 @@ pub enum TimelineItemAction {
         is_pinned: bool,
     },
     OpenDeleteMenu(OwnedEventId),
-    LinkClick(MessageLink),
+    Mention(Mention),
+    LinkClick(String),
 }
 
 /// An item in the timeline
@@ -357,6 +359,7 @@ impl TimelineItem {
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
             TimelineItemMessage::LinkClick(link) => Some(TimelineItemAction::LinkClick(link)),
+            TimelineItemMessage::Mention(mention) => Some(TimelineItemAction::Mention(mention)),
             TimelineItemMessage::OpenPinMenu {
                 event_id,
                 is_pinned,
@@ -691,6 +694,9 @@ impl ProfileLike for TimelineProfile {
 
 #[iced_cache(Debug, Clone)]
 struct MessageEvent {
+    state: AppState,
+    membership_map: Receiver<MembershipMap>,
+
     timestamp: SystemTime,
 
     event_id: Option<OwnedEventId>,
