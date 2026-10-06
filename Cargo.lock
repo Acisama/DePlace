@@ -1619,6 +1619,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "hex",
+ "iana-time-zone",
  "iced",
  "iced_video_player",
  "image",

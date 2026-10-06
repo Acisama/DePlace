@@ -276,6 +276,13 @@ where
     }
 }
 
+pub fn get_system_timezone() -> chrono_tz::Tz {
+    iana_time_zone::get_timezone()
+        .ok()
+        .and_then(|tz_str| Tz::from_str(&tz_str).ok())
+        .unwrap_or(chrono_tz::Tz::UTC)
+}
+
 #[matrix_settings(namespace = "settings")]
 pub struct Settings {
     #[setting(
@@ -363,7 +370,7 @@ pub struct Settings {
         description = "The timezone to use for the chat",
         section = SettingsSection::General,
         uses_cloud = Some(true),
-        default = chrono_tz::Tz::UTC
+        default = get_system_timezone()
     )]
     pub timezone: Tz,
     #[setting(

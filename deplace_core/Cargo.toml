@@ -19,6 +19,7 @@ futures = "0.3.33"
 futures-util.workspace = true
 getrandom.workspace = true
 hex = "0.4.3"
+iana-time-zone = "0.1.65"
 iced = { workspace = true, optional = true }
 iced_video_player.workspace = true
 image.workspace = true
