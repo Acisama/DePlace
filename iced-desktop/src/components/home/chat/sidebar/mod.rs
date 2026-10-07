@@ -1,13 +1,11 @@
-use std::collections::BTreeSet;
-
 use enumset::{EnumSet, EnumSetType};
 use macros::iced_cache;
-use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as SdkTimelineItem};
+use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
 use member_list::{MemberList, MemberListAction, MemberListMessage};
 use profilecard::{ProfileCard, ProfileCardAction, ProfileCardMessage};
 use sweeten::widget::list;
 
-use crate::{common::*, components::home::chat::timeline::messages::ToTimelineItem};
+use crate::common::*;
 
 use super::timeline::messages::TimelineItem;
 
@@ -26,7 +24,7 @@ pub enum SidebarState {
 pub enum SidebarMessage {
     DmProfileCard(ProfileCardMessage),
     MemberProfileCard(ProfileCardMessage),
-    PinnedDiffs(Vec<VectorDiff<Arc<SdkTimelineItem>>>),
+    PinnedDiffs(Vec<VectorDiff<(String, Arc<TimelineItem>)>>),
     MemberList(MemberListMessage),
     HelpHover(Option<HelpKey>),
 }
@@ -44,8 +42,6 @@ pub enum SidebarAction {
 
 #[iced_cache(Clone, Debug)]
 pub struct Sidebar {
-    state: AppState,
-
     #[hash]
     visual_state: EnumSet<SidebarState>,
     #[hash]
@@ -91,8 +87,6 @@ impl Sidebar {
         }
 
         Self {
-            state: state.clone(),
-
             visual_state,
             currently_visible: if !room.is_dm() {
                 Some(SidebarState::MemberList)
@@ -230,16 +224,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                     self.content.len()
                 );
 
-                let state = self.state.clone();
-
-                for diff in diffs.into_iter().map(|d| {
-                    d.map(|m| {
-                        (
-                            m.unique_id().0.clone(),
-                            Arc::new(m.convert(&state, room_id.clone(), &BTreeSet::new())),
-                        )
-                    })
-                }) {
+                for diff in diffs {
                     match diff {
                         VectorDiff::Append { values } => {
                             for (key, value) in values {

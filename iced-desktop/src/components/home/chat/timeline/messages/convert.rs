@@ -230,7 +230,7 @@ impl TimelineItemKind {
                             .as_ref()
                             .and_then(|info| info.call_started_ts_millis)
                             .and_then(|t| t.to_system_time()),
-                        currnet_members: active_call_info.as_ref().map(|info| info
+                        current_members: active_call_info.as_ref().map(|info| info
                             .active_members
                             .iter()
                             .cloned()

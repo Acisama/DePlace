@@ -1,6 +1,7 @@
 use crate::{common::*, components::OpenProfileOverlayExt};
 use std::{
     collections::BTreeSet,
+    fmt::Debug,
     time::{Duration, SystemTime},
 };
 
@@ -113,7 +114,7 @@ pub enum TimelineItemAction {
 ///
 /// This is the most abstract version, able to represent anything
 /// in the timeline.
-#[iced_cache(Debug, Clone)]
+#[iced_cache(Clone)]
 pub struct TimelineItem {
     #[hash]
     pub id: String,
@@ -121,6 +122,12 @@ pub struct TimelineItem {
     room_id: OwnedRoomId,
     #[hash]
     kind: TimelineItemKind,
+}
+
+impl Debug for TimelineItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.kind.display_string())
+    }
 }
 
 impl TimelineItem {
@@ -471,7 +478,9 @@ impl TimelineItem {
         help_state: HelpState<HelpKey>,
         index: usize,
     ) -> iced::Element<'static, TimelineItemMessage> {
-        let fallback = w::text(format!("{:?}", self)).into();
+        let fallback = || -> iced::Element<'static, TimelineItemMessage> {
+            w::text(format!("{:?}", self)).into()
+        };
         let render_error_message = |text: String| w::text(text).color(theme.colors.error).into();
 
         let room_id = self.room_id.clone();
@@ -526,7 +535,7 @@ impl TimelineItem {
             )
             .padding(padding::vertical(structure.small_gap))
             .into(),
-            TimelineItemKind::TimelineStart => fallback,
+            TimelineItemKind::TimelineStart => fallback(),
             TimelineItemKind::System {
                 is_hovered,
                 event,
@@ -591,7 +600,7 @@ impl TimelineItem {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 enum TimelineItemKind {
     DateDivider {
         date: SystemTime,
@@ -623,6 +632,22 @@ enum TimelineItemKind {
         state_key: Arc<String>,
         error: Arc<serde_json::Error>,
     },
+}
+
+impl DisplayString for TimelineItemKind {
+    fn display_string(&self) -> String {
+        match self {
+            TimelineItemKind::DateDivider { .. } => "DateDivider".to_string(),
+            TimelineItemKind::FailedToParseMessageLike { .. } => {
+                "FailedToParseMessageLike".to_string()
+            }
+            TimelineItemKind::FailedToParseState { .. } => "FailedToParseState".to_string(),
+            TimelineItemKind::TimelineStart => "TimelineStart".to_string(),
+            TimelineItemKind::ReadMarker => "ReadMarker".to_string(),
+            TimelineItemKind::Message { .. } => "Message".to_string(),
+            TimelineItemKind::System { .. } => "System".to_string(),
+        }
+    }
 }
 
 impl Hash for TimelineItemKind {
@@ -780,15 +805,6 @@ impl Hash for VisualInfo {
             .as_ref()
             .map(|s| s.unique_key())
             .hash(state);
-    }
-}
-
-#[derive(Debug, Clone, Hash)]
-pub struct CustomBody {}
-
-impl CustomBody {
-    pub fn new() -> Self {
-        CustomBody {}
     }
 }
 
@@ -1058,7 +1074,7 @@ struct RtcNotification {
     call_intent: Option<CallIntent>,
     declined_by: Vec<OwnedUserId>,
     call_started: Option<SystemTime>,
-    currnet_members: Option<BTreeSet<OwnedUserId>>,
+    current_members: Option<BTreeSet<OwnedUserId>>,
 }
 
 #[derive(Debug)]

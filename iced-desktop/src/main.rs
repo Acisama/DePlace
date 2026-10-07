@@ -2,6 +2,7 @@
 
 use std::{
     any::TypeId,
+    fmt::Debug,
     hash::Hash,
     io::{Read, Write},
     sync::Arc,

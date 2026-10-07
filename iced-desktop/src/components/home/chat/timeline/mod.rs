@@ -17,7 +17,7 @@ use matrix_sdk::{
         room_version_rules::AuthorizationRules,
     },
 };
-use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineItem as UiTimelineItem};
+use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
 use messages::{
     MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage, ToTimelineItem,
 };
@@ -49,7 +49,7 @@ pub enum TimelineMessage {
         initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
         power_levels: Arc<RoomPowerLevels>,
     },
-    Diffs(Vec<VectorDiff<Arc<UiTimelineItem>>>),
+    Diffs(Vec<VectorDiff<(String, Arc<TimelineItem>)>>),
     None,
     Scroll {
         direction: Option<PaginationDirection>,
@@ -755,21 +755,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     self.content.len()
                 );
 
-                let room_id = self.room_id.clone();
-                let state = self.state.clone();
-
                 for diff in diffs {
-                    let diff = diff.map(|m| {
-                        (
-                            m.unique_id().0.clone(),
-                            Arc::new(m.convert(
-                                &state,
-                                room_id.clone(),
-                                &self.previous_pinned_event_ids,
-                            )),
-                        )
-                    });
-
                     match diff {
                         VectorDiff::Append { values } => {
                             for (key, value) in values {

@@ -205,6 +205,9 @@ impl Chat {
                     .collect(),
             );
 
+            let room_id_clone_clone = room_id_clone.clone();
+            let state_clone_clone = state_clone.clone();
+            let pinned_ids_clone_clone = pinned_ids_clone.clone();
             stream::once(future::ready(ChatMessage::TimelinesLoaded {
                 timeline,
                 pinned_timeline,
@@ -213,10 +216,44 @@ impl Chat {
                 power_levels,
             }))
             .chain(stream::select(
-                updates.map(|diffs| ChatMessage::Timeline(TimelineMessage::Diffs(diffs))),
+                updates.map(move |diffs| {
+                    let diffs = diffs
+                        .into_iter()
+                        .map(|diff| {
+                            diff.map(|item| {
+                                (
+                                    item.unique_id().0.clone(),
+                                    Arc::new(item.convert(
+                                        &state_clone,
+                                        room_id_clone.clone(),
+                                        &pinned_ids_clone,
+                                    )),
+                                )
+                            })
+                        })
+                        .collect();
+
+                    ChatMessage::Timeline(TimelineMessage::Diffs(diffs))
+                }),
                 stream::select(
-                    pinned_updates
-                        .map(|diffs| ChatMessage::Sidebar(SidebarMessage::PinnedDiffs(diffs))),
+                    pinned_updates.map(move |diffs| {
+                        let diffs = diffs
+                            .into_iter()
+                            .map(|diff| {
+                                diff.map(|item| {
+                                    (
+                                        item.unique_id().0.clone(),
+                                        Arc::new(item.convert(
+                                            &state_clone_clone,
+                                            room_id_clone_clone.clone(),
+                                            &pinned_ids_clone_clone,
+                                        )),
+                                    )
+                                })
+                            })
+                            .collect();
+                        ChatMessage::Sidebar(SidebarMessage::PinnedDiffs(diffs))
+                    }),
                     sdk_room.pinned_event_ids_stream().map(|ids| {
                         ChatMessage::Timeline(TimelineMessage::PinnedEventIds(
                             ids.into_iter().collect(),
