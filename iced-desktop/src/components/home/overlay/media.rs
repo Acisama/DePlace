@@ -10,10 +10,19 @@ use iced::Alignment;
 use macros::iced_cache;
 use matrix_sdk::{media::UniqueKey, ruma::events::room::MediaSource};
 
-#[derive(Debug, Clone, Copy, Hash)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq)]
 pub enum MediaType {
     Image,
     Video,
+}
+
+impl DisplayString for MediaType {
+    fn display_string(&self) -> String {
+        match self {
+            MediaType::Image => "Image".to_string(),
+            MediaType::Video => "Video".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +135,10 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
     ) -> iced::Element<'static, MediaOverlayMessage> {
         let header = structure.header;
 
+        if self.media != MediaType::Image {
+            return w::column![].into();
+        }
+
         w::column![
             floating_tile(
                 theme,
@@ -152,7 +165,8 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
             )
             .width(Fill)
             .padding(padding::left(header.button_padding()))
-            .height(header.height)
+            .height(header.height),
+            w::container(w::text("Image")).width(Fill).height(Fill)
         ]
         .width(Fill)
         .height(Fill)

@@ -189,7 +189,7 @@ mod iced_caches {
         }
     }
 
-    pub type ThumbnailCache = MediaCache<(String, u64, u64), iced::widget::image::Handle>;
+    pub type ThumbnailCache = MediaCache<(String, u64, u64), ImageHandle>;
 
     impl CacheLoadingWithKeyExt<MediaSource, (String, u64, u64)> for ThumbnailCache {
         /// Loads a thumbnail with the given key (incldues it's size) and returns MediaLoaded and a boolean indicating whether it was successfully loaded.

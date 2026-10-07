@@ -39,7 +39,7 @@ use crate::{
             chat::timeline::messages::{SystemEvent, SystemMessage},
             overlay::{MediaOverlayParams, MediaType},
         },
-        phosphor_icon, render_profile_name_with_overlay,
+        phosphor_icon, render_media_failed_to_load, render_profile_name_with_overlay,
         track_bounds::track_bounds,
     },
 };
@@ -744,36 +744,13 @@ impl ImageMessage {
         }
 
         stack = match image.as_ref().unwrap_or(&MediaState::Loading) {
-            MediaState::Failed => stack
-                .push(
-                    w::container(
-                        weighted_text("Image failed to load", Weight::Bold)
-                            .size(structure.chat.text_size * 1.5),
-                    )
-                    .width(width)
-                    .height(height)
-                    .center(height)
-                    .style(move |_| w::container::Style {
-                        background: Some(theme.colors.error.scale_alpha(0.2).into()),
-                        text_color: Some(theme.colors.error.into()),
-                        border: Border {
-                            color: theme.colors.error.into(),
-                            width: 0.0,
-                            radius: 0.0.into(),
-                        },
-                        ..Default::default()
-                    }),
-                )
-                .push(
-                    Canvas::new(InsetShadow::new(
-                        structure.inner_border_radius,
-                        theme.colors.error.into(),
-                        structure.chat.text_size / 2.0,
-                        8,
-                    ))
-                    .width(width)
-                    .height(height),
-                ),
+            MediaState::Failed => stack.push(render_media_failed_to_load(
+                theme,
+                structure,
+                width,
+                height,
+                MediaType::Image,
+            )),
             MediaState::Loaded(image) => stack.push(
                 w::image((*(*image).clone()).clone())
                     .width(width)
@@ -883,36 +860,13 @@ impl VideoMessage {
                 )
                 .on_press(TimelineItemMessage::ToggleVideoPause(video.0.clone())),
             ),
-            MediaState::Failed => stack
-                .push(
-                    w::container(
-                        weighted_text("Video failed to load", Weight::Bold)
-                            .size(structure.chat.text_size * 1.5),
-                    )
-                    .width(width)
-                    .height(height)
-                    .center(height)
-                    .style(move |_| w::container::Style {
-                        background: Some(theme.colors.error.scale_alpha(0.2).into()),
-                        text_color: Some(theme.colors.error.into()),
-                        border: Border {
-                            color: theme.colors.error.into(),
-                            width: 0.0,
-                            radius: 0.0.into(),
-                        },
-                        ..Default::default()
-                    }),
-                )
-                .push(
-                    Canvas::new(InsetShadow::new(
-                        structure.inner_border_radius,
-                        theme.colors.error.into(),
-                        structure.chat.text_size / 2.0,
-                        8,
-                    ))
-                    .width(width)
-                    .height(height),
-                ),
+            MediaState::Failed => stack.push(render_media_failed_to_load(
+                theme,
+                structure,
+                width,
+                height,
+                MediaType::Video,
+            )),
             MediaState::Loading => stack.push(
                 w::container(
                     weighted_text("Loading Video...", Weight::Normal)

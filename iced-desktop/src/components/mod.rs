@@ -3,6 +3,7 @@ use std::hash::Hash;
 
 use corner_badge::{notch_circle, positioned};
 use deplace_core::ProfileLike;
+use deplace_core::helpers::DisplayString;
 use deplace_core::rooms::DePlaceRoom;
 use deplace_core::settings::NameDecoration;
 use deplace_core::state::PresenceMap;
@@ -11,6 +12,7 @@ use deplace_core::structure::Structure;
 use deplace_core::theme::{Colors, Theme};
 use help_mode::{HelpState, HelpTarget, help};
 use home::HelpKey;
+use home::overlay::MediaType;
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
 use iced::alignment::{Horizontal, Vertical};
@@ -1009,4 +1011,45 @@ pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + NeedsAvatarExt + 'a>(
     ])
     .width(sidebar.width.member)
     .into()
+}
+
+pub fn render_media_failed_to_load<'a, T: Clone + 'a>(
+    theme: Theme,
+    structure: Structure,
+    width: f32,
+    height: f32,
+    kind: MediaType,
+) -> Stack<'a, T> {
+    w::stack![
+        w::container(
+            weighted_text(
+                format!("{} failed to load", kind.display_string()),
+                Weight::Bold
+            )
+            .size(structure.chat.text_size * 1.5)
+            .width(Fill)
+            .height(Fill)
+            .center(),
+        )
+        .width(width)
+        .height(height)
+        .style(move |_| w::container::Style {
+            background: Some(theme.error_blended().into()),
+            text_color: Some(theme.colors.error.into()),
+            border: Border {
+                color: theme.colors.error.into(),
+                width: 0.0,
+                radius: 0.0.into(),
+            },
+            ..Default::default()
+        }),
+        Canvas::new(InsetShadow::new(
+            structure.inner_border_radius,
+            theme.colors.error.into(),
+            structure.chat.text_size / 2.0,
+            8,
+        ))
+        .width(width)
+        .height(height),
+    ]
 }
