@@ -17,8 +17,8 @@ pub use deplace_core::{
     state::{
         AppState, MembershipMap,
         cache::{
-            AvatarCache, CacheLoadingExt, CacheLoadingWithKeyExt, MediaLoaded, MediaState,
-            NeedsMedia, ThumbnailCache, VideoCache,
+            AvatarCache, CacheLoadingExt, CacheLoadingWithKeyExt, ImageCache, MediaLoaded,
+            MediaState, NeedsMedia, ThumbnailCache, VideoCache,
         },
         roles::ExtraHash,
     },

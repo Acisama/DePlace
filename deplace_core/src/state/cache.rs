@@ -104,6 +104,9 @@ pub enum NeedsMedia {
     Video {
         source: MediaSource,
     },
+    Image {
+        source: MediaSource,
+    },
 }
 
 impl NeedsMedia {
@@ -125,10 +128,11 @@ pub enum MediaLoaded {
     Thumbnail { key: (String, u64, u64) },
     Avatar { uri: OwnedMxcUri },
     Video { key: String },
+    Image { key: String },
 }
 
 #[cfg(feature = "iced_desktop")]
-pub use iced_caches::{AvatarCache, ThumbnailCache, VideoCache};
+pub use iced_caches::{AvatarCache, ImageCache, ThumbnailCache, VideoCache};
 
 #[cfg(feature = "iced_desktop")]
 mod iced_caches {
@@ -145,7 +149,7 @@ mod iced_caches {
         MediaLoaded, MediaState,
     };
 
-    pub type AvatarCache = MediaCache<OwnedMxcUri, iced::widget::image::Handle>;
+    pub type AvatarCache = MediaCache<OwnedMxcUri, ImageHandle>;
 
     impl CacheLoadingExt<OwnedMxcUri> for AvatarCache {
         /// Loads an avatar with the given URI and returns MediaLoaded and a boolean indicating whether it was successfully loaded.
@@ -168,7 +172,7 @@ mod iced_caches {
 
             let mut status = CacheResultStatus::Success;
             let res = match self.client.media().get_media_content(&request, true).await {
-                Ok(bytes) => MediaState::loaded(iced::widget::image::Handle::from_bytes(bytes)),
+                Ok(bytes) => MediaState::loaded(ImageHandle::from_bytes(bytes)),
                 Err(e) => {
                     tracing::error!("Failed to fetch media: {e}");
                     status = CacheResultStatus::Failure(e.to_string());
@@ -304,7 +308,7 @@ mod iced_caches {
         }
     }
 
-    pub type ImageCache = MediaCache<String, ImageHandle>;
+    pub type ImageCache = MediaCache<String, (ImageHandle, Vec<u8>)>;
 
     impl CacheLoadingExt<MediaSource> for ImageCache {
         async fn load_content(&self, source: &MediaSource) -> CacheLoadingResult {
@@ -329,7 +333,9 @@ mod iced_caches {
 
             let mut status = CacheResultStatus::Success;
             let res = match self.client.media().get_media_content(request, true).await {
-                Ok(bytes) => MediaState::Loaded(Arc::new(ImageHandle::from_bytes(bytes))),
+                Ok(bytes) => {
+                    MediaState::Loaded(Arc::new((ImageHandle::from_bytes(bytes.clone()), bytes)))
+                }
                 Err(e) => {
                     tracing::error!("Failed to fetch media: {e}");
                     status = CacheResultStatus::Failure(e.to_string());

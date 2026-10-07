@@ -28,7 +28,7 @@ pub use timeline::{
     messages::{MessageEvent, TimelineItemMessage},
 };
 
-use super::overlay::{ContextMenu, ModifyItem};
+use super::overlay::{ContextMenu, MediaOverlayParams, ModifyItem};
 
 #[derive(Debug, Clone)]
 pub enum ChatMessage {
@@ -68,6 +68,7 @@ pub enum ChatAction {
     OpenHelpMenu,
     ContextMenu(ContextMenu),
     OpenModifyItem(ModifyItem),
+    OpenMediaOverlay(MediaOverlayParams),
 }
 
 #[iced_cache(Clone)]
@@ -300,6 +301,7 @@ impl Chat {
 
     fn handle_timeline_message(&mut self, message: TimelineMessage) -> Option<ChatAction> {
         match self.timeline.update(message)? {
+            TimelineAction::OpenMediaOverlay(params) => Some(ChatAction::OpenMediaOverlay(params)),
             TimelineAction::SetIsReplyingTo { event_id, message } => {
                 self.input.set_replies_to(message, event_id);
                 None

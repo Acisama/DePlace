@@ -18,15 +18,15 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
-use messages::{
-    MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage, ToTimelineItem,
-};
+use messages::{MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::scrollable::AbsoluteOffset;
 use sweeten::widget::list;
 
 use phosphor_svgs::icon as icons;
 
-use crate::components::home::overlay::{ContextMenu, ContextMenuKind, ModifyItem};
+use crate::components::home::overlay::{
+    ContextMenu, ContextMenuKind, MediaOverlayParams, ModifyItem,
+};
 use crate::components::phosphor_icon;
 use crate::{
     common::*,
@@ -94,6 +94,7 @@ pub enum TimelineAction {
     HelpHover(Option<HelpKey>),
     ContextMenu(ContextMenu),
     OpenModifyItem(ModifyItem),
+    OpenMediaOverlay(MediaOverlayParams),
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
 
@@ -306,6 +307,8 @@ impl ChatTimeline {
             MediaLoaded::Avatar { uri } => self.avatar_states_for_hash.contains(uri),
             MediaLoaded::Thumbnail { key } => self.thumbnail_states_for_hash.contains(key),
             MediaLoaded::Video { key } => self.video_states_for_hash.contains(key),
+            // Messages don't contain images, only thumbnails
+            MediaLoaded::Image { .. } => false,
         };
 
         if !relevant {
@@ -609,6 +612,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 };
 
                 let res = match Arc::make_mut(item).update(message)? {
+                    TimelineItemAction::OpenMediaOverlay(params) => {
+                        Some(TimelineAction::OpenMediaOverlay(params))
+                    }
                     TimelineItemAction::LinkClick(link) => {
                         tracing::trace!("Link click: {}", link);
                         Some(TimelineAction::Run(Task::future(async move {
@@ -694,6 +700,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             NeedsMedia::Video { source, .. } => {
                                 self.video_states_for_hash.insert(source.unique_key());
                             }
+                            NeedsMedia::Image { .. } => {}
                         }
                         Some(TimelineAction::NeedsMedia(needs_media))
                     }

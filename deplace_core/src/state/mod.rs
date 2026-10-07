@@ -228,6 +228,9 @@ struct AppStateInner {
 
     #[cfg(feature = "iced_desktop")]
     video_cache: cache::VideoCache,
+
+    #[cfg(feature = "iced_desktop")]
+    image_cache: cache::ImageCache,
 }
 
 impl AppState {
@@ -311,6 +314,9 @@ impl AppState {
                 #[cfg(feature = "iced_desktop")]
                 video_cache: cache::VideoCache::new(client.clone()),
 
+                #[cfg(feature = "iced_desktop")]
+                image_cache: cache::ImageCache::new(client.clone()),
+
                 room_watchers,
 
                 window_title,
@@ -356,6 +362,11 @@ impl AppState {
     #[cfg(feature = "iced_desktop")]
     pub fn video_cache(&self) -> &cache::VideoCache {
         &self.inner.video_cache
+    }
+
+    #[cfg(feature = "iced_desktop")]
+    pub fn image_cache(&self) -> &cache::ImageCache {
+        &self.inner.image_cache
     }
 
     fn inner_room_watchers(&self) -> &RoomWatchers {

@@ -1,4 +1,7 @@
-use crate::{common::*, components::OpenProfileOverlayExt};
+use crate::{
+    common::*,
+    components::{OpenProfileOverlayExt, home::overlay::MediaOverlayParams},
+};
 use std::{
     collections::BTreeSet,
     fmt::Debug,
@@ -46,6 +49,7 @@ use render::render_event;
 /// The message an item in the timeline can receive
 #[derive(Debug, Clone)]
 pub enum TimelineItemMessage {
+    None,
     NeedsMedia(NeedsMedia),
     EventEnter,
     EventExit,
@@ -68,6 +72,7 @@ pub enum TimelineItemMessage {
     OpenDeleteMenu(OwnedEventId),
     Mention(Mention),
     LinkClick(String),
+    OpenMediaOverlay(MediaOverlayParams),
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
@@ -108,6 +113,7 @@ pub enum TimelineItemAction {
     OpenDeleteMenu(OwnedEventId),
     Mention(Mention),
     LinkClick(String),
+    OpenMediaOverlay(MediaOverlayParams),
 }
 
 /// An item in the timeline
@@ -365,6 +371,10 @@ impl TimelineItem {
 
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
+            TimelineItemMessage::None => None,
+            TimelineItemMessage::OpenMediaOverlay(params) => {
+                Some(TimelineItemAction::OpenMediaOverlay(params))
+            }
             TimelineItemMessage::LinkClick(link) => Some(TimelineItemAction::LinkClick(link)),
             TimelineItemMessage::Mention(mention) => Some(TimelineItemAction::Mention(mention)),
             TimelineItemMessage::OpenPinMenu {

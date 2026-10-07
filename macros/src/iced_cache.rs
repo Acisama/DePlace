@@ -161,6 +161,28 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
             });
         }
 
+        if field_name.to_string().as_str() == "image_cache"
+            || type_string(&field.ty).as_str() == "ImageCache"
+        {
+            assertions.push(assert_role(
+                &struct_name,
+                &field_name,
+                &field_ty,
+                quote! { ::deplace_core::state::roles::IsImageCache },
+            ));
+            item_fields.push(quote! {
+                image_states_for_hash: std::collections::BTreeSet<String>,
+            });
+            hashings.push(quote! {
+                for key in &self.image_states_for_hash {
+                    self.image_cache
+                        .get(key)
+                        .unwrap_or_default()
+                        .hash(state);
+                }
+            });
+        }
+
         if field_name.to_string().as_str() == "membership_map"
             || type_string(&field.ty).as_str() == "Receiver<MembershipMap>"
         {

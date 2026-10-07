@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use deplace_core::{
     formatting::{
         fit_dimensions, format_bytes, format_message_long_date, format_message_short_date,
@@ -35,6 +37,7 @@ use crate::{
         home::{
             MessageHelpKey,
             chat::timeline::messages::{SystemEvent, SystemMessage},
+            overlay::{MediaOverlayParams, MediaType},
         },
         phosphor_icon, render_profile_name_with_overlay,
         track_bounds::track_bounds,
@@ -120,6 +123,10 @@ impl MessageEvent {
             self.is_local_echo(),
             self.contains_only_emojis,
             membership_map,
+            &self.sender,
+            &room_id,
+            &self.event_id,
+            self.timestamp,
         );
 
         let mut column = w::Column::new();
@@ -426,6 +433,7 @@ impl MessageEvent {
 }
 
 impl MessageContent {
+    #[allow(clippy::too_many_arguments)]
     fn view(
         &self,
         theme: Theme,
@@ -433,6 +441,10 @@ impl MessageContent {
         is_local_echo: bool,
         contains_only_emojis: bool,
         membership_map: &IndexMap<OwnedUserId, RoomMember>,
+        sender_id: &OwnedUserId,
+        room_id: &OwnedRoomId,
+        event_id: &Option<OwnedEventId>,
+        timestamp: SystemTime,
     ) -> (
         Option<Element<'static, TimelineItemMessage>>,
         Option<Element<'static, TimelineItemMessage>>,
@@ -529,6 +541,19 @@ impl MessageContent {
                     )
                 }
 
+                let open_media = if let Some(event_id) = event_id {
+                    TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
+                        media: MediaType::Image,
+                        source: image.source.clone(),
+                        sender_id: sender_id.clone(),
+                        room_id: room_id.clone(),
+                        event_id: event_id.clone(),
+                        timestamp,
+                    })
+                } else {
+                    TimelineItemMessage::None
+                };
+
                 (
                     render_body(&image.caption, &image.formatted_caption),
                     Some(
@@ -536,6 +561,7 @@ impl MessageContent {
                             .on_enter(TimelineItemMessage::MediaMouseEnter)
                             .on_exit(TimelineItemMessage::MediaMouseLeave)
                             .interaction(Interaction::Pointer)
+                            .on_press(open_media)
                             .into(),
                     ),
                 )
@@ -623,6 +649,19 @@ impl MessageContent {
                     )
                 }
 
+                let open_media = if let Some(event_id) = event_id {
+                    TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
+                        media: MediaType::Video,
+                        source: video.source.clone(),
+                        sender_id: sender_id.clone(),
+                        room_id: room_id.clone(),
+                        event_id: event_id.clone(),
+                        timestamp,
+                    })
+                } else {
+                    TimelineItemMessage::None
+                };
+
                 (
                     render_body(&video.caption, &video.formatted_caption),
                     Some(
@@ -630,6 +669,7 @@ impl MessageContent {
                             .on_enter(TimelineItemMessage::MediaMouseEnter)
                             .on_exit(TimelineItemMessage::MediaMouseLeave)
                             .interaction(Interaction::Pointer)
+                            .on_press(open_media)
                             .into(),
                     ),
                 )
@@ -753,18 +793,18 @@ impl ImageMessage {
             ))
         }
 
-        let media = w::mouse_area(w::container(stack).width(width).height(height).style(
-            move |_| ContainerStyle {
+        w::container(stack)
+            .width(width)
+            .height(height)
+            .style(move |_| ContainerStyle {
                 border: Border {
                     color: Color::TRANSPARENT,
                     width: 0.0,
                     radius: structure.inner_border_radius.into(),
                 },
                 ..Default::default()
-            },
-        ));
-
-        media.into()
+            })
+            .into()
     }
 }
 

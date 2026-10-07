@@ -372,6 +372,23 @@ impl Home {
                     }
                     res.loaded
                 }
+                NeedsMedia::Image { source } => {
+                    let unique_key = source.unique_key();
+                    let res = state.image_cache().load_content(&source).await;
+                    match res.status {
+                        CacheResultStatus::CacheHit => {}
+                        CacheResultStatus::Success => {
+                            tracing::trace!(
+                                "Loading of image {} finished successfully",
+                                unique_key
+                            );
+                        }
+                        CacheResultStatus::Failure(e) => {
+                            tracing::error!("Loading of image {} failed: {e}", unique_key);
+                        }
+                    }
+                    res.loaded
+                }
             }
         })))
     }
@@ -426,6 +443,10 @@ impl Home {
                 }
                 ChatAction::OpenModifyItem(modify) => {
                     self.overlay.open_modify_item(modify);
+                    None
+                }
+                ChatAction::OpenMediaOverlay(params) => {
+                    self.overlay.open_media_overlay(params);
                     None
                 }
             }

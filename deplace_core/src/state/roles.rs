@@ -13,6 +13,9 @@ impl IsThumbnailCache for crate::state::cache::ThumbnailCache {}
 pub trait IsVideoCache {}
 impl IsVideoCache for crate::state::cache::VideoCache {}
 
+pub trait IsImageCache {}
+impl IsImageCache for crate::state::cache::ImageCache {}
+
 pub trait IsMembershipMap {}
 impl IsMembershipMap for tokio::sync::watch::Receiver<crate::state::MembershipMap> {}
 

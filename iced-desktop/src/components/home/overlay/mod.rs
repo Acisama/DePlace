@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use context_menu::{ContextMenuAction, ContextMenuMessage};
 use deplace_core::state::AppState;
 use iced::{
@@ -6,6 +8,8 @@ use iced::{
     widget::{container, mouse_area, operation::focus},
 };
 use macros::iced_cache;
+use matrix_sdk::ruma::events::room::MediaSource;
+use media::{MediaOverlay, MediaOverlayAction, MediaOverlayMessage};
 use modify_item::{ModifyItemAction, ModifyItemMessage};
 use profile::{OverlayProfile, ProfileAction, ProfileMessage};
 use quick_select::{QUICK_SELECT_INPUT_ID, QuickSelect, QuickSelectAction, QuickSelectMessage};
@@ -14,13 +18,25 @@ use settings::{SETTINGS_INPUT_ID, SettingsAction, SettingsMessage, SettingsView}
 use crate::common::*;
 
 mod context_menu;
+mod media;
 mod modify_item;
 mod profile;
 mod quick_select;
 mod settings;
 
 pub use context_menu::{ContextMenu, ContextMenuKind};
+pub use media::MediaType;
 pub use modify_item::ModifyItem;
+
+#[derive(Clone, Debug)]
+pub struct MediaOverlayParams {
+    pub media: MediaType,
+    pub source: MediaSource,
+    pub sender_id: OwnedUserId,
+    pub room_id: OwnedRoomId,
+    pub event_id: OwnedEventId,
+    pub timestamp: SystemTime,
+}
 
 #[iced_cache(Clone)]
 pub struct Overlay {
@@ -56,6 +72,7 @@ pub enum OverlayMessage {
     KeyboardEvent(iced::keyboard::Event),
     ContextMenu(ContextMenuMessage),
     ModifyItem(ModifyItemMessage),
+    Media(MediaOverlayMessage),
 }
 
 #[derive(Clone, PartialEq, Hash)]
@@ -65,6 +82,7 @@ enum OverlayState {
     Profile,
     ContextMenu(ContextMenu),
     ModifyItem(ModifyItem),
+    Media(MediaOverlay),
 }
 
 impl Overlay {
@@ -129,6 +147,25 @@ impl Overlay {
 
     pub fn open_modify_item(&mut self, modify: ModifyItem) {
         self.overlay_state = Some(OverlayState::ModifyItem(modify));
+    }
+
+    pub fn open_media_overlay(&mut self, params: MediaOverlayParams) {
+        let borrow = self.membership_map.borrow();
+        let Some(members) = borrow.get(&params.room_id) else {
+            return;
+        };
+        let Some(sender) = members.get(&params.sender_id).cloned() else {
+            return;
+        };
+
+        self.overlay_state = Some(OverlayState::Media(MediaOverlay::new(
+            &self.state,
+            params.media,
+            params.source,
+            sender,
+            params.timestamp,
+            params.event_id,
+        )));
     }
 }
 
@@ -212,10 +249,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                         }
                     }
                 }
-                OverlayState::Settings => None,
-                OverlayState::Profile => None,
-                OverlayState::ContextMenu(_) => None,
-                OverlayState::ModifyItem(_) => None,
+                _ => None,
             },
             OverlayMessage::Profile(message) => {
                 if let Some(profile) = &mut self.profile {
@@ -226,6 +260,17 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                                 .map_err(|_| tracing::error!("Failed to copy to clipboard"))
                                 .map(|_| OverlayMessage::Profile(ProfileMessage::UserIdCopied)),
                         )),
+                    }
+                } else {
+                    None
+                }
+            }
+            OverlayMessage::Media(message) => {
+                if let Some(OverlayState::Media(media)) = &mut self.overlay_state {
+                    match media.update(message)? {
+                        MediaOverlayAction::NeedsMedia(media) => {
+                            Some(OverlayAction::NeedsMedia(media))
+                        }
                     }
                 } else {
                     None
@@ -293,6 +338,13 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 self.settings
                     .view(theme, structure, help_state)
                     .map(OverlayMessage::Settings),
+            ),
+            OverlayState::Media(media) => render_with_backdrop(
+                theme,
+                structure,
+                media
+                    .view(theme, structure, help_state)
+                    .map(OverlayMessage::Media),
             ),
             OverlayState::ModifyItem(modify) => render_with_backdrop(
                 theme,
