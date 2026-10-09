@@ -393,6 +393,14 @@ impl Home {
         })))
     }
 
+    fn clear_active_chat_hover(&mut self) {
+        if let Some(room_id) = &self.active_room_id
+            && let Some(chat) = self.chats.peek_mut(room_id)
+        {
+            chat.clear_hover();
+        }
+    }
+
     fn dispatch_to_chat(&mut self, room_id: OwnedRoomId, msg: ChatMessage) -> Option<HomeAction> {
         let Some(chat) = self.chats.get_mut(&room_id) else {
             tracing::warn!(
@@ -405,6 +413,7 @@ impl Home {
         if let Some(action) = chat.update(msg) {
             match action {
                 ChatAction::ContextMenu(menu) => {
+                    chat.clear_hover();
                     self.overlay.open_context_menu(menu);
                     None
                 }
@@ -438,14 +447,17 @@ impl Home {
                     user_id,
                     bounds,
                 } => {
+                    chat.clear_hover();
                     self.overlay.open_profile(room_id, user_id, bounds);
                     None
                 }
                 ChatAction::OpenModifyItem(modify) => {
+                    chat.clear_hover();
                     self.overlay.open_modify_item(modify);
                     None
                 }
                 ChatAction::OpenMediaOverlay(params) => {
+                    chat.clear_hover();
                     self.overlay.open_media_overlay(params);
                     None
                 }
@@ -499,10 +511,16 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 SidebarAction::HelpHover(key) => self.set_help_hovered(key),
                 SidebarAction::OpenSettings => {
                     self.overlay.toggle_settings();
+                    if self.overlay.is_open() {
+                        self.clear_active_chat_hover();
+                    }
                     None
                 }
                 SidebarAction::OpenQuickselect => {
                     self.overlay.toggle_quick_select();
+                    if self.overlay.is_open() {
+                        self.clear_active_chat_hover();
+                    }
                     None
                 }
             },
@@ -521,10 +539,18 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                     drop(keybinds);
                     match action {
                         KeybindAction::ToggleQuickselect => {
-                            return self.overlay.toggle_quick_select().map(HomeAction::Run);
+                            let task = self.overlay.toggle_quick_select();
+                            if self.overlay.is_open() {
+                                self.clear_active_chat_hover();
+                            }
+                            return task.map(HomeAction::Run);
                         }
                         KeybindAction::ToggleSettings => {
-                            return self.overlay.toggle_settings().map(HomeAction::Run);
+                            let task = self.overlay.toggle_settings();
+                            if self.overlay.is_open() {
+                                self.clear_active_chat_hover();
+                            }
+                            return task.map(HomeAction::Run);
                         }
                         KeybindAction::ToggleOverview => {
                             if let Some(room_id) = &self.active_room_id {

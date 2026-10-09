@@ -25,7 +25,7 @@ mod timeline;
 
 pub use timeline::{
     TimelineMessage,
-    messages::{MessageEvent, TimelineItemMessage},
+    messages::{ImageMessage, MessageEvent, TimelineItemMessage, VideoMessage},
 };
 
 use super::overlay::{ContextMenu, MediaOverlayParams, ModifyItem};
@@ -297,6 +297,10 @@ impl Chat {
 
     pub fn touch_all(&mut self) {
         self.timeline.touch_all();
+    }
+
+    pub fn clear_hover(&mut self) {
+        self.timeline.clear_hover();
     }
 
     fn handle_timeline_message(&mut self, message: TimelineMessage) -> Option<ChatAction> {

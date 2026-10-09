@@ -12,7 +12,6 @@ use deplace_core::structure::Structure;
 use deplace_core::theme::{Colors, Theme};
 use help_mode::{HelpState, HelpTarget, help};
 use home::HelpKey;
-use home::overlay::MediaType;
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
 use iced::alignment::{Horizontal, Vertical};
@@ -1013,13 +1012,28 @@ pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + NeedsAvatarExt + 'a>(
     .into()
 }
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq)]
+pub enum MediaType {
+    Image,
+    Video,
+}
+
+impl DisplayString for MediaType {
+    fn display_string(&self) -> String {
+        match self {
+            MediaType::Image => "Image".to_string(),
+            MediaType::Video => "Video".to_string(),
+        }
+    }
+}
+
 pub fn render_media_failed_to_load<'a, T: Clone + 'a>(
     theme: Theme,
     structure: Structure,
     width: f32,
     height: f32,
     kind: MediaType,
-) -> Stack<'a, T> {
+) -> Element<'a, T> {
     w::stack![
         w::container(
             weighted_text(
@@ -1052,4 +1066,53 @@ pub fn render_media_failed_to_load<'a, T: Clone + 'a>(
         .width(width)
         .height(height),
     ]
+    .into()
+}
+
+pub trait Explainable<'a, T: Clone + 'a>
+where
+    Self: Sized,
+{
+    fn explain(self, color: Color) -> Element<'a, T>;
+    fn explain_white(self) -> Element<'a, T> {
+        self.explain(Color::WHITE)
+    }
+}
+
+impl<'a, T: Clone + 'a, E: Into<Element<'a, T>>> Explainable<'a, T> for E {
+    fn explain(self, color: Color) -> Element<'a, T> {
+        let el = self.into();
+        el.explain(color)
+    }
+}
+
+pub fn close_button<'a, T: Clone + 'a>(
+    theme: Theme,
+    structure: Structure,
+    on_press: T,
+) -> Element<'a, T> {
+    w::container(
+        w::button(phosphor_icon(
+            phosphor_svgs::icon::x::BOLD,
+            structure.chat.text_size,
+        ))
+        .padding(structure.small_gap / 2.0)
+        .style(move |_, status| w::button::Style {
+            background: if status.active() {
+                Some(theme.solid_hover_bg.into())
+            } else {
+                None
+            },
+            text_color: if status.active() {
+                theme.text.normal.into()
+            } else {
+                theme.text.dim.into()
+            },
+            border: border::rounded(structure.semi_border_radius()),
+            ..Default::default()
+        })
+        .on_press(on_press),
+    )
+    .padding(structure.small_gap / 2.0)
+    .into()
 }

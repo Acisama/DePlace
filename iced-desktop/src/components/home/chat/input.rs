@@ -147,11 +147,11 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
         };
 
         let keybinds = self.keybinds.clone();
-        let line_height = structure.font_size * 1.2;
+        let line_height = structure.chat.text_size;
 
         let button_size = line_height + structure.small_gap * 2.0;
 
-        let reply_bar_size = structure.chat.text_size * 1.2 + structure.small_gap * 2.0;
+        let reply_bar_size = structure.chat.text_size + structure.small_gap * 2.0;
 
         let help_view = create_help_view(help_state, theme, InputMessage::HelpOver);
 
@@ -201,31 +201,10 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                     .size(structure.chat.text_size)
                                     .color(theme.text.normal)
                             )
-                            .padding(structure.small_gap)
-                            .width(Fill),
-                            w::container(
-                                w::button(phosphor_icon(
-                                    phosphor_svgs::icon::x::BOLD,
-                                    structure.chat.text_size
-                                ))
-                                .padding(structure.small_gap * 0.66)
-                                .style(move |_, status| ButtonStyle {
-                                    background: if status.active() {
-                                        Some(theme.solid_hover_bg.into())
-                                    } else {
-                                        None
-                                    },
-                                    text_color: if status.active() {
-                                        theme.text.normal.into()
-                                    } else {
-                                        theme.text.dim.into()
-                                    },
-                                    border: border::rounded(structure.semi_border_radius()),
-                                    ..Default::default()
-                                })
-                                .on_press(InputMessage::RemoveReplying)
-                            )
-                            .center(reply_bar_size)
+                            .width(Fill)
+                            .padding(padding::left(structure.small_gap))
+                            .center_y(reply_bar_size),
+                            close_button(theme, structure, InputMessage::RemoveReplying)
                         ]
                         .width(Fill),
                         w::container(Space::new())

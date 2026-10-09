@@ -25,12 +25,12 @@ mod quick_select;
 mod settings;
 
 pub use context_menu::{ContextMenu, ContextMenuKind};
-pub use media::MediaType;
+pub use media::OverlayMediaType;
 pub use modify_item::ModifyItem;
 
 #[derive(Clone, Debug)]
 pub struct MediaOverlayParams {
-    pub media: MediaType,
+    pub media: OverlayMediaType,
     pub source: MediaSource,
     pub sender_id: OwnedUserId,
     pub room_id: OwnedRoomId,
@@ -66,6 +66,7 @@ impl ExtraHash for Overlay {
 #[derive(Clone, Debug)]
 pub enum OverlayMessage {
     Close,
+    Noop,
     Profile(ProfileMessage),
     QuickSelect(QuickSelectMessage),
     Settings(SettingsMessage),
@@ -105,6 +106,11 @@ impl Overlay {
 
     pub fn is_open(&self) -> bool {
         self.overlay_state.is_some()
+    }
+
+    pub fn close(&mut self) -> Option<OverlayAction> {
+        self.overlay_state = None;
+        None
     }
 
     pub fn toggle_quick_select(&mut self) -> Option<Task<()>> {
@@ -161,7 +167,6 @@ impl Overlay {
         self.overlay_state = Some(OverlayState::Media(MediaOverlay::new(
             &self.state,
             params.media,
-            params.source,
             sender,
             params.timestamp,
             params.event_id,
@@ -189,22 +194,17 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 if let Some(OverlayState::ModifyItem(item)) = &mut self.overlay_state {
                     match item.update(message)? {
                         ModifyItemAction::Run(task) => {
-                            self.overlay_state = None;
+                            self.close();
                             Some(OverlayAction::Run(task))
                         }
-                        ModifyItemAction::Close => {
-                            self.overlay_state = None;
-                            None
-                        }
+                        ModifyItemAction::Close => self.close(),
                     }
                 } else {
                     None
                 }
             }
-            OverlayMessage::Close => {
-                self.overlay_state = None;
-                None
-            }
+            OverlayMessage::Close => self.close(),
+            OverlayMessage::Noop => None,
             OverlayMessage::QuickSelect(msg) => {
                 if !matches!(self.overlay_state, Some(OverlayState::QuickSelect)) {
                     return None;
@@ -212,13 +212,10 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 match self.quickselect.update(msg)? {
                     QuickSelectAction::ChangeRoom(room) => {
                         // TODO: Reset because quickselect is persistent
-                        self.overlay_state = None;
+                        self.close();
                         Some(OverlayAction::ChangeRoom(room))
                     }
-                    QuickSelectAction::Close => {
-                        self.overlay_state = None;
-                        None
-                    }
+                    QuickSelectAction::Close => self.close(),
                     QuickSelectAction::NeedsMedia(media) => Some(OverlayAction::NeedsMedia(media)),
                 }
             }
@@ -271,6 +268,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                         MediaOverlayAction::NeedsMedia(media) => {
                             Some(OverlayAction::NeedsMedia(media))
                         }
+                        MediaOverlayAction::Close => self.close(),
                     }
                 } else {
                     None

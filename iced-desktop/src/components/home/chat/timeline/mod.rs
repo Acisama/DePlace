@@ -103,7 +103,7 @@ pub struct ChatTimeline {
     state: AppState,
     timeline: Option<Arc<Timeline>>,
 
-    membership_map: Receiver<MembershipMap>,
+    _membership_map: Receiver<MembershipMap>,
 
     // TODO: Add logic to update this
     power_levels: Arc<RoomPowerLevels>,
@@ -207,7 +207,8 @@ impl ChatTimeline {
         let mut timeline = Self {
             state: state.clone(),
             timeline: None,
-            membership_map: state.membership_map(),
+
+            _membership_map: state.membership_map(),
 
             system_messages_to_show: settings.system_messages_to_show.watch(),
             timezone: settings.timezone.watch(),
@@ -281,6 +282,19 @@ impl ChatTimeline {
             Arc::make_mut(item).remove_replying();
         }
         self.replying_to = None;
+    }
+
+    // The hover buttons are rendered via `w::float`, which uses iced's overlay
+    // system and always draws above the rest of the view -- including modal
+    // overlays that are logically stacked on top. Clear hover state whenever a
+    // modal opens so the floating buttons don't visually leak above it.
+    pub fn clear_hover(&mut self) {
+        if let Some(item_id) = self.hovered_item_id.take()
+            && let Some(item) = self.content.get_mut(&item_id)
+        {
+            Arc::make_mut(item).set_is_hovered(false);
+        }
+        self.buttons_hovered = false;
     }
 
     // TODO: Actually use this

@@ -33,11 +33,11 @@ use phosphor_svgs::icon as icons;
 use crate::{
     common::*,
     components::{
-        HelpView, InsetShadow,
+        HelpView, MediaType,
         home::{
             MessageHelpKey,
             chat::timeline::messages::{SystemEvent, SystemMessage},
-            overlay::{MediaOverlayParams, MediaType},
+            overlay::{MediaOverlayParams, OverlayMediaType},
         },
         phosphor_icon, render_media_failed_to_load, render_profile_name_with_overlay,
         track_bounds::track_bounds,
@@ -543,7 +543,7 @@ impl MessageContent {
 
                 let open_media = if let Some(event_id) = event_id {
                     TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
-                        media: MediaType::Image,
+                        media: OverlayMediaType::Image(Arc::new(image.clone())),
                         source: image.source.clone(),
                         sender_id: sender_id.clone(),
                         room_id: room_id.clone(),
@@ -651,7 +651,7 @@ impl MessageContent {
 
                 let open_media = if let Some(event_id) = event_id {
                     TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
-                        media: MediaType::Video,
+                        media: OverlayMediaType::Video(Arc::new(video.clone())),
                         source: video.source.clone(),
                         sender_id: sender_id.clone(),
                         room_id: room_id.clone(),
@@ -679,7 +679,7 @@ impl MessageContent {
 }
 
 impl ImageMessage {
-    fn label(&self) -> String {
+    pub fn label(&self) -> String {
         format!(
             "{}{}",
             self.filename,
@@ -731,46 +731,51 @@ impl ImageMessage {
         let thumbnail_key = (thumbnail_source.unique_key(), width as u64, height as u64);
         let image = self.thumbnail_cache.get(&thumbnail_key);
 
-        let mut stack = Stack::new();
+        let mut stack_children = Vec::new();
 
         if let Some(image) = self.blur_preview.clone() {
-            stack = stack.push(
+            stack_children.push(
                 w::image(image)
                     .width(width)
                     .height(height)
                     .content_fit(iced::ContentFit::Fill)
-                    .border_radius(structure.inner_border_radius),
+                    .border_radius(structure.inner_border_radius)
+                    .into(),
             );
         }
 
-        stack = match image.as_ref().unwrap_or(&MediaState::Loading) {
-            MediaState::Failed => stack.push(render_media_failed_to_load(
+        match image.as_ref().unwrap_or(&MediaState::Loading) {
+            MediaState::Failed => stack_children.push(render_media_failed_to_load(
                 theme,
                 structure,
                 width,
                 height,
                 MediaType::Image,
             )),
-            MediaState::Loaded(image) => stack.push(
+            MediaState::Loaded(image) => stack_children.push(
                 w::image((*(*image).clone()).clone())
                     .width(width)
                     .height(height)
-                    .border_radius(structure.inner_border_radius),
+                    .border_radius(structure.inner_border_radius)
+                    .into(),
             ),
-            _ => stack,
+            _ => {}
         };
 
         if image.is_none() {
-            stack = stack.push(on_appear(
-                Space::new(),
-                TimelineItemMessage::NeedsMedia(NeedsMedia::thumbnail(
-                    self.source.clone(),
-                    thumbnail_key,
-                )),
-            ))
+            stack_children.push(
+                on_appear(
+                    Space::new(),
+                    TimelineItemMessage::NeedsMedia(NeedsMedia::thumbnail(
+                        self.source.clone(),
+                        thumbnail_key,
+                    )),
+                )
+                .into(),
+            )
         }
 
-        w::container(stack)
+        w::container(Stack::with_children(stack_children))
             .width(width)
             .height(height)
             .style(move |_| ContainerStyle {
@@ -786,7 +791,7 @@ impl ImageMessage {
 }
 
 impl VideoMessage {
-    fn label(&self) -> String {
+    pub fn label(&self) -> String {
         format!(
             "{}{}",
             self.filename,

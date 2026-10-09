@@ -800,10 +800,10 @@ impl MessageEvent {
 
 #[derive(Debug, Clone)]
 pub struct VisualInfo {
-    width: Option<u64>,
-    height: Option<u64>,
-    size: Option<u64>,
-    thumbnail_source: Option<MediaSource>,
+    pub width: Option<u64>,
+    pub height: Option<u64>,
+    pub size: Option<u64>,
+    pub thumbnail_source: Option<MediaSource>,
 }
 
 impl Hash for VisualInfo {
@@ -942,17 +942,17 @@ pub struct ImageMessage {
     #[hash]
     formatted_caption: Option<FormattedBody>,
 
-    blur_preview: Option<ImageHandle>,
+    pub blur_preview: Option<ImageHandle>,
 
     thumbnail_cache: ThumbnailCache,
 
     #[hash]
-    filename: String,
-    source: MediaSource,
+    pub filename: String,
+    pub source: MediaSource,
     #[hash]
-    info: Option<VisualInfo>,
+    pub info: Option<VisualInfo>,
 
-    data_size_unit: Receiver<DataSizeUnit>,
+    pub data_size_unit: Receiver<DataSizeUnit>,
 }
 
 impl ExtraHash for ImageMessage {

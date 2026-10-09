@@ -21,6 +21,13 @@ impl<T> MediaState<T> {
     pub fn is_loading(&self) -> bool {
         matches!(self, MediaState::Loading)
     }
+
+    pub fn as_option(&self) -> Option<Arc<T>> {
+        match self {
+            MediaState::Loading | MediaState::Failed => None,
+            MediaState::Loaded(arc) => Some(arc.clone()),
+        }
+    }
 }
 
 impl<T> Clone for MediaState<T> {
@@ -136,7 +143,7 @@ pub use iced_caches::{AvatarCache, ImageCache, ThumbnailCache, VideoCache};
 
 #[cfg(feature = "iced_desktop")]
 mod iced_caches {
-    use std::sync::Arc;
+    use std::{io::Cursor, sync::Arc};
 
     use iced_video_player::Video;
     use matrix_sdk::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
@@ -308,7 +315,7 @@ mod iced_caches {
         }
     }
 
-    pub type ImageCache = MediaCache<String, (ImageHandle, Vec<u8>)>;
+    pub type ImageCache = MediaCache<String, (ImageHandle, Vec<u8>, Option<(u32, u32)>)>;
 
     impl CacheLoadingExt<MediaSource> for ImageCache {
         async fn load_content(&self, source: &MediaSource) -> CacheLoadingResult {
@@ -334,7 +341,21 @@ mod iced_caches {
             let mut status = CacheResultStatus::Success;
             let res = match self.client.media().get_media_content(request, true).await {
                 Ok(bytes) => {
-                    MediaState::Loaded(Arc::new((ImageHandle::from_bytes(bytes.clone()), bytes)))
+                    let dimensions = image::ImageReader::new(Cursor::new(&bytes))
+                        .with_guessed_format()
+                        .map_err(|e| tracing::error!("Failed to read image: {e}"))
+                        .ok()
+                        .and_then(|reader| {
+                            reader
+                                .into_dimensions()
+                                .map_err(|e| tracing::error!("Failed to read dimensions: {e}"))
+                                .ok()
+                        });
+                    MediaState::Loaded(Arc::new((
+                        ImageHandle::from_bytes(bytes.clone()),
+                        bytes,
+                        dimensions,
+                    )))
                 }
                 Err(e) => {
                     tracing::error!("Failed to fetch media: {e}");
