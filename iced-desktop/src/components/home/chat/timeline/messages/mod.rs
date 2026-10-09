@@ -489,9 +489,17 @@ impl TimelineItem {
         index: usize,
     ) -> iced::Element<'static, TimelineItemMessage> {
         let fallback = || -> iced::Element<'static, TimelineItemMessage> {
-            w::text(format!("{:?}", self)).into()
+            w::text(format!("{:?}", self))
+                .color(theme.colors.error)
+                .size(structure.chat.text_size)
+                .into()
         };
-        let render_error_message = |text: String| w::text(text).color(theme.colors.error).into();
+        let render_error_message = |text: String| {
+            w::text(text)
+                .color(theme.colors.error)
+                .size(structure.chat.text_size)
+                .into()
+        };
 
         let room_id = self.room_id.clone();
 

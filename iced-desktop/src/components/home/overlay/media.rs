@@ -27,6 +27,7 @@ pub enum OverlayMediaType {
 pub enum MediaOverlayMessage {
     NeedsMedia(NeedsMedia),
     Close,
+    HelpHover(Option<HelpKey>),
 }
 
 impl NeedsAvatarExt for MediaOverlayMessage {
@@ -38,6 +39,7 @@ impl NeedsAvatarExt for MediaOverlayMessage {
 pub enum MediaOverlayAction {
     NeedsMedia(NeedsMedia),
     Close,
+    HelpHover(Option<HelpKey>),
 }
 
 #[iced_cache(Debug, Clone)]
@@ -107,6 +109,9 @@ impl MediaOverlay {
 impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
     fn update(&mut self, message: MediaOverlayMessage) -> Option<MediaOverlayAction> {
         match message {
+            MediaOverlayMessage::HelpHover(help_key) => {
+                Some(MediaOverlayAction::HelpHover(help_key))
+            }
             MediaOverlayMessage::Close => Some(MediaOverlayAction::Close),
             MediaOverlayMessage::NeedsMedia(media) => {
                 match &media {
@@ -135,6 +140,8 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
         let OverlayMediaType::Image(image) = &self.media else {
             return w::column![].into();
         };
+
+        let help_view = HelpView::new(help_state, theme, MediaOverlayMessage::HelpHover);
 
         w::column![
             floating_tile(
@@ -222,9 +229,9 @@ fn render_image(
     if let Some(image) = image.blur_preview.clone() {
         stack_children.push(
             w::image(image)
-                .width(width)
-                .height(height)
-                .content_fit(iced::ContentFit::Cover)
+                .width(Fill)
+                .height(Fill)
+                .content_fit(iced::ContentFit::Contain)
                 .border_radius(structure.inner_border_radius)
                 .into(),
         );
@@ -243,9 +250,9 @@ fn render_image(
         MediaState::Loaded(img) => {
             stack_children.push(
                 w::image(img.0.clone())
-                    .width(width)
-                    .height(height)
-                    .content_fit(iced::ContentFit::ScaleDown)
+                    .width(Fill)
+                    .height(Fill)
+                    .content_fit(iced::ContentFit::Contain)
                     .border_radius(structure.inner_border_radius)
                     .into(),
             );

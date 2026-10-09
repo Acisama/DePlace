@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::hash::Hash;
 
 use corner_badge::{notch_circle, positioned};
@@ -10,7 +9,7 @@ use deplace_core::state::PresenceMap;
 use deplace_core::state::cache::{AvatarCache, MediaState};
 use deplace_core::structure::Structure;
 use deplace_core::theme::{Colors, Theme};
-use help_mode::{HelpState, HelpTarget, help};
+use help_mode::HelpState;
 use home::HelpKey;
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
@@ -52,44 +51,6 @@ pub mod track_scroll;
 pub use corner_badge::{CornerContent, corner_badge};
 pub use on_appear::on_appear;
 pub use pan::pan;
-
-pub struct HelpView<T> {
-    help_state: HelpState<HelpKey>,
-    theme: deplace_core::theme::Theme,
-    on_hover: fn(Option<HelpKey>) -> T,
-}
-
-impl<T: Clone> HelpView<T> {
-    // Generic per call, unlike a closure: lets this be used with a
-    // different `text`/`content` type on each call.
-    pub fn call<'a, S: Into<Cow<'a, str>>, E: Into<Element<'a, T>>>(
-        &self,
-        key: HelpKey,
-        text: S,
-        content: E,
-    ) -> HelpTarget<'a, HelpKey, T, iced::Theme, iced::Renderer> {
-        help(
-            self.help_state,
-            self.theme,
-            key,
-            text,
-            content,
-            self.on_hover,
-        )
-    }
-}
-
-pub fn create_help_view<T: Clone>(
-    help_state: HelpState<HelpKey>,
-    theme: deplace_core::theme::Theme,
-    on_hover: fn(Option<HelpKey>) -> T,
-) -> HelpView<T> {
-    HelpView {
-        help_state,
-        theme,
-        on_hover,
-    }
-}
 
 pub enum GenericState<T: Clone> {
     Ready,

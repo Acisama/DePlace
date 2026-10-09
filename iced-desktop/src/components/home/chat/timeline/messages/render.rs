@@ -33,7 +33,7 @@ use phosphor_svgs::icon as icons;
 use crate::{
     common::*,
     components::{
-        HelpView, MediaType,
+        MediaType,
         home::{
             MessageHelpKey,
             chat::timeline::messages::{SystemEvent, SystemMessage},
@@ -130,7 +130,7 @@ impl MessageEvent {
         );
 
         let mut column = w::Column::new();
-        let help_view = create_help_view(help_state, theme, TimelineItemMessage::HelpHover);
+        let help_view = HelpView::new(help_state, theme, TimelineItemMessage::HelpHover);
 
         if let Some(text_content) = text_content {
             column = column.push(help_view.call(

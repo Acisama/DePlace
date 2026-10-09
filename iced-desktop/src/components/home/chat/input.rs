@@ -153,7 +153,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
 
         let reply_bar_size = structure.chat.text_size + structure.small_gap * 2.0;
 
-        let help_view = create_help_view(help_state, theme, InputMessage::HelpOver);
+        let help_view = HelpView::new(help_state, theme, InputMessage::HelpOver);
 
         let input_button = |svg: &'static str, key, help| {
             w::container(

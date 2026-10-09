@@ -21,6 +21,8 @@ use iced::{
     keyboard, mouse, touch,
 };
 
+use super::home::HelpKey;
+
 /// `K` identifies a target. It must be unique per element: all targets whose
 /// key equals `hovered` are highlighted, so give each message its own key,
 /// e.g. `HelpKey::Message(event_id)`.
@@ -830,5 +832,43 @@ where
 {
     fn from(w: HelpRoot<'a, Message, Theme, Renderer>) -> Self {
         Element::new(w)
+    }
+}
+
+pub struct HelpView<T> {
+    help_state: HelpState<HelpKey>,
+    theme: deplace_core::theme::Theme,
+    on_hover: fn(Option<HelpKey>) -> T,
+}
+
+impl<T: Clone> HelpView<T> {
+    pub fn new(
+        help_state: HelpState<HelpKey>,
+        theme: deplace_core::theme::Theme,
+        on_hover: fn(Option<HelpKey>) -> T,
+    ) -> Self {
+        Self {
+            help_state,
+            theme,
+            on_hover,
+        }
+    }
+
+    // Generic per call, unlike a closure: lets this be used with a
+    // different `text`/`content` type on each call.
+    pub fn call<'a, S: Into<Cow<'a, str>>, E: Into<Element<'a, T>>>(
+        &self,
+        key: HelpKey,
+        text: S,
+        content: E,
+    ) -> HelpTarget<'a, HelpKey, T, iced::Theme, iced::Renderer> {
+        help(
+            self.help_state,
+            self.theme,
+            key,
+            text,
+            content,
+            self.on_hover,
+        )
     }
 }

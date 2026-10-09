@@ -419,7 +419,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
         structure: Structure,
         help_state: HelpState<HelpKey>,
     ) -> Element<'static, ChatMessage> {
-        let help_view = create_help_view(help_state, theme, ChatMessage::HelpHover);
+        let help_view = HelpView::new(help_state, theme, ChatMessage::HelpHover);
 
         let main_content = floating_tile(
             theme,

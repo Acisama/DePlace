@@ -139,7 +139,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         let mut heading_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
         let mut column_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
 
-        let help_view = create_help_view(help_state, theme, MemberListMessage::HelpHover);
+        let help_view = HelpView::new(help_state, theme, MemberListMessage::HelpHover);
 
         let icon = |text,
                     icon,

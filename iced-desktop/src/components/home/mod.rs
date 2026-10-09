@@ -469,6 +469,10 @@ impl Home {
 
     fn handle_overlay_message(&mut self, message: OverlayMessage) -> Option<HomeAction> {
         match self.overlay.update(message)? {
+            OverlayAction::HelpHover(help_key) => {
+                self.set_help_hovered(help_key);
+                None
+            }
             OverlayAction::Perform(task) => {
                 Some(HomeAction::Perform(task.map(HomeMessage::Overlay)))
             }

@@ -7,10 +7,7 @@ use deplace_core::{
 use iced::{Alignment, border::Radius};
 use macros::{iced_cache, iced_icon};
 
-use crate::{
-    common::*,
-    components::{HelpView, home::SidebarHelpKey},
-};
+use crate::{common::*, components::home::SidebarHelpKey};
 
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
@@ -148,7 +145,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         let presence_map = &self.presence_map.borrow();
         let name_decoration = *self.name_decoration.borrow();
 
-        let help_view = create_help_view(help_state, theme, ChannelsMessage::HelpHover);
+        let help_view = HelpView::new(help_state, theme, ChannelsMessage::HelpHover);
 
         let (whole_key, name_key) = if active_server.is_dms() {
             (
@@ -186,8 +183,6 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         .spacing(structure.divider_width)
         .height(Fill)
         .padding(structure.small_gap);
-
-        let help_view = create_help_view(help_state, theme, ChannelsMessage::HelpHover);
 
         let active_server_name = active_server.get_name();
 

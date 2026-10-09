@@ -185,6 +185,7 @@ pub enum OverlayAction {
         room_id: OwnedRoomId,
         event_id: OwnedEventId,
     },
+    HelpHover(Option<HelpKey>),
 }
 
 impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
@@ -269,6 +270,9 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                             Some(OverlayAction::NeedsMedia(media))
                         }
                         MediaOverlayAction::Close => self.close(),
+                        MediaOverlayAction::HelpHover(help_key) => {
+                            Some(OverlayAction::HelpHover(help_key))
+                        }
                     }
                 } else {
                     None

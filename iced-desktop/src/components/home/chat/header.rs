@@ -133,7 +133,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             return w::Space::new().into();
         };
 
-        let help_view = create_help_view(help_state, theme, HeaderMessage::HelpHover);
+        let help_view = HelpView::new(help_state, theme, HeaderMessage::HelpHover);
 
         let icon_size = structure.header.icon_size;
         let button_size = structure.header.button_size;

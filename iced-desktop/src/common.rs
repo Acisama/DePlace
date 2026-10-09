@@ -1,7 +1,7 @@
 pub use crate::components::{
     CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget, NeedsAvatarExt,
-    ProfileRenderExt, StatusExt, close_button, context_room_icon, corner_badge, create_help_view,
-    floating_tile,
+    ProfileRenderExt, StatusExt, close_button, context_room_icon, corner_badge, floating_tile,
+    help_mode::HelpView,
     help_mode::{Caption, HelpState, help, help_root},
     home::HelpKey,
     loading_icon, on_appear, pan, render_avatar, render_loading_name, render_name,

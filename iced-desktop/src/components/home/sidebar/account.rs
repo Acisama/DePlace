@@ -71,7 +71,7 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
         structure: Structure,
         help_state: HelpState<HelpKey>,
     ) -> iced::Element<'static, AccountMessage> {
-        let help_view = create_help_view(help_state, theme, AccountMessage::HelpHover);
+        let help_view = HelpView::new(help_state, theme, AccountMessage::HelpHover);
 
         let header_height = structure.header.height;
         let button_size = structure.header.button_size;

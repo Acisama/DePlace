@@ -130,7 +130,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         )));
         let icon_size = structure.server_column.icon_size;
 
-        let help_view = create_help_view(help_state, theme, ServerColumnMessage::HelpHover);
+        let help_view = HelpView::new(help_state, theme, ServerColumnMessage::HelpHover);
 
         let home_icon = pill(
             theme,
