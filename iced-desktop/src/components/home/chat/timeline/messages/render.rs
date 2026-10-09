@@ -265,7 +265,7 @@ impl MessageEvent {
 
         let pill_width = pre_col_width / 3.0;
 
-        let replies = w::Column::with_children(self.in_reply_to.iter().enumerate().map(
+        let replies = w::Column::with_children(self.in_reply_to.iter().rev().enumerate().map(
             |(reply_index, repl)| {
                 let (icon, name, color, content) = match &repl.event {
                     TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
