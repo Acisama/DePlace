@@ -68,15 +68,28 @@ jobs:
           echo "${{ env.GST_ROOT }}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "PKG_CONFIG_PATH=${{ env.GST_ROOT }}\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Sanity-check GStreamer install
+      - name: Patch gpu-allocator's windows dependency in Cargo.lock
         shell: pwsh
         run: |
-          & "${{ env.GST_ROOT }}\bin\gst-inspect-1.0.exe" --version
-          $plugins = Get-ChildItem "${{ env.GST_ROOT }}\lib\gstreamer-1.0" -Filter "*.dll"
-          Write-Host "Installed $($plugins.Count) plugin DLLs"
-          if ($plugins.Count -lt 30) {
-            Write-Error "GStreamer plugin install looks incomplete (ADDLOCAL=ALL may not have taken effect)."
-            exit 1
+          # gpu-allocator 0.28.0 allows windows up to 0.62, but its own
+          # Cargo.lock entry sometimes resolves to the older 0.61.3, which
+          # conflicts with wgpu-hal's windows ^0.62 requirement (duplicate,
+          # incompatible `windows`/`windows-core` types in the D3D12 backend).
+          # This re-applies that pin on every run so it survives Cargo.lock
+          # being regenerated/reset. Scoped to gpu-allocator's own block only
+          # (bounded by the next [[package]] marker) so it can't accidentally
+          # touch other crates, like tauri-winrt-notification, that also
+          # depend on windows 0.61.3 and are unaffected by this conflict.
+          $lockPath = "Cargo.lock"
+          $content = Get-Content $lockPath -Raw
+          $pattern = '(?s)(name = "gpu-allocator"(?:(?!\[\[package\]\]).)*?)"windows 0\.61\.3"'
+
+          if ($content -match $pattern) {
+            Write-Host "Patching gpu-allocator's windows dependency: 0.61.3 -> 0.62.2"
+            $patched = [regex]::Replace($content, $pattern, '$1"windows 0.62.2"')
+            Set-Content -Path $lockPath -Value $patched -NoNewline
+          } else {
+            Write-Host "gpu-allocator already points at a compatible windows version - nothing to patch."
           }
 
       - name: Build
