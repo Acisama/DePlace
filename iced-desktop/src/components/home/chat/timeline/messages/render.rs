@@ -39,7 +39,9 @@ use crate::{
             chat::timeline::messages::{SystemEvent, SystemMessage},
             overlay::{MediaOverlayParams, OverlayMediaType},
         },
-        phosphor_icon, render_media_failed_to_load, render_profile_name_with_overlay,
+        phosphor_icon,
+        profile::render_profile_name_with_overlay,
+        render_media_failed_to_load,
         track_bounds::track_bounds,
     },
 };
@@ -355,11 +357,41 @@ impl MessageEvent {
                     (theme.solid_bg.into(), theme.border.into())
                 };
 
+                let avatar_size = structure.chat.small_icon_size;
+                let overlap = 0.5;
+
+                let n = reactors.len();
+                let stack_width =
+                    avatar_size + (n.saturating_sub(1) as f32) * avatar_size * (1.0 - overlap);
+
+                let mut stack = Stack::new();
+                for (i, (user_id, _)) in reactors.iter().enumerate() {
+                    let avatar = membership_map.get(user_id).render_icon(
+                        avatar_size,
+                        &self.avatar_cache,
+                        0.5,
+                        theme,
+                    );
+
+                    stack = stack.push(
+                        w::container(avatar)
+                            .width(Fill)
+                            .height(Fill)
+                            .align_x(Alignment::Start)
+                            .padding(iced::Padding {
+                                left: i as f32 * avatar_size * (1.0 - overlap),
+                                ..Default::default()
+                            }),
+                    );
+                }
+
                 w::button(
                     w::row![
                         w::text(reaction.clone()).size(text_size),
                         weighted_text(length.to_string(), Weight::Bold).size(text_size),
+                        w::container(stack).width(stack_width).height(avatar_size)
                     ]
+                    .align_y(Alignment::Center)
                     .spacing(structure.small_gap / 2.0),
                 )
                 .style(move |_, _| ButtonStyle {

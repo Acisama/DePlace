@@ -1,13 +1,18 @@
 pub use crate::components::{
-    CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget, NeedsAvatarExt,
-    ProfileRenderExt, StatusExt, close_button, context_room_icon, corner_badge, floating_tile,
+    CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget, StatusExt, close_button,
+    corner_badge, floating_tile,
     help_mode::HelpView,
     help_mode::{Caption, HelpState, help, help_root},
     home::HelpKey,
-    loading_icon, on_appear, pan, render_avatar, render_loading_name, render_name,
-    render_unknown_name, text_icon, text_input, themed_scrollable,
+    on_appear, pan,
+    profile::{
+        MaybeRenderIcon, NeedsAvatarExt, ProfileRenderExt, context_room_icon, loading_icon,
+        render_avatar, render_loading_name, render_name, render_presence, render_unknown_name,
+        text_icon, unknown_icon,
+    },
+    text_input, themed_scrollable,
     tooltip::{themed_tooltip_content, themed_tooltip_text},
-    unknown_icon, weighted_text,
+    weighted_text,
 };
 pub use deplace_core::{
     ProfileLike,

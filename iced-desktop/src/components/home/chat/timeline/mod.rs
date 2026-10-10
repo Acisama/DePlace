@@ -616,9 +616,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 None
             }
             TimelineMessage::Item { id, message } => {
-                let Some(timeline) = self.timeline.clone() else {
-                    return None;
-                };
+                let timeline = self.timeline.clone()?;
 
                 let Some(item) = self.content.get_mut(&id) else {
                     tracing::warn!("No item found for id {}", id);

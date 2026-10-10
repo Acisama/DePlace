@@ -6,7 +6,7 @@ use macros::iced_cache;
 
 use crate::{
     common::*,
-    components::{CopyUserIdExt, render_banner_column},
+    components::{CopyUserIdExt, profile::render_banner_column},
 };
 
 #[derive(Debug, Clone)]
