@@ -164,6 +164,6 @@ impl Theme {
     }
 
     pub fn accent_blended(&self) -> DePlaceColor {
-        self.solid_bg.blend(self.accent, 0.1)
+        self.solid_bg.blend(self.accent, 0.15)
     }
 }

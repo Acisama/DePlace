@@ -357,6 +357,15 @@ impl MessageEvent {
                     (theme.solid_bg.into(), theme.border.into())
                 };
 
+                let mut members = Vec::new();
+                let mut names = Vec::new();
+
+                for (user_id, _) in reactors {
+                    let member = membership_map.get(user_id);
+                    members.push(member);
+                    names.push(member.map(|m| m.get_name()).unwrap_or(user_id.to_string()));
+                }
+
                 let avatar_size = structure.chat.small_icon_size;
                 let overlap = 0.5;
 
@@ -365,13 +374,8 @@ impl MessageEvent {
                     avatar_size + (n.saturating_sub(1) as f32) * avatar_size * (1.0 - overlap);
 
                 let mut stack = Stack::new();
-                for (i, (user_id, _)) in reactors.iter().enumerate() {
-                    let avatar = membership_map.get(user_id).render_icon(
-                        avatar_size,
-                        &self.avatar_cache,
-                        0.5,
-                        theme,
-                    );
+                for (i, member) in members.iter().enumerate() {
+                    let avatar = member.render_icon(avatar_size, &self.avatar_cache, 0.5, theme);
 
                     stack = stack.push(
                         w::container(avatar)
@@ -385,34 +389,52 @@ impl MessageEvent {
                     );
                 }
 
-                w::button(
+                themed_tooltip_content(
+                    w::button(
+                        w::row![
+                            w::text(reaction.clone()).size(text_size),
+                            weighted_text(length.to_string(), Weight::Bold).size(text_size),
+                            w::container(stack).width(stack_width).height(avatar_size)
+                        ]
+                        .align_y(Alignment::Center)
+                        .spacing(structure.small_gap / 2.0),
+                    )
+                    .style(move |_, _| ButtonStyle {
+                        background: Some(bg_color),
+                        text_color: theme.text.normal.into(),
+                        border: Border {
+                            color: border_color,
+                            width: structure.border_thickness,
+                            radius: structure.inner_border_radius.into(),
+                        },
+                        ..Default::default()
+                    })
+                    .padding(structure.small_gap / 2.0)
+                    .on_press(
+                        self.event_id
+                            .as_ref()
+                            .map(|id| TimelineItemMessage::ToggleReaction {
+                                reaction: reaction.clone(),
+                                event_id: id.clone(),
+                            })
+                            .unwrap_or(TimelineItemMessage::None),
+                    ),
                     w::row![
-                        w::text(reaction.clone()).size(text_size),
-                        weighted_text(length.to_string(), Weight::Bold).size(text_size),
-                        w::container(stack).width(stack_width).height(avatar_size)
+                        w::text(reaction.clone()).size(text_size * 3.0),
+                        w::container("")
+                            .width(structure.divider_width)
+                            .height(Fill)
+                            .style(move |_| ContainerStyle {
+                                background: Some(theme.border.into()),
+                                ..Default::default()
+                            }),
+                        w::text(format!("Reacted by {}", names.join(", ")))
                     ]
-                    .align_y(Alignment::Center)
-                    .spacing(structure.small_gap / 2.0),
-                )
-                .style(move |_, _| ButtonStyle {
-                    background: Some(bg_color),
-                    text_color: theme.text.normal.into(),
-                    border: Border {
-                        color: border_color,
-                        width: structure.border_thickness,
-                        radius: structure.inner_border_radius.into(),
-                    },
-                    ..Default::default()
-                })
-                .padding(structure.small_gap / 2.0)
-                .on_press(
-                    self.event_id
-                        .as_ref()
-                        .map(|id| TimelineItemMessage::ToggleReaction {
-                            reaction: reaction.clone(),
-                            event_id: id.clone(),
-                        })
-                        .unwrap_or(TimelineItemMessage::None),
+                    .padding(structure.small_gap)
+                    .spacing(structure.small_gap)
+                    .height(Shrink),
+                    structure,
+                    theme,
                 )
                 .into()
             },
