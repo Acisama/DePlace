@@ -95,7 +95,7 @@ jobs:
       - name: Build
         run: cargo build --release --locked --target x86_64-pc-windows-msvc -p iced-desktop
 
-      - name: Package with bundled GStreamer
+      - name: Stage app + bundled GStreamer files
         shell: pwsh
         run: |
           $out = "dist\DePlace"
@@ -110,8 +110,6 @@ jobs:
           # env vars or code changes needed at runtime.
           Copy-Item "${{ env.GST_ROOT }}\bin\*.dll" "$out\bin\"
           Copy-Item "${{ env.GST_ROOT }}\lib\gstreamer-1.0\*.dll" "$out\lib\gstreamer-1.0\"
-
-          Compress-Archive -Path "$out\*" -DestinationPath "DePlace-windows-x86_64.zip"
 
       - name: Install WiX Toolset v3
         shell: pwsh
@@ -144,6 +142,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: DePlace-windows-x86_64
-          path: |
-            DePlace-windows-x86_64.zip
-            DePlace-windows-x86_64.msi
+          path: DePlace-windows-x86_64.msi

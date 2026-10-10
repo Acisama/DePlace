@@ -13,7 +13,7 @@ use deplace_core::{APP_NAME, RestoreResult, state::ImportantPaths, try_restore};
 use iced::{Task, advanced::subscription::Recipe, futures::stream, window};
 use interprocess::local_socket::{GenericNamespaced, Listener, ListenerOptions, prelude::*};
 use matrix_sdk::Client;
-use tracing_subscriber::{EnvFilter, fmt::writer::MakeWriterExt};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::components::{
     authentification::{
@@ -62,19 +62,30 @@ fn main() -> iced::Result {
     );
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
 
-    let multi_writer = std::io::stdout.and(non_blocking_file);
-
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new(
-                "warn,iced_desktop=trace,deplace_core=trace,matrix_sdk::http_client=off,zbus=error",
-            )
-        }))
-        .with_writer(multi_writer)
+    let stdout_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_ansi(true)
         .with_target(true)
         .with_file(true)
-        .with_line_number(true)
+        .with_line_number(true);
+
+    let file_layer = fmt::layer()
+        .with_writer(non_blocking_file)
         .with_ansi(false)
+        .with_target(true)
+        .with_file(true)
+        .with_line_number(true);
+
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(
+            "warn,iced_desktop=trace,deplace_core=trace,matrix_sdk::http_client=off,zbus=error",
+        )
+    });
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stdout_layer)
+        .with(file_layer)
         .init();
 
     let default_hook = std::panic::take_hook();
