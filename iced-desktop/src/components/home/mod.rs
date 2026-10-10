@@ -98,6 +98,7 @@ pub enum MessageHelpKey {
     Reply(usize),
     TextContent,
     OtherContent,
+    Reaction,
 }
 
 #[derive(Clone, Debug)]

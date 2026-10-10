@@ -113,30 +113,37 @@ jobs:
 
           Compress-Archive -Path "$out\*" -DestinationPath "DePlace-windows-x86_64.zip"
 
-      - name: Sign release archive
+      - name: Install WiX Toolset v3
         shell: pwsh
-        env:
-          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
         run: |
-          Invoke-WebRequest "https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip" -OutFile minisign.zip
-          Expand-Archive minisign.zip -DestinationPath minisign
-          $minisign = "minisign\minisign-win64\x86_64\minisign.exe"
+          Invoke-WebRequest "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" -OutFile wix-binaries.zip
+          Expand-Archive wix-binaries.zip -DestinationPath wix-tools
+          echo "$pwd\wix-tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-          # Written to a temp file only for the lifetime of this ephemeral runner;
-          # GitHub also masks the secret's value in all logs automatically.
-          Set-Content -Path seckey.txt -Value $env:MINISIGN_SECRET_KEY -NoNewline
+      - name: Build MSI installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+') { $version = "0.0.0" }
 
-          & $minisign -S -s seckey.txt -m DePlace-windows-x86_64.zip -t "DePlace $($env:GITHUB_REF_NAME)"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "minisign signing failed"
-            exit 1
-          }
+          # heat.exe harvests the whole dist\DePlace tree (DePlace.exe +
+          # every bundled GStreamer DLL/plugin) into Components automatically -
+          # with 100+ files there's no hand-maintaining that list in main.wxs.
+          heat.exe dir "dist\DePlace" -cg AppFiles -gg -scom -sreg -sfrag -srd `
+            -dr INSTALLFOLDER -var var.AppSourceDir -out wix\app-harvest.wxs
+          if ($LASTEXITCODE -ne 0) { Write-Error "heat.exe failed"; exit 1 }
 
-          Remove-Item seckey.txt
+          New-Item -ItemType Directory -Force -Path wix\obj | Out-Null
+          candle.exe -dAppSourceDir="dist\DePlace" -dProductVersion="$version" -arch x64 `
+            -out wix\obj\ wix\main.wxs wix\app-harvest.wxs
+          if ($LASTEXITCODE -ne 0) { Write-Error "candle.exe failed"; exit 1 }
+
+          light.exe -sice:ICE61 -out "DePlace-windows-x86_64.msi" wix\obj\main.wixobj wix\obj\app-harvest.wixobj
+          if ($LASTEXITCODE -ne 0) { Write-Error "light.exe failed"; exit 1 }
 
       - uses: actions/upload-artifact@v4
         with:
           name: DePlace-windows-x86_64
           path: |
             DePlace-windows-x86_64.zip
-            DePlace-windows-x86_64.zip.minisig
+            DePlace-windows-x86_64.msi

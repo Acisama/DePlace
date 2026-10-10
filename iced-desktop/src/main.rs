@@ -1,4 +1,5 @@
 #![recursion_limit = "256"]
+#![windows_subsystem = "windows"]
 
 use std::{
     any::TypeId,
@@ -12,7 +13,7 @@ use deplace_core::{APP_NAME, RestoreResult, state::ImportantPaths, try_restore};
 use iced::{Task, advanced::subscription::Recipe, futures::stream, window};
 use interprocess::local_socket::{GenericNamespaced, Listener, ListenerOptions, prelude::*};
 use matrix_sdk::Client;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{EnvFilter, fmt::writer::MakeWriterExt};
 
 use crate::components::{
     authentification::{
@@ -47,15 +48,33 @@ pub enum AppMessage {
 }
 
 fn main() -> iced::Result {
+    let paths = match ImportantPaths::new() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to create important paths: {e}");
+            return Err(iced::Error::WindowCreationFailed(e.into()));
+        }
+    };
+
+    let file_appender = tracing_appender::rolling::never(
+        &paths.log_dir,
+        format!("{}.log", chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")),
+    );
+    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let multi_writer = std::io::stdout.and(non_blocking_file);
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
             EnvFilter::new(
                 "warn,iced_desktop=trace,deplace_core=trace,matrix_sdk::http_client=off,zbus=error",
             )
         }))
+        .with_writer(multi_writer)
         .with_target(true)
         .with_file(true)
         .with_line_number(true)
+        .with_ansi(false)
         .init();
 
     let default_hook = std::panic::take_hook();
@@ -63,14 +82,6 @@ fn main() -> iced::Result {
         tracing::error!("Panic: {:?}", info);
         default_hook(info);
     }));
-
-    let paths = match ImportantPaths::new() {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!("Failed to create important paths: {e}");
-            return Err(iced::Error::WindowCreationFailed(e.into()));
-        }
-    };
 
     // Convert socket identifier for interprocess
     let socket_name = match SOCKET_NAME.to_ns_name::<GenericNamespaced>() {

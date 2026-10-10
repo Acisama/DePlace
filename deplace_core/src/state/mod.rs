@@ -41,6 +41,7 @@ pub struct ImportantPaths {
     pub cache_dir: PathBuf,
     pub temp_dir: PathBuf,
     pub data_dir: PathBuf,
+    pub log_dir: PathBuf,
 }
 
 impl ImportantPaths {
@@ -57,18 +58,12 @@ impl ImportantPaths {
         let data_dir = dirs::data_dir()
             .ok_or(anyhow::anyhow!("Failed to get data dir"))?
             .join(APP_NAME);
+        let log_dir = data_dir.join("logs");
 
-        if !config_dir.exists() {
-            std::fs::create_dir_all(&config_dir)?;
-        }
-        if !download_dir.exists() {
-            std::fs::create_dir_all(&download_dir)?;
-        }
-        if !cache_dir.exists() {
-            std::fs::create_dir_all(&cache_dir)?;
-        }
-        if !data_dir.exists() {
-            std::fs::create_dir_all(&data_dir)?;
+        for path in [&config_dir, &download_dir, &cache_dir, &data_dir, &log_dir] {
+            if !path.exists() {
+                std::fs::create_dir_all(path)?;
+            }
         }
 
         let settings_file = config_dir.join("config.toml");
@@ -87,6 +82,7 @@ impl ImportantPaths {
             cache_dir,
             temp_dir,
             data_dir,
+            log_dir,
         })
     }
 }

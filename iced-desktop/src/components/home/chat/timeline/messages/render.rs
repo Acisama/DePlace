@@ -389,54 +389,63 @@ impl MessageEvent {
                     );
                 }
 
-                themed_tooltip_content(
-                    w::button(
-                        w::row![
-                            w::text(reaction.clone()).size(text_size),
-                            weighted_text(length.to_string(), Weight::Bold).size(text_size),
-                            w::container(stack).width(stack_width).height(avatar_size)
-                        ]
-                        .align_y(Alignment::Center)
-                        .spacing(structure.small_gap / 2.0),
-                    )
-                    .style(move |_, _| ButtonStyle {
-                        background: Some(bg_color),
-                        text_color: theme.text.normal.into(),
-                        border: Border {
-                            color: border_color,
-                            width: structure.border_thickness,
-                            radius: structure.inner_border_radius.into(),
+                help_view
+                    .call(
+                        HelpKey::Message {
+                            key: MessageHelpKey::Reaction,
+                            index,
                         },
-                        ..Default::default()
-                    })
-                    .padding(structure.small_gap / 2.0)
-                    .on_press(
-                        self.event_id
-                            .as_ref()
-                            .map(|id| TimelineItemMessage::ToggleReaction {
-                                reaction: reaction.clone(),
-                                event_id: id.clone(),
-                            })
-                            .unwrap_or(TimelineItemMessage::None),
-                    ),
-                    w::row![
-                        w::text(reaction.clone()).size(text_size * 3.0),
-                        w::container("")
-                            .width(structure.divider_width)
-                            .height(Fill)
-                            .style(move |_| ContainerStyle {
-                                background: Some(theme.border.into()),
+                        "A reaction to the message",
+                        themed_tooltip_content(
+                            w::button(
+                                w::row![
+                                    w::text(reaction.clone()).size(text_size),
+                                    weighted_text(length.to_string(), Weight::Bold).size(text_size),
+                                    w::container(stack).width(stack_width).height(avatar_size)
+                                ]
+                                .align_y(Alignment::Center)
+                                .spacing(structure.small_gap / 2.0),
+                            )
+                            .style(move |_, _| ButtonStyle {
+                                background: Some(bg_color),
+                                text_color: theme.text.normal.into(),
+                                border: Border {
+                                    color: border_color,
+                                    width: structure.border_thickness,
+                                    radius: structure.inner_border_radius.into(),
+                                },
                                 ..Default::default()
-                            }),
-                        w::text(format!("Reacted by {}", names.join(", ")))
-                    ]
-                    .padding(structure.small_gap)
-                    .spacing(structure.small_gap)
-                    .height(Shrink),
-                    structure,
-                    theme,
-                )
-                .into()
+                            })
+                            .padding(structure.small_gap / 2.0)
+                            .on_press(
+                                self.event_id
+                                    .as_ref()
+                                    .map(|id| TimelineItemMessage::ToggleReaction {
+                                        reaction: reaction.clone(),
+                                        event_id: id.clone(),
+                                    })
+                                    .unwrap_or(TimelineItemMessage::None),
+                            ),
+                            w::row![
+                                w::text(reaction.clone()).size(text_size * 3.0),
+                                w::container("")
+                                    .width(structure.divider_width)
+                                    .height(Fill)
+                                    .style(move |_| ContainerStyle {
+                                        background: Some(theme.border.into()),
+                                        ..Default::default()
+                                    }),
+                                w::text(format!("Reacted by {}", names.join(", ")))
+                            ]
+                            .padding(structure.small_gap)
+                            .spacing(structure.small_gap)
+                            .height(Shrink),
+                            structure,
+                            theme,
+                        ),
+                    )
+                    .radius(structure.inner_border_radius)
+                    .into()
             }))
         });
 

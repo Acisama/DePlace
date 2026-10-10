@@ -31,6 +31,7 @@ sweeten.workspace = true
 thumbhash.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 url-macro.workspace = true

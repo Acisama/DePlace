@@ -69,6 +69,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7.19"
 toml_edit = { version = "0.25.13", features = ["serde"] }
 tracing = "0.1.44"
+tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 url-macro = "0.2.4"
