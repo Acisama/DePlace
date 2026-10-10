@@ -1,0 +1,62 @@
+<?xml version='1.0' encoding='windows-1252'?>
+<!--
+  Built with WiX Toolset v3 (candle.exe + light.exe), driven from
+  .github/workflows/windows-build.yml.
+
+  The actual payload (DePlace.exe + bundled GStreamer DLLs/plugins) is NOT
+  listed here by hand - it's harvested at build time from `dist\DePlace` by
+  heat.exe into wix\app-harvest.wxs (there are 100+ files, bundled whole, so
+  hand-maintaining a file list isn't practical). This file only declares the
+  product metadata, the install directory, and the Start Menu shortcut.
+-->
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+    <Product
+        Id='*'
+        Name='DePlace'
+        UpgradeCode='8C847DA9-9037-4544-8F3D-944EB9F4B24F'
+        Manufacturer='DePlace'
+        Language='1033'
+        Codepage='1252'
+        Version='$(var.ProductVersion)'>
+
+        <Package Id='*'
+            Keywords='Installer'
+            Description='DePlace Installer'
+            Manufacturer='DePlace'
+            InstallerVersion='450'
+            Languages='1033'
+            Compressed='yes'
+            InstallScope='perMachine'
+            SummaryCodepage='1252'/>
+
+        <MajorUpgrade
+            Schedule='afterInstallInitialize'
+            DowngradeErrorMessage='A newer version of [ProductName] is already installed. Setup will now exit.'/>
+
+        <Media Id='1' Cabinet='media1.cab' EmbedCab='yes' DiskPrompt='CD-ROM #1'/>
+        <Property Id='DiskPrompt' Value='DePlace Installation'/>
+
+        <Directory Id='TARGETDIR' Name='SourceDir'>
+            <Directory Id='ProgramFiles64Folder' Name='PFiles'>
+                <Directory Id='INSTALLFOLDER' Name='DePlace'/>
+            </Directory>
+            <Directory Id='ProgramMenuFolder'/>
+        </Directory>
+
+        <DirectoryRef Id='ProgramMenuFolder'>
+            <Component Id='ApplicationShortcut' Guid='*'>
+                <Shortcut Id='ApplicationStartMenuShortcut'
+                    Name='DePlace'
+                    Target='[INSTALLFOLDER]bin\DePlace.exe'
+                    WorkingDirectory='INSTALLFOLDER'/>
+                <RemoveFolder Id='CleanUpShortcut' Directory='ProgramMenuFolder' On='uninstall'/>
+                <RegistryValue Root='HKCU' Key='Software\DePlace' Name='installed' Type='integer' Value='1' KeyPath='yes'/>
+            </Component>
+        </DirectoryRef>
+
+        <Feature Id='MainProgram' Title='DePlace' Description='DePlace and its bundled GStreamer runtime.' Level='1'>
+            <ComponentGroupRef Id='AppFiles'/>
+            <ComponentRef Id='ApplicationShortcut'/>
+        </Feature>
+    </Product>
+</Wix>
