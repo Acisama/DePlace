@@ -616,7 +616,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 None
             }
             TimelineMessage::Item { id, message } => {
-                let Some(timeline) = &self.timeline else {
+                let Some(timeline) = self.timeline.clone() else {
                     return None;
                 };
 
@@ -644,9 +644,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     TimelineItemAction::OpenDeleteMenu(event_id) => {
                         item.message_event().map(|event| {
                             TimelineAction::OpenModifyItem(ModifyItem::delete(
-                                timeline.clone(),
-                                event_id,
-                                event,
+                                timeline, event_id, event,
                             ))
                         })
                     }
@@ -655,10 +653,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         is_pinned,
                     } => item.message_event().map(|event| {
                         TimelineAction::OpenModifyItem(ModifyItem::pin(
-                            timeline.clone(),
-                            event_id,
-                            event,
-                            is_pinned,
+                            timeline, event_id, event, is_pinned,
                         ))
                     }),
                     TimelineItemAction::HelpHover(help) => Some(TimelineAction::HelpHover(help)),
@@ -726,6 +721,21 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         }
                         self.replying_to = Some(id.clone());
                         Some(TimelineAction::SetIsReplyingTo { message, event_id })
+                    }
+                    TimelineItemAction::ToggleReaction { reaction, event_id } => {
+                        Some(TimelineAction::Run(Task::future(async move {
+                            if let Err(e) = timeline
+                                .toggle_reaction(
+                                    &matrix_sdk_ui::timeline::TimelineEventItemId::EventId(
+                                        event_id,
+                                    ),
+                                    reaction.as_ref(),
+                                )
+                                .await
+                            {
+                                tracing::error!("Failed to toggle reaction: {}", e);
+                            }
+                        })))
                     }
                 };
 

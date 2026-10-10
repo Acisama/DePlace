@@ -45,6 +45,7 @@ pub mod pan;
 pub mod root;
 pub mod shader;
 pub mod tile_background;
+pub mod tooltip;
 pub mod track_bounds;
 pub mod track_scroll;
 
@@ -726,31 +727,6 @@ pub fn themed_scrollable<'a, T: 'a>(
         })
         .smooth_scroll(false)
         .auto_scroll(true)
-}
-
-pub fn themed_tooltip<'a, T: 'a>(
-    content: impl Into<Element<'a, T>>,
-    tooltip: impl IntoFragment<'a>,
-    structure: Structure,
-    theme: Theme,
-) -> w::tooltip::Tooltip<'a, T> {
-    w::tooltip(
-        content,
-        w::container(w::text(tooltip).color(theme.text.normal))
-            .padding(padding::horizontal(structure.small_gap).vertical(structure.small_gap / 2.0)),
-        w::tooltip::Position::Bottom,
-    )
-    .delay(std::time::Duration::from_millis(300))
-    .style(move |_| w::container::Style {
-        background: Some(theme.solid_bg.into()),
-        border: Border {
-            color: theme.border.into(),
-            width: structure.border_thickness,
-            radius: structure.inner_border_radius.into(),
-        },
-        text_color: Some(theme.text.normal.into()),
-        ..Default::default()
-    })
 }
 
 pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(

@@ -346,6 +346,46 @@ impl MessageEvent {
         .spacing(structure.small_gap)
         .padding(padding::top(pill_width));
 
+        let reactions = w::Row::with_children(self.reactions.iter().map(
+            |(reaction, (has_own, reactors))| {
+                let length = reactors.len();
+                let (bg_color, border_color) = if *has_own {
+                    (theme.accent_blended().into(), theme.accent.into())
+                } else {
+                    (theme.solid_bg.into(), theme.border.into())
+                };
+
+                w::button(
+                    w::row![
+                        w::text(reaction.clone()).size(text_size),
+                        weighted_text(length.to_string(), Weight::Bold).size(text_size),
+                    ]
+                    .spacing(structure.small_gap / 2.0),
+                )
+                .style(move |_, _| ButtonStyle {
+                    background: Some(bg_color),
+                    text_color: theme.text.normal.into(),
+                    border: Border {
+                        color: border_color,
+                        width: structure.border_thickness,
+                        radius: structure.inner_border_radius.into(),
+                    },
+                    ..Default::default()
+                })
+                .padding(structure.small_gap / 2.0)
+                .on_press(
+                    self.event_id
+                        .as_ref()
+                        .map(|id| TimelineItemMessage::ToggleReaction {
+                            reaction: reaction.clone(),
+                            event_id: id.clone(),
+                        })
+                        .unwrap_or(TimelineItemMessage::None),
+                )
+                .into()
+            },
+        ));
+
         help_view
             .call(
                 HelpKey::Message {
@@ -404,13 +444,12 @@ impl MessageEvent {
                                     Space::new().height(structure.divider_width),
                                 ],
                                 Space::new().width(pre_col_width),
-                                w::column![name.unwrap_or(Space::new().into()), column].padding(
-                                    padding::bottom(if as_dummy {
+                                w::column![name.unwrap_or(Space::new().into()), column, reactions]
+                                    .padding(padding::bottom(if as_dummy {
                                         structure.small_gap / 2.0
                                     } else {
                                         0.0
-                                    })
-                                )
+                                    }))
                             ]
                         ]
                     ]

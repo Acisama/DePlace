@@ -35,8 +35,8 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::timeline::{
-    EventSendState, MemberProfileChange, ReactionsByKeyBySender, RoomMembershipChange,
-    TimelineDetails, TimelineEventShieldState,
+    EventSendState, MemberProfileChange, RoomMembershipChange, TimelineDetails,
+    TimelineEventShieldState,
 };
 
 mod convert;
@@ -73,6 +73,10 @@ pub enum TimelineItemMessage {
     Mention(Mention),
     LinkClick(String),
     OpenMediaOverlay(MediaOverlayParams),
+    ToggleReaction {
+        reaction: String,
+        event_id: OwnedEventId,
+    },
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
@@ -114,6 +118,10 @@ pub enum TimelineItemAction {
     Mention(Mention),
     LinkClick(String),
     OpenMediaOverlay(MediaOverlayParams),
+    ToggleReaction {
+        reaction: String,
+        event_id: OwnedEventId,
+    },
 }
 
 /// An item in the timeline
@@ -371,6 +379,9 @@ impl TimelineItem {
 
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
+            TimelineItemMessage::ToggleReaction { reaction, event_id } => {
+                Some(TimelineItemAction::ToggleReaction { reaction, event_id })
+            }
             TimelineItemMessage::None => None,
             TimelineItemMessage::OpenMediaOverlay(params) => {
                 Some(TimelineItemAction::OpenMediaOverlay(params))
@@ -735,6 +746,8 @@ impl ProfileLike for TimelineProfile {
     }
 }
 
+pub type ReactionInfo = (bool, IndexMap<OwnedUserId, SystemTime>);
+
 #[iced_cache(Debug, Clone)]
 struct MessageEvent {
     state: AppState,
@@ -748,7 +761,7 @@ struct MessageEvent {
 
     in_reply_to: Arc<Vec<ReplyToDetails>>,
 
-    reactions: Arc<ReactionsByKeyBySender>,
+    reactions: Arc<IndexMap<String, ReactionInfo>>,
 
     timezone: Receiver<Tz>,
     hour_format: Receiver<HourFormat>,
@@ -796,6 +809,13 @@ impl ExtraHash for MessageEvent {
             Some(EventSendState::NotSentYet { .. }) => 1.hash(state),
             Some(EventSendState::Sent { .. }) => 2.hash(state),
             Some(EventSendState::SendingFailed { .. }) => 3.hash(state),
+        }
+
+        for (reaction, (_, reactors)) in self.reactions.as_ref().iter() {
+            reaction.hash(state);
+            for (user_id, _) in reactors.iter() {
+                user_id.hash(state);
+            }
         }
     }
 }

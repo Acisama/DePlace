@@ -260,7 +260,7 @@ fn render_image(
         _ => {}
     }
 
-    let stack = Stack::with_children(stack_children).into();
+    let stack = Stack::with_children(stack_children).clip(true).into();
 
     if !fired {
         on_appear(

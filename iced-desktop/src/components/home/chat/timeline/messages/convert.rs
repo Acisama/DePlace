@@ -16,7 +16,8 @@ use super::{TimelineItem, TimelineItemKind};
 use matrix_sdk::ruma::events::room::ImageInfo;
 use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
 use matrix_sdk_ui::timeline::{
-    AnyOtherStateEventContentChange, EmbeddedEvent, TimelineItemKind as UiTimelineItemKind,
+    AnyOtherStateEventContentChange, EmbeddedEvent, ReactionsByKeyBySender,
+    TimelineItemKind as UiTimelineItemKind,
 };
 use matrix_sdk_ui::timeline::{InReplyToDetails, VirtualTimelineItem};
 use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
@@ -28,6 +29,7 @@ pub trait ToTimelineItem {
         state: &AppState,
         room_id: OwnedRoomId,
         pinned_event_ids: &BTreeSet<OwnedEventId>,
+        own_user_id: &OwnedUserId,
     ) -> TimelineItem;
 }
 
@@ -37,11 +39,12 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
         state: &AppState,
         room_id: OwnedRoomId,
         pinned_event_ids: &BTreeSet<OwnedEventId>,
+        own_user_id: &OwnedUserId,
     ) -> TimelineItem {
         TimelineItem {
             id: self.unique_id().0.clone(),
             room_id,
-            kind: TimelineItemKind::from_ui(self.kind(), state, pinned_event_ids),
+            kind: TimelineItemKind::from_ui(self.kind(), state, pinned_event_ids, own_user_id),
         }
     }
 }
@@ -51,6 +54,7 @@ impl TimelineItemKind {
         value: &UiTimelineItemKind,
         state: &AppState,
         pinned_event_ids: &BTreeSet<OwnedEventId>,
+        own_user_id: &OwnedUserId,
     ) -> Self {
         match value {
             UiTimelineItemKind::Virtual(virt) => match virt {
@@ -257,6 +261,8 @@ impl TimelineItemKind {
 
                                 is_replying_to: false,
 
+                                reactions: Arc::new(convert_reactions(&m.reactions, own_user_id)),
+
                                 in_reply_to: Arc::new(
                                     m.in_reply_to
                                         .as_ref()
@@ -264,8 +270,7 @@ impl TimelineItemKind {
                                         .unwrap_or_default(),
                                 ),
 
-                                reactions: Arc::new(m.reactions.clone()),
-
+                                // reactions: Arc::new(m.reactions.iter().map()),
                                 is_pinned: event_id
                                     .as_ref()
                                     .is_some_and(|id| pinned_event_ids.contains(id)),
@@ -294,6 +299,48 @@ impl TimelineItemKind {
             }
         }
     }
+}
+
+type ExpandedReactionInfo = (bool, IndexMap<OwnedUserId, SystemTime>, Option<SystemTime>);
+
+fn convert_reactions(
+    reactions: &ReactionsByKeyBySender,
+    own_user_id: &OwnedUserId,
+) -> IndexMap<String, (bool, IndexMap<OwnedUserId, SystemTime>)> {
+    let mut reactions: IndexMap<String, ExpandedReactionInfo> = reactions
+        .iter()
+        .map(|(reaction, reactors)| {
+            let mut oldest_time = None;
+            let mut contains_own = false;
+
+            let mut reactors: IndexMap<OwnedUserId, SystemTime> = reactors
+                .iter()
+                .map(|(id, info)| {
+                    let timestamp = info.timestamp.to_system_time();
+
+                    if timestamp > oldest_time {
+                        oldest_time = timestamp;
+                    }
+                    if id == own_user_id {
+                        contains_own = true;
+                    }
+
+                    (id.clone(), timestamp.unwrap_or(SystemTime::now()))
+                })
+                .collect();
+
+            reactors.sort_by_key(|_, t| *t);
+
+            (reaction.clone(), (contains_own, reactors, oldest_time))
+        })
+        .collect();
+
+    reactions.sort_by_key(|_, (_, _, t)| *t);
+
+    reactions
+        .into_iter()
+        .map(|(k, (b, v, _))| (k, (b, v)))
+        .collect()
 }
 
 fn string_to_option(s: &str) -> Option<String> {

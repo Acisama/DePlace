@@ -162,4 +162,8 @@ impl Theme {
     pub fn warning_blended(&self) -> DePlaceColor {
         self.solid_bg.blend(self.colors.warning, 0.1)
     }
+
+    pub fn accent_blended(&self) -> DePlaceColor {
+        self.solid_bg.blend(self.accent, 0.1)
+    }
 }

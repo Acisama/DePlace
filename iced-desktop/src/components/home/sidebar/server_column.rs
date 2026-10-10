@@ -236,7 +236,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                 let counts: NotificationCounts =
                     children.iter().map(|r| r.notification_counts()).sum();
 
-                let content = w::mouse_area(themed_tooltip(
+                let content = w::mouse_area(themed_tooltip_text(
                     room.render_icon(icon_size, avatar_cache),
                     room.get_name(),
                     structure,

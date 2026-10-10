@@ -117,6 +117,8 @@ impl Chat {
         let pinned_ids_clone = initial_pinned_event_ids.clone();
 
         let room_id_clone = room_id.clone();
+        let own_user_id = state.own_id();
+
         let stream = stream::once(async move {
             tracing::debug!("Building timeline for room {}", room_id_clone);
             let timeline = match builder.build().await {
@@ -184,6 +186,7 @@ impl Chat {
                                 &state_clone,
                                 room_id_clone.clone(),
                                 &pinned_ids_clone,
+                                &own_user_id,
                             )),
                         )
                     })
@@ -200,6 +203,7 @@ impl Chat {
                                 &state_clone,
                                 room_id_clone.clone(),
                                 &pinned_ids_clone,
+                                &own_user_id,
                             )),
                         )
                     })
@@ -209,6 +213,7 @@ impl Chat {
             let room_id_clone_clone = room_id_clone.clone();
             let state_clone_clone = state_clone.clone();
             let pinned_ids_clone_clone = pinned_ids_clone.clone();
+            let pinned_own_user_id = own_user_id.clone();
             stream::once(future::ready(ChatMessage::TimelinesLoaded {
                 timeline,
                 pinned_timeline,
@@ -228,6 +233,7 @@ impl Chat {
                                         &state_clone,
                                         room_id_clone.clone(),
                                         &pinned_ids_clone,
+                                        &own_user_id,
                                     )),
                                 )
                             })
@@ -248,6 +254,7 @@ impl Chat {
                                             &state_clone_clone,
                                             room_id_clone_clone.clone(),
                                             &pinned_ids_clone_clone,
+                                            &pinned_own_user_id,
                                         )),
                                     )
                                 })

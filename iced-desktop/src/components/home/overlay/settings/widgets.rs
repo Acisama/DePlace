@@ -175,7 +175,7 @@ where
         let row_content = w::Row::with_children(T::SECTIONS.iter().map(|(name, desc, val)| {
             let is_active = val == &active_value;
 
-            themed_tooltip(
+            themed_tooltip_text(
                 w::button(w::text(*name).size(structure.small_font_size).center())
                     .style(move |_, status| ButtonStyle {
                         text_color: if status.active() {
@@ -289,7 +289,7 @@ fn cloud_button<Message: 'static + Clone + ToggleCloudExt>(
         ),
     };
 
-    themed_tooltip(
+    themed_tooltip_text(
         w::button(phosphor_icon(icon, structure.font_size * 1.2))
             .padding(0.0)
             .style(move |_, status| ButtonStyle {
@@ -319,7 +319,7 @@ fn setting_row<T, Message: 'static + Clone + ToggleCloudExt>(
     extra_content: Option<Element<'static, Message>>,
 ) -> Element<'static, Message> {
     let cloud_button = cloud_button(field.local_name, &field.uses_cloud, theme, structure);
-    let text = themed_tooltip(
+    let text = themed_tooltip_text(
         w::text(field.human_readable)
             .color(theme.text.normal)
             .size(structure.font_size),
