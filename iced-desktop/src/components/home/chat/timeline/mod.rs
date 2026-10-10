@@ -608,11 +608,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 self.buttons_hovered = hovered;
 
                 if !hovered {
-                    let row_still_hovered =
-                        self.content.get(&id).is_some_and(|item| item.is_hovered());
-
-                    if !row_still_hovered {
-                        self.hovered_item_id = None;
+                    self.hovered_item_id = None;
+                    if let Some(item) = self.content.get_mut(&id) {
+                        Arc::make_mut(item).set_is_hovered(false);
                     }
                 }
                 None

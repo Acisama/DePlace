@@ -436,7 +436,12 @@ impl AppState {
     }
 
     pub fn set_window_focused(&self, focused: bool) {
-        tracing::trace!("Window focused: focused={focused}");
+        if focused {
+            tracing::trace!("Window focused");
+        } else {
+            tracing::trace!("Window unfocused");
+        }
+
         *self
             .inner
             .window_focused
