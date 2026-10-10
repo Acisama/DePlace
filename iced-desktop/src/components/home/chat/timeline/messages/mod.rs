@@ -746,7 +746,7 @@ impl ProfileLike for TimelineProfile {
     }
 }
 
-pub type ReactionInfo = (bool, IndexMap<OwnedUserId, SystemTime>);
+pub type ReactionInfoMap = Arc<IndexMap<String, (bool, Vec<OwnedUserId>)>>;
 
 #[iced_cache(Debug, Clone)]
 struct MessageEvent {
@@ -761,7 +761,7 @@ struct MessageEvent {
 
     in_reply_to: Arc<Vec<ReplyToDetails>>,
 
-    reactions: Arc<IndexMap<String, ReactionInfo>>,
+    reactions: Option<ReactionInfoMap>,
 
     timezone: Receiver<Tz>,
     hour_format: Receiver<HourFormat>,
@@ -811,10 +811,12 @@ impl ExtraHash for MessageEvent {
             Some(EventSendState::SendingFailed { .. }) => 3.hash(state),
         }
 
-        for (reaction, (_, reactors)) in self.reactions.as_ref().iter() {
-            reaction.hash(state);
-            for (user_id, _) in reactors.iter() {
-                user_id.hash(state);
+        if let Some(reactions) = &self.reactions {
+            for (reaction, (_, reactors)) in reactions.as_ref().iter() {
+                reaction.hash(state);
+                for user_id in reactors.iter() {
+                    user_id.hash(state);
+                }
             }
         }
     }

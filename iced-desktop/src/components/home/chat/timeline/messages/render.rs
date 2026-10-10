@@ -348,8 +348,8 @@ impl MessageEvent {
         .spacing(structure.small_gap)
         .padding(padding::top(pill_width));
 
-        let reactions = w::Row::with_children(self.reactions.iter().map(
-            |(reaction, (has_own, reactors))| {
+        let reactions = self.reactions.as_ref().map(|reactions| {
+            w::Row::with_children(reactions.iter().map(|(reaction, (has_own, reactors))| {
                 let length = reactors.len();
                 let (bg_color, border_color) = if *has_own {
                     (theme.accent_blended().into(), theme.accent.into())
@@ -360,7 +360,7 @@ impl MessageEvent {
                 let mut members = Vec::new();
                 let mut names = Vec::new();
 
-                for (user_id, _) in reactors {
+                for user_id in reactors {
                     let member = membership_map.get(user_id);
                     members.push(member);
                     names.push(member.map(|m| m.get_name()).unwrap_or(user_id.to_string()));
@@ -437,8 +437,8 @@ impl MessageEvent {
                     theme,
                 )
                 .into()
-            },
-        ));
+            }))
+        });
 
         help_view
             .call(
@@ -498,12 +498,13 @@ impl MessageEvent {
                                     Space::new().height(structure.divider_width),
                                 ],
                                 Space::new().width(pre_col_width),
-                                w::column![name.unwrap_or(Space::new().into()), column, reactions]
-                                    .padding(padding::bottom(if as_dummy {
+                                w::column![name, column, reactions].padding(padding::bottom(
+                                    if as_dummy {
                                         structure.small_gap / 2.0
                                     } else {
                                         0.0
-                                    }))
+                                    }
+                                ))
                             ]
                         ]
                     ]
@@ -585,7 +586,10 @@ impl MessageContent {
             formatted_body
                 .as_ref()
                 .map(|f| f.view(theme, structure, is_local_echo, membership_map))
-                .or_else(|| body.as_ref().map(|t| render_normal_text(t.clone()).into()))
+                .or_else(|| {
+                    body.as_ref()
+                        .map(|t| render_normal_text(t.trim_end().to_string()).into())
+                })
         };
 
         match &self {

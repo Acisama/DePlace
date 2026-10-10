@@ -8,8 +8,8 @@ use crate::components::home::chat::timeline::messages::{RtcNotification, Timelin
 use crate::components::{blurhash_to_image, thumbhash_to_image};
 
 use super::{
-    ImageMessage, MessageContent, MessageEvent, ReplyContent, ReplyEvent, ReplyToDetails,
-    SystemEvent, SystemMessage, VideoMessage, VisualInfo,
+    ImageMessage, MessageContent, MessageEvent, ReactionInfoMap, ReplyContent, ReplyEvent,
+    ReplyToDetails, SystemEvent, SystemMessage, VideoMessage, VisualInfo,
 };
 use super::{TimelineItem, TimelineItemKind};
 
@@ -261,7 +261,7 @@ impl TimelineItemKind {
 
                                 is_replying_to: false,
 
-                                reactions: Arc::new(convert_reactions(&m.reactions, own_user_id)),
+                                reactions: convert_reactions(&m.reactions, own_user_id),
 
                                 in_reply_to: Arc::new(
                                     m.in_reply_to
@@ -301,13 +301,15 @@ impl TimelineItemKind {
     }
 }
 
-type ExpandedReactionInfo = (bool, IndexMap<OwnedUserId, SystemTime>, Option<SystemTime>);
-
 fn convert_reactions(
     reactions: &ReactionsByKeyBySender,
     own_user_id: &OwnedUserId,
-) -> IndexMap<String, (bool, IndexMap<OwnedUserId, SystemTime>)> {
-    let mut reactions: IndexMap<String, ExpandedReactionInfo> = reactions
+) -> Option<ReactionInfoMap> {
+    if reactions.is_empty() {
+        return None;
+    }
+
+    let mut reactions: IndexMap<String, (bool, Vec<OwnedUserId>, Option<SystemTime>)> = reactions
         .iter()
         .map(|(reaction, reactors)| {
             let mut oldest_time = None;
@@ -331,16 +333,25 @@ fn convert_reactions(
 
             reactors.sort_by_key(|_, t| *t);
 
-            (reaction.clone(), (contains_own, reactors, oldest_time))
+            (
+                reaction.clone(),
+                (
+                    contains_own,
+                    reactors.into_iter().map(|(id, _)| id).collect(),
+                    oldest_time,
+                ),
+            )
         })
         .collect();
 
     reactions.sort_by_key(|_, (_, _, t)| *t);
 
-    reactions
-        .into_iter()
-        .map(|(k, (b, v, _))| (k, (b, v)))
-        .collect()
+    Some(Arc::new(
+        reactions
+            .into_iter()
+            .map(|(k, (b, v, _))| (k, (b, v)))
+            .collect(),
+    ))
 }
 
 fn string_to_option(s: &str) -> Option<String> {

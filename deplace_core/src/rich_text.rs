@@ -112,17 +112,30 @@ impl FormattedBody {
     }
 }
 
+fn is_blank_inline(inline: &Inline) -> bool {
+    match inline {
+        Inline::Text(run) => run.text.trim().is_empty(),
+        Inline::LineBreak => true,
+        Inline::Mention(_) => false,
+    }
+}
+
+/// Drops trailing blank runs/line breaks (e.g. a `<br>` right before a closing `</p>`), which
+/// would otherwise render as a phantom empty line below the real content.
+fn trim_trailing_blank(content: &mut Vec<Inline>) {
+    while content.last().is_some_and(is_blank_inline) {
+        content.pop();
+    }
+}
+
 fn flush_paragraph(blocks: &mut Vec<Block>, pending: &mut Vec<Inline>) {
     // Insignificant whitespace (e.g. the indentation newline between `<li>` and a wrapped
     // `<p>`) would otherwise flush as its own blank paragraph, showing up as a phantom empty
     // line before the real content.
-    let is_blank = pending.iter().all(|inline| match inline {
-        Inline::Text(run) => run.text.trim().is_empty(),
-        Inline::LineBreak => true,
-        Inline::Mention(_) => false,
-    });
+    let is_blank = pending.iter().all(is_blank_inline);
 
     if !pending.is_empty() && !is_blank {
+        trim_trailing_blank(pending);
         blocks.push(Block::Paragraph(std::mem::take(pending)));
     } else {
         pending.clear();
@@ -168,6 +181,7 @@ fn walk_block(
             for child in node.children() {
                 walk_inline(child, style, &mut content);
             }
+            trim_trailing_blank(&mut content);
             if !content.is_empty() {
                 blocks.push(Block::Paragraph(content));
             }
