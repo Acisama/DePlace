@@ -10,7 +10,7 @@ use matrix_sdk::{
 use ruma::DeviceId;
 
 pub mod account_data;
-// mod matrixrtc;
+mod matrixrtc;
 mod members;
 pub mod messages;
 pub mod presence;

@@ -9,7 +9,7 @@ use syn::{Expr, Ident, Token};
 enum IconPart {
     Ident(Ident),
     Ternary {
-        cond: Expr,
+        cond: Box<Expr>,
         if_true: Ident,
         if_false: Ident,
     },
@@ -46,7 +46,7 @@ impl Parse for IconPart {
         let if_false: Ident = input.parse()?;
 
         Ok(IconPart::Ternary {
-            cond,
+            cond: Box::new(cond),
             if_true,
             if_false,
         })

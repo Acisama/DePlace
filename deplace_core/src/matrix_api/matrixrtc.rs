@@ -81,9 +81,10 @@ pub async fn join_matrixrtc_call(
         .ok_or_else(|| anyhow!("Matrix client is not logged in or missing a device_id"))?;
 
     let rtc_foci = matrix_client
-        .rtc_foci()
+        .discover_rtc_transports()
         .await
-        .map_err(|e| anyhow!("Failed to get RTC foci: {}", e))?;
+        .map_err(|e| anyhow!("Failed to get RTC foci: {}", e))?
+        .unwrap_or_default();
 
     let default_livekit_focus_info = rtc_foci
         .iter()
@@ -110,7 +111,7 @@ pub async fn join_matrixrtc_call(
         "device_id": device_id
     });
 
-    let http_client = reqwest::Client::new();
+    let http_client = matrix_sdk::reqwest::Client::new();
     let res = http_client
         .post(&jwt_url)
         .json(&auth_payload)
@@ -551,9 +552,12 @@ pub async fn cleanup_ghost_calls(client: &matrix_sdk::Client) {
                 room.room_id()
             );
 
-            let _ = room
+            if let Err(e) = room
                 .send_state_event_raw("m.call.member", &state_key, serde_json::json!({}))
-                .await;
+                .await
+            {
+                tracing::error!("Failed to send state event: {}", e);
+            };
         }
     }
 }
