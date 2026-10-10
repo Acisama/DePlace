@@ -75,11 +75,11 @@ features = [
   "tokio",
 ]
 
-[patch."https://codeberg.org/aosiuejhf/iced_video_player.git"]
-iced_video_player = { path = "/home/eriko/iced_video_player" }
-
-[patch."https://codeberg.org/aosiuejhf/sweeten-fork.git"]
-sweeten = { path = "/home/eriko/sweeten-fork" }
+# [patch."https://codeberg.org/aosiuejhf/iced_video_player.git"]
+# iced_video_player = { path = "/home/eriko/iced_video_player" }
+#
+# [patch."https://codeberg.org/aosiuejhf/sweeten-fork.git"]
+# sweeten = { path = "/home/eriko/sweeten-fork" }
 
 # [patch."https://github.com/acisama/iced"]
 # iced = { path = "/home/eriko/iced" }
