@@ -160,11 +160,13 @@ pub struct ChatTimeline {
 
 impl ExtraHash for ChatTimeline {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.scrolled_from_top.to_bits().hash(state);
-        self.tile_bounds.x.to_bits().hash(state);
-        self.tile_bounds.y.to_bits().hash(state);
-        self.tile_bounds.width.to_bits().hash(state);
-        self.tile_bounds.height.to_bits().hash(state);
+        if self.hovered_item_id.is_some() {
+            self.scrolled_from_top.to_bits().hash(state);
+            self.tile_bounds.x.to_bits().hash(state);
+            self.tile_bounds.y.to_bits().hash(state);
+            self.tile_bounds.width.to_bits().hash(state);
+            self.tile_bounds.height.to_bits().hash(state);
+        }
         self.message_event_bounds.len().hash(state);
 
         self.system_messages_to_show.borrow().hash(state);

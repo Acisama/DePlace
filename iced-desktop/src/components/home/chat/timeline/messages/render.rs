@@ -79,11 +79,8 @@ pub fn render_event(
         })
         .padding(structure.border_thickness);
 
-    let content_element: Element<'static, TimelineItemMessage> = if is_hovered || is_focused {
-        track_bounds(inner_container, TimelineItemMessage::MessageEventBounds).into()
-    } else {
-        inner_container.into()
-    };
+    let content_element: Element<'static, TimelineItemMessage> =
+        track_bounds(inner_container, TimelineItemMessage::MessageEventBounds).into();
 
     w::container(
         sweeten::widget::mouse_area(content_element)

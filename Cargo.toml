@@ -25,19 +25,6 @@ enumset = { version = "1.1.14", features = ["serde"] }
 futures = "0.3.34"
 futures-util = "0.3"
 getrandom = { version = "0.4.0-rc.1" }
-iced = {
-  git = "https://github.com/acisama/iced",
-  version = "0.15.0-dev",
-  features = [
-    "advanced",
-    "canvas",
-    "debug",
-    "image",
-    "svg",
-    "time-travel",
-    "tokio",
-  ]
-}
 iced_video_player = { git = "https://codeberg.org/aosiuejhf/iced_video_player.git" }
 image = "0.25.10"
 imbl = "6.1.0"
@@ -74,6 +61,19 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 url-macro = "0.2.4"
 uuid = { version = "1.24.0", features = ["v7"] }
+
+[workspace.dependencies.iced]
+git = "https://github.com/acisama/iced"
+version = "0.15.0-dev"
+features = [
+  "advanced",
+  "canvas",
+  "debug",
+  "image",
+  "svg",
+  "time-travel",
+  "tokio",
+]
 
 # [patch."https://codeberg.org/aosiuejhf/iced_video_player.git"]
 # iced_video_player = { path = "/home/eriko/iced_video_player" }

@@ -102,6 +102,16 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            shell,
+            viewport,
+        );
+
         if let Event::Window(window::Event::RedrawRequested(_)) = event {
             let mut operation = FindScrolledFromTop {
                 target: self.scrollable_id.clone(),
@@ -123,16 +133,6 @@ where
                 }
             }
         }
-
-        self.content.as_widget_mut().update(
-            &mut tree.children[0],
-            event,
-            layout,
-            cursor,
-            renderer,
-            shell,
-            viewport,
-        );
     }
 
     fn draw(
