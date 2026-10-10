@@ -30,6 +30,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          # Bump this if a build ever fails with a RuntimeLibrary/CRT (/MT vs
+          # /MD) link mismatch inside a single crate's rlib (e.g. webrtc_sys) -
+          # that's stale cached objects from an earlier build state getting
+          # linked alongside freshly compiled ones. Bumping forces a clean
+          # rebuild for this cache generation.
+          prefix-key: "v1"
 
       - name: Download GStreamer MSIs
         shell: pwsh
