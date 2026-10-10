@@ -1,0 +1,7 @@
+[target.x86_64-pc-windows-msvc]
+# webrtc-sys bundles a prebuilt libwebrtc.lib built against the static CRT.
+# Without this, cc/cxx_build's automatic CRT detection picks /MT for some
+# translation units and /MD for others within the same crate, and link.exe
+# refuses to mix them (LNK2038: RuntimeLibrary mismatch). Forcing the whole
+# build onto the static CRT keeps it consistent everywhere.
+rustflags = ["-C", "target-feature=+crt-static"]
