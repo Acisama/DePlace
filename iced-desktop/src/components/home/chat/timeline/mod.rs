@@ -8,6 +8,7 @@ use enumset::EnumSet;
 use iced::Vector;
 use iced::advanced::widget::operate;
 use iced::advanced::widget::operation::scrollable::{RelativeOffset, snap_to};
+use iced::keyboard::Key::Character;
 use iced::widget::operation::scroll_to;
 use macros::iced_cache;
 use matrix_sdk::{
@@ -95,6 +96,7 @@ pub enum TimelineAction {
     ContextMenu(ContextMenu),
     OpenModifyItem(ModifyItem),
     OpenMediaOverlay(MediaOverlayParams),
+    FocusInput,
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
 
@@ -921,6 +923,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             TimelineMessage::KeyboardEvent(event) => {
                 if let iced::keyboard::Event::KeyPressed { key, .. } = event {
                     let length = self.content.len();
+
+                    if key == Character("i".into()) {
+                        return Some(TimelineAction::FocusInput);
+                    }
 
                     if key == iced::keyboard::Key::Character("k".into()) {
                         let mut new_focus_index = match self

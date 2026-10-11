@@ -337,6 +337,7 @@ impl Chat {
             TimelineAction::HelpHover(help_key) => Some(ChatAction::HelpHover(help_key)),
             TimelineAction::ContextMenu(menu) => Some(ChatAction::ContextMenu(menu)),
             TimelineAction::OpenModifyItem(modify) => Some(ChatAction::OpenModifyItem(modify)),
+            TimelineAction::FocusInput => Some(ChatAction::Run(self.focus_input())),
         }
     }
 }
