@@ -180,6 +180,11 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
+          # ubuntu-22.04 runners preinstall libunwind-14-dev (via LLVM 14),
+          # which conflicts with the plain libunwind-dev that
+          # libgstreamer1.0-dev needs - remove it first.
+          # https://github.com/actions/runner-images/issues/9546
+          sudo apt-get remove -y 'libunwind-*'
           sudo apt-get install -y \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
             pkg-config build-essential dpkg-dev
