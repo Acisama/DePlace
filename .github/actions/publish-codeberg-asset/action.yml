@@ -1,0 +1,55 @@
+name: Publish asset to Codeberg release
+description: >
+  Finds (or creates, as a draft) the Codeberg release for a version tag and
+  uploads an asset to it, replacing any existing asset of the same name.
+
+inputs:
+  codeberg-token:
+    required: true
+  version:
+    description: Crate version, without the leading "v" (e.g. "0.1.0")
+    required: true
+  asset-path:
+    required: true
+  commit-sha:
+    description: Commit to point a newly-created tag at
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: pwsh
+      env:
+        CODEBERG_TOKEN: ${{ inputs.codeberg-token }}
+      run: |
+        $api = "https://codeberg.org/api/v1/repos/aosiuejhf/DePlace"
+        $tag = "v${{ inputs.version }}"
+        $assetPath = "${{ inputs.asset-path }}"
+        $assetName = Split-Path $assetPath -Leaf
+        $headers = @{ Authorization = "token $env:CODEBERG_TOKEN" }
+
+        # Find the release for this tag, or create it as a draft if it
+        # doesn't exist yet - release notes get added by hand on Codeberg
+        # afterwards, then published manually. If the tag itself doesn't
+        # exist in the repo yet, Codeberg creates it automatically pointing
+        # at target_commitish (the exact commit this workflow is building).
+        try {
+          $release = Invoke-RestMethod -Uri "$api/releases/tags/$tag" -Headers $headers -Method Get
+          Write-Host "Found existing release id $($release.id) for tag $tag"
+        } catch {
+          if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw }
+          Write-Host "No release for tag $tag yet - creating a draft"
+          $body = @{ tag_name = $tag; name = $tag; draft = $true; target_commitish = "${{ inputs.commit-sha }}" } | ConvertTo-Json
+          $release = Invoke-RestMethod -Uri "$api/releases" -Headers $headers -Method Post -Body $body -ContentType "application/json"
+        }
+
+        # Replace any asset of the same name, e.g. from re-running CI for the same tag.
+        $existing = $release.assets | Where-Object { $_.name -eq $assetName }
+        if ($existing) {
+          Write-Host "Removing existing asset $($existing.name) (id $($existing.id))"
+          Invoke-RestMethod -Uri "$api/releases/$($release.id)/assets/$($existing.id)" -Headers $headers -Method Delete
+        }
+
+        Write-Host "Uploading $assetName to release $($release.id)"
+        Invoke-RestMethod -Uri "$api/releases/$($release.id)/assets?name=$assetName" `
+          -Headers $headers -Method Post -Form @{ attachment = Get-Item $assetPath }

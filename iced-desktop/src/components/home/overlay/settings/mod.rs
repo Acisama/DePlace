@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::{common::*, components::phosphor_icon};
 use components::{
     AppearanceSection, AppearanceSectionAction, AppearanceSectionMessage, AudioSection,
@@ -5,7 +7,7 @@ use components::{
     GeneralSection, GeneralSectionAction, GeneralSectionMessage, UpdatesSection,
     UpdatesSectionAction, UpdatesSectionMessage,
 };
-use deplace_core::settings::SettingsSection;
+use deplace_core::{settings::SettingsSection, state::UserDevice};
 use iced::{
     Alignment::{self, Center},
     Length,
@@ -28,10 +30,18 @@ pub enum SettingsMessage {
     Audio(AudioSectionMessage),
     Chats(ChatsSectionMessage),
     Updates(UpdatesSectionMessage),
+    NeedsAvatar(OwnedMxcUri),
+}
+
+impl NeedsAvatarExt for SettingsMessage {
+    fn needs_avatar(uri: OwnedMxcUri) -> Self {
+        Self::NeedsAvatar(uri)
+    }
 }
 
 pub enum SettingsAction {
     Run(Task<()>),
+    NeedsMedia(NeedsMedia),
 }
 
 #[iced_cache(Clone)]
@@ -49,6 +59,19 @@ pub struct SettingsView {
 
     #[hash]
     active_section: SettingsSection,
+
+    own_display_name: Receiver<Option<String>>,
+    own_avatar_url: Receiver<Option<OwnedMxcUri>>,
+    own_device: Arc<UserDevice>,
+
+    avatar_cache: AvatarCache,
+}
+
+impl ExtraHash for SettingsView {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.own_display_name.borrow().hash(state);
+        self.own_avatar_url.borrow().hash(state);
+    }
 }
 
 impl SettingsView {
@@ -62,6 +85,13 @@ impl SettingsView {
             updates: UpdatesSection::new(settings.clone()),
 
             active_section: SettingsSection::default(),
+
+            own_display_name: state.own_display_name(),
+            own_avatar_url: state.own_avatar_url(),
+            own_device: state.own_device(),
+
+            avatar_cache: state.avatar_cache().clone(),
+            avatar_states_for_hash: BTreeSet::new(),
         }
     }
 }
@@ -69,6 +99,10 @@ impl SettingsView {
 impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
     fn update(&mut self, message: SettingsMessage) -> Option<SettingsAction> {
         match message {
+            SettingsMessage::NeedsAvatar(uri) => {
+                self.avatar_states_for_hash.insert(uri.clone());
+                Some(SettingsAction::NeedsMedia(NeedsMedia::avatar(uri)))
+            }
             SettingsMessage::ChangeSection(section) => {
                 self.active_section = section;
                 None
@@ -98,49 +132,6 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
         structure: Structure,
         help_state: HelpState<HelpKey>,
     ) -> iced::Element<'static, SettingsMessage> {
-        let text_size = structure.font_size;
-
-        let render_section = move |section: SettingsSection, icon: &'static str| {
-            let is_selected = self.active_section == section;
-
-            w::button(
-                w::row![
-                    phosphor_icon(icon, text_size * 1.2),
-                    w::text(section.display_name())
-                ]
-                .spacing(structure.small_gap)
-                .align_y(Alignment::Center),
-            )
-            .on_press_maybe(if !is_selected {
-                Some(SettingsMessage::ChangeSection(section))
-            } else {
-                None
-            })
-            .padding(structure.small_gap)
-            .style(move |_, status| {
-                let is_active = status.active();
-                ButtonStyle {
-                    text_color: if is_selected || status.active() {
-                        theme.text.normal.into()
-                    } else {
-                        theme.text.dim.into()
-                    },
-                    background: is_selected.then_some(theme.solid_hover_bg.into()),
-                    border: Border {
-                        color: if is_selected || is_active {
-                            theme.border.into()
-                        } else {
-                            Color::TRANSPARENT
-                        },
-                        width: structure.border_thickness,
-                        radius: structure.inner_border_radius.into(),
-                    },
-                    ..Default::default()
-                }
-            })
-            .width(Length::Fill)
-        };
-
         let content: iced::Element<'static, SettingsMessage> = match self.active_section {
             SettingsSection::General => self
                 .general
@@ -175,22 +166,15 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
                             theme,
                             structure,
                             w::column![
-                                render_section(SettingsSection::Profile, icons::pencil::FILL),
-                                w::container("")
-                                    .width(Length::Fill)
-                                    .height(structure.divider_width)
-                                    .style(move |_| ContainerStyle {
-                                        background: Some(theme.border.into()),
-                                        border: border::rounded(structure.divider_width / 2.0),
-                                        ..Default::default()
-                                    }),
-                                render_section(SettingsSection::General, icons::sliders::FILL),
-                                render_section(
-                                    SettingsSection::Appearance,
-                                    icons::palette::REGULAR
+                                render_profile_section(
+                                    theme,
+                                    structure,
+                                    self.active_section,
+                                    self.own_avatar_url.borrow().clone(),
+                                    self.own_display_name.borrow().clone(),
+                                    &self.own_device.user_id,
+                                    &self.avatar_cache
                                 ),
-                                render_section(SettingsSection::Audio, icons::headphones::FILL),
-                                render_section(SettingsSection::Chats, icons::chat::FILL),
                                 w::container("")
                                     .width(Length::Fill)
                                     .height(structure.divider_width)
@@ -200,8 +184,47 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
                                         ..Default::default()
                                     }),
                                 render_section(
+                                    theme,
+                                    structure,
+                                    SettingsSection::General,
+                                    icons::sliders::FILL,
+                                    self.active_section
+                                ),
+                                render_section(
+                                    theme,
+                                    structure,
+                                    SettingsSection::Appearance,
+                                    icons::palette::REGULAR,
+                                    self.active_section
+                                ),
+                                render_section(
+                                    theme,
+                                    structure,
+                                    SettingsSection::Audio,
+                                    icons::headphones::FILL,
+                                    self.active_section
+                                ),
+                                render_section(
+                                    theme,
+                                    structure,
+                                    SettingsSection::Chats,
+                                    icons::chat::FILL,
+                                    self.active_section
+                                ),
+                                w::container("")
+                                    .width(Length::Fill)
+                                    .height(structure.divider_width)
+                                    .style(move |_| ContainerStyle {
+                                        background: Some(theme.border.into()),
+                                        border: border::rounded(structure.divider_width / 2.0),
+                                        ..Default::default()
+                                    }),
+                                render_section(
+                                    theme,
+                                    structure,
                                     SettingsSection::Updates,
-                                    icons::arrows_clockwise::FILL
+                                    icons::arrows_clockwise::FILL,
+                                    self.active_section
                                 ),
                             ]
                             .width(structure.settings.section_column_width)
@@ -247,4 +270,118 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
         .height(Length::Fill)
         .into()
     }
+}
+
+fn render_section(
+    theme: Theme,
+    structure: Structure,
+    section: SettingsSection,
+    icon: &'static str,
+    active_section: SettingsSection,
+) -> Element<'static, SettingsMessage> {
+    let is_selected = active_section == section;
+
+    w::button(
+        w::row![
+            phosphor_icon(icon, structure.font_size * 1.2),
+            w::text(section.display_name())
+        ]
+        .spacing(structure.small_gap)
+        .align_y(Alignment::Center),
+    )
+    .on_press_maybe(if !is_selected {
+        Some(SettingsMessage::ChangeSection(section))
+    } else {
+        None
+    })
+    .padding(structure.small_gap)
+    .style(move |_, status| {
+        let is_active = status.active();
+        ButtonStyle {
+            text_color: if is_selected || status.active() {
+                theme.text.normal.into()
+            } else {
+                theme.text.dim.into()
+            },
+            background: is_selected.then_some(theme.solid_hover_bg.into()),
+            border: Border {
+                color: if is_selected || is_active {
+                    theme.border.into()
+                } else {
+                    Color::TRANSPARENT
+                },
+                width: structure.border_thickness,
+                radius: structure.inner_border_radius.into(),
+            },
+            ..Default::default()
+        }
+    })
+    .width(Length::Fill)
+    .into()
+}
+
+fn render_profile_section(
+    theme: Theme,
+    structure: Structure,
+    active_section: SettingsSection,
+    avatar_url: Option<OwnedMxcUri>,
+    display_name: Option<String>,
+    user_id: &OwnedUserId,
+    avatar_cache: &AvatarCache,
+) -> Element<'static, SettingsMessage> {
+    let is_selected = active_section == SettingsSection::Profile;
+
+    let fallback = move || {
+        text_icon(
+            display_name
+                .unwrap_or(user_id.to_string())
+                .chars()
+                .next()
+                .unwrap_or('?'),
+            structure.server_column.icon_size,
+            structure.server_column.icon_size / 2.0,
+            DePlaceColor::from(user_id.as_ref()).into(),
+        )
+    };
+
+    w::button(
+        w::row![render_avatar(
+            avatar_url,
+            structure.server_column.icon_size,
+            structure.server_column.icon_size / 2.0,
+            fallback,
+            avatar_cache
+        )]
+        .spacing(structure.small_gap)
+        .align_y(Alignment::Center),
+    )
+    .on_press_maybe(if !is_selected {
+        Some(SettingsMessage::ChangeSection(SettingsSection::Profile))
+    } else {
+        None
+    })
+    .padding(structure.small_gap)
+    .style(move |_, status| {
+        let is_active = status.active();
+        ButtonStyle {
+            text_color: if is_selected || status.active() {
+                theme.text.normal.into()
+            } else {
+                theme.text.dim.into()
+            },
+            background: is_selected.then_some(theme.solid_hover_bg.into()),
+            border: Border {
+                color: if is_selected || is_active {
+                    theme.border.into()
+                } else {
+                    Color::TRANSPARENT
+                },
+                width: structure.border_thickness,
+                radius: structure.inner_border_radius.into(),
+            },
+            ..Default::default()
+        }
+    })
+    .width(Length::Fill)
+    .into()
 }

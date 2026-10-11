@@ -226,6 +226,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 }
                 match self.settings.update(msg)? {
                     SettingsAction::Run(task) => Some(OverlayAction::Run(task)),
+                    SettingsAction::NeedsMedia(media) => Some(OverlayAction::NeedsMedia(media)),
                 }
             }
             OverlayMessage::KeyboardEvent(event) => match self.overlay_state.as_ref()? {

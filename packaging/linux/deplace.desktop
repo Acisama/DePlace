@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DePlace
+Comment=A fast, native Matrix chat client
+Exec=deplace
+Icon=deplace
+Categories=Network;Chat;InstantMessaging;
+Terminal=false

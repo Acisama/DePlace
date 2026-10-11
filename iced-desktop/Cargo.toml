@@ -2,6 +2,7 @@
 name = "iced-desktop"
 version = "0.1.0"
 edition = "2024"
+description = "A fast, native Matrix chat client"
 
 [dependencies]
 anyhow.workspace = true
@@ -39,6 +40,18 @@ uuid.workspace = true
 
 [dev-dependencies]
 naga = "27"
+
+[package.metadata.deb]
+name = "deplace"
+maintainer = "Amasica <obermeister.erik@gmail.com>"
+depends = "$auto"
+section = "net"
+priority = "optional"
+assets = [
+    ["target/release/iced-desktop", "usr/bin/deplace", "755"],
+    ["../packaging/linux/deplace.desktop", "usr/share/applications/deplace.desktop", "644"],
+    ["../assets/deplace_icon.svg", "usr/share/icons/hicolor/scalable/apps/deplace.svg", "644"],
+]
 
 [lints.clippy]
 exit = "warn"
