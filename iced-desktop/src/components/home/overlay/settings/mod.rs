@@ -330,28 +330,43 @@ fn render_profile_section(
     avatar_cache: &AvatarCache,
 ) -> Element<'static, SettingsMessage> {
     let is_selected = active_section == SettingsSection::Profile;
+    let color = DePlaceColor::from(user_id.as_ref()).to_iced();
 
-    let fallback = move || {
+    let fallback = || {
         text_icon(
             display_name
+                .clone()
                 .unwrap_or(user_id.to_string())
                 .chars()
                 .next()
                 .unwrap_or('?'),
             structure.server_column.icon_size,
             structure.server_column.icon_size / 2.0,
-            DePlaceColor::from(user_id.as_ref()).into(),
+            color,
         )
     };
 
     w::button(
-        w::row![render_avatar(
-            avatar_url,
-            structure.server_column.icon_size,
-            structure.server_column.icon_size / 2.0,
-            fallback,
-            avatar_cache
-        )]
+        w::row![
+            render_avatar(
+                avatar_url,
+                structure.server_column.icon_size,
+                structure.server_column.icon_size / 2.0,
+                fallback,
+                avatar_cache
+            ),
+            w::column![
+                render_name(
+                    display_name.unwrap_or(user_id.to_string()),
+                    structure.font_size,
+                    color
+                ),
+                w::text("Edit Profiles")
+                    .size(structure.small_font_size)
+                    .color(theme.text.dim),
+            ]
+            .spacing(structure.small_gap / 2.0)
+        ]
         .spacing(structure.small_gap)
         .align_y(Alignment::Center),
     )

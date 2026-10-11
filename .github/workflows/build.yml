@@ -189,6 +189,28 @@ jobs:
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
             pkg-config build-essential dpkg-dev
 
+      - name: Install clang 21
+        run: |
+          # webrtc-sys's prebuilt libwebrtc ships a hermetic libc++ that
+          # requires clang 21+ to compile against - ubuntu-22.04's default
+          # clang is 14 (same LLVM 14 toolchain behind the libunwind conflict
+          # above), so a newer clang has to be installed explicitly.
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+
+          # webrtc-sys only honors CXX when it's set; when unset it falls back
+          # to invoking the bare `clang++` command directly (build.rs:546),
+          # which still resolves to the system default (14) via PATH even
+          # with CXX exported. Force the bare commands themselves to be v21
+          # instead of relying on env var propagation into that build script.
+          sudo ln -sf /usr/bin/clang-21 /usr/bin/clang
+          sudo ln -sf /usr/bin/clang++-21 /usr/bin/clang++
+          clang++ --version
+
+          echo "CC=clang-21" >> "$GITHUB_ENV"
+          echo "CXX=clang++-21" >> "$GITHUB_ENV"
+
       - name: Build
         run: cargo build --release --locked -p iced-desktop
 
