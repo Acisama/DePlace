@@ -5,6 +5,7 @@ use deplace_core::state::AppState;
 use iced::{
     Length::Fill,
     Task,
+    keyboard::key::Named,
     widget::{container, mouse_area, operation::focus},
 };
 use macros::iced_cache;
@@ -264,18 +265,38 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                     }
                 }
                 OverlayState::Settings => {
+                    if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                        if iced::keyboard::Key::Named(Named::Escape) == key {
+                            self.close();
+                        }
+                    }
                     tracing::info!("No keyboard event handler for settings implemented");
                     None
                 }
                 OverlayState::Profile => {
+                    if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                        if iced::keyboard::Key::Named(Named::Escape) == key {
+                            self.close();
+                        }
+                    }
                     tracing::info!("No keyboard event handler for profile implemented");
                     None
                 }
                 OverlayState::ContextMenu(_) => {
+                    if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                        if iced::keyboard::Key::Named(Named::Escape) == key {
+                            self.close();
+                        }
+                    }
                     tracing::info!("No keyboard event handler for context menu implemented");
                     None
                 }
                 OverlayState::Media(_) => {
+                    if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                        if iced::keyboard::Key::Named(Named::Escape) == key {
+                            self.close();
+                        }
+                    }
                     tracing::info!("No keyboard event handler for media implemented");
                     None
                 }
