@@ -239,6 +239,11 @@ jobs:
           # Relies on system GStreamer rather than bundling it (unlike Windows) -
           # most desktop distros already ship it, so --exclude-library keeps
           # linuxdeploy's automatic dependency harvesting from pulling it in.
+          # Also exclude GLib/GObject/orc: GStreamer depends on them directly,
+          # and bundling our (older, Ubuntu 22.04) copies alongside a newer
+          # system GStreamer causes runtime symbol mismatches (e.g. missing
+          # g_once_init_leave_pointer) - the whole chain needs to come from
+          # the same place.
           APPIMAGE_EXTRACT_AND_RUN=1 /tmp/linuxdeploy.AppImage \
             --appdir AppDir \
             --executable AppDir/usr/bin/deplace \
@@ -246,6 +251,11 @@ jobs:
             --icon-file assets/deplace_icon.svg \
             --icon-filename deplace \
             --exclude-library "*libgst*" \
+            --exclude-library "libglib*" \
+            --exclude-library "libgobject*" \
+            --exclude-library "libgmodule*" \
+            --exclude-library "libgio*" \
+            --exclude-library "liborc*" \
             --output appimage
 
       - uses: actions/upload-artifact@v4
