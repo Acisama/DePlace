@@ -1336,6 +1336,7 @@ fn render_timeline_item_buttons(
                 })
                 .padding(structure.small_gap / 2.0),
         )
+        .interaction(mouse::Interaction::Idle)
         .on_enter(TimelineMessage::ButtonsHovered {
             id: item_id.clone(),
             hovered: true,
