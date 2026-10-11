@@ -315,7 +315,7 @@ impl Chat {
             TimelineAction::OpenMediaOverlay(params) => Some(ChatAction::OpenMediaOverlay(params)),
             TimelineAction::SetIsReplyingTo { event_id, message } => {
                 self.input.set_replies_to(message, event_id);
-                None
+                Some(ChatAction::Run(self.focus_input()))
             }
             TimelineAction::Run(task) => Some(ChatAction::Run(task)),
             TimelineAction::Perform(task) => {

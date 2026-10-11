@@ -928,6 +928,17 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         return Some(TimelineAction::FocusInput);
                     }
 
+                    if key == Character("r".into()) {
+                        let timeline_item = self.content.get(self.focused_message_id.as_ref()?)?;
+                        let event = timeline_item.message_event()?;
+                        let event_id = timeline_item.event_id()?;
+
+                        return Some(TimelineAction::SetIsReplyingTo {
+                            message: event,
+                            event_id,
+                        });
+                    }
+
                     if key == iced::keyboard::Key::Character("k".into()) {
                         let mut new_focus_index = match self
                             .focused_message_id
