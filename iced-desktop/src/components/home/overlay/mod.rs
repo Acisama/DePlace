@@ -198,6 +198,9 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                             self.close();
                             Some(OverlayAction::Run(task))
                         }
+                        ModifyItemAction::Perform(task) => {
+                            Some(OverlayAction::Perform(task.map(OverlayMessage::ModifyItem)))
+                        }
                         ModifyItemAction::Close => self.close(),
                     }
                 } else {
@@ -229,7 +232,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                     SettingsAction::NeedsMedia(media) => Some(OverlayAction::NeedsMedia(media)),
                 }
             }
-            OverlayMessage::KeyboardEvent(event) => match self.overlay_state.as_ref()? {
+            OverlayMessage::KeyboardEvent(event) => match self.overlay_state.as_mut()? {
                 OverlayState::QuickSelect => {
                     match self
                         .quickselect
@@ -248,7 +251,34 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                         }
                     }
                 }
-                _ => None,
+                OverlayState::ModifyItem(overlay) => {
+                    match overlay.update(ModifyItemMessage::KeyboardEvent(event))? {
+                        ModifyItemAction::Run(task) => {
+                            self.close();
+                            Some(OverlayAction::Run(task))
+                        }
+                        ModifyItemAction::Perform(task) => {
+                            Some(OverlayAction::Perform(task.map(OverlayMessage::ModifyItem)))
+                        }
+                        ModifyItemAction::Close => self.close(),
+                    }
+                }
+                OverlayState::Settings => {
+                    tracing::info!("No keyboard event handler for settings implemented");
+                    None
+                }
+                OverlayState::Profile => {
+                    tracing::info!("No keyboard event handler for profile implemented");
+                    None
+                }
+                OverlayState::ContextMenu(_) => {
+                    tracing::info!("No keyboard event handler for context menu implemented");
+                    None
+                }
+                OverlayState::Media(_) => {
+                    tracing::info!("No keyboard event handler for media implemented");
+                    None
+                }
             },
             OverlayMessage::Profile(message) => {
                 if let Some(profile) = &mut self.profile {

@@ -1,4 +1,7 @@
-use iced::widget::text::IntoFragment;
+use iced::{
+    keyboard::{self, Key::Named},
+    widget::text::IntoFragment,
+};
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
 
@@ -11,10 +14,12 @@ pub enum ModifyItemMessage {
     Pin,
     Unpin,
     Close,
+    KeyboardEvent(keyboard::Event),
 }
 
 pub enum ModifyItemAction {
     Run(Task<()>),
+    Perform(Task<ModifyItemMessage>),
     Close,
 }
 
@@ -112,6 +117,34 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
                         tracing::error!("Failed to unpin event: {}", e);
                     }
                 })))
+            }
+            ModifyItemMessage::KeyboardEvent(event) => {
+                if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                    if key == Named(keyboard::key::Named::Enter) {
+                        match self.kind {
+                            ModifyItemKind::Delete => {
+                                return Some(ModifyItemAction::Perform(Task::done(
+                                    ModifyItemMessage::Delete { reason: None },
+                                )));
+                            }
+                            ModifyItemKind::Pin => {
+                                return Some(ModifyItemAction::Perform(Task::done(
+                                    ModifyItemMessage::Pin,
+                                )));
+                            }
+                            ModifyItemKind::Unpin => {
+                                return Some(ModifyItemAction::Perform(Task::done(
+                                    ModifyItemMessage::Unpin,
+                                )));
+                            }
+                        }
+                    }
+
+                    if key == Named(keyboard::key::Named::Escape) {
+                        return Some(ModifyItemAction::Close);
+                    }
+                }
+                None
             }
         }
     }

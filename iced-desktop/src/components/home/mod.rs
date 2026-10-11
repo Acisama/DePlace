@@ -8,7 +8,10 @@ use deplace_core::{
     keybinds::{KeybindAction, Keybinds},
     state::{ActiveServer, cache::CacheResultStatus},
 };
-use iced::widget::stack;
+use iced::{
+    advanced::widget::{operate, operation::focusable::unfocus},
+    widget::stack,
+};
 use lru::LruCache;
 use macros::{iced_cache, nonzero_usize};
 use matrix_sdk::media::UniqueKey;
@@ -455,7 +458,7 @@ impl Home {
                 ChatAction::OpenModifyItem(modify) => {
                     chat.clear_hover();
                     self.overlay.open_modify_item(modify);
-                    None
+                    Some(HomeAction::Run(operate(unfocus())))
                 }
                 ChatAction::OpenMediaOverlay(params) => {
                     chat.clear_hover();

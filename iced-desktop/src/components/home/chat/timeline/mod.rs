@@ -939,6 +939,30 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         });
                     }
 
+                    if key == Character("t".into()) {
+                        let timeline_item = self.content.get(self.focused_message_id.as_ref()?)?;
+                        let event = timeline_item.message_event()?;
+                        let event_id = timeline_item.event_id()?;
+                        let is_pinned = timeline_item.is_pinned();
+                        return Some(TimelineAction::OpenModifyItem(ModifyItem::pin(
+                            self.timeline.clone()?,
+                            event_id,
+                            event,
+                            is_pinned,
+                        )));
+                    }
+
+                    if key == Character("d".into()) {
+                        let timeline_item = self.content.get(self.focused_message_id.as_ref()?)?;
+                        let event = timeline_item.message_event()?;
+                        let event_id = timeline_item.event_id()?;
+                        return Some(TimelineAction::OpenModifyItem(ModifyItem::delete(
+                            self.timeline.clone()?,
+                            event_id,
+                            event,
+                        )));
+                    }
+
                     if key == iced::keyboard::Key::Character("k".into()) {
                         let mut new_focus_index = match self
                             .focused_message_id
