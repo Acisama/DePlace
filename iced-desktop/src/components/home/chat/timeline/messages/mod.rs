@@ -578,8 +578,8 @@ impl TimelineItem {
                 let is_hovered = *is_hovered;
 
                 render_event(
-                    w::lazy(event.clone(), move |event| {
-                        event.view(theme, room_id.clone(), structure, is_hovered)
+                    w::lazy((event.clone(), is_hovered), move |(event, is_hovered)| {
+                        event.view(theme, room_id.clone(), structure, *is_hovered)
                     }),
                     structure,
                     theme,
@@ -603,8 +603,8 @@ impl TimelineItem {
 
                 render_event(
                     w::lazy(
-                        (event.clone(), help_state, index),
-                        move |(event, help_state, index)| {
+                        (event.clone(), help_state, index, is_hovered),
+                        move |(event, help_state, index, is_hovered)| {
                             event.view(
                                 room_id.clone(),
                                 theme,
@@ -612,7 +612,7 @@ impl TimelineItem {
                                 false,
                                 *help_state,
                                 *index,
-                                is_hovered,
+                                *is_hovered,
                             )
                         },
                     ),
