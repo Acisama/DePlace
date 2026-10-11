@@ -5,9 +5,12 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequestParameters},
 };
 use matrix_sdk_ui::timeline::MemberProfileChange;
-use ruma::events::{
-    RedactContent, StateEventContentChange, StaticStateEventContent,
-    room::{MediaSource, member::Change},
+use ruma::{
+    events::{
+        RedactContent, StateEventContentChange, StaticStateEventContent,
+        room::{MediaSource, member::Change},
+    },
+    presence::PresenceState,
 };
 
 use crate::{ProfileLike, rooms::DePlaceRoom};
@@ -88,6 +91,17 @@ impl DisplayString for MemberProfileChange {
         }
 
         changes.join(" and ")
+    }
+}
+
+impl DisplayString for PresenceState {
+    fn display_string(&self) -> String {
+        match self {
+            PresenceState::Unavailable => "Idle".to_string(),
+            PresenceState::Online => "Online".to_string(),
+            PresenceState::Offline => "Offline".to_string(),
+            other => other.to_string(),
+        }
     }
 }
 

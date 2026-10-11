@@ -7,8 +7,8 @@ pub use crate::components::{
     on_appear, pan,
     profile::{
         MaybeRenderIcon, NeedsAvatarExt, ProfileRenderExt, context_room_icon, loading_icon,
-        render_avatar, render_loading_name, render_name, render_presence, render_unknown_name,
-        text_icon, unknown_icon,
+        render_avatar, render_loading_name, render_name, render_presence, render_presence_badge,
+        render_unknown_name, text_icon, unknown_icon,
     },
     text_input, themed_scrollable,
     tooltip::{themed_tooltip_content, themed_tooltip_text},
@@ -55,7 +55,10 @@ pub use indexmap::IndexMap;
 pub use matrix_sdk::{
     Client, Room,
     room::RoomMember,
-    ruma::{MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId},
+    ruma::{
+        MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId,
+        presence::PresenceState,
+    },
 };
 pub use std::hash::Hash;
 pub use std::sync::Arc;

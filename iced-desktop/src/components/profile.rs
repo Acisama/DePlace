@@ -83,14 +83,14 @@ pub fn render_avatar<'a, T: NeedsAvatarExt + Clone + 'a>(
     };
 
     match avatar_cache.get(&avatar_url) {
-        Some(MediaState::Failed) | Some(MediaState::Loading) => fallback(),
+        Some(MediaState::Failed) => fallback(),
         Some(MediaState::Loaded(avatar)) => w::image((*avatar).clone())
             .width(size)
             .height(size)
             .content_fit(ContentFit::Cover)
             .border_radius(rounding)
             .into(),
-        None => on_appear(fallback(), T::needs_avatar(avatar_url)).into(),
+        Some(MediaState::Loading) | None => on_appear(fallback(), T::needs_avatar(avatar_url)).into(),
     }
 }
 
@@ -329,16 +329,14 @@ pub fn render_loading_name_decorated<'a, T: Clone + 'a>(
     )
 }
 
-pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
-    member: &RoomMember,
+pub fn render_presence_badge<'a, T: 'a + Clone>(
+    icon: Element<'a, T>,
     presence: &PresenceState,
     theme: Theme,
     structure: Structure,
-    icon_size: f32,
-    avatar_cache: &AvatarCache,
     background_color: Color,
 ) -> Element<'a, T> {
-    let (color, icon) = match presence {
+    let (color, badge) = match presence {
         matrix_sdk::ruma::presence::PresenceState::Offline => (
             theme.colors.offline.into(),
             include_bytes!(concat!(
@@ -369,7 +367,7 @@ pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
     let bg_circle_size = structure.icon_gap;
 
     Stack::new()
-        .push(member.render_icon(icon_size, avatar_cache))
+        .push(icon)
         .push(responsive(move |size| {
             let base_dim = size.width.min(size.height);
             let notch_diameter = base_dim * (ratio + bg_circle_size);
@@ -384,7 +382,7 @@ pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
             Stack::new()
                 .push(positioned(notch, h, v, overflow))
                 .push(positioned(
-                    svg(iced::advanced::svg::Handle::from_memory(icon.clone()))
+                    svg(iced::advanced::svg::Handle::from_memory(badge.clone()))
                         .width(content_diameter)
                         .height(content_diameter)
                         .style(move |_, _| w::svg::Style { color: Some(color) })
@@ -395,6 +393,24 @@ pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
                 ))
         }))
         .into()
+}
+
+pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
+    member: &RoomMember,
+    presence: &PresenceState,
+    theme: Theme,
+    structure: Structure,
+    icon_size: f32,
+    avatar_cache: &AvatarCache,
+    background_color: Color,
+) -> Element<'a, T> {
+    render_presence_badge(
+        member.render_icon(icon_size, avatar_cache),
+        presence,
+        theme,
+        structure,
+        background_color,
+    )
 }
 
 pub fn render_presence_with_map<'a, T: 'a + Clone + NeedsAvatarExt>(

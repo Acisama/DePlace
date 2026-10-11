@@ -1,4 +1,4 @@
-use deplace_core::state::UserDevice;
+use deplace_core::state::{PresenceMap, UserDevice};
 use iced::Alignment;
 use macros::{iced_cache, iced_icon};
 use std::collections::BTreeSet;
@@ -26,10 +26,13 @@ pub enum AccountAction {
 
 #[iced_cache(Clone, Debug)]
 pub struct AccountView {
+    state: AppState,
+
     own_display_name: Receiver<Option<String>>,
     own_avatar_url: Receiver<Option<OwnedMxcUri>>,
     own_device: Arc<UserDevice>,
 
+    presence_map: Receiver<PresenceMap>,
     avatar_cache: AvatarCache,
 }
 
@@ -43,12 +46,15 @@ impl ExtraHash for AccountView {
 impl AccountView {
     pub fn new(state: &AppState) -> Self {
         Self {
+            state: state.clone(),
+
             own_display_name: state.own_display_name(),
             own_avatar_url: state.own_avatar_url(),
             own_device: state.own_device(),
 
             avatar_cache: state.avatar_cache().clone(),
             avatar_states_for_hash: BTreeSet::new(),
+            presence_map: state.presence_map(),
         }
     }
 }
@@ -90,19 +96,40 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
 
         let fallback = move || text_icon(initial, button_size, button_size * 0.5, color);
 
+        let presence = self
+            .presence_map
+            .borrow()
+            .get(&user_id)
+            .map(|p| p.presence.clone())
+            .unwrap_or(PresenceState::Offline);
+
+        let avatar = render_avatar(
+            avatar_url,
+            button_size,
+            button_size * 0.5,
+            fallback,
+            &self.avatar_cache,
+        );
+
         let content = floating_tile(
             theme,
             structure,
             w::container(
                 w::row![
-                    render_avatar(
-                        avatar_url,
-                        button_size,
-                        button_size * 0.5,
-                        fallback,
-                        &self.avatar_cache
+                    render_presence_badge(
+                        avatar,
+                        &presence,
+                        theme,
+                        structure,
+                        theme.solid_bg.into(),
                     ),
-                    render_name(display_name, structure.font_size, color),
+                    w::column![
+                        render_name(display_name, structure.font_size, color),
+                        w::text(presence.display_string())
+                            .color(theme.text.dim)
+                            .size(structure.small_font_size)
+                    ]
+                    .spacing(structure.small_gap / 4.0),
                     Space::new().width(Fill),
                     help_view.call(
                         HelpKey::Sidebar(SidebarHelpKey::SettingsButton),

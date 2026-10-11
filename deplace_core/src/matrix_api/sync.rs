@@ -80,7 +80,19 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
     }
 
     match account.get_avatar_url().await {
-        Ok(url) => state.set_own_avatar_url(url),
+        Ok(url) => {
+            state.set_own_avatar_url(url.clone());
+
+            #[cfg(feature = "iced_desktop")]
+            if let Some(url) = url {
+                use crate::state::cache::CacheLoadingExt;
+
+                let state = state.clone();
+                tokio::spawn(async move {
+                    state.avatar_cache().load_content(&url).await;
+                });
+            }
+        }
         Err(e) => {
             tracing::error!("Failed to get own avatar url: {}", e);
         }
