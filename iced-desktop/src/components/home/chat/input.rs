@@ -257,6 +257,9 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             )
                             .on_action(InputMessage::TextAction)
                             .key_binding(move |key| {
+                                if !key.is_focused {
+                                    return None;
+                                }
                                 if !key.modifiers.shift()
                                     && matches!(
                                         key.key,
