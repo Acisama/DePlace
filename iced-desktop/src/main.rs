@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 
-use deplace_core::{APP_NAME, RestoreResult, state::ImportantPaths, try_restore};
+use deplace_core::{APP_NAME, RestoreResult, SOCKET_NAME, state::ImportantPaths, try_restore};
 use iced::{Task, advanced::subscription::Recipe, futures::stream, window};
 use interprocess::local_socket::{GenericNamespaced, Listener, ListenerOptions, prelude::*};
 use matrix_sdk::Client;
@@ -25,8 +25,6 @@ use crate::components::{
 
 pub mod common;
 pub mod components;
-
-const SOCKET_NAME: &str = "deplace_app_single_instance.sock";
 
 #[derive(Debug, Clone)]
 pub enum AppMessage {

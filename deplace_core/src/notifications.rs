@@ -1,8 +1,10 @@
 #[cfg(not(windows))]
-use std::sync::Arc;
+use std::{io::Write, sync::Arc};
 
 #[cfg(not(windows))]
 use dashmap::DashMap;
+#[cfg(not(windows))]
+use interprocess::local_socket::{GenericNamespaced, ToNsName, prelude::*};
 use matrix_sdk::{
     Client, Room,
     event_handler::Ctx,
@@ -25,12 +27,12 @@ use ruma::{
     push::{Action, Tweak},
 };
 
-#[cfg(not(windows))]
-use crate::rooms::DePlaceRoom;
 use crate::{
     APP_HUMAN_NAME,
     state::{AppState, ImportantPaths},
 };
+#[cfg(not(windows))]
+use crate::{SOCKET_NAME, rooms::DePlaceRoom};
 
 /// Converts a [`core::time::Duration`] to a human-readable string, using seconds, minutes, and hours.
 fn duration_to_string(duration: core::time::Duration) -> String {
@@ -347,6 +349,26 @@ impl NotificationManager {
                             false,
                         )
                         .await;
+
+                    // Convert socket identifier for interprocess
+                    let socket_name = match SOCKET_NAME.to_ns_name::<GenericNamespaced>() {
+                        Ok(name) => name,
+                        Err(e) => {
+                            tracing::error!("Failed to create socket name: {e}");
+                            return;
+                        }
+                    };
+
+                    // Try connecting to an existing instance
+                    if let Ok(mut stream) = LocalSocketStream::connect(socket_name.clone()) {
+                        tracing::info!("Sending focus signal.");
+                        if let Err(e) = stream.write_all(b"focus") {
+                            tracing::error!("Failed to send focus signal: {e}");
+                        }
+                        if let Err(e) = stream.flush() {
+                            tracing::error!("Failed to flush focus signal: {e}");
+                        }
+                    }
                 }
                 // Unfortunately only supported on MacOS
                 NotificationResponse::Reply(_) => {}

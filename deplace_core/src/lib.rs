@@ -37,6 +37,7 @@ pub use rooms::{DePlaceRoom, RoomWatcherHashingConfig, RoomWatchers};
 pub const APP_HUMAN_NAME: &str = "DePlace";
 pub const APP_NAME: &str = "deplace";
 pub const APP_MATRIX_NAME: &str = formatcp!("com.{APP_NAME}");
+pub const SOCKET_NAME: &str = "deplace_app.sock";
 
 #[cfg(target_os = "linux")]
 const PLATFORM: &str = "linux";

@@ -1777,6 +1777,7 @@ dependencies = [
  "image",
  "imbl 6.1.0",
  "indexmap",
+ "interprocess",
  "keyboard-types",
  "keyring-core",
  "livekit",
@@ -3846,8 +3847,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6cb02ffbf25e8ef0f4a95bff054eef75f6d1bf16919474cf2caa63b21997478a"
 dependencies = [
  "doctest-file",
+ "futures-core",
  "libc",
  "recvmsg",
+ "tokio",
  "widestring",
  "windows-sys 0.61.2",
 ]
