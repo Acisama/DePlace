@@ -1,3 +1,5 @@
+use std::process::exit;
+
 use crate::common::*;
 use chat::{
     Chat, ChatAction, ChatMessage, TimelineItemMessage, TimelineMessage,
@@ -571,6 +573,11 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                         KeybindAction::ToggleHelp => {
                             self.help.active = !self.help.active;
                             return None;
+                        }
+                        KeybindAction::CloseApp => {
+                            exit(1);
+                            // iced::exit() doesn't close the window
+                            // return Some(HomeAction::Run(iced::exit()));
                         }
                     };
                 } else {
