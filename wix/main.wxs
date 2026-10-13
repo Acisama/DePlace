@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='windows-1252'?>
 <!--
   Built with WiX Toolset v3 (candle.exe + light.exe), driven from
-  .github/workflows/windows-build.yml.
+  .github/workflows/build.yml.
 
   The actual payload (DePlace.exe + bundled GStreamer DLLs/plugins) is NOT
   listed here by hand - it's harvested at build time from `dist\DePlace` by
@@ -23,7 +23,7 @@
             Keywords='Installer'
             Description='DePlace Installer'
             Manufacturer='DePlace'
-            InstallerVersion='450'
+            InstallerVersion='500'
             Languages='1033'
             Compressed='yes'
             InstallScope='perMachine'

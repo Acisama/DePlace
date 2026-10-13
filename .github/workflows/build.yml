@@ -9,61 +9,87 @@ on:
 env:
   # Bump this when a new GStreamer release comes out.
   # Available versions: https://gstreamer.freedesktop.org/data/pkg/windows/
-  GSTREAMER_VERSION: "1.26.11"
-  # The MSI installs to <INSTALLDIR>\1.0\msvc_x86_64 - INSTALLDIR must be
-  # just the base dir below, not this full path, or it nests twice.
+  # 1.28+ is required: it is the first release with a Windows ARM64 build, and
+  # from 1.28 on the Windows installers are single Inno Setup .exe files
+  # (runtime + development files together) instead of separate MSIs.
+  GSTREAMER_VERSION: "1.28.8"
   GST_INSTALL_BASE: "C:\\gstreamer"
-  GST_ROOT: "C:\\gstreamer\\1.0\\msvc_x86_64"
+  RUST_TOOLCHAIN: "1.97.1" # matches rust_toolchain.toml
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            gst_arch: x86_64
+            wix_arch: x64
+          - arch: aarch64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            gst_arch: arm64
+            wix_arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust (matches rust_toolchain.toml)
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.97.1"
-          targets: x86_64-pc-windows-msvc
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          key: ${{ matrix.target }}
           # Bump this if a build ever fails with a RuntimeLibrary/CRT (/MT vs
           # /MD) link mismatch inside a single crate's rlib (e.g. webrtc_sys) -
           # that's stale cached objects from an earlier build state getting
           # linked alongside freshly compiled ones. Bumping forces a clean
           # rebuild for this cache generation.
-          prefix-key: "v1"
+          prefix-key: "v2"
 
-      - name: Download GStreamer MSIs
+      - name: Download GStreamer installer
         shell: pwsh
         run: |
           $ver = "${{ env.GSTREAMER_VERSION }}"
-          $base = "https://gstreamer.freedesktop.org/data/pkg/windows/$ver/msvc"
-          Invoke-WebRequest "$base/gstreamer-1.0-msvc-x86_64-$ver.msi" -OutFile gst-runtime.msi
-          Invoke-WebRequest "$base/gstreamer-1.0-devel-msvc-x86_64-$ver.msi" -OutFile gst-devel.msi
+          $file = "gstreamer-1.0-msvc-${{ matrix.gst_arch }}-$ver.exe"
+          Invoke-WebRequest "https://gstreamer.freedesktop.org/data/pkg/windows/$ver/msvc/$file" -OutFile gst-installer.exe
 
-      - name: Install GStreamer (runtime + devel, all plugin sets)
+      - name: Install GStreamer
         shell: pwsh
         run: |
-          function Install-Msi($file, $log) {
-            # INSTALLDIR is passed explicitly: in /quiet mode the installer's
-            # UI never runs, so the "C:\gstreamer\..." path shown in its docs
-            # (which is only the UI wizard's suggested default) is not applied
-            # automatically and it would otherwise fall back to Program Files.
-            $args = @("/i", "$pwd\$file", "/quiet", "/norestart", "ADDLOCAL=ALL", "INSTALLDIR=${{ env.GST_INSTALL_BASE }}", "/log", "$pwd\$log")
-            $p = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
-            if ($p.ExitCode -ne 0) {
-              Write-Host "---- $log (tail) ----"
-              Get-Content "$pwd\$log" -Tail 100
-              Write-Error "msiexec failed for $file with exit code $($p.ExitCode)"
-              exit 1
-            }
+          # Standard Inno Setup unattended switches. /DIR is passed explicitly
+          # so the install location doesn't depend on the installer's default.
+          $args = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/ALLUSERS",
+                    "/DIR=${{ env.GST_INSTALL_BASE }}", "/LOG=$pwd\gst-install.log")
+          $p = Start-Process ".\gst-installer.exe" -ArgumentList $args -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            Get-Content "$pwd\gst-install.log" -Tail 100
+            Write-Error "GStreamer installer failed with exit code $($p.ExitCode)"
+            exit 1
           }
-          Install-Msi "gst-runtime.msi" "gst-runtime.log"
-          Install-Msi "gst-devel.msi" "gst-devel.log"
+
+          # Locate the actual root (<root>\lib\pkgconfig\gstreamer-1.0.pc)
+          # rather than hardcoding the 1.0\msvc_<arch> nesting, which differs
+          # between installer generations. Its absence also means the dev
+          # files weren't installed, which would only surface much later as
+          # an obscure gstreamer-sys build-script failure.
+          $pc = Get-ChildItem "${{ env.GST_INSTALL_BASE }}" -Recurse -Filter "gstreamer-1.0.pc" -ErrorAction SilentlyContinue |
+                Where-Object { $_.Directory.Name -eq "pkgconfig" } | Select-Object -First 1
+          if (-not $pc) {
+            Write-Host "---- gst-install.log (tail) ----"
+            Get-Content "$pwd\gst-install.log" -Tail 100
+            Write-Error "gstreamer-1.0.pc not found under ${{ env.GST_INSTALL_BASE }} - dev files missing?"
+            exit 1
+          }
+          $root = $pc.Directory.Parent.Parent.FullName
+          Write-Host "GStreamer root: $root"
+          echo "GST_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Wire up PATH / pkg-config
         shell: pwsh
@@ -71,8 +97,8 @@ jobs:
           # GStreamer's own pkg-config.exe must come first on PATH, or the
           # gstreamer-sys build scripts can pick up a different pkg-config
           # and fail to resolve the libs.
-          echo "${{ env.GST_ROOT }}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          echo "PKG_CONFIG_PATH=${{ env.GST_ROOT }}\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "$env:GST_ROOT\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "PKG_CONFIG_PATH=$env:GST_ROOT\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Patch gpu-allocator's windows dependency in Cargo.lock
         shell: pwsh
@@ -99,7 +125,7 @@ jobs:
           }
 
       - name: Build
-        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p iced-desktop
+        run: cargo build --release --locked --target ${{ matrix.target }} -p iced-desktop
 
       - name: Stage app + bundled GStreamer files
         shell: pwsh
@@ -108,18 +134,19 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$out\bin" | Out-Null
           New-Item -ItemType Directory -Force -Path "$out\lib\gstreamer-1.0" | Out-Null
 
-          Copy-Item "target\x86_64-pc-windows-msvc\release\iced-desktop.exe" "$out\bin\DePlace.exe"
+          Copy-Item "target\${{ matrix.target }}\release\iced-desktop.exe" "$out\bin\DePlace.exe"
 
           # GStreamer's Windows DLLs are relocatable: they look for plugins in
           # ..\lib\gstreamer-1.0 relative to their own directory, so mirroring
           # the installer's bin/lib layout next to our exe is enough - no
           # env vars or code changes needed at runtime.
-          Copy-Item "${{ env.GST_ROOT }}\bin\*.dll" "$out\bin\"
-          Copy-Item "${{ env.GST_ROOT }}\lib\gstreamer-1.0\*.dll" "$out\lib\gstreamer-1.0\"
+          Copy-Item "$env:GST_ROOT\bin\*.dll" "$out\bin\"
+          Copy-Item "$env:GST_ROOT\lib\gstreamer-1.0\*.dll" "$out\lib\gstreamer-1.0\"
 
       - name: Install WiX Toolset v3
         shell: pwsh
         run: |
+          # 3.14 is the first WiX v3 release that can target arm64.
           Invoke-WebRequest "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" -OutFile wix-binaries.zip
           Expand-Archive wix-binaries.zip -DestinationPath wix-tools
           echo "$pwd\wix-tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -131,7 +158,7 @@ jobs:
           # installer name always matches what `cargo` considers the version.
           $versionMatch = Select-String -Path "iced-desktop\Cargo.toml" -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
           $version = $versionMatch.Matches[0].Groups[1].Value
-          $msiName = "DePlace_$version.msi"
+          $msiName = "DePlace_${version}_${{ matrix.arch }}.msi"
 
           # heat.exe harvests the whole dist\DePlace tree (DePlace.exe +
           # every bundled GStreamer DLL/plugin) into Components automatically -
@@ -141,7 +168,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "heat.exe failed"; exit 1 }
 
           New-Item -ItemType Directory -Force -Path wix\obj | Out-Null
-          candle.exe -dAppSourceDir="dist\DePlace" -dProductVersion="$version" -arch x64 `
+          candle.exe -dAppSourceDir="dist\DePlace" -dProductVersion="$version" -arch ${{ matrix.wix_arch }} `
             -out wix\obj\ wix\main.wxs wix\app-harvest.wxs
           if ($LASTEXITCODE -ne 0) { Write-Error "candle.exe failed"; exit 1 }
 
@@ -149,33 +176,37 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "light.exe failed"; exit 1 }
 
           echo "MSI_NAME=$msiName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DePlace-windows-x86_64
+          name: DePlace-windows-${{ matrix.arch }}
           path: ${{ env.MSI_NAME }}
-
-      - uses: ./.github/actions/publish-codeberg-asset
-        with:
-          codeberg-token: ${{ secrets.CODEBERG_TOKEN }}
-          version: ${{ env.VERSION }}
-          asset-path: ${{ env.MSI_NAME }}
-          commit-sha: ${{ github.sha }}
+          if-no-files-found: error
 
   build-linux:
-    runs-on: ubuntu-22.04 # pinned (not ubuntu-latest) to keep the AppImage's glibc baseline old enough to run on older distros
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    # Pinned to 22.04 (not -latest) to keep the AppImage's glibc baseline old
+    # enough to run on older distros.
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust (matches rust_toolchain.toml)
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.97.1"
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          key: linux-${{ matrix.arch }}
 
       - name: Install system dependencies
         run: |
@@ -184,7 +215,7 @@ jobs:
           # which conflicts with the plain libunwind-dev that
           # libgstreamer1.0-dev needs - remove it first.
           # https://github.com/actions/runner-images/issues/9546
-          sudo apt-get remove -y 'libunwind-*'
+          sudo apt-get remove -y 'libunwind-*' || true
           sudo apt-get install -y \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
             pkg-config build-essential dpkg-dev
@@ -193,17 +224,16 @@ jobs:
         run: |
           # webrtc-sys's prebuilt libwebrtc ships a hermetic libc++ that
           # requires clang 21+ to compile against - ubuntu-22.04's default
-          # clang is 14 (same LLVM 14 toolchain behind the libunwind conflict
-          # above), so a newer clang has to be installed explicitly.
+          # clang is 14, so a newer clang has to be installed explicitly.
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 21
 
           # webrtc-sys only honors CXX when it's set; when unset it falls back
-          # to invoking the bare `clang++` command directly (build.rs:546),
-          # which still resolves to the system default (14) via PATH even
-          # with CXX exported. Force the bare commands themselves to be v21
-          # instead of relying on env var propagation into that build script.
+          # to invoking the bare `clang++` command directly, which still
+          # resolves to the system default via PATH. Force the bare commands
+          # themselves to be v21 instead of relying on env var propagation
+          # into that build script.
           sudo ln -sf /usr/bin/clang-21 /usr/bin/clang
           sudo ln -sf /usr/bin/clang++-21 /usr/bin/clang++
           clang++ --version
@@ -224,16 +254,19 @@ jobs:
         run: |
           cargo install cargo-deb --locked
           cargo deb -p iced-desktop --no-build
-          mv target/debian/*.deb "DePlace_${{ steps.version.outputs.version }}.deb"
+          mv target/debian/*.deb "DePlace_${{ steps.version.outputs.version }}_${{ matrix.arch }}.deb"
 
       - name: Build AppImage
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          # Read by linuxdeploy's AppImage plugin to name the output file.
+          LDAI_OUTPUT: DePlace_${{ steps.version.outputs.version }}_${{ matrix.arch }}.AppImage
         run: |
           mkdir -p AppDir/usr/bin
           cp target/release/iced-desktop AppDir/usr/bin/deplace
 
-          curl -sL -o /tmp/linuxdeploy.AppImage "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          curl -sL -o /tmp/linuxdeploy.AppImage \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${{ matrix.arch }}.AppImage"
           chmod +x /tmp/linuxdeploy.AppImage
 
           # Relies on system GStreamer rather than bundling it (unlike Windows) -
@@ -258,23 +291,100 @@ jobs:
             --exclude-library "liborc*" \
             --output appimage
 
+          test -f "$LDAI_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: DePlace-linux-x86_64
+          name: DePlace-linux-${{ matrix.arch }}
           path: |
-            DePlace_${{ steps.version.outputs.version }}.deb
-            DePlace-${{ steps.version.outputs.version }}-x86_64.AppImage
+            DePlace_${{ steps.version.outputs.version }}_${{ matrix.arch }}.deb
+            DePlace_${{ steps.version.outputs.version }}_${{ matrix.arch }}.AppImage
+          if-no-files-found: error
+
+  # Signs every bundle, writes the updater manifest and publishes everything
+  # in one place. The signing key only ever reaches this job, and a single
+  # job creating the Codeberg release avoids parallel jobs racing to create
+  # the same draft.
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # needed for the local publish action
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: DePlace-*
+          path: dist
+          merge-multiple: true
+
+      - name: Read crate version
+        id: version
+        run: |
+          version=$(grep -m1 '^version' iced-desktop/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Sign bundles (Tauri updater format)
+        working-directory: dist
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npm install --global @tauri-apps/cli@2
+          shopt -s nullglob
+          for f in *.msi *.deb *.AppImage; do
+            echo "Signing $f"
+            tauri signer sign "$f"
+            test -s "$f.sig"
+          done
+          ls -l
+
+      - name: Write latest.json
+        working-directory: dist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          base="https://codeberg.org/aosiuejhf/DePlace/releases/download/v${VERSION}"
+
+          # One entry per bundle. The updater looks up
+          # "<os>-<arch>-<installer>" first and falls back to "<os>-<arch>",
+          # so each arch also gets a plain key pointing at its default
+          # bundle (MSI on Windows, AppImage on Linux).
+          entries='{}'
+          add() { # key file
+            local key=$1 file=$2
+            [ -f "$file" ] || { echo "missing $file" >&2; exit 1; }
+            entries=$(jq --arg k "$key" --arg url "$base/$file" --rawfile sig "$file.sig" \
+              '. + {($k): {url: $url, signature: ($sig | rtrimstr("\n"))}}' <<<"$entries")
+          }
+
+          for arch in x86_64 aarch64; do
+            add "windows-$arch"          "DePlace_${VERSION}_${arch}.msi"
+            add "windows-$arch-msi"      "DePlace_${VERSION}_${arch}.msi"
+            add "linux-$arch"            "DePlace_${VERSION}_${arch}.AppImage"
+            add "linux-$arch-appimage"   "DePlace_${VERSION}_${arch}.AppImage"
+            add "linux-$arch-deb"        "DePlace_${VERSION}_${arch}.deb"
+          done
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson platforms "$entries" \
+            '{version: $version, notes: "", pub_date: $date, platforms: $platforms}' > latest.json
+          cat latest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DePlace-release
+          path: dist/*
 
       - uses: ./.github/actions/publish-codeberg-asset
         with:
           codeberg-token: ${{ secrets.CODEBERG_TOKEN }}
           version: ${{ steps.version.outputs.version }}
-          asset-path: DePlace_${{ steps.version.outputs.version }}.deb
           commit-sha: ${{ github.sha }}
-
-      - uses: ./.github/actions/publish-codeberg-asset
-        with:
-          codeberg-token: ${{ secrets.CODEBERG_TOKEN }}
-          version: ${{ steps.version.outputs.version }}
-          asset-path: DePlace-${{ steps.version.outputs.version }}-x86_64.AppImage
-          commit-sha: ${{ github.sha }}
+          asset-path: |
+            dist/*.msi
+            dist/*.deb
+            dist/*.AppImage
+            dist/*.sig
+            dist/latest.json
