@@ -5,3 +5,9 @@
 # refuses to mix them (LNK2038: RuntimeLibrary mismatch). Forcing the whole
 # build onto the static CRT keeps it consistent everywhere.
 rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+# Same as x86_64 above. Without it the arm64 build links the dynamic CRT
+# (msvcrt) alongside libwebrtc's static one (libcmt), which shows up as
+# LNK2005 "already defined" duplicates and LNK1169.
+rustflags = ["-C", "target-feature=+crt-static"]
