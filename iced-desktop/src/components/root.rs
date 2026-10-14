@@ -7,7 +7,7 @@ use iced::widget::Shader;
 use iced::window;
 use interprocess::local_socket::Listener;
 
-use crate::{SocketListener, common::*};
+use crate::{SocketListener, TrayAction, TrayIconClickListener, TrayMenuListener, common::*};
 
 use crate::components::authentification::discovery::{DiscoveryAction, DiscoveryMessage};
 use crate::components::authentification::login::{LoginAction, LoginMessage};
@@ -102,7 +102,7 @@ impl Root {
             };
         }
 
-        if let AppMessage::FocusRequest(_) = message {
+        if let AppMessage::FocusRequest(_) | AppMessage::Tray(TrayAction::Open) = message {
             tracing::debug!("Received focus request.");
             if let Some(id) = self.id {
                 tracing::debug!("Window is open. Focusing Window.");
@@ -113,6 +113,18 @@ impl Root {
                     .1
                     .map(|_| AppMessage::DoNothing);
             }
+        }
+
+        if let AppMessage::Tray(TrayAction::CloseWindow) = message {
+            tracing::debug!("Received tray close request.");
+            if let Some(id) = self.id {
+                return window::close(id);
+            }
+        }
+
+        if let AppMessage::Tray(TrayAction::Exit) = message {
+            tracing::debug!("Received tray exit request.");
+            return iced::exit();
         }
 
         if let AppMessage::WindowOpened(id) = message {
@@ -308,6 +320,8 @@ impl Root {
                 listener: self.listener.clone(),
             })
             .map(AppMessage::FocusRequest),
+            subscription::from_recipe(TrayMenuListener).map(AppMessage::Tray),
+            subscription::from_recipe(TrayIconClickListener).map(AppMessage::Tray),
         ])
     }
 
