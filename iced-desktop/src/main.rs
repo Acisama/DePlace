@@ -13,7 +13,9 @@ use deplace_core::{
     APP_HUMAN_NAME, APP_NAME, RestoreResult, SOCKET_NAME, state::ImportantPaths, try_restore,
 };
 use iced::{Task, advanced::subscription::Recipe, futures::stream, window};
-use interprocess::local_socket::{GenericNamespaced, Listener, ListenerOptions, prelude::*};
+use interprocess::local_socket::{
+    GenericNamespaced, Listener, ListenerNonblockingMode, ListenerOptions, prelude::*,
+};
 use matrix_sdk::Client;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use tray_icon::{
@@ -156,6 +158,9 @@ fn main() -> iced::Result {
             return Err(iced::Error::WindowCreationFailed(Box::new(e)));
         }
     };
+    if let Err(e) = listener.set_nonblocking(ListenerNonblockingMode::Accept) {
+        tracing::warn!("Failed to set local socket listener non-blocking: {e}");
+    }
 
     let icon = match iced::window::icon::from_file_data(ICON_PNG, Some(image::ImageFormat::Png)) {
         Ok(icon) => icon,
@@ -258,7 +263,7 @@ impl Recipe for TrayMenuListener {
             loop {
                 let action = tokio::task::spawn_blocking(|| {
                     MenuEvent::receiver()
-                        .recv()
+                        .recv_timeout(std::time::Duration::from_millis(250))
                         .ok()
                         .and_then(|event| match event.id().as_ref() {
                             TRAY_MENU_OPEN_ID => Some(TrayAction::Open),
@@ -295,7 +300,7 @@ impl Recipe for TrayIconClickListener {
             loop {
                 let action = tokio::task::spawn_blocking(|| {
                     TrayIconEvent::receiver()
-                        .recv()
+                        .recv_timeout(std::time::Duration::from_millis(250))
                         .ok()
                         .and_then(|event| match event {
                             TrayIconEvent::Click {
@@ -340,17 +345,20 @@ impl Recipe for SocketListener {
                 let listener_clone = listener.clone();
 
                 let (msg, returned_listener) = tokio::task::spawn_blocking(move || {
-                    let msg = {
-                        if let Some(Ok(mut stream)) = listener_clone.incoming().next() {
+                    let msg = match listener_clone.incoming().next() {
+                        Some(Ok(mut stream)) => {
                             let mut buf = [0u8; 5];
                             if stream.read_exact(&mut buf).is_ok() && &buf == b"focus" {
                                 Some(FocusRequest)
                             } else {
                                 None
                             }
-                        } else {
+                        }
+                        Some(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(std::time::Duration::from_millis(100));
                             None
                         }
+                        _ => None,
                     };
 
                     (msg, listener_clone)
