@@ -150,6 +150,7 @@ pub enum InputMessage {
     TextAction(text_editor::Action),
     SendMessage,
     Cancel,
+    BackspacePressed,
     RemoveReplying,
     HelpOver(Option<HelpKey>),
     OpenAttachmentPicker,
@@ -232,7 +233,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
         match message {
             InputMessage::RemoveAttachment(index) => {
                 self.attachments.remove(index);
-                None
+                Some(InputAction::Perform(self.focus()))
             }
             InputMessage::AttachmentAdded(attachments) => {
                 self.attachments.extend(attachments);
@@ -413,6 +414,22 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         next_replying_to = None;
                     }
                 })))
+            }
+            InputMessage::BackspacePressed => {
+                let iced::advanced::text::Position { line, index } =
+                    self.content().cursor().position;
+                if line == 0 && index == 0 {
+                    if self.replying_to.is_some() {
+                        return Some(InputAction::Perform(Task::done(
+                            InputMessage::RemoveReplying,
+                        )));
+                    } else if !self.attachments.is_empty() {
+                        return Some(InputAction::Perform(Task::done(
+                            InputMessage::RemoveAttachment(self.attachments.len() - 1),
+                        )));
+                    }
+                }
+                None
             }
         }
     }
@@ -661,6 +678,17 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                 {
                                     return Some(text_editor::Binding::Custom(
                                         InputMessage::SendMessage,
+                                    ));
+                                }
+
+                                if matches!(
+                                    key.key,
+                                    iced::keyboard::Key::Named(
+                                        iced::keyboard::key::Named::Backspace
+                                    )
+                                ) {
+                                    return Some(text_editor::Binding::Custom(
+                                        InputMessage::BackspacePressed,
                                     ));
                                 }
 

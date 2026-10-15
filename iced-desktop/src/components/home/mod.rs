@@ -300,7 +300,7 @@ impl Home {
         };
 
         let id = id.clone();
-        chat.focus_input()
+        chat.focus_input::<()>()
             .map(move |_| (id.clone(), ChatMessage::None))
     }
 

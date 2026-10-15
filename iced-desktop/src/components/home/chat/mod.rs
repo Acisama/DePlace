@@ -290,7 +290,7 @@ impl Chat {
         self.input.get_raw_content_pointer()
     }
 
-    pub fn focus_input(&self) -> Task<()> {
+    pub fn focus_input<T>(&self) -> Task<T> {
         self.input.focus()
     }
 
@@ -411,7 +411,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 }
                 InputAction::RemoveReplying => {
                     self.timeline.remove_replying();
-                    None
+                    Some(ChatAction::Perform(self.focus_input()))
                 }
                 InputAction::HelpOver(help) => Some(ChatAction::HelpHover(help)),
                 InputAction::Perform(task) => {
