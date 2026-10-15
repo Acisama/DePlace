@@ -1163,6 +1163,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     SCROLLABLE_ID,
                     TimelineMessage::ScrolledFromTop,
                 ))
+                .padding(padding::bottom(15.0))
                 .width(Fill)
                 .align_bottom(Fill),
             )
