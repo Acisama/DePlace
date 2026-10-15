@@ -12,6 +12,7 @@ use image::ImageReader;
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
 use std::io::Cursor;
+use uuid::Uuid;
 
 use crate::{
     common::*,
@@ -28,12 +29,19 @@ pub enum ThumbnailType {
 
 #[derive(Debug, Clone)]
 pub struct Attachment {
+    id: Uuid,
     thumbnail: ThumbnailType,
     attachment: MatrixAttachment,
+    // True while the real attachment bytes (e.g. a clipboard image still being
+    // PNG-encoded in the background) aren't ready yet. The thumbnail is already
+    // shown, but a pending attachment must not be sent until this clears.
+    pending: bool,
 }
 
 impl Hash for Attachment {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.pending.hash(state);
         self.attachment.filename.hash(state);
         self.attachment.mime_type.hash(state);
     }
@@ -54,11 +62,18 @@ impl From<MatrixAttachment> for Attachment {
             ),
         };
         Self {
+            id: Uuid::now_v7(),
             thumbnail,
             attachment,
+            pending: false,
         }
     }
 }
+
+// Uploading a full-resolution decode straight to the GPU just to draw a small
+// preview square is what stalled the window when picking large images: the
+// texture upload runs synchronously on the render thread during `view()`.
+const ATTACHMENT_THUMBNAIL_SIZE: u32 = 256;
 
 fn generate_thumbnail(data: &[u8], mime_type: &mime::Mime) -> Option<ImageHandle> {
     if mime_type.type_() != mime::IMAGE {
@@ -70,12 +85,28 @@ fn generate_thumbnail(data: &[u8], mime_type: &mime::Mime) -> Option<ImageHandle
         .ok()?
         .decode()
         .ok()?
+        .thumbnail(ATTACHMENT_THUMBNAIL_SIZE, ATTACHMENT_THUMBNAIL_SIZE)
         .to_rgba8();
 
     Some(ImageHandle::from_rgba(
         img.width(),
         img.height(),
         img.into_raw(),
+    ))
+}
+
+// Same idea as `generate_thumbnail`, but for raw pixels (e.g. straight off the
+// clipboard) instead of encoded bytes that need decoding first.
+fn downscale_thumbnail(width: u32, height: u32, rgba: &[u8]) -> Option<ImageHandle> {
+    let img = image::RgbaImage::from_raw(width, height, rgba.to_vec())?;
+    let thumb = image::DynamicImage::ImageRgba8(img)
+        .thumbnail(ATTACHMENT_THUMBNAIL_SIZE, ATTACHMENT_THUMBNAIL_SIZE)
+        .to_rgba8();
+
+    Some(ImageHandle::from_rgba(
+        thumb.width(),
+        thumb.height(),
+        thumb.into_raw(),
     ))
 }
 
@@ -107,6 +138,8 @@ pub enum InputMessage {
     OpenFilePicker,
     FileSelected(Vec<Arc<Attachment>>),
     Paste,
+    AttachmentReady(Uuid, MatrixAttachment),
+    AttachmentFailed(Uuid),
     RemoveAttachment(usize),
 }
 
@@ -195,19 +228,62 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
             }
             InputMessage::Paste => {
                 let task = iced::clipboard::read_image().then(|result| match result {
-                    Ok(image) => match MatrixAttachment::from_rgba(
-                        "pasted-image.png",
-                        image.size.width,
-                        image.size.height,
-                        &image.rgba,
-                    ) {
-                        Ok(attachment) => attachments_task(vec![attachment]),
-                        Err(e) => {
-                            tracing::error!("Failed to read clipboard image: {}", e);
-                            Task::done(InputMessage::None)
-                        }
-                    },
-                    // No image on the clipboard, fall back to the editor's normal text paste.
+                    Ok(image) => {
+                        let id = Uuid::now_v7();
+
+                        // Downscaling still goes through spawn_blocking: uploading the
+                        // clipboard image's full resolution straight to the GPU for a
+                        // small preview box is what caused the freeze with large images.
+                        let show_now = Task::future({
+                            let image = image.clone();
+                            async move {
+                                let thumbnail = tokio::task::spawn_blocking(move || {
+                                    downscale_thumbnail(image.size.width, image.size.height, &image.rgba)
+                                })
+                                .await
+                                .ok()
+                                .flatten()
+                                .map(ThumbnailType::Image)
+                                .unwrap_or_else(|| ThumbnailType::Extention("IMG".to_string()));
+
+                                InputMessage::FileSelected(vec![Arc::new(Attachment {
+                                    id,
+                                    thumbnail,
+                                    attachment: MatrixAttachment::from_bytes(
+                                        "pasted-image.png",
+                                        mime::IMAGE_PNG,
+                                        Vec::new(),
+                                    ),
+                                    pending: true,
+                                })])
+                            }
+                        });
+
+                        let encode = Task::future(async move {
+                            match tokio::task::spawn_blocking(move || {
+                                MatrixAttachment::from_rgba(
+                                    "pasted-image.png",
+                                    image.size.width,
+                                    image.size.height,
+                                    &image.rgba,
+                                )
+                            })
+                            .await
+                            {
+                                Ok(Ok(attachment)) => InputMessage::AttachmentReady(id, attachment),
+                                Ok(Err(e)) => {
+                                    tracing::error!("Failed to encode clipboard image: {}", e);
+                                    InputMessage::AttachmentFailed(id)
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to encode clipboard image: {}", e);
+                                    InputMessage::AttachmentFailed(id)
+                                }
+                            }
+                        });
+
+                        Task::batch([show_now, encode])
+                    }
                     Err(_) => iced::clipboard::read_text().then(|result| match result {
                         Ok(text) => Task::done(InputMessage::TextAction(
                             text_editor::Action::Edit(text_editor::Edit::Paste(text)),
@@ -217,6 +293,21 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 });
 
                 Some(InputAction::OpenFilePicker(task))
+            }
+            InputMessage::AttachmentReady(id, attachment) => {
+                if let Some(existing) = self.attachments.iter_mut().find(|a| a.id == id) {
+                    *existing = Arc::new(Attachment {
+                        id,
+                        thumbnail: existing.thumbnail.clone(),
+                        attachment,
+                        pending: false,
+                    });
+                }
+                None
+            }
+            InputMessage::AttachmentFailed(id) => {
+                self.attachments.retain(|a| a.id != id);
+                None
             }
             InputMessage::HelpOver(help) => Some(InputAction::HelpOver(help)),
             InputMessage::None => None,
@@ -256,13 +347,24 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 content.perform(text_editor::Action::Edit(text_editor::Edit::Backspace));
                 self.replying_to = None;
 
+                // Attachments still being encoded (e.g. a clipboard image) aren't sendable
+                // yet; leave them in place so they go out with the next send instead of
+                // being sent with no data. `MatrixAttachment::data` is `Bytes`, so cloning
+                // it here is a cheap refcount bump, not a copy of the file.
+                let still_pending: Vec<_> = self
+                    .attachments
+                    .iter()
+                    .filter(|a| a.pending)
+                    .cloned()
+                    .collect();
+
                 let attachments: Vec<MatrixAttachment> = self
                     .attachments
-                    .clone()
-                    .into_iter()
-                    .map(|attachment| (*attachment).clone().attachment)
+                    .iter()
+                    .filter(|a| !a.pending)
+                    .map(|attachment| attachment.attachment.clone())
                     .collect();
-                self.attachments.clear();
+                self.attachments = still_pending;
 
                 Some(InputAction::SendMessage(Task::future(async move {
                     let mut next_replying_to = None;

@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeSet, HashMap},
     env::temp_dir,
+    fmt::Debug,
     hash::Hash,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -175,15 +176,17 @@ pub enum ActiveServerId {
     Server(OwnedRoomId),
 }
 
-/// Cheaply clonable AppState since the data is all
-/// wrapped in an `Arc`. Access only over functions,
-/// no direct field access.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AppState {
     inner: Arc<AppStateInner>,
 }
 
-#[derive(Debug)]
+impl Debug for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AppState")
+    }
+}
+
 struct AppStateInner {
     pub client: Client,
     pub own_device: Arc<UserDevice>,

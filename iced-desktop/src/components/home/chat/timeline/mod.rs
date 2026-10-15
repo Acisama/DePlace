@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use chrono_tz::Tz;
 use deplace_core::PaginationDirection;
+use deplace_core::matrix_api::attachments::download_file_to_picked;
 use deplace_core::settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType};
 use enumset::EnumSet;
 use iced::Vector;
@@ -626,6 +627,12 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 };
 
                 let res = match Arc::make_mut(item).update(message)? {
+                    TimelineItemAction::DownloadFile { source, file_name } => {
+                        let client = self.state.client();
+                        Some(TimelineAction::Run(Task::future(async move {
+                            download_file_to_picked(source, file_name, client).await
+                        })))
+                    }
                     TimelineItemAction::OpenMediaOverlay(params) => {
                         Some(TimelineAction::OpenMediaOverlay(params))
                     }

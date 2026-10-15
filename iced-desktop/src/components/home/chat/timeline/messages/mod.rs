@@ -77,6 +77,10 @@ pub enum TimelineItemMessage {
         reaction: String,
         event_id: OwnedEventId,
     },
+    DownloadFile {
+        source: MediaSource,
+        file_name: String,
+    },
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
@@ -121,6 +125,10 @@ pub enum TimelineItemAction {
     ToggleReaction {
         reaction: String,
         event_id: OwnedEventId,
+    },
+    DownloadFile {
+        source: MediaSource,
+        file_name: String,
     },
 }
 
@@ -379,6 +387,9 @@ impl TimelineItem {
 
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
+            TimelineItemMessage::DownloadFile { source, file_name } => {
+                Some(TimelineItemAction::DownloadFile { source, file_name })
+            }
             TimelineItemMessage::ToggleReaction { reaction, event_id } => {
                 Some(TimelineItemAction::ToggleReaction { reaction, event_id })
             }

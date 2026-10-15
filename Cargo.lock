@@ -1759,6 +1759,7 @@ dependencies = [
  "apple-native-keyring-store",
  "base64 0.23.1",
  "blurhash",
+ "bytes",
  "chrono",
  "chrono-tz",
  "const_format",

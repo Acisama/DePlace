@@ -82,9 +82,13 @@ impl RoomSendingExt for Room {
         let queue = self.send_queue();
 
         let size = attachment.data.len() as u32;
-        let info = match attachment.mime_type.type_() {
+        // Decoding + blurhashing a large image is real CPU work; keep it off whatever
+        // thread is driving this task, same as everywhere else that touches image data.
+        let mime_type = attachment.mime_type.clone();
+        let data = attachment.data.clone();
+        let info = tokio::task::spawn_blocking(move || match mime_type.type_() {
             mime::IMAGE => {
-                let img = ImageReader::new(Cursor::new(&attachment.data))
+                let img = ImageReader::new(Cursor::new(&data))
                     .with_guessed_format()
                     .ok()
                     .and_then(|r| r.decode().ok());
@@ -121,7 +125,8 @@ impl RoomSendingExt for Room {
             _ => AttachmentInfo::File(BaseFileInfo {
                 size: Some(size.into()),
             }),
-        };
+        })
+        .await?;
 
         let config = AttachmentConfig {
             txn_id: None,
@@ -141,7 +146,7 @@ impl RoomSendingExt for Room {
             .send_attachment(
                 attachment.filename,
                 attachment.mime_type,
-                attachment.data,
+                attachment.data.into(),
                 config,
             )
             .await?;
@@ -203,9 +208,11 @@ impl RoomSendingExt for Timeline {
         replies_to: Option<OwnedEventId>,
     ) -> Result<()> {
         let size = attachment.data.len() as u32;
-        let info = match attachment.mime_type.type_() {
+        let mime_type = attachment.mime_type.clone();
+        let data = attachment.data.clone();
+        let info = tokio::task::spawn_blocking(move || match mime_type.type_() {
             mime::IMAGE => {
-                let img = ImageReader::new(Cursor::new(&attachment.data))
+                let img = ImageReader::new(Cursor::new(&data))
                     .with_guessed_format()
                     .ok()
                     .and_then(|r| r.decode().ok());
@@ -242,7 +249,8 @@ impl RoomSendingExt for Timeline {
             _ => AttachmentInfo::File(BaseFileInfo {
                 size: Some(size.into()),
             }),
-        };
+        })
+        .await?;
 
         let config = matrix_sdk_ui::timeline::AttachmentConfig {
             txn_id: None,
@@ -256,7 +264,7 @@ impl RoomSendingExt for Timeline {
 
         self.send_attachment(
             AttachmentSource::Data {
-                bytes: attachment.data,
+                bytes: attachment.data.into(),
                 filename: attachment.filename,
             },
             attachment.mime_type,

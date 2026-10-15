@@ -39,6 +39,7 @@ use crate::{
             chat::timeline::messages::{SystemEvent, SystemMessage},
             overlay::{MediaOverlayParams, OverlayMediaType},
         },
+        link::link,
         phosphor_icon,
         profile::render_profile_name_with_overlay,
         render_media_failed_to_load,
@@ -605,8 +606,58 @@ impl MessageContent {
                 formatted_body,
             } => (render_body(body, formatted_body), None),
             MessageContent::Empty => itallic_text("Empty".to_string()),
-            MessageContent::File { .. } => {
-                render_warning_text("File messages are not yet implemented")
+            MessageContent::File {
+                caption,
+                formatted_caption,
+                info,
+                filename,
+                source,
+                data_size_unit,
+            } => {
+                let source = source.clone();
+                let filename = filename.clone();
+                (
+                    render_body(caption, formatted_caption),
+                    Some(
+                        w::container(
+                            w::row![
+                                phosphor_icon(
+                                    phosphor_svgs::icon::file::FILL,
+                                    structure.chat.icon_size
+                                ),
+                                w::column![
+                                    link(
+                                        w::text(filename.clone()).color(theme.accent),
+                                        theme.accent.into(),
+                                        move |_| TimelineItemMessage::DownloadFile {
+                                            source: source.clone(),
+                                            file_name: filename.clone(),
+                                        }
+                                    ),
+                                    info.as_ref().and_then(|i| i.size).map(|s| {
+                                        w::text(format_bytes(s.into(), *data_size_unit.borrow()))
+                                            .size(structure.chat.small_text_size)
+                                            .color(theme.text.dim)
+                                    })
+                                ]
+                                .spacing(structure.small_gap / 4.0),
+                            ]
+                            .spacing(structure.small_gap / 2.0),
+                        )
+                        .padding(structure.small_gap)
+                        .style(move |_| ContainerStyle {
+                            background: Some(theme.solid_bg.into()),
+                            text_color: Some(theme.text.normal.into()),
+                            border: Border {
+                                color: theme.border.into(),
+                                width: structure.border_thickness,
+                                radius: structure.inner_border_radius.into(),
+                            },
+                            ..Default::default()
+                        })
+                        .into(),
+                    ),
+                )
             }
             MessageContent::Image { image, is_hovered } => {
                 let mut stack = Stack::new().push(w::lazy(image.clone(), move |image| {

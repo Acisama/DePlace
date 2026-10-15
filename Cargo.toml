@@ -15,6 +15,7 @@ macros = { path = "macros" }
 anyhow = "1"
 base64 = "0.23.0"
 blurhash = "0.2.3"
+bytes = "1.12.1"
 chrono = "0.4.45"
 chrono-tz = { version = "0.10.4", features = ["serde"] }
 const_format = "0.2.36"
