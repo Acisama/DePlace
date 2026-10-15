@@ -222,8 +222,8 @@ impl ChatInput {
         self.content
     }
 
-    pub fn focus(&self) -> Task<()> {
-        operation::focus(self.id.clone())
+    pub fn focus<T>(&self) -> Task<T> {
+        operation::focus::<T>(self.id.clone())
     }
 }
 
@@ -236,13 +236,18 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
             }
             InputMessage::AttachmentAdded(attachments) => {
                 self.attachments.extend(attachments);
-                None
+                Some(InputAction::Perform(self.focus()))
             }
             InputMessage::OpenAttachmentPicker => Some(InputAction::Perform(
-                Task::future(MatrixAttachment::from_files_picker()).then(attachments_task),
+                self.focus()
+                    .chain(Task::future(MatrixAttachment::from_files_picker()))
+                    .then(attachments_task),
             )),
             InputMessage::OpenCompressedAttachmentPicker => Some(InputAction::Perform(
-                Task::future(MatrixAttachment::compressed_from_folder_picker())
+                self.focus()
+                    .chain(Task::future(
+                        MatrixAttachment::compressed_from_folder_picker(),
+                    ))
                     .then(attachment_task),
             )),
             InputMessage::Paste => {
