@@ -32,6 +32,7 @@ keyring-core = "1.0.0"
 livekit.workspace = true
 macros.workspace = true
 matrix-sdk.workspace = true
+matrix-sdk-base.workspace = true
 matrix-sdk-ui.workspace = true
 mime.workspace = true
 mime_guess.workspace = true

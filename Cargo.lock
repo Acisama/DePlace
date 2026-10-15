@@ -1808,6 +1808,7 @@ dependencies = [
  "livekit",
  "macros",
  "matrix-sdk",
+ "matrix-sdk-base",
  "matrix-sdk-ui",
  "mime",
  "mime_guess",
