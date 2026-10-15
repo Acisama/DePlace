@@ -117,7 +117,7 @@ fn attachments_task(attachments: Vec<MatrixAttachment>) -> Task<InputMessage> {
     Task::batch(attachments.into_iter().map(|attachment| {
         Task::future(async move {
             match tokio::task::spawn_blocking(move || attachment.into()).await {
-                Ok(attachment) => InputMessage::FileSelected(vec![Arc::new(attachment)]),
+                Ok(attachment) => InputMessage::AttachmentAdded(vec![Arc::new(attachment)]),
                 Err(e) => {
                     tracing::error!("Failed to build attachment: {}", e);
                     InputMessage::None
@@ -125,6 +125,23 @@ fn attachments_task(attachments: Vec<MatrixAttachment>) -> Task<InputMessage> {
             }
         })
     }))
+}
+
+fn attachment_task(attachment: Option<MatrixAttachment>) -> Task<InputMessage> {
+    Task::future(async move {
+        match attachment {
+            Some(attachment) => {
+                match tokio::task::spawn_blocking(move || attachment.into()).await {
+                    Ok(attachment) => InputMessage::AttachmentAdded(vec![Arc::new(attachment)]),
+                    Err(e) => {
+                        tracing::error!("Failed to build attachment: {}", e);
+                        InputMessage::None
+                    }
+                }
+            }
+            None => InputMessage::None,
+        }
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -135,8 +152,9 @@ pub enum InputMessage {
     Cancel,
     RemoveReplying,
     HelpOver(Option<HelpKey>),
-    OpenFilePicker,
-    FileSelected(Vec<Arc<Attachment>>),
+    OpenAttachmentPicker,
+    OpenCompressedAttachmentPicker,
+    AttachmentAdded(Vec<Arc<Attachment>>),
     Paste,
     AttachmentReady(Uuid, MatrixAttachment),
     AttachmentFailed(Uuid),
@@ -147,7 +165,7 @@ pub enum InputAction {
     SendMessage(Task<()>),
     RemoveReplying,
     HelpOver(Option<HelpKey>),
-    OpenFilePicker(Task<InputMessage>),
+    Perform(Task<InputMessage>),
 }
 
 #[iced_cache(Clone)]
@@ -216,16 +234,17 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 self.attachments.remove(index);
                 None
             }
-            InputMessage::FileSelected(attachments) => {
+            InputMessage::AttachmentAdded(attachments) => {
                 self.attachments.extend(attachments);
                 None
             }
-            InputMessage::OpenFilePicker => {
-                let task =
-                    Task::future(MatrixAttachment::from_files_picker()).then(attachments_task);
-
-                Some(InputAction::OpenFilePicker(task))
-            }
+            InputMessage::OpenAttachmentPicker => Some(InputAction::Perform(
+                Task::future(MatrixAttachment::from_files_picker()).then(attachments_task),
+            )),
+            InputMessage::OpenCompressedAttachmentPicker => Some(InputAction::Perform(
+                Task::future(MatrixAttachment::compressed_from_folder_picker())
+                    .then(attachment_task),
+            )),
             InputMessage::Paste => {
                 let task = iced::clipboard::read_image().then(|result| match result {
                     Ok(image) => {
@@ -238,7 +257,11 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             let image = image.clone();
                             async move {
                                 let thumbnail = tokio::task::spawn_blocking(move || {
-                                    downscale_thumbnail(image.size.width, image.size.height, &image.rgba)
+                                    downscale_thumbnail(
+                                        image.size.width,
+                                        image.size.height,
+                                        &image.rgba,
+                                    )
                                 })
                                 .await
                                 .ok()
@@ -246,7 +269,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                 .map(ThumbnailType::Image)
                                 .unwrap_or_else(|| ThumbnailType::Extention("IMG".to_string()));
 
-                                InputMessage::FileSelected(vec![Arc::new(Attachment {
+                                InputMessage::AttachmentAdded(vec![Arc::new(Attachment {
                                     id,
                                     thumbnail,
                                     attachment: MatrixAttachment::from_bytes(
@@ -292,7 +315,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                     }),
                 });
 
-                Some(InputAction::OpenFilePicker(task))
+                Some(InputAction::Perform(task))
             }
             InputMessage::AttachmentReady(id, attachment) => {
                 if let Some(existing) = self.attachments.iter_mut().find(|a| a.id == id) {
@@ -408,25 +431,32 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
 
         let help_view = HelpView::new(help_state, theme, InputMessage::HelpOver);
 
-        let input_button = |svg: &'static str, key, help| {
+        let input_button = |svg: &'static str, key, help, hover_tip, message| {
             w::container(
                 help_view
                     .call(
                         key,
                         help,
-                        w::button(phosphor_icon(svg, line_height))
-                            .style(move |_, status| ButtonStyle {
-                                text_color: if status.active() {
-                                    theme.text.normal.into()
-                                } else {
-                                    theme.text.dim.into()
-                                },
-                                background: status.active().then_some(theme.solid_hover_bg.into()),
-                                border: border::rounded(structure.semi_border_radius()),
-                                ..Default::default()
-                            })
-                            .on_press(InputMessage::OpenFilePicker)
-                            .padding(structure.small_gap),
+                        themed_tooltip_text(
+                            w::button(phosphor_icon(svg, line_height))
+                                .style(move |_, status| ButtonStyle {
+                                    text_color: if status.active() {
+                                        theme.text.normal.into()
+                                    } else {
+                                        theme.text.dim.into()
+                                    },
+                                    background: status
+                                        .active()
+                                        .then_some(theme.solid_hover_bg.into()),
+                                    border: border::rounded(structure.semi_border_radius()),
+                                    ..Default::default()
+                                })
+                                .on_press(message)
+                                .padding(structure.small_gap),
+                            hover_tip,
+                            structure,
+                            theme,
+                        ),
                     )
                     .radius(structure.semi_border_radius()),
             )
@@ -609,7 +639,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             .placeholder(format!("Message {}", room.get_input_placeholder()))
                             .padding(
                                 Padding::new(structure.small_gap * 2.0)
-                                    .left(button_size + structure.small_gap * 2.0)
+                                    .left(button_size * 2.0 + structure.small_gap * 2.0)
                             )
                             .on_action(InputMessage::TextAction)
                             .key_binding(move |key| {
@@ -669,11 +699,23 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                 selection: theme.accent.into(),
                                 value: theme.text.normal.into()
                             }),
-                        input_button(
-                            phosphor_svgs::icon::plus::BOLD,
-                            HelpKey::Chat(ChatHelpKey::UploadButton),
-                            "Upload button, press to upload files"
-                        )
+                        w::row![
+                            input_button(
+                                phosphor_svgs::icon::plus::BOLD,
+                                HelpKey::Chat(ChatHelpKey::UploadButton),
+                                "Upload button, press to upload files",
+                                "Upload attachments",
+                                InputMessage::OpenAttachmentPicker,
+                            ),
+                            input_button(
+                                phosphor_svgs::icon::file_archive::BOLD,
+                                HelpKey::Chat(ChatHelpKey::UploadCompressedButton),
+                                "Upload compressed button, press to upload a compressed folder",
+                                "Upload compressed folder",
+                                InputMessage::OpenCompressedAttachmentPicker,
+                            ),
+                        ]
+                        .spacing(-structure.small_gap * 2.0)
                     ]
                 ]
                 .width(Fill),

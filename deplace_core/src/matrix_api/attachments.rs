@@ -66,19 +66,14 @@ impl MatrixAttachment {
     }
 
     pub async fn from_files_picker() -> Vec<MatrixAttachment> {
-        let dialog_start = std::time::Instant::now();
         let Some(file_handles) = AsyncFileDialog::new()
             .set_title("Select files")
             .pick_files()
             .await
         else {
+            tracing::warn!("No files selected");
             return Vec::new();
         };
-        tracing::info!(
-            "File picker dialog returned {} file(s) after {:?}",
-            file_handles.len(),
-            dialog_start.elapsed()
-        );
 
         let mut array = Vec::new();
 
@@ -93,6 +88,80 @@ impl MatrixAttachment {
 
         array
     }
+
+    pub async fn compressed_from_folder_picker() -> Option<MatrixAttachment> {
+        let Some(folder_handle) = AsyncFileDialog::new()
+            .set_title("Select folder to compress")
+            .pick_folder()
+            .await
+        else {
+            tracing::warn!("No folder selected");
+            return None;
+        };
+
+        let folder_path = folder_handle.path().to_path_buf();
+        let folder_name = folder_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("folder")
+            .to_string();
+
+        let zip_start = std::time::Instant::now();
+
+        let data = match tokio::task::spawn_blocking(move || zip_folder(&folder_path)).await {
+            Ok(Ok(data)) => data,
+            Ok(Err(e)) => {
+                tracing::error!("Failed to compress folder: {}", e);
+                return None;
+            }
+            Err(e) => {
+                tracing::error!("Compression task failed: {}", e);
+                return None;
+            }
+        };
+
+        tracing::info!(
+            "Compressed {} ({} bytes) in {:?}",
+            folder_name,
+            data.len(),
+            zip_start.elapsed()
+        );
+
+        Some(Self::from_bytes(
+            &format!("{folder_name}.zip"),
+            "application/zip".parse().expect("valid mime type"),
+            data,
+        ))
+    }
+}
+
+fn zip_folder(folder_path: &std::path::Path) -> Result<Vec<u8>> {
+    use std::io::Write;
+
+    let mut buffer = Cursor::new(Vec::new());
+    let mut writer = zip::ZipWriter::new(&mut buffer);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    for entry in walkdir::WalkDir::new(folder_path) {
+        let entry = entry?;
+        let path = entry.path();
+        let relative = path.strip_prefix(folder_path)?;
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        let name = relative.to_string_lossy();
+
+        if path.is_dir() {
+            writer.add_directory(name, options)?;
+        } else if path.is_file() {
+            writer.start_file(name, options)?;
+            writer.write_all(&std::fs::read(path)?)?;
+        }
+    }
+
+    writer.finish()?;
+    Ok(buffer.into_inner())
 }
 
 pub async fn download_file_to_picked(source: MediaSource, file_name: String, client: Client) {

@@ -414,7 +414,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     None
                 }
                 InputAction::HelpOver(help) => Some(ChatAction::HelpHover(help)),
-                InputAction::OpenFilePicker(task) => {
+                InputAction::Perform(task) => {
                     Some(ChatAction::Perform(task.map(ChatMessage::Input)))
                 }
             },

@@ -55,6 +55,7 @@ pub enum ChatHelpKey {
     MainPanel,
     Input,
     UploadButton,
+    UploadCompressedButton,
     Attachments,
     Attachment,
 }
