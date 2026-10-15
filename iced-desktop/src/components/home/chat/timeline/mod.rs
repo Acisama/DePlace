@@ -10,7 +10,7 @@ use iced::Vector;
 use iced::advanced::widget::operate;
 use iced::advanced::widget::operation::scrollable::{RelativeOffset, snap_to};
 use iced::keyboard::Key::Character;
-use iced::widget::operation::scroll_to;
+use iced::widget::operation::scroll_to_reveal;
 use macros::iced_cache;
 use matrix_sdk::{
     media::UniqueKey,
@@ -1072,12 +1072,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             TimelineMessage::ScrollTo(opt_rect) => {
                 let rect = opt_rect?;
                 tracing::debug!("Item to scroll to is at y: {}", rect.y);
-                Some(TimelineAction::Run(scroll_to::<()>(
+                Some(TimelineAction::Run(scroll_to_reveal::<()>(
                     SCROLLABLE_ID,
-                    AbsoluteOffset {
-                        x: rect.x,
-                        y: rect.y,
-                    },
+                    rect,
                     w::operation::Animation::Smooth,
                 )))
             }
@@ -1125,7 +1122,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             })
                             .id(LIST_ID),
                         )
-                        .padding(padding::bottom(structure.gap * 3.0))
+                        // .padding(padding::bottom(structure.gap * 3.0))
                         .width(Fill)
                         .height(Fill)
                         .align_bottom(Fill),
