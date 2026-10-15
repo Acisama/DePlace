@@ -58,7 +58,22 @@ jobs:
         run: |
           $ver = "${{ env.GSTREAMER_VERSION }}"
           $file = "gstreamer-1.0-msvc-${{ matrix.gst_arch }}-$ver.exe"
-          Invoke-WebRequest "https://gstreamer.freedesktop.org/data/pkg/windows/$ver/msvc/$file" -OutFile gst-installer.exe
+          $url = "https://gstreamer.freedesktop.org/data/pkg/windows/$ver/msvc/$file"
+
+          # freedesktop.org's CDN occasionally returns a transient 503; retry
+          # with backoff instead of failing the whole build on a blip.
+          $maxAttempts = 5
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            try {
+              Invoke-WebRequest $url -OutFile gst-installer.exe
+              break
+            } catch {
+              if ($attempt -eq $maxAttempts) { throw }
+              $delay = 10 * $attempt
+              Write-Warning "Download failed (attempt $attempt/$maxAttempts): $_. Retrying in $delay s..."
+              Start-Sleep -Seconds $delay
+            }
+          }
 
       - name: Install GStreamer
         shell: pwsh
