@@ -864,8 +864,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         // redactions-in-place) never change an item's
                         // sender, timestamp, or whether it's a message at
                         // all -- the only things the linkage depends on --
-                        // and don't shift any other item's position either,
-                        // so nothing here can ever need recomputing.
+                        // and don't shift any other item's position either.
+                        // But the replacement `value` is freshly converted
+                        // and always carries `connects_previous`/
+                        // `previous_is_event: false`, so the linkage still
+                        // needs recomputing against the unchanged neighbor.
                         VectorDiff::Set {
                             index,
                             value: (_, value),
@@ -873,6 +876,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             if let Some(slot) = self.content.get_index_mut(index) {
                                 *slot = value;
                             }
+                            self.refresh_previous_linkage(index);
                         }
                         // Truncating only removes from the end, which can't
                         // change any remaining item's `previous` neighbor or
