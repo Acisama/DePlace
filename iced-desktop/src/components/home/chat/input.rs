@@ -119,7 +119,6 @@ pub enum InputAction {
 
 #[iced_cache(Clone)]
 pub struct ChatInput {
-    state: AppState,
     pub timeline: Option<Arc<Timeline>>,
 
     #[hash]
@@ -144,7 +143,6 @@ impl ChatInput {
     pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
         let room_id = room.room_id().to_owned();
         Self {
-            state: state.clone(),
             timeline: None,
 
             room_watchers: state.room_watchers(hashing::hash_room_default(room_id.clone())),
@@ -190,9 +188,8 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 None
             }
             InputMessage::OpenFilePicker => {
-                let paths = self.state.important_paths().clone();
                 let task =
-                    Task::future(MatrixAttachment::from_files_picker(paths)).then(attachments_task);
+                    Task::future(MatrixAttachment::from_files_picker()).then(attachments_task);
 
                 Some(InputAction::OpenFilePicker(task))
             }

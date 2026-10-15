@@ -5,8 +5,6 @@ use rfd::{AsyncFileDialog, FileHandle};
 
 use mime::Mime;
 
-use crate::state::ImportantPaths;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MatrixAttachment {
     pub filename: String,
@@ -46,10 +44,9 @@ impl MatrixAttachment {
         ))
     }
 
-    pub async fn from_files_picker(paths: ImportantPaths) -> Vec<MatrixAttachment> {
+    pub async fn from_files_picker() -> Vec<MatrixAttachment> {
         let Some(file_handles) = AsyncFileDialog::new()
             .set_title("Select files")
-            .set_directory(&*paths.download_dir)
             .pick_files()
             .await
         else {

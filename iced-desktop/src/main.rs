@@ -93,7 +93,7 @@ fn main() -> iced::Result {
     };
 
     let file_appender = tracing_appender::rolling::never(
-        &paths.log_dir.to_path_buf(),
+        paths.log_dir.to_path_buf(),
         format!("{}.log", chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")),
     );
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
