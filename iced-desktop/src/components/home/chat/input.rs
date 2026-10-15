@@ -1,20 +1,100 @@
 use deplace_core::{
-    helpers::RoomPlaceholderExt, keybinds::Keybinds, matrix_api::messages::RoomSendingExt,
+    helpers::RoomPlaceholderExt,
+    keybinds::Keybinds,
+    matrix_api::{attachments::MatrixAttachment, messages::RoomSendingExt},
 };
 use iced::{
     Length,
-    border::Radius,
+    border::{Radius, radius},
     widget::{Id, operation, text_editor},
 };
+use image::ImageReader;
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
+use std::io::Cursor;
 
 use crate::{
     common::*,
-    components::{home::ChatHelpKey, phosphor_icon},
+    components::{InsetShadow, home::ChatHelpKey, phosphor_icon},
 };
 
 use super::timeline::messages::MessageEvent;
+
+#[derive(Debug, Clone)]
+pub enum ThumbnailType {
+    Image(ImageHandle),
+    Extention(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct Attachment {
+    thumbnail: ThumbnailType,
+    attachment: MatrixAttachment,
+}
+
+impl Hash for Attachment {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.attachment.filename.hash(state);
+        self.attachment.mime_type.hash(state);
+    }
+}
+
+impl From<MatrixAttachment> for Attachment {
+    fn from(attachment: MatrixAttachment) -> Self {
+        let thumbnail = match generate_thumbnail(&attachment.data, &attachment.mime_type) {
+            Some(img) => ThumbnailType::Image(img),
+            None => ThumbnailType::Extention(
+                attachment
+                    .filename
+                    .split('.')
+                    .next_back()
+                    .unwrap_or("txt")
+                    .to_string()
+                    .to_uppercase(),
+            ),
+        };
+        Self {
+            thumbnail,
+            attachment,
+        }
+    }
+}
+
+fn generate_thumbnail(data: &[u8], mime_type: &mime::Mime) -> Option<ImageHandle> {
+    if mime_type.type_() != mime::IMAGE {
+        return None;
+    }
+
+    let img = ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()?
+        .to_rgba8();
+
+    Some(ImageHandle::from_rgba(
+        img.width(),
+        img.height(),
+        img.into_raw(),
+    ))
+}
+
+// Each attachment gets its own blocking task so decoding thumbnails for
+// several files happens in parallel, and each attachment shows up in the
+// input bar as soon as it is ready instead of all at once.
+fn attachments_task(attachments: Vec<MatrixAttachment>) -> Task<InputMessage> {
+    Task::batch(attachments.into_iter().map(|attachment| {
+        Task::future(async move {
+            match tokio::task::spawn_blocking(move || attachment.into()).await {
+                Ok(attachment) => InputMessage::FileSelected(vec![Arc::new(attachment)]),
+                Err(e) => {
+                    tracing::error!("Failed to build attachment: {}", e);
+                    InputMessage::None
+                }
+            }
+        })
+    }))
+}
 
 #[derive(Debug, Clone)]
 pub enum InputMessage {
@@ -23,18 +103,23 @@ pub enum InputMessage {
     SendMessage,
     Cancel,
     RemoveReplying,
-    UploadPressed,
     HelpOver(Option<HelpKey>),
+    OpenFilePicker,
+    FileSelected(Vec<Arc<Attachment>>),
+    Paste,
+    RemoveAttachment(usize),
 }
 
 pub enum InputAction {
     SendMessage(Task<()>),
     RemoveReplying,
     HelpOver(Option<HelpKey>),
+    OpenFilePicker(Task<InputMessage>),
 }
 
 #[iced_cache(Clone)]
 pub struct ChatInput {
+    state: AppState,
     pub timeline: Option<Arc<Timeline>>,
 
     #[hash]
@@ -49,6 +134,9 @@ pub struct ChatInput {
     #[hash]
     replying_to: Option<(Arc<MessageEvent>, OwnedEventId)>,
 
+    #[hash]
+    attachments: Vec<Arc<Attachment>>,
+
     keybinds: Receiver<Keybinds>,
 }
 
@@ -56,6 +144,7 @@ impl ChatInput {
     pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
         let room_id = room.room_id().to_owned();
         Self {
+            state: state.clone(),
             timeline: None,
 
             room_watchers: state.room_watchers(hashing::hash_room_default(room_id.clone())),
@@ -64,6 +153,8 @@ impl ChatInput {
             id: Id::unique(),
             content: Box::leak(Box::new(text_editor::Content::new())),
             replying_to: None,
+
+            attachments: Vec::new(),
 
             keybinds: state.keybinds(),
         }
@@ -90,9 +181,48 @@ impl ChatInput {
 impl IcedWidget<InputMessage, InputAction> for ChatInput {
     fn update(&mut self, message: InputMessage) -> Option<InputAction> {
         match message {
+            InputMessage::RemoveAttachment(index) => {
+                self.attachments.remove(index);
+                None
+            }
+            InputMessage::FileSelected(attachments) => {
+                self.attachments.extend(attachments);
+                None
+            }
+            InputMessage::OpenFilePicker => {
+                let paths = self.state.important_paths().clone();
+                let task =
+                    Task::future(MatrixAttachment::from_files_picker(paths)).then(attachments_task);
+
+                Some(InputAction::OpenFilePicker(task))
+            }
+            InputMessage::Paste => {
+                let task = iced::clipboard::read_image().then(|result| match result {
+                    Ok(image) => match MatrixAttachment::from_rgba(
+                        "pasted-image.png",
+                        image.size.width,
+                        image.size.height,
+                        &image.rgba,
+                    ) {
+                        Ok(attachment) => attachments_task(vec![attachment]),
+                        Err(e) => {
+                            tracing::error!("Failed to read clipboard image: {}", e);
+                            Task::done(InputMessage::None)
+                        }
+                    },
+                    // No image on the clipboard, fall back to the editor's normal text paste.
+                    Err(_) => iced::clipboard::read_text().then(|result| match result {
+                        Ok(text) => Task::done(InputMessage::TextAction(
+                            text_editor::Action::Edit(text_editor::Edit::Paste(text)),
+                        )),
+                        Err(_) => Task::done(InputMessage::None),
+                    }),
+                });
+
+                Some(InputAction::OpenFilePicker(task))
+            }
             InputMessage::HelpOver(help) => Some(InputAction::HelpOver(help)),
             InputMessage::None => None,
-            InputMessage::UploadPressed => None,
             InputMessage::TextAction(action) => {
                 // The rendered view is dropped before this is called, so there is only one (mutable) reference to `content` at a time
                 unsafe { &mut *self.content }.perform(action);
@@ -116,6 +246,8 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 };
 
                 let text = self.content().text();
+                let text = (!text.is_empty()).then_some(text);
+
                 let replying_to = if let Some((_, id)) = &self.replying_to {
                     Some(id.clone())
                 } else {
@@ -127,9 +259,31 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 content.perform(text_editor::Action::Edit(text_editor::Edit::Backspace));
                 self.replying_to = None;
 
+                let attachments: Vec<MatrixAttachment> = self
+                    .attachments
+                    .clone()
+                    .into_iter()
+                    .map(|attachment| (*attachment).clone().attachment)
+                    .collect();
+                self.attachments.clear();
+
                 Some(InputAction::SendMessage(Task::future(async move {
-                    if let Err(e) = timeline.send_message(text, replying_to).await {
-                        tracing::warn!("Failed to send message: {}", e);
+                    let mut next_replying_to = None;
+                    if let Some(text) = text {
+                        if let Err(e) = timeline.send_message(text, replying_to).await {
+                            tracing::warn!("Failed to send message: {}", e);
+                        }
+                        next_replying_to = None;
+                    }
+
+                    for attachment in attachments {
+                        if let Err(e) = timeline
+                            .send_deplace_attachment(attachment, next_replying_to)
+                            .await
+                        {
+                            tracing::warn!("Failed to send message: {}", e);
+                        }
+                        next_replying_to = None;
                     }
                 })))
             }
@@ -172,7 +326,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                 border: border::rounded(structure.semi_border_radius()),
                                 ..Default::default()
                             })
-                            .on_press(InputMessage::UploadPressed)
+                            .on_press(InputMessage::OpenFilePicker)
                             .padding(structure.small_gap),
                     )
                     .radius(structure.semi_border_radius()),
@@ -188,11 +342,113 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
             None
         };
         let is_replying_to = self.replying_to.is_some();
+        let has_attachments = !self.attachments.is_empty();
 
-        let replying_banner: Element<'static, InputMessage> = match replies_to {
-            Some(msg) => help_view
+        let attachment_banner: Option<Element<'static, InputMessage>> =
+            has_attachments.then(|| {
+                let children = self
+                    .attachments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, attachment)| {
+                        let size = structure.chat.attachment_preview_size;
+
+                        let image: Element<'static, InputMessage> =
+                            match attachment.thumbnail.clone() {
+                                ThumbnailType::Image(handle) => w::image(handle)
+                                    .width(size)
+                                    .height(size)
+                                    .border_radius(structure.semi_border_radius())
+                                    .into(),
+                                ThumbnailType::Extention(ext) => {
+                                    let color = DePlaceColor::from(ext.as_str()).to_iced();
+                                    w::stack![
+                                        w::container(pan(weighted_text(ext, Weight::Bold)
+                                            .size((structure.large_font_size).max(1.0))))
+                                        .width(size)
+                                        .height(size)
+                                        .center(size)
+                                        .style(move |_| {
+                                            w::container::Style {
+                                                background: Some(color.scale_lightness(0.2).into()),
+                                                text_color: Some(color),
+                                                border: Border {
+                                                    color,
+                                                    width: 0.0,
+                                                    radius: structure.semi_border_radius().into(),
+                                                },
+                                                ..Default::default()
+                                            }
+                                        }),
+                                        Canvas::new(InsetShadow::new(
+                                            structure.semi_border_radius(),
+                                            color,
+                                            size / 8.0,
+                                            16
+                                        ))
+                                        .width(size)
+                                        .height(size),
+                                    ]
+                                    .clip(true)
+                                    .into()
+                                }
+                            };
+
+                        help_view
+                            .call(
+                                HelpKey::Chat(ChatHelpKey::Attachment),
+                                "An attachment for the current message",
+                                w::column![
+                                    w::mouse_area(image)
+                                        .on_middle_press(InputMessage::RemoveAttachment(index)),
+                                    pan(w::text(attachment.attachment.filename.clone())
+                                        .size(structure.chat.text_size)
+                                        .color(theme.text.normal))
+                                    .width(size)
+                                ],
+                            )
+                            .radius(radius(structure.semi_border_radius()).bottom(0.0))
+                            .into()
+                    });
+
+                help_view
+                    .call(
+                        HelpKey::Chat(ChatHelpKey::Attachments),
+                        "Attachments for the current message",
+                        w::container(themed_scrollable(
+                            w::Row::with_children(children)
+                                .width(Fill)
+                                .padding(structure.small_gap)
+                                .spacing(structure.small_gap),
+                            theme,
+                            structure,
+                        ))
+                        .style(move |_| ContainerStyle {
+                            background: Some(theme.solid_bg.into()),
+                            text_color: Some(theme.text.normal.into()),
+                            border: Border {
+                                color: theme.border.into(),
+                                width: structure.border_thickness,
+                                radius: radius(structure.inner_border_radius).bottom(0.0),
+                            },
+                            ..Default::default()
+                        }),
+                    )
+                    .radius(radius(structure.inner_border_radius).bottom(0.0))
+                    .into()
+            });
+
+        let replying_banner: Option<Element<'static, InputMessage>> = replies_to.map(|msg| {
+            let radius = radius(if !has_attachments {
+                structure.inner_border_radius
+            } else {
+                0.0
+            })
+            .bottom(0.0);
+
+            help_view
                 .call(
-                    HelpKey::Chat(crate::components::home::ChatHelpKey::Input),
+                    HelpKey::Chat(ChatHelpKey::Input),
                     "The message being replied to",
                     w::container(w::column![
                         w::row![
@@ -232,20 +488,21 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         border: Border {
                             color: theme.border.into(),
                             width: structure.border_thickness,
-                            radius: Radius::from(structure.inner_border_radius).bottom(0.0),
+                            radius,
                         },
                         ..Default::default()
                     }),
                 )
-                .into(),
-            None => Space::new().into(),
-        };
+                .radius(radius)
+                .into()
+        });
 
         help_view
             .call(
                 HelpKey::Chat(ChatHelpKey::Input),
                 "The chat input, you can write messages here",
                 w::column![
+                    attachment_banner,
                     replying_banner,
                     w::stack![
                         w::text_editor(self.content())
@@ -268,18 +525,25 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                         )
                                     )
                                 {
-                                    Some(text_editor::Binding::Custom(InputMessage::SendMessage))
-                                } else {
-                                    let keybinds = keybinds.borrow();
-                                    let is_reserved =
-                                        keybinds.action_for_key(&key.key, &key.modifiers).is_some();
-                                    drop(keybinds);
+                                    return Some(text_editor::Binding::Custom(
+                                        InputMessage::SendMessage,
+                                    ));
+                                }
 
-                                    if is_reserved {
-                                        None
-                                    } else {
-                                        text_editor::Binding::from_key_press(key)
+                                let keybinds = keybinds.borrow();
+                                let is_reserved =
+                                    keybinds.action_for_key(&key.key, &key.modifiers).is_some();
+                                drop(keybinds);
+
+                                if is_reserved {
+                                    return None;
+                                }
+
+                                match text_editor::Binding::from_key_press(key) {
+                                    Some(text_editor::Binding::Paste) => {
+                                        Some(text_editor::Binding::Custom(InputMessage::Paste))
                                     }
+                                    binding => binding,
                                 }
                             })
                             .wrapping(text::Wrapping::WordOrGlyph)
@@ -295,7 +559,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                     },
                                     width: 1.0,
                                     radius: Radius::from(structure.inner_border_radius).top(
-                                        if !is_replying_to {
+                                        if !is_replying_to && !has_attachments {
                                             structure.inner_border_radius
                                         } else {
                                             0.0

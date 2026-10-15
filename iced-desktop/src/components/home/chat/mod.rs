@@ -414,6 +414,9 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     None
                 }
                 InputAction::HelpOver(help) => Some(ChatAction::HelpHover(help)),
+                InputAction::OpenFilePicker(task) => {
+                    Some(ChatAction::Perform(task.map(ChatMessage::Input)))
+                }
             },
             ChatMessage::KeyboardEvent(event) => {
                 self.handle_timeline_message(TimelineMessage::KeyboardEvent(event))

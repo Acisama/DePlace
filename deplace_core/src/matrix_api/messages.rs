@@ -12,7 +12,7 @@ use matrix_sdk::{
         reply::{EnforceThread, Reply},
     },
 };
-use mime_guess::{Mime, mime};
+use mime_guess::mime;
 use ruma::{
     OwnedEventId, OwnedUserId,
     events::{
@@ -25,12 +25,7 @@ use ruma::{
 use scraper::{Html, Node};
 use url::Url;
 
-#[derive(Clone)]
-pub struct MatrixAttachment {
-    pub filename: String,
-    pub mime_type: Mime,
-    pub data: Vec<u8>,
-}
+use super::attachments::MatrixAttachment;
 
 pub trait RoomSendingExt {
     fn send_message(
@@ -87,7 +82,7 @@ impl RoomSendingExt for Room {
         let queue = self.send_queue();
 
         let size = attachment.data.len() as u32;
-        let info = match attachment.mime_type.subtype() {
+        let info = match attachment.mime_type.type_() {
             mime::IMAGE => {
                 let img = ImageReader::new(Cursor::new(&attachment.data))
                     .with_guessed_format()
@@ -208,7 +203,7 @@ impl RoomSendingExt for Timeline {
         replies_to: Option<OwnedEventId>,
     ) -> Result<()> {
         let size = attachment.data.len() as u32;
-        let info = match attachment.mime_type.subtype() {
+        let info = match attachment.mime_type.type_() {
             mime::IMAGE => {
                 let img = ImageReader::new(Cursor::new(&attachment.data))
                     .with_guessed_format()

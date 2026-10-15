@@ -66,7 +66,7 @@ pub struct Chat {
     pub max_media_height: f32,
     pub max_media_width: f32,
     pub input_height: f32,
-    pub attachment_preview_dimensions: (f32, f32),
+    pub attachment_preview_size: f32,
     pub sidebar: ChatSidebar,
 }
 
@@ -137,7 +137,7 @@ impl Default for Structure {
                 max_media_height: 500.0,
                 max_media_width: 500.0,
                 input_height: 50.0,
-                attachment_preview_dimensions: (140.0, 100.0),
+                attachment_preview_size: 120.0,
                 sidebar: ChatSidebar {
                     large_icon_size: 80.0,
                     banner_height: 100.0,

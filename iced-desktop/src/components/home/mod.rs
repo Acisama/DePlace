@@ -55,6 +55,8 @@ pub enum ChatHelpKey {
     MainPanel,
     Input,
     UploadButton,
+    Attachments,
+    Attachment,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

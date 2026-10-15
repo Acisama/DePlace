@@ -43,6 +43,7 @@ open = "5.4.4"
 phosphor-svgs = "0.3.0"
 rayon = "1.12.0"
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
+rfd = "0.17.2"
 ruma = { version = "0.17.0", features = ["unstable-msc4095"] }
 ruma-html = { version = "0.9.0", features = ["matrix"] }
 rust-embed = "8.12.0"

@@ -38,29 +38,26 @@ pub fn text_icon<'a, T: 'a>(
     rounding: f32,
     color: Color,
 ) -> Element<'a, T> {
-    Stack::new()
-        .push(
-            w::container(weighted_text(text, Weight::Bold).size((size / 2.0).max(1.0)))
-                .width(size)
-                .height(size)
-                .center(size)
-                .style(move |_| w::container::Style {
-                    background: Some(color.scale_lightness(0.2).into()),
-                    text_color: Some(color),
-                    border: Border {
-                        color,
-                        width: 0.0,
-                        radius: rounding.into(),
-                    },
-                    ..Default::default()
-                }),
-        )
-        .push(
-            Canvas::new(InsetShadow::new(rounding, color, size / 8.0, 8))
-                .width(size)
-                .height(size),
-        )
-        .into()
+    w::stack![
+        w::container(weighted_text(text, Weight::Bold).size((size / 2.0).max(1.0)))
+            .width(size)
+            .height(size)
+            .center(size)
+            .style(move |_| w::container::Style {
+                background: Some(color.scale_lightness(0.2).into()),
+                text_color: Some(color),
+                border: Border {
+                    color,
+                    width: 0.0,
+                    radius: rounding.into(),
+                },
+                ..Default::default()
+            }),
+        Canvas::new(InsetShadow::new(rounding, color, size / 8.0, 8))
+            .width(size)
+            .height(size),
+    ]
+    .into()
 }
 
 pub fn unknown_icon<'a, T: 'a>(size: f32, rounding: f32, theme: Theme) -> Element<'a, T> {
@@ -90,7 +87,9 @@ pub fn render_avatar<'a, T: NeedsAvatarExt + Clone + 'a>(
             .content_fit(ContentFit::Cover)
             .border_radius(rounding)
             .into(),
-        Some(MediaState::Loading) | None => on_appear(fallback(), T::needs_avatar(avatar_url)).into(),
+        Some(MediaState::Loading) | None => {
+            on_appear(fallback(), T::needs_avatar(avatar_url)).into()
+        }
     }
 }
 

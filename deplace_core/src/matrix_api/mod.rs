@@ -10,6 +10,7 @@ use matrix_sdk::{
 use ruma::DeviceId;
 
 pub mod account_data;
+pub mod attachments;
 mod matrixrtc;
 mod members;
 pub mod messages;
@@ -264,9 +265,9 @@ pub async fn matrix_client_builder(
     let cache_dir = &important_paths.cache_dir;
     let settings_dir = &important_paths.config_dir;
 
-    std::fs::create_dir_all(data_dir)?;
-    std::fs::create_dir_all(cache_dir)?;
-    std::fs::create_dir_all(settings_dir)?;
+    std::fs::create_dir_all(data_dir.to_path_buf())?;
+    std::fs::create_dir_all(cache_dir.to_path_buf())?;
+    std::fs::create_dir_all(settings_dir.to_path_buf())?;
 
     let name = format!("{safe_user_id}_{device_id}");
     let db_path = data_dir.join(format!("{name}.db"));
@@ -301,8 +302,11 @@ pub async fn matrix_client_builder(
         return Err(Error::msg("Failed to build client"));
     };
 
-    let settings = Settings::new(important_paths.settings_file.clone(), new_client.clone());
-    let keybinds = Keybinds::new(important_paths.keybinds_file.clone());
+    let settings = Settings::new(
+        important_paths.settings_file.to_path_buf(),
+        new_client.clone(),
+    );
+    let keybinds = Keybinds::new(important_paths.keybinds_file.to_path_buf());
 
     Ok((new_client, settings, keybinds))
 }

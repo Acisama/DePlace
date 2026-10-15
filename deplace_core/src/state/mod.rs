@@ -31,17 +31,17 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct ImportantPaths {
-    pub config_dir: PathBuf,
-    pub settings_file: PathBuf,
-    pub keybinds_file: PathBuf,
-    pub theme_file: PathBuf,
-    pub structure_file: PathBuf,
+    pub config_dir: Arc<PathBuf>,
+    pub settings_file: Arc<PathBuf>,
+    pub keybinds_file: Arc<PathBuf>,
+    pub theme_file: Arc<PathBuf>,
+    pub structure_file: Arc<PathBuf>,
 
-    pub download_dir: PathBuf,
-    pub cache_dir: PathBuf,
-    pub temp_dir: PathBuf,
-    pub data_dir: PathBuf,
-    pub log_dir: PathBuf,
+    pub download_dir: Arc<PathBuf>,
+    pub cache_dir: Arc<PathBuf>,
+    pub temp_dir: Arc<PathBuf>,
+    pub data_dir: Arc<PathBuf>,
+    pub log_dir: Arc<PathBuf>,
 }
 
 impl ImportantPaths {
@@ -72,17 +72,17 @@ impl ImportantPaths {
         let structure_file = config_dir.join("structure.toml");
 
         Ok(Self {
-            config_dir,
-            settings_file,
-            keybinds_file,
-            theme_file,
-            structure_file,
+            config_dir: Arc::new(config_dir),
+            settings_file: Arc::new(settings_file),
+            keybinds_file: Arc::new(keybinds_file),
+            theme_file: Arc::new(theme_file),
+            structure_file: Arc::new(structure_file),
 
-            download_dir,
-            cache_dir,
-            temp_dir,
-            data_dir,
-            log_dir,
+            download_dir: Arc::new(download_dir),
+            cache_dir: Arc::new(cache_dir),
+            temp_dir: Arc::new(temp_dir),
+            data_dir: Arc::new(data_dir),
+            log_dir: Arc::new(log_dir),
         })
     }
 }

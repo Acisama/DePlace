@@ -86,8 +86,8 @@ impl Root {
             id: None,
             screen: Screen::default(),
             loading: shader::LoadingIndicator::default(),
-            theme: Theme::new(paths.theme_file.clone()),
-            structure: Structure::new(paths.structure_file.clone()),
+            theme: Theme::new(paths.theme_file.to_path_buf()),
+            structure: Structure::new(paths.structure_file.to_path_buf()),
             paths,
         }
     }
