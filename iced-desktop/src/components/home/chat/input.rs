@@ -150,7 +150,7 @@ pub enum InputMessage {
     TextAction(text_editor::Action),
     SendMessage,
     Cancel,
-    BackspacePressed,
+    BackspacePressed { ctrl: bool },
     RemoveReplying,
     HelpOver(Option<HelpKey>),
     OpenAttachmentPicker,
@@ -415,7 +415,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                     }
                 })))
             }
-            InputMessage::BackspacePressed => {
+            InputMessage::BackspacePressed { ctrl } => {
                 let iced::advanced::text::Position { line, index } =
                     self.content().cursor().position;
                 if line == 0 && index == 0 {
@@ -424,9 +424,31 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             InputMessage::RemoveReplying,
                         )));
                     } else if !self.attachments.is_empty() {
-                        return Some(InputAction::Perform(Task::done(
-                            InputMessage::RemoveAttachment(self.attachments.len() - 1),
-                        )));
+                        if !ctrl {
+                            return Some(InputAction::Perform(Task::done(
+                                InputMessage::RemoveAttachment(self.attachments.len() - 1),
+                            )));
+                        } else {
+                            let mut tasks = vec![];
+                            for _ in 0..self.attachments.len() {
+                                tasks.push(Task::done(InputMessage::RemoveAttachment(0)));
+                            }
+                            return Some(InputAction::Perform(Task::batch(tasks)));
+                        }
+                    }
+                } else {
+                    if ctrl {
+                        unsafe {
+                            self.content.as_mut()?.perform(text_editor::Action::Edit(
+                                text_editor::Edit::BackspaceWord,
+                            ));
+                        }
+                    } else {
+                        unsafe {
+                            self.content
+                                .as_mut()?
+                                .perform(text_editor::Action::Edit(text_editor::Edit::Backspace));
+                        }
                     }
                 }
                 None
@@ -688,7 +710,9 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                     )
                                 ) {
                                     return Some(text_editor::Binding::Custom(
-                                        InputMessage::BackspacePressed,
+                                        InputMessage::BackspacePressed {
+                                            ctrl: key.modifiers.control(),
+                                        },
                                     ));
                                 }
 
