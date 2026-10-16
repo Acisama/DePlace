@@ -208,7 +208,7 @@ struct AppStateInner {
     pub own_device: Arc<UserDevice>,
     pub settings: Settings,
 
-    media_fetcher: Arc<MediaFetcher>,
+    media_fetcher: MediaFetcher,
 
     own_display_name: Sender<Option<String>>,
     own_avatar_url: Sender<Option<OwnedMxcUri>>,
@@ -258,8 +258,10 @@ impl AppState {
         keybinds: Keybinds,
         important_paths: ImportantPaths,
     ) -> Result<Self> {
-        let media_fetcher = Arc::new(MediaFetcher::new(&client));
-        client.set_media_fetcher(media_fetcher.clone()).await;
+        let media_fetcher = MediaFetcher::new(&client);
+        client
+            .set_media_fetcher(Arc::new(media_fetcher.clone()))
+            .await;
 
         let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
         let last_server_order = get_account_data(&client).await;
@@ -498,6 +500,10 @@ impl AppState {
     /// Retrieves the `matrix-sdk::Client` of the app
     pub fn client(&self) -> Client {
         self.inner.client.clone()
+    }
+
+    pub fn media_fetcher(&self) -> MediaFetcher {
+        self.inner.media_fetcher.clone()
     }
 
     /// Retrieves the `Settings` of the app
@@ -759,9 +765,12 @@ pub fn to_stream<T: Clone, V>(
 use matrix_sdk::reqwest::Client as ReqwestClient;
 
 #[derive(Default, Clone, Debug)]
-struct MediaFetcher {
-    progresses: DashMap<String, Progress>,
+pub struct MediaFetcher {
+    progresses: Arc<DashMap<String, Progress>>,
     reqwest_client: ReqwestClient,
+
+    /// Keys that are relevant for the ui, so stuff like avatar fetches can be ignored
+    relevant_keys: Arc<Mutex<BTreeSet<String>>>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -774,6 +783,23 @@ pub enum Progress {
     },
     Completed,
     Failed,
+}
+
+impl Hash for Progress {
+    fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        match self {
+            Progress::NotStarted => 0.hash(hasher),
+            Progress::Downloading {
+                total_bytes,
+                downloaded_bytes,
+            } => {
+                total_bytes.as_ref().as_ptr().hash(hasher);
+                downloaded_bytes.as_ref().as_ptr().hash(hasher);
+            }
+            Progress::Completed => 1.hash(hasher),
+            Progress::Failed => 2.hash(hasher),
+        }
+    }
 }
 
 impl Progress {
@@ -798,9 +824,17 @@ impl Progress {
 impl MediaFetcher {
     fn new(client: &Client) -> Self {
         Self {
-            progresses: DashMap::new(),
+            progresses: Arc::new(DashMap::new()),
             reqwest_client: client.http_client().clone(),
+            relevant_keys: Arc::new(Mutex::new(BTreeSet::new())),
         }
+    }
+
+    pub fn add_relevant_source(&self, source: &MediaSource) {
+        self.relevant_keys
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .insert(source.unique_key());
     }
 
     async fn execute_and_stream(
@@ -828,10 +862,10 @@ impl MediaFetcher {
             .error_for_status()
             .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?;
 
-        if let Some(total) = response.content_length() {
-            progress
-                .total_bytes()
-                .map(|b| b.store(total, Ordering::Relaxed));
+        if let Some(total) = response.content_length()
+            && let Some(b) = progress.total_bytes()
+        {
+            b.store(total, Ordering::Relaxed)
         }
 
         let mut bytes = Vec::new();

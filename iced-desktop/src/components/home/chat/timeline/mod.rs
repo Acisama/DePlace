@@ -21,7 +21,6 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
 use messages::{MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage};
-use sweeten::scrollable::AbsoluteOffset;
 use sweeten::widget::list;
 
 use phosphor_svgs::icon as icons;
