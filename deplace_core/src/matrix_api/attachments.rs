@@ -2,12 +2,14 @@ use std::io::Cursor;
 
 use anyhow::Result;
 use bytes::Bytes;
-use matrix_sdk::{Client, media::MediaRequestParameters};
+use matrix_sdk::media::MediaRequestParameters;
 use rfd::{AsyncFileDialog, FileHandle};
 
 use mime::Mime;
 use ruma::events::room::MediaSource;
 use tokio::{fs::File, io::AsyncWriteExt};
+
+use crate::state::{AppState, media_fetcher::ProgressEntry};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct MatrixAttachment {
@@ -89,7 +91,7 @@ impl MatrixAttachment {
         array
     }
 
-    pub async fn compressed_from_folder_picker() -> Option<MatrixAttachment> {
+    pub async fn compressed_from_folder_picker(state: AppState) -> Option<MatrixAttachment> {
         let Some(folder_handle) = AsyncFileDialog::new()
             .set_title("Select folder to compress")
             .pick_folder()
@@ -106,25 +108,37 @@ impl MatrixAttachment {
             .unwrap_or("folder")
             .to_string();
 
-        let zip_start = std::time::Instant::now();
+        let media_processor = state.media_processor();
+        let progress = media_processor.start_compression(folder_path.clone());
+        let started_at = progress.started_at;
 
-        let data = match tokio::task::spawn_blocking(move || zip_folder(&folder_path)).await {
-            Ok(Ok(data)) => data,
-            Ok(Err(e)) => {
-                tracing::error!("Failed to compress folder: {}", e);
-                return None;
-            }
-            Err(e) => {
-                tracing::error!("Compression task failed: {}", e);
-                return None;
-            }
-        };
+        let path_for_blocking = folder_path.clone();
+
+        let data =
+            match tokio::task::spawn_blocking(move || zip_folder(&path_for_blocking, &progress))
+                .await
+            {
+                Ok(Ok(data)) => {
+                    media_processor.finish_compression(folder_path, true, started_at);
+                    data
+                }
+                Ok(Err(e)) => {
+                    tracing::error!("Failed to compress folder: {}", e);
+                    media_processor.finish_compression(folder_path, false, started_at);
+                    return None;
+                }
+                Err(e) => {
+                    tracing::error!("Compression task failed: {}", e);
+                    media_processor.finish_compression(folder_path, false, started_at);
+                    return None;
+                }
+            };
 
         tracing::info!(
             "Compressed {} ({} bytes) in {:?}",
             folder_name,
             data.len(),
-            zip_start.elapsed()
+            started_at.elapsed()
         );
 
         Some(Self::from_bytes(
@@ -135,8 +149,19 @@ impl MatrixAttachment {
     }
 }
 
-fn zip_folder(folder_path: &std::path::Path) -> Result<Vec<u8>> {
+fn zip_folder(folder_path: &std::path::Path, progress: &ProgressEntry) -> Result<Vec<u8>> {
     use std::io::Write;
+
+    let total: u64 = walkdir::WalkDir::new(folder_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .filter_map(|e| e.metadata().ok())
+        .map(|m| m.len())
+        .sum();
+
+    progress.set_total_bytes(total);
+    progress.set_downloaded_bytes(0);
 
     let mut buffer = Cursor::new(Vec::new());
     let mut writer = zip::ZipWriter::new(&mut buffer);
@@ -155,8 +180,11 @@ fn zip_folder(folder_path: &std::path::Path) -> Result<Vec<u8>> {
         if path.is_dir() {
             writer.add_directory(name, options)?;
         } else if path.is_file() {
+            let data = std::fs::read(path)?;
             writer.start_file(name, options)?;
-            writer.write_all(&std::fs::read(path)?)?;
+            writer.write_all(&data)?;
+
+            progress.update_downloaded_bytes(|p| p + data.len() as u64);
         }
     }
 
@@ -164,7 +192,7 @@ fn zip_folder(folder_path: &std::path::Path) -> Result<Vec<u8>> {
     Ok(buffer.into_inner())
 }
 
-pub async fn download_file_to_picked(source: MediaSource, file_name: String, client: Client) {
+pub async fn download_file_to_picked(source: MediaSource, file_name: String, state: AppState) {
     let Some(handle) = AsyncFileDialog::new()
         .set_title("File destination")
         .set_file_name(file_name)
@@ -175,12 +203,18 @@ pub async fn download_file_to_picked(source: MediaSource, file_name: String, cli
         return;
     };
 
+    state.media_processor().add_relevant_source(&source);
     let request = MediaRequestParameters {
         source,
         format: matrix_sdk::media::MediaFormat::File,
     };
 
-    let content = match client.media().get_media_content(&request, true).await {
+    let content = match state
+        .client()
+        .media()
+        .get_media_content(&request, true)
+        .await
+    {
         Ok(content) => content,
         Err(e) => {
             tracing::error!("Failed to download media: {}", e);

@@ -171,6 +171,7 @@ pub enum InputAction {
 
 #[iced_cache(Clone)]
 pub struct ChatInput {
+    state: AppState,
     pub timeline: Option<Arc<Timeline>>,
 
     #[hash]
@@ -195,6 +196,7 @@ impl ChatInput {
     pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
         let room_id = room.room_id().to_owned();
         Self {
+            state: state.clone(),
             timeline: None,
 
             room_watchers: state.room_watchers(hashing::hash_room_default(room_id.clone())),
@@ -244,13 +246,16 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                     .chain(Task::future(MatrixAttachment::from_files_picker()))
                     .then(attachments_task),
             )),
-            InputMessage::OpenCompressedAttachmentPicker => Some(InputAction::Perform(
-                self.focus()
-                    .chain(Task::future(
-                        MatrixAttachment::compressed_from_folder_picker(),
-                    ))
-                    .then(attachment_task),
-            )),
+            InputMessage::OpenCompressedAttachmentPicker => {
+                let state = self.state.clone();
+                Some(InputAction::Perform(
+                    self.focus()
+                        .chain(Task::future(
+                            MatrixAttachment::compressed_from_folder_picker(state),
+                        ))
+                        .then(attachment_task),
+                ))
+            }
             InputMessage::Paste => {
                 let task = iced::clipboard::read_image().then(|result| match result {
                     Ok(image) => {

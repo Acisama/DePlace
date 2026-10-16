@@ -627,9 +627,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                 let res = match Arc::make_mut(item).update(message)? {
                     TimelineItemAction::DownloadFile { source, file_name } => {
-                        let client = self.state.client();
+                        let state = self.state.clone();
                         Some(TimelineAction::Run(Task::future(async move {
-                            download_file_to_picked(source, file_name, client).await
+                            download_file_to_picked(source, file_name, state).await
                         })))
                     }
                     TimelineItemAction::OpenMediaOverlay(params) => {

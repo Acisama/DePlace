@@ -1,37 +1,22 @@
 use std::{
-    borrow::Cow,
     collections::{BTreeSet, HashMap},
     env::temp_dir,
     fmt::Debug,
     hash::Hash,
-    io::Read,
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, Mutex},
 };
 
 use anyhow::Result;
-use dashmap::DashMap;
-use futures::{Stream, StreamExt, stream};
+use futures::{Stream, stream};
 use indexmap::IndexMap;
 use matrix_sdk::{
     Client,
-    media::{MediaFormat, UniqueKey},
     room::RoomMember,
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
 };
-use ruma::{
-    OwnedMxcUri, RoomId,
-    api::{
-        Metadata, OutgoingRequestExt,
-        auth_scheme::SendAccessToken,
-        client::{authenticated_media, media},
-    },
-    events::{presence::PresenceEventContent, room::MediaSource},
-    exports::http,
-};
+use media_fetcher::MediaProcessor;
+use ruma::{OwnedMxcUri, RoomId, events::presence::PresenceEventContent};
 use tokio::sync::watch::{self, Receiver, Ref, Sender};
 
 use crate::{
@@ -114,6 +99,7 @@ pub type MembershipMap = HashMap<OwnedRoomId, IndexMap<OwnedUserId, RoomMember>>
 pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
 
 pub mod cache;
+pub mod media_fetcher;
 pub mod roles;
 
 #[derive(Clone, Debug)]
@@ -208,7 +194,7 @@ struct AppStateInner {
     pub own_device: Arc<UserDevice>,
     pub settings: Settings,
 
-    media_fetcher: MediaFetcher,
+    media_processor: MediaProcessor,
 
     own_display_name: Sender<Option<String>>,
     own_avatar_url: Sender<Option<OwnedMxcUri>>,
@@ -258,9 +244,9 @@ impl AppState {
         keybinds: Keybinds,
         important_paths: ImportantPaths,
     ) -> Result<Self> {
-        let media_fetcher = MediaFetcher::new(&client);
+        let media_processor = MediaProcessor::new(&client);
         client
-            .set_media_fetcher(Arc::new(media_fetcher.clone()))
+            .set_media_fetcher(Arc::new(media_processor.clone()))
             .await;
 
         let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
@@ -339,7 +325,7 @@ impl AppState {
                 #[cfg(feature = "iced_desktop")]
                 image_cache: cache::ImageCache::new(client.clone()),
 
-                media_fetcher,
+                media_processor,
 
                 room_watchers,
 
@@ -502,8 +488,8 @@ impl AppState {
         self.inner.client.clone()
     }
 
-    pub fn media_fetcher(&self) -> MediaFetcher {
-        self.inner.media_fetcher.clone()
+    pub fn media_processor(&self) -> MediaProcessor {
+        self.inner.media_processor.clone()
     }
 
     /// Retrieves the `Settings` of the app
@@ -760,252 +746,4 @@ pub fn to_stream<T: Clone, V>(
             Some((value, rx))
         }
     })
-}
-
-use matrix_sdk::reqwest::Client as ReqwestClient;
-
-#[derive(Default, Clone, Debug)]
-pub struct MediaFetcher {
-    progresses: Arc<DashMap<String, Progress>>,
-    reqwest_client: ReqwestClient,
-
-    /// Keys that are relevant for the ui, so stuff like avatar fetches can be ignored
-    relevant_keys: Arc<Mutex<BTreeSet<String>>>,
-}
-
-#[derive(Default, Clone, Debug)]
-pub enum Progress {
-    #[default]
-    NotStarted,
-    Downloading {
-        total_bytes: Arc<AtomicU64>,
-        downloaded_bytes: Arc<AtomicU64>,
-    },
-    Completed,
-    Failed,
-}
-
-impl Hash for Progress {
-    fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
-        match self {
-            Progress::NotStarted => 0.hash(hasher),
-            Progress::Downloading {
-                total_bytes,
-                downloaded_bytes,
-            } => {
-                total_bytes.as_ref().as_ptr().hash(hasher);
-                downloaded_bytes.as_ref().as_ptr().hash(hasher);
-            }
-            Progress::Completed => 1.hash(hasher),
-            Progress::Failed => 2.hash(hasher),
-        }
-    }
-}
-
-impl Progress {
-    fn total_bytes(&self) -> Option<Arc<AtomicU64>> {
-        match self {
-            Progress::Downloading { total_bytes, .. } => Some(total_bytes.clone()),
-            _ => None,
-        }
-    }
-
-    fn downloaded_bytes(&self) -> Option<Arc<AtomicU64>> {
-        match self {
-            Progress::Downloading {
-                downloaded_bytes, ..
-            } => Some(downloaded_bytes.clone()),
-            _ => None,
-        }
-    }
-}
-
-/// A custom media fetch for the matrix client, notifying about download progress
-impl MediaFetcher {
-    fn new(client: &Client) -> Self {
-        Self {
-            progresses: Arc::new(DashMap::new()),
-            reqwest_client: client.http_client().clone(),
-            relevant_keys: Arc::new(Mutex::new(BTreeSet::new())),
-        }
-    }
-
-    pub fn add_relevant_source(&self, source: &MediaSource) {
-        self.relevant_keys
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .insert(source.unique_key());
-    }
-
-    async fn execute_and_stream(
-        &self,
-        http_request: http::Request<Vec<u8>>,
-        progress: Progress,
-    ) -> matrix_sdk::Result<Vec<u8>, matrix_sdk::Error> {
-        // Deconstruct the HTTP request to build a Reqwest request
-        let (parts, _body) = http_request.into_parts();
-        let mut reqwest_builder = self
-            .reqwest_client
-            .request(parts.method, parts.uri.to_string());
-
-        for (name, value) in parts.headers {
-            if let Some(name) = name {
-                reqwest_builder = reqwest_builder.header(name, value);
-            }
-        }
-
-        // Execute the request
-        let response = reqwest_builder
-            .send()
-            .await
-            .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?
-            .error_for_status()
-            .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?;
-
-        if let Some(total) = response.content_length()
-            && let Some(b) = progress.total_bytes()
-        {
-            b.store(total, Ordering::Relaxed)
-        }
-
-        let mut bytes = Vec::new();
-        let mut stream = response.bytes_stream();
-
-        // Stream the body and update progress
-        while let Some(chunk_res) = stream.next().await {
-            let chunk = chunk_res.map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?;
-            bytes.extend_from_slice(&chunk);
-            progress
-                .downloaded_bytes()
-                .map(|b| b.fetch_add(chunk.len() as u64, Ordering::Relaxed));
-        }
-
-        Ok(bytes)
-    }
-}
-
-impl matrix_sdk::media::MediaFetcher for MediaFetcher {
-    fn fetch_media_content<'a>(
-        &'a self,
-        client: &'a Client,
-        request: &'a matrix_sdk::media::MediaRequestParameters,
-    ) -> matrix_sdk::BoxFuture<'a, matrix_sdk::Result<Vec<u8>, matrix_sdk::Error>> {
-        let key = request.unique_key();
-        if self.progresses.contains_key(&key) {
-            tracing::warn!("Media fetch already in progress: {}", key);
-        }
-
-        let progress = Progress::default();
-        self.progresses.insert(key.clone(), progress.clone());
-
-        Box::pin(async move {
-            let supported_versions = client.supported_versions().await?;
-            let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
-                .is_supported(&supported_versions);
-
-            let homeserver = client.homeserver();
-            let token = client.access_token();
-            let token_str = token.as_deref().unwrap_or("");
-            let auth = SendAccessToken::IfRequired(token_str);
-
-            match &request.source {
-                MediaSource::Encrypted(file) => {
-                    let http_req = if use_auth {
-                        authenticated_media::get_content::v1::Request::from_uri(&file.url)?
-                            .try_into_http_request::<Vec<u8>>(
-                                homeserver.as_str(),
-                                auth,
-                                Cow::Borrowed(&supported_versions),
-                            )
-                            .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?
-                    } else {
-                        #[allow(deprecated)]
-                        media::get_content::v3::Request::from_url(&file.url)?
-                            .try_into_http_request::<Vec<u8>>(
-                                homeserver.as_str(),
-                                auth,
-                                Cow::Borrowed(&supported_versions),
-                            )
-                            .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?
-                    };
-
-                    let content = self.execute_and_stream(http_req, progress.clone()).await?;
-
-                    let mut cursor = std::io::Cursor::new(content.clone());
-                    let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
-                        &mut cursor,
-                        file.as_ref().clone().into(),
-                    )?;
-
-                    let mut decrypted = Vec::with_capacity(content.len());
-                    reader.read_to_end(&mut decrypted)?;
-
-                    self.progresses.insert(key, Progress::Completed);
-                    Ok(decrypted)
-                }
-
-                MediaSource::Plain(uri) => {
-                    let http_req = if let MediaFormat::Thumbnail(settings) = &request.format {
-                        if use_auth {
-                            let mut req =
-                                authenticated_media::get_content_thumbnail::v1::Request::from_uri(
-                                    uri,
-                                    settings.width,
-                                    settings.height,
-                                )?;
-                            req.method = Some(settings.method.clone());
-                            req.animated = Some(settings.animated);
-                            req.try_into_http_request::<Vec<u8>>(
-                                homeserver.as_str(),
-                                auth,
-                                Cow::Borrowed(&supported_versions),
-                            )
-                            .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?
-                        } else {
-                            #[allow(deprecated)]
-                            let mut req = media::get_content_thumbnail::v3::Request::from_url(
-                                uri,
-                                settings.width,
-                                settings.height,
-                            )?;
-
-                            #[allow(deprecated)]
-                            {
-                                req.method = Some(settings.method.clone());
-                                req.animated = Some(settings.animated);
-                            }
-
-                            req.try_into_http_request::<Vec<u8>>(
-                                homeserver.as_str(),
-                                auth,
-                                Cow::Borrowed(&supported_versions),
-                            )
-                            .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?
-                        }
-                    } else if use_auth {
-                        authenticated_media::get_content::v1::Request::from_uri(uri)?
-                            .try_into_http_request::<Vec<u8>>(
-                                homeserver.as_str(),
-                                auth,
-                                Cow::Borrowed(&supported_versions),
-                            )
-                            .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?
-                    } else {
-                        #[allow(deprecated)]
-                        media::get_content::v3::Request::from_url(uri)?
-                            .try_into_http_request::<Vec<u8>>(
-                                homeserver.as_str(),
-                                auth,
-                                Cow::Borrowed(&supported_versions),
-                            )
-                            .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?
-                    };
-
-                    let content = self.execute_and_stream(http_req, progress.clone()).await?;
-                    self.progresses.insert(key, Progress::Completed);
-                    Ok(content)
-                }
-            }
-        })
-    }
 }
