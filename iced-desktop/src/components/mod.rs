@@ -508,6 +508,7 @@ pub trait Explainable<'a, T: Clone + 'a>
 where
     Self: Sized,
 {
+    fn to_element(self) -> Element<'a, T>;
     fn explain(self, color: Color) -> Element<'a, T>;
     fn explain_white(self) -> Element<'a, T> {
         self.explain(Color::WHITE)
@@ -515,6 +516,10 @@ where
 }
 
 impl<'a, T: Clone + 'a, E: Into<Element<'a, T>>> Explainable<'a, T> for E {
+    fn to_element(self) -> Element<'a, T> {
+        self.into()
+    }
+
     fn explain(self, color: Color) -> Element<'a, T> {
         let el = self.into();
         el.explain(color)

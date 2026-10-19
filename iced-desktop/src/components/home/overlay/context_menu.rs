@@ -247,9 +247,9 @@ fn render_message_context_menu(
         buttons.push(
             render_context_menu_button(
                 structure,
-                theme.colors.yellow,
+                theme.colors.pins,
                 theme.solid_bg,
-                theme.colors.yellow,
+                theme.colors.pins,
                 if is_pinned {
                     phosphor_svgs::icon::push_pin_slash::BOLD
                 } else {

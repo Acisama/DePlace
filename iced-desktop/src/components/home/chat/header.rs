@@ -233,7 +233,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         "Button to toggle pins in the current room",
                         render_icon(
                             theme.text.dim.into(),
-                            theme.colors.yellow.into(),
+                            theme.colors.pins.into(),
                             if self.sidebar_state.contains(SidebarState::Pins) {
                                 phosphor_svgs::icon::push_pin::FILL
                             } else {

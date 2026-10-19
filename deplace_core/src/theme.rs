@@ -18,6 +18,7 @@ pub struct Colors {
     pub busy: DePlaceColor,
     pub muted: DePlaceColor,
     pub unknown: DePlaceColor,
+    pub pins: DePlaceColor,
 }
 
 impl Colors {
@@ -41,6 +42,7 @@ impl Colors {
             busy: red,
             muted,
             unknown,
+            pins: yellow,
         }
     }
 }
@@ -165,5 +167,9 @@ impl Theme {
 
     pub fn accent_blended(&self) -> DePlaceColor {
         self.solid_bg.blend(self.accent, 0.15)
+    }
+
+    pub fn pins_blended(&self) -> DePlaceColor {
+        self.solid_bg.blend(self.colors.pins, 0.15)
     }
 }

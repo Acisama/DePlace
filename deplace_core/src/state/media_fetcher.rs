@@ -12,6 +12,7 @@ use std::{
 };
 
 use dashmap::{DashMap, mapref::entry::Entry};
+use indexmap::IndexMap;
 use futures::{
     FutureExt, StreamExt,
     future::{BoxFuture, Shared},
@@ -33,18 +34,26 @@ use ruma::{
 use std::sync::Mutex;
 
 /// A fetch for a given key that is already running. Additional callers for the same
-/// key clone this and await it instead of starting a second network request.
 type SharedFetch = Shared<BoxFuture<'static, Result<Arc<Vec<u8>>, Arc<str>>>>;
+
+/// Progress entries in the order they were started. Restarting a key moves it to the end,
+/// so iteration order is always start order.
+type ProgressMap<K> = Arc<Mutex<IndexMap<K, ProgressEntry>>>;
+
+/// Locks the mutex, recovering the data if a previous holder panicked.
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poison| poison.into_inner())
+}
 
 #[derive(Default, Clone)]
 pub struct MediaProcessor {
-    progresses: Arc<DashMap<String, ProgressEntry>>,
+    progresses: ProgressMap<String>,
     reqwest_client: ReqwestClient,
 
     /// Keys that are relevant for the ui, so stuff like avatar fetches can be ignored
     relevant_keys: Arc<Mutex<BTreeSet<String>>>,
 
-    compressions: Arc<DashMap<PathBuf, ProgressEntry>>,
+    compressions: ProgressMap<PathBuf>,
 
     /// Fetches currently in flight, keyed the same way as `progresses`, so a second
     /// request for the same media piggybacks on the first instead of duplicating it.
@@ -181,32 +190,34 @@ impl Hash for ProgressEntry {
 impl MediaProcessor {
     pub fn new(client: &Client) -> Self {
         Self {
-            progresses: Arc::new(DashMap::new()),
+            progresses: Arc::new(Mutex::new(IndexMap::new())),
             reqwest_client: client.http_client().clone(),
             relevant_keys: Arc::new(Mutex::new(BTreeSet::new())),
 
-            compressions: Arc::new(DashMap::new()),
+            compressions: Arc::new(Mutex::new(IndexMap::new())),
             in_flight: Arc::new(DashMap::new()),
         }
     }
 
     pub fn add_relevant_source(&self, source: &MediaSource) {
-        self.relevant_keys
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .insert(source.unique_key());
+        lock(&self.relevant_keys).insert(source.unique_key());
     }
+
+    // pub fn current_progress(&self) -> Option<Progress> {}
 
     pub fn start_compression(&self, path: PathBuf) -> ProgressEntry {
         let progress = ProgressEntry::downloading_new(SystemTime::now());
-        self.compressions.insert(path, progress.clone());
+        let mut compressions = lock(&self.compressions);
+        // Remove first so a restarted compression moves to the end instead of keeping its old slot
+        compressions.shift_remove(&path);
+        compressions.insert(path, progress.clone());
 
         progress
     }
 
     pub fn finish_compression(&self, path: PathBuf, success: bool, started_at: SystemTime) {
-        self.compressions
-            .insert(path, ProgressEntry::completed(started_at, success));
+        // Replacing an existing key keeps its position, so the start order is preserved
+        lock(&self.compressions).insert(path, ProgressEntry::completed(started_at, success));
     }
 
     async fn execute_and_stream(
@@ -387,7 +398,12 @@ impl matrix_sdk::media::MediaFetcher for MediaProcessor {
             Entry::Vacant(entry) => {
                 let started_at = SystemTime::now();
                 let progress = ProgressEntry::downloading_new(started_at);
-                self.progresses.insert(key.clone(), progress.clone());
+                {
+                    let mut progresses = lock(&self.progresses);
+                    // Remove first so a refetched key moves to the end instead of keeping its old slot
+                    progresses.shift_remove(&key);
+                    progresses.insert(key.clone(), progress.clone());
+                }
 
                 let this = self.clone();
                 let client = client.clone();
@@ -399,22 +415,14 @@ impl matrix_sdk::media::MediaFetcher for MediaProcessor {
                         let result = this.do_fetch(client, request, &progress).await;
                         this.in_flight.remove(&key_for_fut);
 
-                        match result {
-                            Ok(bytes) => {
-                                this.progresses.insert(
-                                    key_for_fut,
-                                    ProgressEntry::completed(started_at, true),
-                                );
-                                Ok(Arc::new(bytes))
-                            }
-                            Err(e) => {
-                                this.progresses.insert(
-                                    key_for_fut,
-                                    ProgressEntry::completed(started_at, false),
-                                );
-                                Err(Arc::from(e.to_string()))
-                            }
-                        }
+                        lock(&this.progresses).insert(
+                            key_for_fut,
+                            ProgressEntry::completed(started_at, result.is_ok()),
+                        );
+
+                        result
+                            .map(Arc::new)
+                            .map_err(|e| Arc::from(e.to_string()))
                     });
 
                 let shared = fut.shared();

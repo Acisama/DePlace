@@ -1349,8 +1349,8 @@ fn render_timeline_item_buttons(
                 event_id: event_id.clone(),
                 is_pinned,
             },
-            theme.colors.yellow,
-            theme.colors.yellow,
+            theme.colors.pins,
+            theme.colors.pins,
             theme.solid_bg,
         ));
     }
