@@ -454,22 +454,23 @@ impl MessageEvent {
                 w::container("")
                     .width(pill_width)
                     .height(Length::Fill)
-                    .style(move |_| ContainerStyle {
+                    .style(move |_: &iced::Theme| ContainerStyle {
                         border: border::rounded(pill_width / 2.0),
                         background: Some(color.into()),
                         ..Default::default()
                     }),
-                )
-                .width(pre_col_width)
-                .height(Length::Fill)
-                .padding(pill_width)
+            )
+            .width(pre_col_width)
+            .height(Length::Fill)
+            .padding(pill_width)
+            .to_element()
         };
 
         let content = w::container(
             w::row![
-                highlight_color.map(|color|
-                    pill(color.into())
-                ),
+                highlight_color
+                    .map(|color| pill(color.into()))
+                    .unwrap_or(Space::new().width(pre_col_width).into()),
                 w::column![
                     w::row![
                         Space::new().width(structure.chat_col_width() - pre_col_width),
@@ -486,63 +487,56 @@ impl MessageEvent {
                         w::column![
                             Space::new().height(structure.divider_width),
                             icon.or_else(|| is_hovered.then(|| w::text(
-                                    format_message_short_date(
-                                        self.timestamp,
-                                        timezone,
-                                        hour_format
-                                    )
-                                )
-                                .color(theme.text.dim)
-                                .size(structure.chat.small_text_size)
-                                .width(structure.chat.icon_size)
-                                .center()
-                                .into()))
-                                    .unwrap_or(
-                                        Space::new().width(structure.chat.icon_size).into()
-                                    ),
-                                Space::new().height(structure.divider_width),
-                            ],
-                            Space::new().width(pre_col_width),
-                            w::column![name, column, reactions].padding(padding::bottom(
-                                if as_dummy {
-                                    structure.small_gap / 2.0
-                                } else {
-                                    0.0
-                                }
-                            ))
-                        ]
-                    ],
-                    self.is_pinned.then(|| pill(theme.colors.pins.into()))
-                ]
-                .height(Length::Shrink),
-            )
-            .style(move |_| ContainerStyle {
-                background,
-                border: border::rounded(if !as_dummy {
-                    structure.semi_border_radius() + structure.border_thickness
-                } else {
-                    0.0
-                }),
-                ..Default::default()
-            })
-            .width(Fill);
-
-        help_view.call(
-            HelpKey::Message {
-                key: MessageHelpKey::Message,
-                index,
-            },
-            "A message sent in the current room",
-            if as_dummy {
-                w::container(themed_scrollable(content, theme, structure))
-                    .height(Length::Shrink.max(structure.chat.max_media_height))
-                    .to_element()
-            } else {
-                content.into()
-            }
+                                format_message_short_date(self.timestamp, timezone, hour_format)
+                            )
+                            .color(theme.text.dim)
+                            .size(structure.chat.small_text_size)
+                            .width(structure.chat.icon_size)
+                            .center()
+                            .into()))
+                                .unwrap_or(Space::new().width(structure.chat.icon_size).into()),
+                            Space::new().height(structure.divider_width),
+                        ],
+                        Space::new().width(pre_col_width),
+                        w::column![name, column, reactions].padding(padding::bottom(if as_dummy {
+                            structure.small_gap / 2.0
+                        } else {
+                            0.0
+                        }))
+                    ]
+                ],
+                self.is_pinned.then(|| pill(theme.colors.pins.into()))
+            ]
+            .height(Length::Shrink),
         )
-        .radius(structure.inner_border_radius)
-        .into()
+        .style(move |_| ContainerStyle {
+            background,
+            border: border::rounded(if !as_dummy {
+                structure.semi_border_radius() + structure.border_thickness
+            } else {
+                0.0
+            }),
+            ..Default::default()
+        })
+        .width(Fill);
+
+        help_view
+            .call(
+                HelpKey::Message {
+                    key: MessageHelpKey::Message,
+                    index,
+                },
+                "A message sent in the current room",
+                if as_dummy {
+                    w::container(themed_scrollable(content, theme, structure))
+                        .height(Length::Shrink.max(structure.chat.max_media_height))
+                        .to_element()
+                } else {
+                    content.into()
+                },
+            )
+            .radius(structure.inner_border_radius)
+            .into()
     }
 }
 
