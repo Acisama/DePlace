@@ -128,6 +128,7 @@ pub enum HomeMessage {
     },
     SettingsChanged,
     SyncTick,
+    MediaProgressTick,
     HelpToggle,
     HelpHover(Option<HelpKey>),
     HelpExit,
@@ -241,6 +242,14 @@ impl Home {
             },
         ));
 
+        let media_progress_tick_task = Task::stream(iced::futures::stream::unfold(
+            state.media_processor().progress_tick(),
+            |mut rx| async move {
+                rx.changed().await.ok()?;
+                Some((HomeMessage::MediaProgressTick, rx))
+            },
+        ));
+
         (
             home,
             Task::batch([
@@ -248,6 +257,7 @@ impl Home {
                 watch_task,
                 settings_watch_task,
                 sync_tick_task,
+                media_progress_tick_task,
             ]),
         )
     }
@@ -624,6 +634,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 None
             }
             HomeMessage::SyncTick => None,
+            HomeMessage::MediaProgressTick => None,
             HomeMessage::HelpToggle => {
                 self.help.active = true;
                 None

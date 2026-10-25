@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::{io::Cursor, sync::Arc};
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -9,7 +9,10 @@ use mime::Mime;
 use ruma::events::room::MediaSource;
 use tokio::{fs::File, io::AsyncWriteExt};
 
-use crate::state::{AppState, media_fetcher::ProgressEntry};
+use crate::state::{
+    AppState,
+    media_fetcher::{CompressionProgress, MediaProcessor},
+};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct MatrixAttachment {
@@ -108,28 +111,46 @@ impl MatrixAttachment {
             .unwrap_or("folder")
             .to_string();
 
+        let total: u64 = walkdir::WalkDir::new(folder_path.clone())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .filter_map(|e| e.metadata().ok())
+            .map(|m| m.len())
+            .sum();
+
         let media_processor = state.media_processor();
-        let progress = media_processor.start_compression(folder_path.clone());
-        let started_at = progress.started_at;
+        let progress = media_processor.start_compression(folder_path.clone(), total);
+        let started_at = progress.start_time();
 
         let path_for_blocking = folder_path.clone();
+        let media_processor_for_blocking = media_processor.clone();
 
-        let data =
-            match tokio::task::spawn_blocking(move || zip_folder(&path_for_blocking, &progress))
-                .await
-            {
+        let data = match tokio::task::spawn_blocking(move || {
+            zip_folder(&path_for_blocking, &progress, &media_processor_for_blocking)
+        })
+        .await
+        {
                 Ok(Ok(data)) => {
-                    media_processor.finish_compression(folder_path, true, started_at);
+                    media_processor.complete_compression(folder_path, started_at);
                     data
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Failed to compress folder: {}", e);
-                    media_processor.finish_compression(folder_path, false, started_at);
+                    media_processor.fail_compression(
+                        folder_path,
+                        started_at,
+                        Arc::new(e.to_string()),
+                    );
                     return None;
                 }
                 Err(e) => {
                     tracing::error!("Compression task failed: {}", e);
-                    media_processor.finish_compression(folder_path, false, started_at);
+                    media_processor.fail_compression(
+                        folder_path,
+                        started_at,
+                        Arc::new(e.to_string()),
+                    );
                     return None;
                 }
             };
@@ -149,19 +170,12 @@ impl MatrixAttachment {
     }
 }
 
-fn zip_folder(folder_path: &std::path::Path, progress: &ProgressEntry) -> Result<Vec<u8>> {
+fn zip_folder(
+    folder_path: &std::path::Path,
+    progress: &CompressionProgress,
+    media_processor: &MediaProcessor,
+) -> Result<Vec<u8>> {
     use std::io::Write;
-
-    let total: u64 = walkdir::WalkDir::new(folder_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
-        .filter_map(|e| e.metadata().ok())
-        .map(|m| m.len())
-        .sum();
-
-    progress.set_total_bytes(total);
-    progress.set_downloaded_bytes(0);
 
     let mut buffer = Cursor::new(Vec::new());
     let mut writer = zip::ZipWriter::new(&mut buffer);
@@ -184,7 +198,8 @@ fn zip_folder(folder_path: &std::path::Path, progress: &ProgressEntry) -> Result
             writer.start_file(name, options)?;
             writer.write_all(&data)?;
 
-            progress.update_downloaded_bytes(|p| p + data.len() as u64);
+            progress.add_to_compressed_bytes(data.len() as u64);
+            media_processor.notify_progress();
         }
     }
 
@@ -203,11 +218,15 @@ pub async fn download_file_to_picked(source: MediaSource, file_name: String, sta
         return;
     };
 
-    state.media_processor().add_relevant_source(&source);
+    let path = handle.path();
+
     let request = MediaRequestParameters {
         source,
         format: matrix_sdk::media::MediaFormat::File,
     };
+    state
+        .media_processor()
+        .add_relevant_source(&request, path.into());
 
     let content = match state
         .client()
@@ -222,7 +241,7 @@ pub async fn download_file_to_picked(source: MediaSource, file_name: String, sta
         }
     };
 
-    let mut file = match File::create(handle.path()).await {
+    let mut file = match File::create(path).await {
         Ok(file) => file,
         Err(e) => {
             tracing::error!("Failed to create file: {}", e);

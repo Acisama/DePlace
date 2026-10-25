@@ -1,6 +1,12 @@
 use std::collections::BTreeSet;
 
-use deplace_core::{settings::NameDecoration, state::PresenceMap};
+use deplace_core::{
+    settings::NameDecoration,
+    state::{
+        PresenceMap,
+        media_fetcher::{MediaProcessor, ProgressCompleteness},
+    },
+};
 use enumset::EnumSet;
 use iced::Alignment;
 use macros::iced_cache;
@@ -55,11 +61,16 @@ pub struct Header {
     name_decoration: Receiver<NameDecoration>,
 
     presence_map: Receiver<PresenceMap>,
+
+    media_processor: MediaProcessor,
 }
 
 impl ExtraHash for Header {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name_decoration.borrow().hash(state);
+
+        self.media_processor.current_download().hash(state);
+        self.media_processor.current_compression().hash(state);
     }
 }
 
@@ -81,6 +92,7 @@ impl Header {
             state: state.clone(),
 
             avatar_states_for_hash: BTreeSet::new(),
+            media_processor: state.media_processor(),
         }
     }
 }
@@ -156,6 +168,9 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
 
         let is_in_call = room.own_user_is_in_call();
 
+        let download = self.media_processor.current_download();
+        let compression = self.media_processor.current_compression();
+
         let content =
             floating_tile(
                 theme,
@@ -201,6 +216,24 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     .align_y(Alignment::Center)
                     .spacing(structure.small_gap),
                     Space::new().width(Fill),
+                    download.map(|progress| {
+                        let color = theme.accent.into();
+                        match progress.completeness() {
+                            ProgressCompleteness::NotStarted => pie_progress(0.0, button_size, color, structure.border_thickness),
+                            ProgressCompleteness::InProgress(v) => pie_progress(v, button_size, color, structure.border_thickness),
+                            ProgressCompleteness::Completed => pie_progress(1.0, button_size, color, structure.border_thickness),
+                            ProgressCompleteness::Failed => pie_progress(0.0, button_size, color, structure.border_thickness),
+                        }
+                    }),
+                    compression.map(|progress| {
+                        let color = theme.colors.compression.into();
+                        match progress.completeness() {
+                            ProgressCompleteness::NotStarted => pie_progress(0.0, button_size, color, structure.border_thickness),
+                            ProgressCompleteness::InProgress(v) => pie_progress(v, button_size, color, structure.border_thickness),
+                            ProgressCompleteness::Completed => pie_progress(1.0, button_size, color, structure.border_thickness),
+                            ProgressCompleteness::Failed => pie_progress(0.0, button_size, color, structure.border_thickness),
+                        }
+                    }),
                     help_view.call(
                         HelpKey::Header(HeaderHelpKey::CallButton),
                         "Call button, press it to start or leave a voice call",

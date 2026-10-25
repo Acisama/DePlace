@@ -5,6 +5,7 @@ pub use crate::components::{
     help_mode::{Caption, HelpState, help, help_root},
     home::HelpKey,
     on_appear, pan,
+    pie_progress::pie_progress,
     profile::{
         MaybeRenderIcon, NeedsAvatarExt, ProfileRenderExt, context_room_icon, loading_icon,
         render_avatar, render_loading_name, render_name, render_presence, render_presence_badge,

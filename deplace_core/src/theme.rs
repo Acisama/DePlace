@@ -19,6 +19,8 @@ pub struct Colors {
     pub muted: DePlaceColor,
     pub unknown: DePlaceColor,
     pub pins: DePlaceColor,
+    pub compression: DePlaceColor,
+    pub purple: DePlaceColor,
 }
 
 impl Colors {
@@ -28,6 +30,7 @@ impl Colors {
         yellow: DePlaceColor,
         muted: DePlaceColor,
         unknown: DePlaceColor,
+        purple: DePlaceColor,
     ) -> Self {
         Self {
             red,
@@ -43,6 +46,8 @@ impl Colors {
             muted,
             unknown,
             pins: yellow,
+            compression: purple,
+            purple,
         }
     }
 }
@@ -114,6 +119,8 @@ impl Default for Theme {
                 yellow,
                 muted_color,
                 DePlaceColor::from_hsla(0.0, 1.0, 0.7, 1.0),
+                // hsl(316deg, 74%, 85%)
+                DePlaceColor::from_hsla(0.7490, 0.4332, 0.6333, 1.0),
             ),
             accent,
         }
