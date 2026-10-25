@@ -394,9 +394,7 @@ impl AppState {
     }
 
     pub fn set_own_display_name(&self, name: Option<String>) {
-        if let Err(e) = self.inner.own_display_name.send(name) {
-            tracing::error!("Failed to set own display name: {}", e);
-        }
+        self.inner.own_display_name.send_replace(name);
     }
 
     pub fn own_avatar_url(&self) -> Receiver<Option<OwnedMxcUri>> {
@@ -404,9 +402,7 @@ impl AppState {
     }
 
     pub fn set_own_avatar_url(&self, url: Option<OwnedMxcUri>) {
-        if let Err(e) = self.inner.own_avatar_url.send(url) {
-            tracing::error!("Failed to set own avatar url: {}", e);
-        }
+        self.inner.own_avatar_url.send_replace(url);
     }
 
     pub fn get_children(&self, parent: &RoomId) -> Arc<Vec<OwnedRoomId>> {
