@@ -892,6 +892,8 @@ pub enum HeaderHelpKey {
     OpenMemberList,
     SearchInput,
     HelpButton,
+    CurrentDownload,
+    CurrentCompression,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

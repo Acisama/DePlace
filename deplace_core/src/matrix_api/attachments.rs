@@ -54,6 +54,10 @@ impl MatrixAttachment {
 
     async fn from_file_handle(handle: FileHandle) -> Result<Self> {
         let path = handle.path().to_path_buf();
+        if path.is_dir() {
+            tracing::warn!("{} is a directory, not a file", path.display());
+            anyhow::bail!("{} is a directory, not a file", path.display());
+        }
         let read_start = std::time::Instant::now();
         let data = handle.read().await;
         tracing::info!(
@@ -131,29 +135,21 @@ impl MatrixAttachment {
         })
         .await
         {
-                Ok(Ok(data)) => {
-                    media_processor.complete_compression(folder_path, started_at);
-                    data
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Failed to compress folder: {}", e);
-                    media_processor.fail_compression(
-                        folder_path,
-                        started_at,
-                        Arc::new(e.to_string()),
-                    );
-                    return None;
-                }
-                Err(e) => {
-                    tracing::error!("Compression task failed: {}", e);
-                    media_processor.fail_compression(
-                        folder_path,
-                        started_at,
-                        Arc::new(e.to_string()),
-                    );
-                    return None;
-                }
-            };
+            Ok(Ok(data)) => {
+                media_processor.complete_compression(folder_path, started_at);
+                data
+            }
+            Ok(Err(e)) => {
+                tracing::error!("Failed to compress folder: {}", e);
+                media_processor.fail_compression(folder_path, started_at, Arc::new(e.to_string()));
+                return None;
+            }
+            Err(e) => {
+                tracing::error!("Compression task failed: {}", e);
+                media_processor.fail_compression(folder_path, started_at, Arc::new(e.to_string()));
+                return None;
+            }
+        };
 
         tracing::info!(
             "Compressed {} ({} bytes) in {:?}",

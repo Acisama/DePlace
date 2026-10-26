@@ -1,6 +1,7 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 use std::time::Instant;
 
+use iced::advanced::svg;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, path::Arc};
 use iced::{Color, Element, Event, Radians, Rectangle, Renderer, Theme, mouse};
 
@@ -8,6 +9,7 @@ pub struct PieProgress {
     pub value: f32, // 0.0..=1.0
     pub color: Color,
     pub thickness: f32,
+    pub icon: Option<svg::Handle>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -97,6 +99,16 @@ impl<Message> canvas::Program<Message> for PieProgress {
             frame.fill(&pie, color);
         }
 
+        // Icon fills the same inner radius the pie itself draws to, so its
+        // gap to the ring scales together with the ring's hover animation.
+        if let Some(handle) = &self.icon {
+            let icon_bounds = Rectangle::new(
+                iced::Point::new(center.x - inner, center.y - inner),
+                iced::Size::new(inner * 2.0, inner * 2.0),
+            );
+            frame.draw_svg(icon_bounds, svg::Svg::new(handle.clone()).color(color));
+        }
+
         vec![frame.into_geometry()]
     }
 }
@@ -106,11 +118,13 @@ pub fn pie_progress<'a, Message: 'a>(
     size: f32,
     color: Color,
     thickness: f32,
+    icon: Option<&'static str>,
 ) -> Element<'a, Message> {
     Canvas::new(PieProgress {
         value,
         color,
         thickness,
+        icon: icon.map(|svg_content| svg::Handle::from_memory(svg_content.as_bytes())),
     })
     .width(size)
     .height(size)

@@ -218,21 +218,23 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     Space::new().width(Fill),
                     download.map(|progress| {
                         let color = theme.accent.into();
-                        match progress.completeness() {
-                            ProgressCompleteness::NotStarted => pie_progress(0.0, button_size, color, structure.border_thickness),
-                            ProgressCompleteness::InProgress(v) => pie_progress(v, button_size, color, structure.border_thickness),
-                            ProgressCompleteness::Completed => pie_progress(1.0, button_size, color, structure.border_thickness),
-                            ProgressCompleteness::Failed => pie_progress(0.0, button_size, color, structure.border_thickness),
-                        }
+                        let element = match progress.completeness() {
+                            ProgressCompleteness::NotStarted => pie_progress(0.0, button_size, color, structure.border_thickness, None),
+                            ProgressCompleteness::InProgress(v) => pie_progress(v, button_size, color, structure.border_thickness, None),
+                            ProgressCompleteness::Completed => pie_progress(0.0, button_size, color, structure.border_thickness, Some(phosphor_svgs::icon::check_circle::FILL)),
+                            ProgressCompleteness::Failed => pie_progress(0.0, button_size, theme.colors.error.into(), structure.border_thickness, Some(phosphor_svgs::icon::x_circle::FILL)),
+                        };
+                        help_view.call(HelpKey::Header(HeaderHelpKey::CurrentDownload), "The status of the current download", element)
                     }),
                     compression.map(|progress| {
                         let color = theme.colors.compression.into();
-                        match progress.completeness() {
-                            ProgressCompleteness::NotStarted => pie_progress(0.0, button_size, color, structure.border_thickness),
-                            ProgressCompleteness::InProgress(v) => pie_progress(v, button_size, color, structure.border_thickness),
-                            ProgressCompleteness::Completed => pie_progress(1.0, button_size, color, structure.border_thickness),
-                            ProgressCompleteness::Failed => pie_progress(0.0, button_size, color, structure.border_thickness),
-                        }
+                        let element = match progress.completeness() {
+                            ProgressCompleteness::NotStarted => pie_progress(0.0, button_size, color, structure.border_thickness, None),
+                            ProgressCompleteness::InProgress(v) => pie_progress(v, button_size, color, structure.border_thickness, None),
+                            ProgressCompleteness::Completed => pie_progress(0.0, button_size, color, structure.border_thickness, Some(phosphor_svgs::icon::check_circle::FILL)),
+                            ProgressCompleteness::Failed => pie_progress(0.0, button_size, theme.colors.error.into(), structure.border_thickness, Some(phosphor_svgs::icon::x_circle::FILL)),
+                        };
+                        help_view.call(HelpKey::Header(HeaderHelpKey::CurrentCompression), "The status of the current compression task", element)
                     }),
                     help_view.call(
                         HelpKey::Header(HeaderHelpKey::CallButton),
