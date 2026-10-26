@@ -21,8 +21,6 @@ use iced::{
     keyboard, mouse, touch,
 };
 
-use super::home::HelpKey;
-
 /// `K` identifies a target. It must be unique per element: all targets whose
 /// key equals `hovered` are highlighted, so give each message its own key,
 /// e.g. `HelpKey::Message(event_id)`.
@@ -871,4 +869,87 @@ impl<T: Clone> HelpView<T> {
             self.on_hover,
         )
     }
+}
+
+/// Identifies a help-mode target. Give each distinct explorable element its
+/// own variant; see [`crate::components::help_mode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HelpKey {
+    Sidebar(SidebarHelpKey),
+    Chat(ChatHelpKey),
+    ChatSidebar(ChatSidebarHelpKey),
+    Header(HeaderHelpKey),
+    Message { key: MessageHelpKey, index: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HeaderHelpKey {
+    Header,
+    HeaderIcon,
+    HeaderName,
+    CallButton,
+    OpenPins,
+    OpenMemberList,
+    SearchInput,
+    HelpButton,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ChatHelpKey {
+    Chat,
+    MainPanel,
+    Input,
+    UploadButton,
+    UploadCompressedButton,
+    Attachments,
+    Attachment,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SidebarHelpKey {
+    Sidebar,
+    HomeIcon,
+    ServerColumn,
+    DmsWithNotifications,
+    Servers,
+    Server(usize),
+
+    QuickselectButton,
+
+    Channels,
+    Dms,
+    ServerName,
+    Channel(usize),
+
+    Account,
+    SettingsButton,
+    AccountIcon,
+    AccountName,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ChatSidebarHelpKey {
+    ChatSidebar,
+    PinnedMessage,
+    SearchResultMessage,
+    Banner,
+    BannerUserIcon,
+    MemberName,
+    MemberId,
+    OnlineMembers,
+    OfflineMembers,
+    OnlineMemberCount,
+    OfflineMemberCount,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MessageHelpKey {
+    Message,
+    Date,
+    Name,
+    Icon,
+    Reply(usize),
+    TextContent,
+    OtherContent,
+    Reaction,
 }

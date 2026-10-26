@@ -310,6 +310,31 @@ impl MediaProcessor {
         lock(&self.download_paths).insert(source.unique_key(), path);
     }
 
+    /// Records a terminal state for a manual download if `fetch_media_content` never
+    /// ran for it (which happens when matrix-sdk serves the content straight from its
+    /// own media cache instead of using the fetcher)
+    pub fn ensure_download_recorded(
+        &self,
+        request: &MediaRequestParameters,
+        started_at: SystemTime,
+        result: &std::result::Result<(), String>,
+    ) {
+        let key = request.unique_key();
+        let mut downloads = lock(&self.downloads);
+
+        if downloads.contains_key(&key) {
+            return;
+        }
+
+        let progress = match result {
+            Ok(()) => DownloadProgress::completed(started_at),
+            Err(e) => DownloadProgress::failed(started_at, Arc::new(e.clone())),
+        };
+        downloads.insert(key, progress);
+        drop(downloads);
+        self.bump_tick();
+    }
+
     // pub fn current_progress(&self) -> Option<Progress> {}
 
     pub fn start_compression(&self, path: PathBuf, total: u64) -> CompressionProgress {
@@ -520,26 +545,18 @@ impl MediaProcessor {
         let all_downloads = lock(&self.downloads);
         let download_keys = lock(&self.download_paths);
 
-        let downloads = download_keys
+        download_keys
             .keys()
-            .filter_map(|key| all_downloads.get(key));
-
-        downloads
             .rev()
-            .find(|p| matches!(p, DownloadProgress::Downloading { .. }))
-            .or_else(|| all_downloads.values().next_back())
+            .filter_map(|key| all_downloads.get(key))
+            .next()
             .cloned()
     }
 
     pub fn current_compression(&self) -> Option<CompressionProgress> {
         let compressions = lock(&self.compressions);
 
-        compressions
-            .values()
-            .rev()
-            .find(|p| matches!(p, CompressionProgress::Compressing { .. }))
-            .or_else(|| compressions.values().next_back())
-            .cloned()
+        compressions.values().rev().next_back().cloned()
     }
 }
 

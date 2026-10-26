@@ -1,4 +1,4 @@
-use std::{io::Cursor, sync::Arc};
+use std::{io::Cursor, sync::Arc, time::SystemTime};
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -224,19 +224,23 @@ pub async fn download_file_to_picked(source: MediaSource, file_name: String, sta
         source,
         format: matrix_sdk::media::MediaFormat::File,
     };
-    state
-        .media_processor()
-        .add_relevant_source(&request, path.into());
+    let media_processor = state.media_processor();
+    media_processor.add_relevant_source(&request, path.into());
 
+    let started_at = SystemTime::now();
     let content = match state
         .client()
         .media()
         .get_media_content(&request, true)
         .await
     {
-        Ok(content) => content,
+        Ok(content) => {
+            media_processor.ensure_download_recorded(&request, started_at, &Ok(()));
+            content
+        }
         Err(e) => {
             tracing::error!("Failed to download media: {}", e);
+            media_processor.ensure_download_recorded(&request, started_at, &Err(e.to_string()));
             return;
         }
     };

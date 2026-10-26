@@ -10,7 +10,7 @@ use macros::iced_cache;
 use sweeten::widget::drag::DragEvent;
 
 use super::pill::PillCanvas;
-use crate::{common::*, components::home::SidebarHelpKey};
+use crate::{common::*, components::help_mode::SidebarHelpKey};
 
 #[derive(Clone, Debug)]
 pub enum ServerColumnMessage {

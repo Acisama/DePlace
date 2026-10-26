@@ -5,7 +5,7 @@ use iced::{
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
 
-use crate::{common::*, components::home::chat::MessageEvent};
+use crate::{common::*, modules::home::chat::MessageEvent};
 
 #[derive(Clone, Debug)]
 pub enum ModifyItemMessage {

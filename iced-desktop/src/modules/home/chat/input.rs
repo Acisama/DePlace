@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     common::*,
-    components::{InsetShadow, home::ChatHelpKey, phosphor_icon},
+    components::{InsetShadow, help_mode::ChatHelpKey, phosphor_icon},
 };
 
 use super::timeline::messages::MessageEvent;

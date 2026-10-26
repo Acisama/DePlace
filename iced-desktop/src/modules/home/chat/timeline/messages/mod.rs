@@ -1,6 +1,6 @@
 use crate::{
-    common::*,
-    components::{home::overlay::MediaOverlayParams, profile::OpenProfileOverlayExt},
+    common::*, components::profile::OpenProfileOverlayExt,
+    modules::home::overlay::MediaOverlayParams,
 };
 use std::{
     collections::BTreeSet,

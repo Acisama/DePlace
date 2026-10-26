@@ -3,7 +3,7 @@ use iced::Alignment;
 use macros::{iced_cache, iced_icon};
 use std::collections::BTreeSet;
 
-use crate::{common::*, components::home::SidebarHelpKey};
+use crate::{common::*, components::help_mode::SidebarHelpKey};
 
 #[derive(Debug, Clone)]
 pub enum AccountMessage {

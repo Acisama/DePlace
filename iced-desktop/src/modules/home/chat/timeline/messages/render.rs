@@ -33,23 +33,16 @@ use phosphor_svgs::icon as icons;
 use crate::{
     common::*,
     components::{
-        MediaType,
-        home::{
-            MessageHelpKey,
-            chat::timeline::messages::{SystemEvent, SystemMessage},
-            overlay::{MediaOverlayParams, OverlayMediaType},
-        },
-        link::link,
-        phosphor_icon,
-        profile::render_profile_name_with_overlay,
-        render_media_failed_to_load,
+        MediaType, help_mode::MessageHelpKey, link::link, phosphor_icon,
+        profile::render_profile_name_with_overlay, render_media_failed_to_load,
         track_bounds::track_bounds,
     },
+    modules::home::overlay::{MediaOverlayParams, OverlayMediaType},
 };
 
 use super::{
-    ImageMessage, MessageContent, MessageEvent, ReplyContent, RtcNotification, TimelineItemMessage,
-    VideoMessage, formatted_body::FormattedBodyView,
+    ImageMessage, MessageContent, MessageEvent, ReplyContent, RtcNotification, SystemEvent,
+    SystemMessage, TimelineItemMessage, VideoMessage, formatted_body::FormattedBodyView,
 };
 
 #[allow(clippy::too_many_arguments)]

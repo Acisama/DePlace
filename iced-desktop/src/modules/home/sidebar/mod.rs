@@ -4,9 +4,7 @@ use deplace_core::state::ActiveServer;
 use macros::iced_cache;
 use server_column::{ServerColumn, ServerColumnAction, ServerColumnMessage};
 
-use crate::common::*;
-
-use super::SidebarHelpKey;
+use crate::{common::*, components::help_mode::SidebarHelpKey};
 
 mod account;
 mod channels;

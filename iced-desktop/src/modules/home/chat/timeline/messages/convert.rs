@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 use std::time::SystemTime;
 
 use crate::common::*;
-use crate::components::home::chat::timeline::messages::{RtcNotification, TimelineProfile};
 use crate::components::{blurhash_to_image, thumbhash_to_image};
+use crate::modules::home::chat::timeline::messages::{RtcNotification, TimelineProfile};
 
 use super::{
     ImageMessage, MessageContent, MessageEvent, ReactionInfoMap, ReplyContent, ReplyEvent,

@@ -10,7 +10,7 @@ use matrix_sdk::{
 
 use crate::{
     common::*,
-    components::{home::ChatSidebarHelpKey, track_bounds::track_bounds},
+    components::{help_mode::ChatSidebarHelpKey, track_bounds::track_bounds},
 };
 
 #[derive(Debug, Clone)]

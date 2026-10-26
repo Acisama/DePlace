@@ -1,24 +1,19 @@
-use deplace_core::RestoreResult;
-use deplace_core::state::ImportantPaths;
-use deplace_core::structure::Structure;
-use deplace_core::theme::Theme;
-use iced::advanced::subscription;
-use iced::widget::Shader;
-use iced::window;
+use deplace_core::{RestoreResult, state::ImportantPaths, structure::Structure, theme::Theme};
+use iced::{advanced::subscription, widget::Shader, window};
 use interprocess::local_socket::Listener;
 
 use crate::{SocketListener, TrayAction, TrayIconClickListener, TrayMenuListener, common::*};
 
-use crate::components::authentification::discovery::{DiscoveryAction, DiscoveryMessage};
-use crate::components::authentification::login::{LoginAction, LoginMessage};
-use crate::components::authentification::verification::{VerificationAction, VerificationMessage};
-use crate::components::home::{HomeAction, HomeMessage};
 use crate::components::shader;
 use crate::{
     AppMessage,
-    components::{
-        authentification::{discovery::Discovery, login::Login, verification::Verification},
-        home::Home,
+    modules::{
+        authentification::{
+            discovery::{Discovery, DiscoveryAction, DiscoveryMessage},
+            login::{Login, LoginAction, LoginMessage},
+            verification::{Verification, VerificationAction, VerificationMessage},
+        },
+        home::{Home, HomeAction, HomeMessage},
     },
 };
 

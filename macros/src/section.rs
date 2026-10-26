@@ -112,7 +112,7 @@ fn walk(
                 });
 
                 quote! {
-                    crate::components::home::overlay::settings::widgets::SettingWidget::render(
+                    crate::modules::home::overlay::settings::widgets::SettingWidget::render(
                         &self.settings.#field,
                         theme,
                         structure,
@@ -121,7 +121,7 @@ fn walk(
                 }
             }
             Item::Spacer => quote! {
-                crate::components::home::overlay::settings::widgets::render_spacer(structure)
+                crate::modules::home::overlay::settings::widgets::render_spacer(structure)
             },
             Item::Group(title, sub_items) => {
                 let id = format!("{}::{}", struct_name, title.value());
@@ -136,7 +136,7 @@ fn walk(
                 );
 
                 quote! {
-                    crate::components::home::overlay::settings::widgets::render_subsection(
+                    crate::modules::home::overlay::settings::widgets::render_subsection(
                         #title,
                         !self.closed_subsections.contains(#id),
                         #message_name::ToggleSubsection(#id),
@@ -236,7 +236,7 @@ pub fn section(input: TokenStream) -> TokenStream {
             #(#message_variants),*
         }
 
-        impl crate::components::home::overlay::settings::widgets::ToggleCloudExt for #message_name {
+        impl crate::modules::home::overlay::settings::widgets::ToggleCloudExt for #message_name {
             fn toggle_cloud(field_name: &'static str, uses_cloud: bool) -> Self {
                 Self::ToggleCloud(field_name, uses_cloud)
             }

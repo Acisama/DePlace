@@ -26,7 +26,7 @@ use tray_icon::{
     },
 };
 
-use crate::components::{
+use crate::modules::{
     authentification::{
         discovery::DiscoveryMessage, login::LoginMessage, verification::VerificationMessage,
     },
@@ -36,6 +36,7 @@ use crate::components::{
 
 pub mod common;
 pub mod components;
+pub mod modules;
 
 #[derive(Debug, Clone)]
 pub enum AppMessage {

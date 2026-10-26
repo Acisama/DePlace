@@ -5,7 +5,7 @@ use member_list::{MemberList, MemberListAction, MemberListMessage};
 use profilecard::{ProfileCard, ProfileCardAction, ProfileCardMessage};
 use sweeten::widget::list;
 
-use crate::common::*;
+use crate::{common::*, components::help_mode::ChatSidebarHelpKey};
 
 use super::timeline::messages::TimelineItem;
 
@@ -332,7 +332,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         help(
             help_state,
             theme,
-            HelpKey::ChatSidebar(crate::components::home::ChatSidebarHelpKey::ChatSidebar),
+            HelpKey::ChatSidebar(ChatSidebarHelpKey::ChatSidebar),
             format!(
                 "The chat sidebar, currently showing {}",
                 match state {

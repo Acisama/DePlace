@@ -13,7 +13,7 @@ use macros::iced_cache;
 
 use crate::{
     common::*,
-    components::{home::HeaderHelpKey, phosphor_icon},
+    components::{help_mode::HeaderHelpKey, phosphor_icon},
 };
 
 use super::sidebar::SidebarState;

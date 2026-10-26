@@ -17,6 +17,7 @@ use timeline::messages::{TimelineItem, ToTimelineItem};
 use timeline::{ChatTimeline, TimelineAction};
 
 use crate::common::*;
+use crate::components::help_mode::ChatHelpKey;
 pub(super) mod empty;
 mod header;
 mod input;
@@ -463,7 +464,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
 
         let main_content = help_view
             .call(
-                HelpKey::Chat(super::ChatHelpKey::MainPanel),
+                HelpKey::Chat(ChatHelpKey::MainPanel),
                 "The main chat panel",
                 main_content,
             )
@@ -480,7 +481,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
 
         help_view
             .call(
-                HelpKey::Chat(super::ChatHelpKey::Chat),
+                HelpKey::Chat(ChatHelpKey::Chat),
                 "The chat in the active room",
                 w::column![
                     w::lazy(

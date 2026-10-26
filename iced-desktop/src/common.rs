@@ -1,9 +1,9 @@
 pub use crate::components::{
     CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget, StatusExt, close_button,
     corner_badge, floating_tile,
+    help_mode::HelpKey,
     help_mode::HelpView,
     help_mode::{Caption, HelpState, help, help_root},
-    home::HelpKey,
     on_appear, pan,
     pie_progress::pie_progress,
     profile::{

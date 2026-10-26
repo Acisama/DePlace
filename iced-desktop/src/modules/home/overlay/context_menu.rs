@@ -4,7 +4,8 @@ use matrix_sdk_ui::Timeline;
 
 use crate::{
     common::*,
-    components::{equal_width::equal_width, home::chat::MessageEvent, phosphor_icon},
+    components::{equal_width::equal_width, phosphor_icon},
+    modules::home::chat::MessageEvent,
 };
 
 use super::ModifyItem;

@@ -3,8 +3,7 @@ use std::hash::Hash;
 use deplace_core::helpers::DisplayString;
 use deplace_core::structure::Structure;
 use deplace_core::theme::{Colors, Theme};
-use help_mode::HelpState;
-use home::HelpKey;
+use help_mode::{HelpKey, HelpState};
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
 use iced::font::Weight;
@@ -19,17 +18,14 @@ use matrix_sdk::ruma::serde::Base64;
 use tile_background::TileBackground;
 
 pub mod animation_clock;
-pub mod authentification;
 pub mod corner_badge;
 pub mod equal_width;
 pub mod help_mode;
-pub mod home;
 pub mod link;
 pub mod on_appear;
 pub mod pan;
 pub mod pie_progress;
 pub mod profile;
-pub mod root;
 pub mod shader;
 pub mod tile_background;
 pub mod tooltip;
@@ -191,7 +187,7 @@ where
         })
 }
 
-struct InsetShadow {
+pub struct InsetShadow {
     radius: f32,
     color: Color,
     depth: f32,
@@ -199,7 +195,7 @@ struct InsetShadow {
 }
 
 impl InsetShadow {
-    fn new(radius: f32, color: Color, depth: f32, layers: usize) -> Self {
+    pub fn new(radius: f32, color: Color, depth: f32, layers: usize) -> Self {
         Self {
             radius,
             color,

@@ -2,11 +2,8 @@ use std::time::SystemTime;
 
 use crate::{
     common::*,
-    components::{
-        MediaType,
-        home::chat::{ImageMessage, VideoMessage},
-        render_media_failed_to_load,
-    },
+    components::{MediaType, render_media_failed_to_load},
+    modules::home::chat::{ImageMessage, VideoMessage},
 };
 use chrono_tz::Tz;
 use deplace_core::{
@@ -15,7 +12,7 @@ use deplace_core::{
 };
 use iced::{Alignment, Length};
 use macros::iced_cache;
-use matrix_sdk::{media::UniqueKey, ruma::events::room::MediaSource};
+use matrix_sdk::media::UniqueKey;
 
 #[derive(Debug, Clone, Hash)]
 pub enum OverlayMediaType {
