@@ -101,10 +101,15 @@ impl<Message> canvas::Program<Message> for PieProgress {
 
         // Icon fills the same inner radius the pie itself draws to, so its
         // gap to the ring scales together with the ring's hover animation.
+        // Phosphor's "fill" glyphs are inscribed with their own margin inside
+        // a 256x256 viewBox (e.g. check-circle-fill's circle has radius 104
+        // out of 128), so scale the drawn icon up to compensate.
         if let Some(handle) = &self.icon {
+            const PHOSPHOR_FILL_INSET: f32 = 128.0 / 104.0;
+            let icon_radius = inner * PHOSPHOR_FILL_INSET;
             let icon_bounds = Rectangle::new(
-                iced::Point::new(center.x - inner, center.y - inner),
-                iced::Size::new(inner * 2.0, inner * 2.0),
+                iced::Point::new(center.x - icon_radius, center.y - icon_radius),
+                iced::Size::new(icon_radius * 2.0, icon_radius * 2.0),
             );
             frame.draw_svg(icon_bounds, svg::Svg::new(handle.clone()).color(color));
         }
