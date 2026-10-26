@@ -214,25 +214,32 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                                     .call(
                                         HelpKey::Sidebar(SidebarHelpKey::QuickselectButton),
                                         "Quickselect button, press to open quickselect",
-                                        w::button(iced_icon!(
-                                            compass_rose,
-                                            fill,
-                                            structure.header.height - structure.small_gap * 3.0
-                                        ))
-                                        .style(move |_, status| ButtonStyle {
-                                            background: status
-                                                .active()
-                                                .then_some(theme.solid_hover_bg.into()),
-                                            text_color: if status.active() {
-                                                theme.text.normal.into()
-                                            } else {
-                                                theme.text.dim.into()
-                                            },
-                                            border: border::rounded(structure.inner_border_radius),
-                                            ..Default::default()
-                                        })
-                                        .on_press(ChannelsMessage::OpenQuickselect)
-                                        .padding(structure.small_gap / 2.0)
+                                        themed_tooltip_text(
+                                            animated_button(iced_icon!(
+                                                compass_rose,
+                                                fill,
+                                                structure.header.height - structure.small_gap * 3.0
+                                            ))
+                                            .style(move |_, status| ButtonStyle {
+                                                background: status
+                                                    .active()
+                                                    .then_some(theme.solid_hover_bg.into()),
+                                                text_color: if status.active() {
+                                                    theme.text.normal.into()
+                                                } else {
+                                                    theme.text.dim.into()
+                                                },
+                                                border: border::rounded(
+                                                    structure.inner_border_radius
+                                                ),
+                                                ..Default::default()
+                                            })
+                                            .on_press(ChannelsMessage::OpenQuickselect)
+                                            .padding(structure.small_gap / 2.0),
+                                            "Open quick select",
+                                            structure,
+                                            theme
+                                        )
                                     )
                                     .radius(structure.inner_border_radius)
                             )

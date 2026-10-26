@@ -152,7 +152,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
 
         let render_icon = |color, hover_color, icon, message, tooltip| {
             themed_tooltip_text(
-                w::button(phosphor_icon(icon, button_size))
+                animated_button(phosphor_icon(icon, button_size))
                     .on_press(message)
                     .style(move |_, status| ButtonStyle {
                         background: None,

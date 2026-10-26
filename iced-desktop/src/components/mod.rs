@@ -17,6 +17,7 @@ use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::ruma::serde::Base64;
 use tile_background::TileBackground;
 
+pub mod animated_button;
 pub mod animation_clock;
 pub mod corner_badge;
 pub mod equal_width;

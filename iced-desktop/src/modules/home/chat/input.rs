@@ -487,7 +487,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         key,
                         help,
                         themed_tooltip_text(
-                            w::button(phosphor_icon(svg, line_height))
+                            animated_button(phosphor_icon(svg, line_height))
                                 .style(move |_, status| ButtonStyle {
                                     text_color: if status.active() {
                                         theme.text.normal.into()
