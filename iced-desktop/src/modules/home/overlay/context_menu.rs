@@ -5,7 +5,7 @@ use matrix_sdk_ui::Timeline;
 use crate::{
     common::*,
     components::{equal_width::equal_width, phosphor_icon},
-    modules::home::chat::MessageEvent,
+    modules::home::{EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, UNPIN_ICON, chat::MessageEvent},
 };
 
 use super::ModifyItem;
@@ -221,7 +221,7 @@ fn render_message_context_menu(
                 theme.text.dim,
                 theme.text.normal,
                 theme.solid_hover_bg,
-                phosphor_svgs::icon::pencil_simple::BOLD,
+                EDIT_ICON,
                 "Edit this message",
                 message(MessageMessage::Edit),
             )
@@ -236,7 +236,7 @@ fn render_message_context_menu(
                 theme.text.dim,
                 theme.text.normal,
                 theme.solid_hover_bg,
-                phosphor_svgs::icon::arrow_bend_up_left::BOLD,
+                REPLY_ICON,
                 "Reply to this message",
                 message(MessageMessage::SetReplyingTo),
             )
@@ -251,11 +251,7 @@ fn render_message_context_menu(
                 theme.colors.pins,
                 theme.solid_bg,
                 theme.colors.pins,
-                if is_pinned {
-                    phosphor_svgs::icon::push_pin_slash::BOLD
-                } else {
-                    phosphor_svgs::icon::push_pin::BOLD
-                },
+                if is_pinned { UNPIN_ICON } else { PIN_ICON },
                 if is_pinned {
                     "Unpin this message"
                 } else {
@@ -274,7 +270,7 @@ fn render_message_context_menu(
                 theme.colors.red,
                 theme.solid_bg,
                 theme.colors.red,
-                phosphor_svgs::icon::trash::BOLD,
+                REDACT_ICON,
                 "Redact this message",
                 message(MessageMessage::Delete),
             )

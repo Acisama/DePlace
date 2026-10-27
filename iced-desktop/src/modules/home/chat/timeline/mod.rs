@@ -23,10 +23,9 @@ use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
 use messages::{MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::widget::list;
 
-use phosphor_svgs::icon as icons;
-
 use crate::components::phosphor_icon;
 use crate::modules::home::overlay::{ContextMenu, ContextMenuKind, MediaOverlayParams, ModifyItem};
+use crate::modules::home::{COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, UNPIN_ICON};
 use crate::{
     common::*,
     components::{track_bounds::track_bounds, track_scroll::track_scroll},
@@ -624,6 +623,13 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 };
 
                 let res = match Arc::make_mut(item).update(message)? {
+                    TimelineItemAction::CopyText(text) => {
+                        Some(TimelineAction::Run(iced::clipboard::write(text).map(|r| {
+                            if let Err(e) = r {
+                                tracing::error!("Failed to write to clipboard: {:?}", e);
+                            }
+                        })))
+                    }
                     TimelineItemAction::DownloadFile { source, file_name } => {
                         let state = self.state.clone();
                         Some(TimelineAction::Run(Task::future(async move {
@@ -1173,12 +1179,14 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 (is_own, is_editable, can_be_replied_to),
                 is_pinned,
                 Some(message),
+                copyable_text,
             )) = self.content.get(&hovered_item_id).map(|item| {
                 (
                     item.event_id(),
                     item.booleans(),
                     item.is_pinned(),
                     item.message_event(),
+                    item.copyable_text(),
                 )
             })
         {
@@ -1248,6 +1256,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         can_reply,
                         can_pin,
                         can_redact,
+                        copyable_text.clone(),
                     ))
                     .translate(move |own_bounds, _| {
                         let target_x = bounds.x + bounds.width - own_bounds.width;
@@ -1286,6 +1295,7 @@ fn render_timeline_item_buttons(
     can_reply: bool,
     can_pin: bool,
     can_redact: bool,
+    copyable_text: Option<Arc<String>>,
 ) -> Element<'static, TimelineMessage> {
     let mut buttons = Vec::new();
 
@@ -1318,7 +1328,7 @@ fn render_timeline_item_buttons(
 
     if can_edit {
         buttons.push(button(
-            icons::pencil_simple::BOLD,
+            EDIT_ICON,
             TimelineItemMessage::SetIsEditing(true),
             theme.solid_hover_bg,
             theme.text.dim,
@@ -1328,8 +1338,18 @@ fn render_timeline_item_buttons(
 
     if can_reply {
         buttons.push(button(
-            icons::arrow_bend_up_left::BOLD,
+            REPLY_ICON,
             TimelineItemMessage::SetIsReplyingTo(event_id.clone()),
+            theme.solid_hover_bg,
+            theme.text.dim,
+            theme.text.normal,
+        ));
+    }
+
+    if let Some(copyable_text) = copyable_text {
+        buttons.push(button(
+            COPY_ICON,
+            TimelineItemMessage::CopyText((*copyable_text).clone()),
             theme.solid_hover_bg,
             theme.text.dim,
             theme.text.normal,
@@ -1338,11 +1358,7 @@ fn render_timeline_item_buttons(
 
     if can_pin {
         buttons.push(button(
-            if is_pinned {
-                icons::push_pin_slash::BOLD
-            } else {
-                icons::push_pin::BOLD
-            },
+            if is_pinned { UNPIN_ICON } else { PIN_ICON },
             TimelineItemMessage::OpenPinMenu {
                 event_id: event_id.clone(),
                 is_pinned,
@@ -1355,7 +1371,7 @@ fn render_timeline_item_buttons(
 
     if can_redact {
         buttons.push(button(
-            icons::trash::BOLD,
+            REDACT_ICON,
             TimelineItemMessage::OpenDeleteMenu(event_id.clone()),
             theme.colors.error,
             theme.colors.error,

@@ -298,7 +298,10 @@ fn render_channel(
         .as_ref()
         .is_some_and(|id| id == room.room_id());
 
-    let text_color = if is_hovered || is_active {
+    let notifications = room.notification_counts();
+    let has_notifications = notifications.has_notifications();
+
+    let text_color = if is_hovered || is_active || has_notifications {
         theme.text.normal.into()
     } else {
         theme.text.dim.into()
@@ -455,31 +458,52 @@ fn render_channel(
 
         column.into()
     } else {
-        help_view
-            .call(
-                HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
-                if room.is_dm() { "A dm" } else { "A channel" },
-                w::row![
-                    context_room_icon(
-                        room,
-                        icon_size,
-                        theme,
-                        structure,
-                        presence_map,
-                        avatar_cache,
-                        bg
+        let items = std::iter::once(
+            help_view
+                .call(
+                    HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
+                    if room.is_dm() { "A dm" } else { "A channel" },
+                    w::row![
+                        context_room_icon(
+                            room,
+                            icon_size,
+                            theme,
+                            structure,
+                            presence_map,
+                            avatar_cache,
+                            bg
+                        ),
+                        name,
+                    ]
+                    .spacing(structure.gap)
+                    .align_y(Alignment::Center)
+                    .width(Fill)
+                    .padding(
+                        padding::vertical(structure.small_gap * 0.75)
+                            .horizontal(structure.small_gap),
                     ),
-                    name,
-                ]
-                .spacing(structure.gap)
-                .align_y(Alignment::Center)
-                .width(Fill)
-                .padding(
-                    padding::vertical(structure.small_gap * 0.75).horizontal(structure.small_gap),
-                ),
+                )
+                .radius(structure.inner_border_radius)
+                .into(),
+        )
+        .chain(has_notifications.then(|| {
+            w::container(
+                w::container("")
+                    .height(structure.small_gap)
+                    .width(structure.small_gap / 2.0)
+                    .style(move |_| ContainerStyle {
+                        background: Some(theme.text.normal.into()),
+                        border: border::rounded(structure.small_gap / 2.0),
+                        ..Default::default()
+                    }),
             )
-            .radius(structure.inner_border_radius)
+            .width(structure.small_gap)
+            .height(Fill)
+            .center_y(Fill)
             .into()
+        }));
+
+        w::Stack::with_children(items).into()
     };
 
     w::mouse_area(

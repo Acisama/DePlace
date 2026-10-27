@@ -360,7 +360,7 @@ fn pill(
             Canvas::new(PillCanvas {
                 target,
                 width: structure.small_gap / 2.0,
-                color: theme.pill_color.into(),
+                color: theme.text.normal.into(),
                 radius: structure.small_gap / 4.0,
             })
             .width(structure.small_gap / 2.0)

@@ -22,9 +22,17 @@ use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 pub mod overlay;
 
 use overlay::{Overlay, OverlayAction, OverlayMessage};
+use phosphor_svgs::icon as icons;
 
 mod chat;
 mod sidebar;
+
+pub const COPY_ICON: &str = icons::copy::BOLD;
+pub const EDIT_ICON: &str = icons::pencil_simple::BOLD;
+pub const REPLY_ICON: &str = icons::arrow_bend_up_left::BOLD;
+pub const PIN_ICON: &str = icons::push_pin::BOLD;
+pub const UNPIN_ICON: &str = icons::push_pin_slash::BOLD;
+pub const REDACT_ICON: &str = icons::trash::BOLD;
 
 #[derive(Clone, Debug)]
 pub enum HomeMessage {

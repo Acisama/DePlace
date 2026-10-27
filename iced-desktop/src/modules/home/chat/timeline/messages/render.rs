@@ -148,7 +148,7 @@ impl MessageEvent {
         }
 
         let highlight_color = if self.is_replying_to && !as_dummy {
-            Some(theme.pill_color)
+            Some(theme.text.normal)
         } else if self.is_highlighted {
             Some(theme.accent)
         } else if self.is_pinned {

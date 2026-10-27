@@ -81,6 +81,7 @@ pub enum TimelineItemMessage {
         source: MediaSource,
         file_name: String,
     },
+    CopyText(String),
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
@@ -130,6 +131,7 @@ pub enum TimelineItemAction {
         source: MediaSource,
         file_name: String,
     },
+    CopyText(String),
 }
 
 /// An item in the timeline
@@ -167,6 +169,14 @@ impl TimelineItem {
         };
 
         event.event_id.as_ref()
+    }
+
+    pub fn copyable_text(&self) -> Option<Arc<String>> {
+        let TimelineItemKind::Message { message: event, .. } = &self.kind else {
+            return None;
+        };
+
+        event.copyable_text.clone()
     }
 
     pub fn is_pinned(&self) -> bool {
@@ -499,6 +509,7 @@ impl TimelineItem {
                 video.set_paused(!video.paused());
                 None
             }
+            TimelineItemMessage::CopyText(text) => Some(TimelineItemAction::CopyText(text)),
         }
     }
 
@@ -799,6 +810,8 @@ struct MessageEvent {
     #[hash]
     content: MessageContent,
 
+    copyable_text: Option<Arc<String>>,
+
     send_state: Option<EventSendState>,
 }
 
@@ -976,6 +989,31 @@ impl std::hash::Hash for MessageContent {
         }
     }
 }
+
+impl MessageContent {
+    pub fn copyable_text(&self) -> Option<String> {
+        match self {
+            MessageContent::Audio => None,
+            MessageContent::Emote { body, .. } => body.clone(),
+            MessageContent::Empty => None,
+            MessageContent::File { caption, .. } => caption.clone(),
+            MessageContent::Image { .. } => None,
+            MessageContent::Location => None,
+            MessageContent::Notice { body, .. } => body.clone(),
+            MessageContent::ServerNotice { body } => body.clone(),
+            MessageContent::Text { body, .. } => body.clone(),
+            MessageContent::Video { .. } => None,
+            MessageContent::VerificationRequest { body, .. } => body.clone(),
+            MessageContent::Sticker => None,
+            MessageContent::Poll => None,
+            MessageContent::Redacted => None,
+            MessageContent::UnableToDecrypt => None,
+            MessageContent::Other { .. } => None,
+            MessageContent::LiveLocation => None,
+        }
+    }
+}
+
 #[iced_cache(Debug, Clone)]
 pub struct ImageMessage {
     #[hash]
@@ -1062,7 +1100,7 @@ enum ReplyContent {
 struct SystemEvent {
     timestamp: SystemTime,
 
-    event_id: Option<OwnedEventId>,
+    _event_id: Option<OwnedEventId>,
     sender_profile: TimelineDetails<TimelineProfile>,
 
     timezone: Receiver<Tz>,

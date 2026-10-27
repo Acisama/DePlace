@@ -96,7 +96,7 @@ impl TimelineItemKind {
                                 .watch(),
                             event: Box::new(SystemEvent {
                                 timestamp,
-                                event_id,
+                                _event_id: event_id,
                                 sender_profile,
                                 content: Arc::new($content),
 
@@ -242,6 +242,9 @@ impl TimelineItemKind {
                     })),
                     TimelineItemContent::MsgLike(m) => {
                         let settings = state.settings();
+                        let content = MessageContent::from_ui(&m.kind, state);
+                        let copyable_text = content.copyable_text().map(Arc::new);
+
                         TimelineItemKind::Message {
                             is_own: event.is_own(),
                             is_editable: event.is_editable(),
@@ -286,7 +289,8 @@ impl TimelineItemKind {
                                 _shield: event.get_shield(false),
                                 send_state: event.send_state().cloned(),
 
-                                content: MessageContent::from_ui(&m.kind, state),
+                                content,
+                                copyable_text,
 
                                 avatar_cache: state.avatar_cache().clone(),
                                 avatar_states_for_hash: BTreeSet::new(),

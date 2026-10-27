@@ -3,7 +3,11 @@
 //! by the Matrix specification.
 
 use deplace_core::rich_text::{Block, FormattedBody, Inline, Mention};
-use iced::widget::text::{LineHeight, Span};
+use iced::{
+    Length,
+    widget::text::{LineHeight, Span},
+};
+use sweeten::scrollable::{self, Direction};
 
 use crate::common::*;
 
@@ -158,15 +162,20 @@ fn render_block(
             membership_map,
         ),
         Block::CodeBlock { code, .. } => w::container(
-            w::scrollable(
+            themed_scrollable(
                 w::text(code.clone())
                     .font(Font::MONOSPACE)
                     .size(text_size * 0.9)
-                    .color(theme.text.normal),
+                    .color(theme.text.normal)
+                    .wrapping(text::Wrapping::None),
+                theme,
+                structure,
             )
-            .direction(w::scrollable::Direction::Horizontal(
-                w::scrollable::Scrollbar::default(),
-            )),
+            .direction(Direction::Both {
+                vertical: scrollable::Scrollbar::default(),
+                horizontal: scrollable::Scrollbar::default(),
+            })
+            .height(Length::Shrink.max(structure.chat.max_media_height)),
         )
         .padding(structure.small_gap)
         .width(Fill)

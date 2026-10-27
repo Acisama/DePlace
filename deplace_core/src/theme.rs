@@ -79,7 +79,6 @@ pub struct Theme {
 
     pub input: InputTheme,
     pub colors: Colors,
-    pub pill_color: DePlaceColor,
 }
 
 impl Default for Theme {
@@ -99,7 +98,6 @@ impl Default for Theme {
             blur: 40.0,
             solid_bg,
             solid_hover_bg,
-            pill_color: DePlaceColor::from_rgba(1.0, 1.0, 1.0, 1.0),
             border: DePlaceColor::from_hsla(0.0, 0.0, 0.2, 1.0),
             background: DePlaceColor::from_hsla(0.6667 * 360.0, 0.5000, 0.0214, 0.5),
             backdrop: DePlaceColor::from_rgba(0.0, 0.0, 0.0, 0.6),
