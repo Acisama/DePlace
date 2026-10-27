@@ -3,6 +3,7 @@
 
 use std::hash::Hash;
 
+use linkify::{LinkFinder, LinkKind};
 use ruma::{
     OwnedEventId, OwnedRoomAliasId, OwnedRoomId, OwnedRoomOrAliasId, OwnedUserId,
     matrix_uri::MatrixId,
@@ -64,7 +65,7 @@ pub enum Inline {
 }
 
 /// A run of text sharing the same formatting, as suggested by the Matrix specification.
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Hash, Default)]
 pub struct TextRun {
     pub text: String,
     pub bold: bool,
@@ -109,6 +110,27 @@ impl FormattedBody {
         flush_paragraph(&mut blocks, &mut pending);
 
         FormattedBody { blocks }
+    }
+
+    /// Creates a [`FormattedBody`] from a plain text body.
+    pub fn from_text(body: &str) -> FormattedBody {
+        let mut content = Vec::new();
+        push_text(body.to_owned(), &InlineStyle::default(), &mut content);
+        FormattedBody {
+            blocks: vec![Block::Paragraph(content)],
+        }
+    }
+
+    /// Creates a [`FormattedBody`] from an optional plain text body and an optional formatted body.
+    pub fn new(
+        body: Option<&str>,
+        formatted: Option<&ruma::events::room::message::FormattedBody>,
+    ) -> Option<FormattedBody> {
+        if let Some(formatted) = formatted {
+            Some(FormattedBody::parse_formatted_body(&formatted.body))
+        } else {
+            body.map(FormattedBody::from_text)
+        }
     }
 }
 
@@ -272,21 +294,7 @@ fn walk_inline(node: NodeRef, style: &InlineStyle, out: &mut Vec<Inline>) {
         Some(elem) => elem,
         None => {
             if let NodeData::Text(text) = node.data() {
-                let content = text.borrow().replace('\u{a0}', " ");
-                if !content.is_empty() {
-                    out.push(Inline::Text(TextRun {
-                        text: content,
-                        bold: style.bold,
-                        italic: style.italic,
-                        underline: style.underline,
-                        strikethrough: style.strikethrough,
-                        code: style.code,
-                        color: style.color,
-                        background: style.background,
-                        spoiler: style.spoiler.clone(),
-                        link: style.link.clone(),
-                    }));
-                }
+                push_text(text.borrow().replace('\u{a0}', " "), style, out);
             }
             return;
         }
@@ -357,6 +365,46 @@ fn with_style(
     apply(&mut child_style);
     for child in node.children() {
         walk_inline(child, &child_style, out);
+    }
+}
+
+fn finder() -> LinkFinder {
+    let mut f = LinkFinder::new();
+    f.kinds(&[LinkKind::Url]);
+    f
+}
+
+impl InlineStyle {
+    fn run(&self, text: String, link: Option<String>) -> TextRun {
+        TextRun {
+            text,
+            bold: self.bold,
+            italic: self.italic,
+            underline: self.underline,
+            strikethrough: self.strikethrough,
+            code: self.code,
+            color: self.color,
+            background: self.background,
+            spoiler: self.spoiler.clone(),
+            link: link.or_else(|| self.link.clone()),
+        }
+    }
+}
+
+/// Pushes `text` with `style`, splitting bare URLs into linked runs
+/// unless the text is already inside a link or code.
+fn push_text(text: String, style: &InlineStyle, out: &mut Vec<Inline>) {
+    if text.is_empty() {
+        return;
+    }
+    if style.link.is_some() || style.code {
+        out.push(Inline::Text(style.run(text, None)));
+        return;
+    }
+    for span in finder().spans(&text) {
+        let s = span.as_str().to_owned();
+        let link = matches!(span.kind(), Some(LinkKind::Url)).then(|| s.clone());
+        out.push(Inline::Text(style.run(s, link)));
     }
 }
 

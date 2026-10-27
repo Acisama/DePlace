@@ -29,6 +29,7 @@ indexmap.workspace = true
 interprocess.workspace = true
 keyboard-types.workspace = true
 keyring-core = "1.0.0"
+linkify.workspace = true
 livekit.workspace = true
 macros.workspace = true
 matrix-sdk.workspace = true

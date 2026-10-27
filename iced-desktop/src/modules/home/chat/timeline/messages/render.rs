@@ -558,17 +558,6 @@ impl MessageContent {
 
         let render_text_color =
             |text: String, color: Color| w::text(text).size(text_size).color(color);
-        let render_normal_text = |text: String| {
-            render_text_color(
-                text,
-                if is_local_echo {
-                    theme.text.dim
-                } else {
-                    theme.text.normal
-                }
-                .into(),
-            )
-        };
         let render_warning_text = |text: &'static str| {
             (
                 Some(render_text_color(text.to_string(), theme.colors.warning.into()).into()),
@@ -593,35 +582,28 @@ impl MessageContent {
             )
         };
 
-        let render_body = |body: &Option<String>, formatted_body: &Option<FormattedBody>| {
+        let render_body = |formatted_body: &Option<FormattedBody>| {
             formatted_body
                 .as_ref()
                 .map(|f| f.view(theme, structure, is_local_echo, membership_map))
-                .or_else(|| {
-                    body.as_ref()
-                        .map(|t| render_normal_text(t.trim_end().to_string()).into())
-                })
         };
 
         match &self {
             MessageContent::Audio => render_warning_text("Audio messages are not yet implemented"),
-            MessageContent::Emote {
-                body,
-                formatted_body,
-            } => (render_body(body, formatted_body), None),
+            MessageContent::Emote { formatted_body, .. } => (render_body(formatted_body), None),
             MessageContent::Empty => itallic_text("Empty".to_string(), theme.text.dim.into()),
             MessageContent::File {
-                caption,
                 formatted_caption,
                 info,
                 filename,
                 source,
                 data_size_unit,
+                ..
             } => {
                 let source = source.clone();
                 let filename = filename.clone();
                 (
-                    render_body(caption, formatted_caption),
+                    render_body(formatted_caption),
                     Some(
                         w::container(
                             w::row![
@@ -713,7 +695,7 @@ impl MessageContent {
                 };
 
                 (
-                    render_body(&image.caption, &image.formatted_caption),
+                    render_body(&image.formatted_caption),
                     Some(
                         w::mouse_area(stack)
                             .on_enter(TimelineItemMessage::MediaMouseEnter)
@@ -760,19 +742,14 @@ impl MessageContent {
             MessageContent::Sticker => {
                 render_warning_text("Sticker messages are not yet implemented")
             }
-            MessageContent::Text {
-                body,
-                formatted_body,
-                ..
-            } => (render_body(body, formatted_body), None),
+            MessageContent::Text { formatted_body, .. } => (render_body(formatted_body), None),
             MessageContent::UnableToDecrypt => itallic_text(
                 "Unable to decrypt message".to_string(),
                 theme.colors.warning.into(),
             ),
-            MessageContent::VerificationRequest {
-                body,
-                formatted_body,
-            } => (render_body(body, formatted_body), None),
+            MessageContent::VerificationRequest { formatted_body, .. } => {
+                (render_body(formatted_body), None)
+            }
             MessageContent::Video { video, is_hovered } => {
                 let mut stack = Stack::new().push(w::lazy(video.clone(), move |video| {
                     video.video_view(theme, structure)
@@ -823,7 +800,7 @@ impl MessageContent {
                 };
 
                 (
-                    render_body(&video.caption, &video.formatted_caption),
+                    render_body(&video.formatted_caption),
                     Some(
                         w::mouse_area(stack)
                             .on_enter(TimelineItemMessage::MediaMouseEnter)

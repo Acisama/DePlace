@@ -374,14 +374,11 @@ impl MessageContent {
                 MessageType::Audio(_) => MessageContent::Audio,
                 MessageType::Emote(emote) => MessageContent::Emote {
                     body: string_to_option(&emote.body),
-                    formatted_body: emote
-                        .formatted
-                        .as_ref()
-                        .map(|f| FormattedBody::parse_formatted_body(&f.body)),
+                    formatted_body: FormattedBody::new(Some(&emote.body), emote.formatted.as_ref()),
                 },
                 MessageType::File(file) => MessageContent::File {
                     caption: file.caption().map(|s| s.to_string()),
-                    formatted_caption: None,
+                    formatted_caption: FormattedBody::new(file.caption(), file.formatted_caption()),
                     filename: file.filename().to_string(),
                     source: file.source.clone(),
                     info: file.info.clone(),
@@ -390,9 +387,10 @@ impl MessageContent {
                 MessageType::Image(image) => MessageContent::Image {
                     image: ImageMessage {
                         caption: image.caption().map(|s| s.to_string()),
-                        formatted_caption: image
-                            .formatted_caption()
-                            .map(|f| FormattedBody::parse_formatted_body(&f.body)),
+                        formatted_caption: FormattedBody::new(
+                            image.caption(),
+                            image.formatted_caption(),
+                        ),
 
                         blur_preview: image.info.as_ref().and_then(|info| {
                             info.thumbhash
@@ -417,36 +415,33 @@ impl MessageContent {
                 MessageType::Location(_) => MessageContent::Location,
                 MessageType::Notice(notice) => MessageContent::Notice {
                     body: string_to_option(&notice.body),
-                    formatted_body: notice
-                        .formatted
-                        .as_ref()
-                        .map(|f| FormattedBody::parse_formatted_body(&f.body)),
+                    formatted_body: FormattedBody::new(
+                        Some(&notice.body),
+                        notice.formatted.as_ref(),
+                    ),
                 },
                 MessageType::ServerNotice(server_notice) => MessageContent::ServerNotice {
                     body: string_to_option(&server_notice.body),
                 },
                 MessageType::Text(text) => MessageContent::Text {
                     body: string_to_option(&text.body),
-                    formatted_body: text
-                        .formatted
-                        .as_ref()
-                        .map(|f| FormattedBody::parse_formatted_body(&f.body)),
+                    formatted_body: FormattedBody::new(Some(&text.body), text.formatted.as_ref()),
                     _url_previews: text.url_previews.clone(),
                 },
                 MessageType::VerificationRequest(request) => MessageContent::VerificationRequest {
                     body: string_to_option(&request.body),
-                    formatted_body: request
-                        .formatted
-                        .as_ref()
-                        .map(|f| FormattedBody::parse_formatted_body(&f.body)),
+                    formatted_body: FormattedBody::new(
+                        Some(&request.body),
+                        request.formatted.as_ref(),
+                    ),
                 },
                 MessageType::Video(video) => MessageContent::Video {
                     video: VideoMessage {
                         caption: video.caption().map(|s| s.to_string()),
-                        formatted_caption: video
-                            .formatted
-                            .as_ref()
-                            .map(|f| FormattedBody::parse_formatted_body(&f.body)),
+                        formatted_caption: FormattedBody::new(
+                            video.caption(),
+                            video.formatted_caption(),
+                        ),
 
                         blur_preview: video.info.as_ref().and_then(|info| {
                             info.thumbhash
