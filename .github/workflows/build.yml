@@ -17,7 +17,32 @@ env:
   RUST_TOOLCHAIN: "1.97.1" # matches rust_toolchain.toml
 
 jobs:
+  # Lets a manual workflow_dispatch run (no tag pushed yet) still end up
+  # with a real "vX.Y.Z" tag pointing at the built commit, matching
+  # Cargo.toml - without this, triggering by tag push is the only way to
+  # get a tag into the repo. No-ops if the tag already exists (e.g. when
+  # this run was itself triggered by pushing that tag).
+  ensure-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create tag if missing
+        run: |
+          version=$(grep -m1 '^version' iced-desktop/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          tag="v${version}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists - nothing to do."
+          else
+            echo "Tag $tag not found - creating it at $GITHUB_SHA"
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "$tag"
+          fi
+
   build-windows:
+    needs: ensure-tag
     strategy:
       fail-fast: false
       matrix:
@@ -214,6 +239,7 @@ jobs:
           if-no-files-found: error
 
   build-linux:
+    needs: ensure-tag
     strategy:
       fail-fast: false
       matrix:
