@@ -575,13 +575,17 @@ impl MessageContent {
                 None,
             )
         };
-        let itallic_text = |text: String| {
+        let itallic_text = |text: String, color: Color| {
             (
                 Some(
-                    w::rich_text![w::span(text).font(Font {
-                        style: iced::font::Style::Italic,
-                        ..Default::default()
-                    })]
+                    w::rich_text![
+                        w::span(text)
+                            .font(Font {
+                                style: iced::font::Style::Italic,
+                                ..Default::default()
+                            })
+                            .color(color)
+                    ]
                     .on_link_click(never)
                     .into(),
                 ),
@@ -605,7 +609,7 @@ impl MessageContent {
                 body,
                 formatted_body,
             } => (render_body(body, formatted_body), None),
-            MessageContent::Empty => itallic_text("Empty".to_string()),
+            MessageContent::Empty => itallic_text("Empty".to_string(), theme.text.dim.into()),
             MessageContent::File {
                 caption,
                 formatted_caption,
@@ -729,9 +733,10 @@ impl MessageContent {
             MessageContent::Notice { .. } => {
                 render_warning_text("Notice messages are not yet implemented")
             }
-            MessageContent::Other { event_type } => {
-                itallic_text(format!("Message of type: {}", event_type))
-            }
+            MessageContent::Other { event_type } => itallic_text(
+                format!("Message of type: {}", event_type),
+                theme.text.dim.into(),
+            ),
             MessageContent::ServerNotice { .. } => {
                 render_warning_text("Server notice messages are not yet implemented")
             }
@@ -760,9 +765,10 @@ impl MessageContent {
                 formatted_body,
                 ..
             } => (render_body(body, formatted_body), None),
-            MessageContent::UnableToDecrypt => {
-                itallic_text("Unable to decrypt message".to_string())
-            }
+            MessageContent::UnableToDecrypt => itallic_text(
+                "Unable to decrypt message".to_string(),
+                theme.colors.warning.into(),
+            ),
             MessageContent::VerificationRequest {
                 body,
                 formatted_body,

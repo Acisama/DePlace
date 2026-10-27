@@ -8,6 +8,7 @@ use matrix_sdk::{
     search_index::SearchIndexStoreKind,
 };
 use ruma::DeviceId;
+use sha2::{Digest, Sha256};
 
 pub mod account_data;
 pub mod attachments;
@@ -253,14 +254,20 @@ pub fn save_session(client: &Client) {
     });
 }
 
+fn session_dir_name(user_id: &UserId, device_id: &DeviceId) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(user_id.as_bytes());
+    hasher.update([0u8]); // separator so ("ab","c") ≠ ("a","bc")
+    hasher.update(device_id.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
 pub async fn matrix_client_builder(
     user_id: &UserId,
     device_id: &DeviceId,
     server_url: Url,
     important_paths: &ImportantPaths,
 ) -> Result<(Client, Settings, Keybinds)> {
-    let safe_user_id = user_id.to_string().replace(':', "_");
-
     let data_dir = &important_paths.data_dir;
     let cache_dir = &important_paths.cache_dir;
     let settings_dir = &important_paths.config_dir;
@@ -269,7 +276,7 @@ pub async fn matrix_client_builder(
     std::fs::create_dir_all(cache_dir.to_path_buf())?;
     std::fs::create_dir_all(settings_dir.to_path_buf())?;
 
-    let name = format!("{safe_user_id}_{device_id}");
+    let name = session_dir_name(user_id, device_id);
     let db_path = data_dir.join(format!("{name}.db"));
     let cache_path = cache_dir.join("sessions-cache").join(&name);
     let index_path = data_dir.join("sessions-index").join(&name);

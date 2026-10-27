@@ -35,7 +35,7 @@ interprocess = { version = "2", features = ["tokio"] }
 keyboard-types = { version = "0.8.3", features = ["serde"] }
 livekit = "0.9.4"
 lru = "0.18.2"
-matrix-sdk = { version = "0.19.1", features = ["anyhow", "bundled-sqlite", "e2e-encryption", "experimental-element-recent-emojis", "experimental-search", "experimental-send-custom-to-device", "sso-login"] }
+matrix-sdk = { version = "0.19.1", features = ["anyhow", "bundled-sqlite", "e2e-encryption", "experimental-element-recent-emojis", "experimental-search", "experimental-send-custom-to-device", "markdown", "sso-login"] }
 matrix-sdk-base = "0.19.1"
 matrix-sdk-ui = "0.19.1"
 mime = "0.3.17"
