@@ -300,6 +300,7 @@ fn render_channel(
 
     let notifications = room.notification_counts();
     let has_notifications = notifications.has_notifications();
+    let mentions = notifications.highlights();
 
     let text_color = if is_hovered || is_active || has_notifications {
         theme.text.normal.into()
@@ -458,50 +459,80 @@ fn render_channel(
 
         column.into()
     } else {
-        let items = std::iter::once(
+        let mut row = vec![
+            context_room_icon(
+                room,
+                icon_size,
+                theme,
+                structure,
+                presence_map,
+                avatar_cache,
+                bg,
+            ),
+            name,
+        ];
+
+        if let Some(mentions) = mentions {
+            let diameter = structure.semi_small_font_size() * 1.3;
+
+            row.push(Space::new().width(Fill).into());
+            row.push(
+                w::container(
+                    weighted_text(mentions.to_string(), Weight::Bold)
+                        .size(structure.semi_small_font_size())
+                        .color(theme.solid_bg)
+                        .width(Fill)
+                        .height(Fill)
+                        .center(),
+                )
+                .width(diameter)
+                .height(diameter)
+                .center(diameter)
+                .style(move |_| ContainerStyle {
+                    background: Some(theme.accent.into()),
+                    border: border::rounded(diameter / 2.0),
+                    ..Default::default()
+                })
+                .into(),
+            );
+        }
+
+        let mut items = vec![
             help_view
                 .call(
                     HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
                     if room.is_dm() { "A dm" } else { "A channel" },
-                    w::row![
-                        context_room_icon(
-                            room,
-                            icon_size,
-                            theme,
-                            structure,
-                            presence_map,
-                            avatar_cache,
-                            bg
+                    w::Row::with_children(row)
+                        .spacing(structure.gap)
+                        .align_y(Alignment::Center)
+                        .width(Fill)
+                        .padding(
+                            padding::vertical(structure.small_gap * 0.75)
+                                .horizontal(structure.small_gap),
                         ),
-                        name,
-                    ]
-                    .spacing(structure.gap)
-                    .align_y(Alignment::Center)
-                    .width(Fill)
-                    .padding(
-                        padding::vertical(structure.small_gap * 0.75)
-                            .horizontal(structure.small_gap),
-                    ),
                 )
                 .radius(structure.inner_border_radius)
                 .into(),
-        )
-        .chain(has_notifications.then(|| {
-            w::container(
-                w::container("")
-                    .height(structure.small_gap)
-                    .width(structure.small_gap / 2.0)
-                    .style(move |_| ContainerStyle {
-                        background: Some(theme.text.normal.into()),
-                        border: border::rounded(structure.small_gap / 2.0),
-                        ..Default::default()
-                    }),
-            )
-            .width(structure.small_gap)
-            .height(Fill)
-            .center_y(Fill)
-            .into()
-        }));
+        ];
+
+        if has_notifications {
+            items.push(
+                w::container(
+                    w::container("")
+                        .height(structure.small_gap)
+                        .width(structure.small_gap / 2.0)
+                        .style(move |_| ContainerStyle {
+                            background: Some(theme.text.normal.into()),
+                            border: border::rounded(structure.small_gap / 2.0),
+                            ..Default::default()
+                        }),
+                )
+                .width(structure.small_gap)
+                .height(Fill)
+                .center_y(Fill)
+                .into(),
+            );
+        }
 
         w::Stack::with_children(items).into()
     };

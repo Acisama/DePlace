@@ -154,10 +154,12 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                         help,
                         w::row![
                             svg(iced::advanced::svg::Handle::from_memory(icon))
-                                .width(structure.semi_font_size() * 0.6)
-                                .height(structure.semi_font_size() * 0.6)
+                                .width(structure.semi_large_font_size() * 0.6)
+                                .height(structure.semi_large_font_size() * 0.6)
                                 .style(move |_, _| w::svg::Style { color: Some(color) }),
-                            w::text(text).size(structure.semi_font_size()).color(color)
+                            w::text(text)
+                                .size(structure.semi_large_font_size())
+                                .color(color)
                         ]
                         .spacing(structure.small_gap)
                         .padding(padding::horizontal(structure.gap / 2.0))
@@ -273,22 +275,22 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
             );
         }
 
+        let length = offline_members.len().to_string();
+
+        icon(
+            length.clone(),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../assets/indicators/offline.svg"
+            ))
+            .to_vec(),
+            theme.colors.offline.into(),
+            HelpKey::ChatSidebar(ChatSidebarHelpKey::OfflineMemberCount),
+            "How many offline members are in the current room",
+            &mut heading_children,
+        );
+
         if !offline_members.is_empty() {
-            let length = offline_members.len().to_string();
-
-            icon(
-                length.clone(),
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../assets/indicators/offline.svg"
-                ))
-                .to_vec(),
-                theme.colors.offline.into(),
-                HelpKey::ChatSidebar(ChatSidebarHelpKey::OfflineMemberCount),
-                "How many offline members are in the current room",
-                &mut heading_children,
-            );
-
             expand_column(
                 format!("Offline — {}", length),
                 offline_members,
