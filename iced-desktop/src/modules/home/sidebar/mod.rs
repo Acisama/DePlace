@@ -129,3 +129,36 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         .into()
     }
 }
+
+pub fn render_mention_badge<'a, T: 'a>(
+    mentions: u64,
+    theme: Theme,
+    structure: Structure,
+) -> Element<'a, T> {
+    let diameter = structure.semi_small_font_size() + structure.small_gap / 2.0;
+
+    let text = if mentions < 10 {
+        mentions.to_string()
+    } else {
+        "9+".to_string()
+    };
+
+    w::container(
+        weighted_text(text, Weight::Bold)
+            .size(structure.semi_small_font_size())
+            .color(theme.solid_bg)
+            .width(Fill)
+            .height(Fill)
+            .line_height(1.0)
+            .center(),
+    )
+    .width(diameter)
+    .height(diameter)
+    .center(diameter)
+    .style(move |_| ContainerStyle {
+        background: Some(theme.accent.into()),
+        border: border::rounded(diameter / 2.0),
+        ..Default::default()
+    })
+    .into()
+}

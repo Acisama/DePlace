@@ -9,6 +9,8 @@ use macros::{iced_cache, iced_icon};
 
 use crate::{common::*, components::help_mode::SidebarHelpKey};
 
+use super::render_mention_badge;
+
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
     None,
@@ -300,7 +302,6 @@ fn render_channel(
 
     let notifications = room.notification_counts();
     let has_notifications = notifications.has_notifications();
-    let mentions = notifications.highlights();
 
     let text_color = if is_hovered || is_active || has_notifications {
         theme.text.normal.into()
@@ -472,29 +473,16 @@ fn render_channel(
             name,
         ];
 
-        if let Some(mentions) = mentions {
-            let diameter = structure.semi_small_font_size() * 1.3;
+        let mentions = if room.is_dm() {
+            let total = notifications.total();
+            if total > 0 { Some(total) } else { None }
+        } else {
+            notifications.highlights()
+        };
 
+        if let Some(mentions) = mentions {
             row.push(Space::new().width(Fill).into());
-            row.push(
-                w::container(
-                    weighted_text(mentions.to_string(), Weight::Bold)
-                        .size(structure.semi_small_font_size())
-                        .color(theme.solid_bg)
-                        .width(Fill)
-                        .height(Fill)
-                        .center(),
-                )
-                .width(diameter)
-                .height(diameter)
-                .center(diameter)
-                .style(move |_| ContainerStyle {
-                    background: Some(theme.accent.into()),
-                    border: border::rounded(diameter / 2.0),
-                    ..Default::default()
-                })
-                .into(),
-            );
+            row.push(render_mention_badge(mentions, theme, structure));
         }
 
         let mut items = vec![
@@ -515,7 +503,7 @@ fn render_channel(
                 .into(),
         ];
 
-        if has_notifications {
+        if has_notifications && !room.is_dm() {
             items.push(
                 w::container(
                     w::container("")
