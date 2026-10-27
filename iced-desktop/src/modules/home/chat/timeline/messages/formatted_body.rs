@@ -3,7 +3,7 @@
 //! by the Matrix specification.
 
 use deplace_core::rich_text::{Block, FormattedBody, Inline, Mention};
-use iced::widget::text::Span;
+use iced::widget::text::{LineHeight, Span};
 
 use crate::common::*;
 
@@ -16,6 +16,7 @@ pub trait FormattedBodyView {
         structure: Structure,
         is_local_echo: bool,
         membership_map: &IndexMap<OwnedUserId, RoomMember>,
+        is_edited: bool,
     ) -> Element<'static, TimelineItemMessage>;
 }
 
@@ -26,6 +27,7 @@ impl FormattedBodyView for FormattedBody {
         structure: Structure,
         is_local_echo: bool,
         membership_map: &IndexMap<OwnedUserId, RoomMember>,
+        is_edited: bool,
     ) -> Element<'static, TimelineItemMessage> {
         render_blocks(
             &self.blocks,
@@ -34,6 +36,7 @@ impl FormattedBodyView for FormattedBody {
             is_local_echo,
             true,
             membership_map,
+            is_edited,
         )
     }
 }
@@ -45,20 +48,36 @@ fn render_blocks(
     is_local_echo: bool,
     is_first: bool,
     membership_map: &IndexMap<OwnedUserId, RoomMember>,
+    is_edited: bool,
 ) -> Element<'static, TimelineItemMessage> {
-    w::Column::with_children(blocks.iter().enumerate().map(|(i, block)| {
-        render_block(
-            block,
-            theme,
-            structure,
-            is_local_echo,
-            i == 0 && is_first,
-            membership_map,
-        )
-    }))
-    .spacing(structure.small_gap / 2.0)
-    .width(Fill)
-    .into()
+    let last_index = blocks.len().checked_sub(1);
+    let ends_in_paragraph = matches!(blocks.last(), Some(Block::Paragraph(_)));
+
+    let content = blocks
+        .iter()
+        .enumerate()
+        .map(|(i, block)| {
+            render_block(
+                block,
+                theme,
+                structure,
+                is_local_echo,
+                i == 0 && is_first,
+                membership_map,
+                is_edited && Some(i) == last_index,
+            )
+        })
+        .chain((is_edited && !ends_in_paragraph).then(|| {
+            w::text("(edited)")
+                .color(theme.text.dim)
+                .size(structure.chat.small_text_size)
+                .into()
+        }));
+
+    w::Column::with_children(content)
+        .spacing(structure.small_gap / 2.0)
+        .width(Fill)
+        .into()
 }
 
 fn render_block(
@@ -68,6 +87,7 @@ fn render_block(
     is_local_echo: bool,
     is_first: bool,
     membership_map: &IndexMap<OwnedUserId, RoomMember>,
+    is_edited: bool,
 ) -> Element<'static, TimelineItemMessage> {
     let text_size = structure.chat.text_size;
 
@@ -80,6 +100,7 @@ fn render_block(
             structure,
             is_local_echo,
             membership_map,
+            is_edited,
         ),
         Block::Heading { level, content } => {
             let factor = heading_scale(*level);
@@ -97,6 +118,7 @@ fn render_block(
                 structure,
                 is_local_echo,
                 membership_map,
+                false,
             ))
             .padding(padding)
             .into()
@@ -108,6 +130,7 @@ fn render_block(
             is_local_echo,
             false,
             membership_map,
+            false,
         ))
         .padding(structure.small_gap)
         .style(move |_| ContainerStyle {
@@ -196,7 +219,8 @@ fn render_list(
                 structure,
                 is_local_echo,
                 false,
-                membership_map
+                membership_map,
+                false,
             )
         ]
         .spacing(structure.small_gap / 2.0)
@@ -208,6 +232,7 @@ fn render_list(
     .into()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_inline(
     content: &[Inline],
     text_size: f32,
@@ -216,6 +241,7 @@ fn render_inline(
     structure: Structure,
     is_local_echo: bool,
     membership_map: &IndexMap<OwnedUserId, RoomMember>,
+    is_edited: bool,
 ) -> Element<'static, TimelineItemMessage> {
     let default_color = if is_local_echo {
         theme.text.dim
@@ -223,7 +249,7 @@ fn render_inline(
         theme.text.normal
     };
 
-    let spans: Vec<Span<'static, TimelineItemMessage>> = content
+    let mut spans: Vec<Span<'static, TimelineItemMessage>> = content
         .iter()
         .map(|inline| {
             render_inline_span(
@@ -236,6 +262,16 @@ fn render_inline(
             )
         })
         .collect();
+
+    if is_edited {
+        spans.push(w::span(' ').size(text_size));
+        spans.push(
+            w::span("(edited)".to_string())
+                .color(theme.text.dim)
+                .size(structure.chat.small_text_size)
+                .line_height(LineHeight::Relative(1.0)),
+        );
+    }
 
     w::rich_text(spans)
         .size(text_size)

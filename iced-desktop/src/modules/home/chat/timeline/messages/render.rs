@@ -120,6 +120,7 @@ impl MessageEvent {
             &room_id,
             &self.event_id,
             self.timestamp,
+            self.is_edited,
         );
 
         let mut column = w::Column::new();
@@ -546,6 +547,7 @@ impl MessageContent {
         room_id: &OwnedRoomId,
         event_id: &Option<OwnedEventId>,
         timestamp: SystemTime,
+        is_edited: bool,
     ) -> (
         Option<Element<'static, TimelineItemMessage>>,
         Option<Element<'static, TimelineItemMessage>>,
@@ -585,7 +587,7 @@ impl MessageContent {
         let render_body = |formatted_body: &Option<FormattedBody>| {
             formatted_body
                 .as_ref()
-                .map(|f| f.view(theme, structure, is_local_echo, membership_map))
+                .map(|f| f.view(theme, structure, is_local_echo, membership_map, is_edited))
         };
 
         match &self {

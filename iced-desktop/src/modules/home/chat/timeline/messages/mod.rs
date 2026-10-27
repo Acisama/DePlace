@@ -794,7 +794,7 @@ struct MessageEvent {
     #[hash]
     is_edited: bool,
 
-    shield: TimelineEventShieldState,
+    _shield: TimelineEventShieldState,
 
     #[hash]
     content: MessageContent,

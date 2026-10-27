@@ -283,7 +283,7 @@ impl TimelineItemKind {
                                 is_highlighted: event.is_highlighted(),
                                 contains_only_emojis: event.contains_only_emojis(),
 
-                                shield: event.get_shield(false),
+                                _shield: event.get_shield(false),
                                 send_state: event.send_state().cloned(),
 
                                 content: MessageContent::from_ui(&m.kind, state),
