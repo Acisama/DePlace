@@ -522,7 +522,19 @@ fn render_channel(
             );
         }
 
-        w::Stack::with_children(items).into()
+        let column = w::column![w::Stack::with_children(items)].spacing(structure.divider_width);
+
+        if !room.is_dm() {
+            column
+                .extend(
+                    room.call_participants()
+                        .iter()
+                        .map(|p| p.render_icon(icon_size, avatar_cache)),
+                )
+                .into()
+        } else {
+            column.into()
+        }
     };
 
     w::mouse_area(

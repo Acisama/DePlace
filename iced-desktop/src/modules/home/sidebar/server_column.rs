@@ -10,7 +10,7 @@ use macros::iced_cache;
 use sweeten::widget::drag::DragEvent;
 
 use super::pill::PillCanvas;
-use crate::{common::*, components::help_mode::SidebarHelpKey};
+use crate::{common::*, components::help_mode::SidebarHelpKey, modules::home::SPEAKER_ICON};
 
 #[derive(Clone, Debug)]
 pub enum ServerColumnMessage {
@@ -46,6 +46,7 @@ pub struct ServerColumn {
     #[hash]
     hovered_server: Option<ActiveServerId>,
 
+    active_room: Receiver<Option<DePlaceRoom>>,
     active_server: Receiver<ActiveServer>,
 
     avatar_cache: AvatarCache,
@@ -67,6 +68,8 @@ impl ServerColumn {
 
             avatar_cache: state.avatar_cache().clone(),
             avatar_states_for_hash: BTreeSet::new(),
+
+            active_room: state.active_room(),
 
             state: state.clone(),
         }
@@ -163,6 +166,8 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
 
                 let notifications = room.notification_counts();
 
+                let has_call = room.has_call_participants();
+
                 let num =
                     if notifications.highlight_count > 0 || notifications.notification_count > 0 {
                         Some(
@@ -174,51 +179,76 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         None
                     };
 
-                num.map(|notif| {
-                    let hovered = hovered_server
-                        .as_ref()
-                        .map(|server_id| server_id.is_server(&id))
-                        .unwrap_or(false);
+                if num.is_none() && !has_call {
+                    return None;
+                }
 
+                let mut badge = corner_badge(
+                    help_view.call(
+                        HelpKey::Sidebar(SidebarHelpKey::DmsWithNotifications),
+                        "Direct messages with unread notifications or ongoing calls",
+                        w::mouse_area(
+                            w::button(room.render_icon(icon_size, avatar_cache))
+                                .padding(0.0)
+                                .style(move |_, _| ButtonStyle {
+                                    ..Default::default()
+                                })
+                                .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
+                        )
+                        .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
+                            id.clone(),
+                        )))
+                        .on_exit(ServerColumnMessage::ServerHoverEnded(
+                            ActiveServerId::Server(id.clone()),
+                        )),
+                    ),
+                    0.4,
+                    structure.icon_gap,
+                    theme.solid_bg,
+                );
+
+                let own_user_in_call = room.own_user_is_in_call();
+                if has_call {
+                    badge = badge.tr(CornerContent::Icon {
+                        svg_content: SPEAKER_ICON,
+                        color: if own_user_in_call {
+                            theme.solid_bg.into()
+                        } else {
+                            theme.text.normal.into()
+                        },
+                        background: if own_user_in_call {
+                            theme.colors.success.into()
+                        } else {
+                            theme.colors.offline.into()
+                        },
+                    })
+                }
+
+                if let Some(notif) = num {
+                    badge = badge.br(CornerContent::text(
+                        notif.to_string(),
+                        theme.solid_bg,
+                        theme.accent,
+                    ))
+                }
+
+                let hovered = hovered_server
+                    .as_ref()
+                    .map(|server_id| server_id.is_server(&id))
+                    .unwrap_or(false);
+
+                Some(
                     pill(
                         theme,
                         structure,
-                        active_server.is_dms(),
+                        self.active_room.borrow().as_ref().map(|r| r.room_id())
+                            == Some(room.room_id()),
                         hovered,
-                        true,
-                        corner_badge(
-                            help_view.call(
-                                HelpKey::Sidebar(SidebarHelpKey::DmsWithNotifications),
-                                "Direct messages with unread notifications or ongoing calls",
-                                w::mouse_area(
-                                    w::button(room.render_icon(icon_size, avatar_cache))
-                                        .padding(0.0)
-                                        .style(move |_, _| ButtonStyle {
-                                            ..Default::default()
-                                        })
-                                        .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
-                                )
-                                .on_enter(ServerColumnMessage::ServerHovered(
-                                    ActiveServerId::Server(id.clone()),
-                                ))
-                                .on_exit(
-                                    ServerColumnMessage::ServerHoverEnded(ActiveServerId::Server(
-                                        id.clone(),
-                                    )),
-                                ),
-                            ),
-                            0.4,
-                            structure.icon_gap,
-                            theme.solid_bg,
-                        )
-                        .br(CornerContent::text(
-                            notif.to_string(),
-                            theme.solid_bg,
-                            theme.accent,
-                        )),
+                        num.is_some(),
+                        badge,
                     )
-                    .into()
-                })
+                    .into(),
+                )
             })
             .collect();
 
@@ -232,6 +262,9 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             |(index, room)| {
                 let id = room.room_id().to_owned();
                 let children = self.room_watchers.get_all_children(&id);
+
+                let has_call = children.iter().any(|r| r.has_call_participants());
+                let own_user_in_call = children.iter().any(|r| r.own_user_is_in_call());
 
                 let counts: NotificationCounts =
                     children.iter().map(|r| r.notification_counts()).sum();
@@ -253,6 +286,32 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     ActiveServerId::Server(id.clone()),
                 ));
 
+                let mut badge = corner_badge(content, 0.4, 0.15, theme.solid_bg);
+
+                if let Some(highlights) = counts.highlights() {
+                    badge = badge.br(CornerContent::text(
+                        highlights.to_string(),
+                        theme.solid_bg,
+                        theme.accent,
+                    ))
+                }
+
+                if has_call {
+                    badge = badge.tr(CornerContent::Icon {
+                        svg_content: SPEAKER_ICON,
+                        color: if own_user_in_call {
+                            theme.solid_bg.into()
+                        } else {
+                            theme.text.normal.into()
+                        },
+                        background: if own_user_in_call {
+                            theme.colors.success.into()
+                        } else {
+                            theme.colors.offline.into()
+                        },
+                    })
+                }
+
                 pill(
                     theme,
                     structure,
@@ -267,17 +326,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         theme,
                         HelpKey::Sidebar(SidebarHelpKey::Server(index)),
                         "A server, click on it to view it",
-                        if let Some(highlights) = counts.highlights() {
-                            Element::from(corner_badge(content, 0.4, 0.15, theme.solid_bg).br(
-                                CornerContent::text(
-                                    highlights.to_string(),
-                                    theme.solid_bg,
-                                    theme.accent,
-                                ),
-                            ))
-                        } else {
-                            content.into()
-                        },
+                        badge,
                         ServerColumnMessage::HelpHover,
                     )
                     .radius(icon_size * room.icon_border_radius_ratio()),

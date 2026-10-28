@@ -33,6 +33,7 @@ pub const REPLY_ICON: &str = icons::arrow_bend_up_left::BOLD;
 pub const PIN_ICON: &str = icons::push_pin::BOLD;
 pub const UNPIN_ICON: &str = icons::push_pin_slash::BOLD;
 pub const REDACT_ICON: &str = icons::trash::BOLD;
+pub const SPEAKER_ICON: &str = icons::speaker_high::FILL;
 
 #[derive(Clone, Debug)]
 pub enum HomeMessage {

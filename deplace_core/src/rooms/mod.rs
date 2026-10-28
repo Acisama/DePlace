@@ -1,11 +1,7 @@
-use std::{
-    collections::{BTreeSet, HashMap},
-    hash::Hash,
-    iter::Sum,
-    sync::Arc,
-};
+use std::{collections::HashMap, hash::Hash, iter::Sum, sync::Arc};
 
 use futures::StreamExt;
+use indexmap::IndexSet;
 use matrix_sdk::{
     Room, RoomMemberships,
     deserialized_responses::SyncOrStrippedState,
@@ -124,7 +120,7 @@ struct DePlaceRoomInner {
     avatar_url: Option<OwnedMxcUri>,
     notification_counts: NotificationCounts,
     parents: HashMap<OwnedRoomId, Option<String>>,
-    call_participants: BTreeSet<Arc<CallMember>>,
+    call_participants: IndexSet<Arc<CallMember>>,
     own_user_is_in_call: bool,
     own_user_device_is_in_call: bool,
     color: DePlaceColor,
@@ -201,11 +197,19 @@ impl DePlaceRoom {
         self.inner.own_user_device_is_in_call
     }
 
+    pub fn has_call_participants(&self) -> bool {
+        !self.inner.call_participants.is_empty()
+    }
+
     pub fn dm_other_member(&self) -> Option<RoomMember> {
         match &self.inner.room_type {
             DePlaceRoomType::Direct { other_member } => other_member.clone(),
             _ => None,
         }
+    }
+
+    pub fn call_participants(&self) -> &IndexSet<Arc<CallMember>> {
+        &self.inner.call_participants
     }
 }
 
@@ -215,6 +219,29 @@ pub struct CallMember {
     pub device_id: OwnedDeviceId,
     pub call_intent: CallIntent,
     created_ts: Option<MilliSecondsSinceUnixEpoch>,
+}
+
+impl ProfileLike for CallMember {
+    type Id<'a>
+        = &'a UserId
+    where
+        Self: 'a;
+
+    fn icon_border_radius_ratio(&self) -> f32 {
+        0.5
+    }
+
+    fn profile_id(&self) -> Self::Id<'_> {
+        self.member.user_id()
+    }
+
+    fn profile_name(&self) -> Option<String> {
+        self.member.profile_name()
+    }
+
+    fn get_avatar(&self) -> Option<OwnedMxcUri> {
+        self.member.get_avatar()
+    }
 }
 
 impl Hash for CallMember {
@@ -250,8 +277,7 @@ impl DePlaceRoom {
     pub async fn from_room(room: Room, own_device: &UserDevice) -> Self {
         let id = room.room_id().to_owned();
 
-        #[allow(clippy::mutable_key_type)]
-        let mut call_participants: BTreeSet<Arc<CallMember>> = BTreeSet::new();
+        let mut call_participants: IndexSet<Arc<CallMember>> = IndexSet::new();
 
         if let Ok(events) = room
             .get_state_events_static::<CallMemberEventContent>()
@@ -295,6 +321,8 @@ impl DePlaceRoom {
                 }
             }
         }
+
+        call_participants.sort_by_cached_key(|m| m.get_name());
 
         let parents = match room.parent_spaces().await {
             Ok(stream) => {
