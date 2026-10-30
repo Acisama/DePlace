@@ -34,6 +34,8 @@ pub const PIN_ICON: &str = icons::push_pin::BOLD;
 pub const UNPIN_ICON: &str = icons::push_pin_slash::BOLD;
 pub const REDACT_ICON: &str = icons::trash::BOLD;
 pub const SPEAKER_ICON: &str = icons::speaker_high::FILL;
+pub const DISCONNECT: &str = phosphor_svgs::icon::phone_disconnect::REGULAR;
+pub const CONNECT: &str = phosphor_svgs::icon::phone::REGULAR;
 
 #[derive(Clone, Debug)]
 pub enum HomeMessage {

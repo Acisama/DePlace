@@ -14,6 +14,7 @@ use macros::iced_cache;
 use crate::{
     common::*,
     components::{help_mode::HeaderHelpKey, phosphor_icon},
+    modules::home::{CONNECT, DISCONNECT},
 };
 
 use super::sidebar::SidebarState;
@@ -254,9 +255,9 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                                 theme.colors.green.into()
                             },
                             if is_in_call {
-                                phosphor_svgs::icon::phone_disconnect::FILL
+                                DISCONNECT
                             } else {
-                                phosphor_svgs::icon::phone::REGULAR
+                                CONNECT
                             },
                             if is_in_call {
                                 HeaderMessage::LeaveCall

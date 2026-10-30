@@ -30,6 +30,14 @@ pub enum ChannelsMessage {
         room_id: OwnedRoomId,
         bounds: Rectangle,
     },
+    CallParticipantHovered {
+        room_id: OwnedRoomId,
+        participant: Arc<CallMember>,
+    },
+    CallParticipantUnhovered {
+        room_id: OwnedRoomId,
+        participant: Arc<CallMember>,
+    },
 }
 
 impl OpenProfileOverlayExt for ChannelsMessage {
@@ -79,6 +87,9 @@ pub struct ServerChannels {
     #[hash]
     hovered_room_id: Option<OwnedRoomId>,
 
+    #[hash]
+    hovered_call_participant: Option<(OwnedRoomId, Arc<CallMember>)>,
+
     name_decoration: Receiver<NameDecoration>,
 
     presence_map: Receiver<PresenceMap>,
@@ -107,6 +118,7 @@ impl ServerChannels {
 
             presence_map: state.presence_map(),
             hovered_room_id: None,
+            hovered_call_participant: None,
 
             name_decoration: state.settings().name_decoration.watch(),
 
@@ -158,6 +170,22 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                 room_id,
                 bounds,
             }),
+            ChannelsMessage::CallParticipantHovered {
+                room_id,
+                participant,
+            } => {
+                self.hovered_call_participant = Some((room_id, participant));
+                None
+            }
+            ChannelsMessage::CallParticipantUnhovered {
+                room_id,
+                participant,
+            } => {
+                if self.hovered_call_participant == Some((room_id, participant)) {
+                    self.hovered_call_participant = None;
+                }
+                None
+            }
         }
     }
 
@@ -173,6 +201,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
             .map(|r| r.room_id().to_owned());
 
         let hovered_room_id = self.hovered_room_id.clone();
+        let hovered_call_participant = self.hovered_call_participant.clone();
 
         let channels: Arc<Vec<_>> = match &active_server {
             ActiveServer::Dms => self.room_watchers.dm_rooms(),
@@ -206,6 +235,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                 structure,
                 &active_room_id,
                 &hovered_room_id,
+                &hovered_call_participant,
                 r,
                 &self.avatar_cache,
                 presence_map,
@@ -321,6 +351,7 @@ fn render_channel(
     structure: Structure,
     active_room_id: &Option<OwnedRoomId>,
     hovered_room_id: &Option<OwnedRoomId>,
+    hovered_call_participant: &Option<(OwnedRoomId, Arc<CallMember>)>,
     room: &DePlaceRoom,
     avatar_cache: &AvatarCache,
     presence_map: &PresenceMap,
@@ -494,6 +525,7 @@ fn render_channel(
                                 structure,
                                 active_room_id,
                                 hovered_room_id,
+                                hovered_call_participant,
                                 room,
                                 avatar_cache,
                                 presence_map,
@@ -539,6 +571,7 @@ fn render_channel(
                             structure,
                             active_room_id,
                             hovered_room_id,
+                            hovered_call_participant,
                             active,
                             avatar_cache,
                             presence_map,
@@ -574,9 +607,14 @@ fn render_channel(
         if !room.is_dm() {
             column
                 .extend(room.call_participants().iter().map(|p| {
+                    let is_hovered = hovered_call_participant
+                        .as_ref()
+                        .is_some_and(|(r, u)| r == room.room_id() && u == p);
+
                     render_call_participant(
                         p,
                         room.room_id(),
+                        is_hovered,
                         theme,
                         structure,
                         icon_size,
@@ -593,41 +631,55 @@ fn render_channel(
 fn render_call_participant(
     member: &Arc<CallMember>,
     room_id: &RoomId,
+    is_hovered: bool,
     theme: Theme,
     structure: Structure,
     icon_size: f32,
     avatar_cache: &AvatarCache,
 ) -> Element<'static, ChannelsMessage> {
     let room_id = room_id.to_owned();
+    let hover_room_id = room_id.clone();
+
     let user_id = member.member.user_id().to_owned();
 
     w::row![
         w::container("").width(structure.small_gap + structure.font_size),
         link(
-            w::button(
-                w::row![
-                    member.render_icon(icon_size, avatar_cache),
-                    member.render_name(structure.font_size)
-                ]
-                .spacing(structure.small_gap)
-                .align_y(Alignment::Center)
-                .width(Fill)
-            )
-            .style(move |_, status| ButtonStyle {
-                background: status.active().then_some(theme.solid_hover_bg.into()),
-                border: Border {
-                    color: if status.active() {
-                        theme.border.into()
-                    } else {
-                        Color::TRANSPARENT
+            w::mouse_area(
+                w::container(
+                    w::row![
+                        member.render_icon(icon_size, avatar_cache),
+                        member.render_name(structure.font_size)
+                    ]
+                    .spacing(structure.small_gap)
+                    .align_y(Alignment::Center)
+                    .width(Fill),
+                )
+                .padding(
+                    padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap),
+                )
+                .style(move |_| ContainerStyle {
+                    background: is_hovered.then_some(theme.solid_hover_bg.into()),
+                    border: Border {
+                        color: if is_hovered {
+                            theme.border.into()
+                        } else {
+                            Color::TRANSPARENT
+                        },
+                        width: structure.border_thickness,
+                        radius: structure.inner_border_radius.into(),
                     },
-                    width: structure.border_thickness,
-                    radius: structure.inner_border_radius.into()
-                },
-                ..Default::default()
+                    ..Default::default()
+                }),
+            )
+            .on_enter(ChannelsMessage::CallParticipantHovered {
+                room_id: hover_room_id.clone(),
+                participant: member.clone(),
             })
-            .on_press(ChannelsMessage::None)
-            .padding(padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap)),
+            .on_exit(ChannelsMessage::CallParticipantUnhovered {
+                room_id: hover_room_id,
+                participant: member.clone(),
+            }),
             Color::TRANSPARENT,
             move |bounds| ChannelsMessage::open_profile(room_id.clone(), user_id.clone(), bounds),
         )
