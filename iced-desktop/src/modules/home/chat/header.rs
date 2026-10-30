@@ -92,7 +92,10 @@ impl Header {
             name_decoration: state.settings().name_decoration.watch(),
 
             room_watchers: state
-                .room_watchers(hashing::hash_room_default(id.clone()))
+                .room_watchers(hashing::hash_room(
+                    id.clone(),
+                    hashing::hash_visible().hash_call_state(true),
+                ))
                 .clone(),
             room_id: id.clone(),
             state: state.clone(),

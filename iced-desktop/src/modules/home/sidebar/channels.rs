@@ -1,13 +1,17 @@
 use std::collections::BTreeSet;
 
 use deplace_core::{
+    rooms::CallMember,
     settings::NameDecoration,
     state::{ActiveServer, PresenceMap},
 };
 use iced::{Alignment, border::Radius};
 use macros::{iced_cache, iced_icon};
 
-use crate::{common::*, components::help_mode::SidebarHelpKey};
+use crate::{
+    common::*,
+    components::{help_mode::SidebarHelpKey, link::link, profile::OpenProfileOverlayExt},
+};
 
 use super::render_mention_badge;
 
@@ -21,6 +25,21 @@ pub enum ChannelsMessage {
     RoomUnhovered(OwnedRoomId),
     HelpHover(Option<HelpKey>),
     OpenQuickselect,
+    ShowProfile {
+        user_id: OwnedUserId,
+        room_id: OwnedRoomId,
+        bounds: Rectangle,
+    },
+}
+
+impl OpenProfileOverlayExt for ChannelsMessage {
+    fn open_profile(room_id: OwnedRoomId, user_id: OwnedUserId, bounds: Rectangle) -> Self {
+        Self::ShowProfile {
+            user_id,
+            room_id,
+            bounds,
+        }
+    }
 }
 
 impl NeedsAvatarExt for ChannelsMessage {
@@ -40,6 +59,11 @@ pub enum ChannelsAction {
     NeedsMedia(NeedsMedia),
     HelpHover(Option<HelpKey>),
     OpenQuickselect,
+    ShowProfile {
+        user_id: OwnedUserId,
+        room_id: OwnedRoomId,
+        bounds: Rectangle,
+    },
 }
 
 #[iced_cache(Clone)]
@@ -74,7 +98,9 @@ impl ServerChannels {
         Self {
             avatar_cache: state.avatar_cache().clone(),
             room_watchers: state
-                .room_watchers(hashing::hash_all_rooms_default())
+                .room_watchers(hashing::hash_all_rooms(hashing::hash_option_room(
+                    hashing::hash_visible().hash_call_state(true),
+                )))
                 .clone(),
 
             collapsed_categories: BTreeSet::new(),
@@ -123,6 +149,15 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                 }
                 None
             }
+            ChannelsMessage::ShowProfile {
+                user_id,
+                room_id,
+                bounds,
+            } => Some(ChannelsAction::ShowProfile {
+                user_id,
+                room_id,
+                bounds,
+            }),
         }
     }
 
@@ -323,107 +358,135 @@ fn render_channel(
 
     let name = room.render_name_decorated(structure.font_size, name_decoration, text_color);
 
-    let id = room.room_id().to_owned();
+    let id_ref = room.room_id();
+    let id = id_ref.to_owned();
 
-    let content: Element<'static, ChannelsMessage> = if is_space {
-        let expanded = !collapsed_categories.contains(room.room_id());
+    let expanded = !collapsed_categories.contains(room.room_id());
+    let is_active = active_room_id.as_ref().is_some_and(|id| id == id_ref);
 
-        let mut column =
-            w::column![
-            w::mouse_area(
-                w::button(
-                    help_view.call(
+    let mut room_row = vec![
+        w::mouse_area(
+            w::button(
+                help_view
+                    .call(
                         HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
                         "Channel",
                         w::row![
-                            iced_icon!(expanded ? caret_down : caret_right, bold, icon_size,),
+                            if is_space {
+                                if expanded {
+                                    iced_icon!(caret_down, bold, icon_size).into()
+                                } else {
+                                    iced_icon!(caret_right, bold, icon_size).into()
+                                }
+                            } else {
+                                context_room_icon(
+                                    room,
+                                    icon_size,
+                                    theme,
+                                    structure,
+                                    presence_map,
+                                    avatar_cache,
+                                    bg,
+                                )
+                            },
                             name,
                         ]
                         .spacing(structure.gap)
                         .width(Fill)
                         .align_y(Alignment::Center)
                         .padding(
-                            padding::vertical(structure.small_gap * 0.75).left(structure.small_gap)
-                        )
-                    ).radius(structure.inner_border_radius)
-                )
-                .on_press(ChannelsMessage::ToggleCategory(room.room_id().to_owned()))
-                .padding(0.0)
-                .style(move |_, status| ButtonStyle {
-                    background: None,
-                    border: Border {
-                        color: if status.active() {
-                            theme.border.into()
-                        } else {
-                            Color::TRANSPARENT
-                        },
-                        width: structure.border_thickness,
-                        radius: structure.inner_border_radius.into()
-                    },
-                    text_color,
-                    ..Default::default()
-                })
+                            padding::vertical(structure.small_gap * 0.75).left(structure.small_gap),
+                        ),
+                    )
+                    .radius(structure.inner_border_radius),
             )
-            .on_enter(ChannelsMessage::RoomHovered(id.clone()))
-            .on_exit(ChannelsMessage::RoomUnhovered(id.clone()))
-        ]
-            .spacing(structure.divider_width);
+            .on_press_maybe(if !is_active || is_space {
+                if is_space {
+                    Some(ChannelsMessage::ToggleCategory(room.room_id().to_owned()))
+                } else {
+                    Some(ChannelsMessage::SetActiveRoom(room.clone()))
+                }
+            } else {
+                None
+            })
+            .padding(0.0)
+            .style(move |_, status| ButtonStyle {
+                background: is_active.then_some(theme.solid_hover_bg.into()),
+                border: Border {
+                    color: if status.active() || is_active {
+                        theme.border.into()
+                    } else {
+                        Color::TRANSPARENT
+                    },
+                    width: structure.border_thickness,
+                    radius: structure.inner_border_radius.into(),
+                },
+                text_color,
+                ..Default::default()
+            }),
+        )
+        .on_enter(ChannelsMessage::RoomHovered(id.clone()))
+        .on_exit(ChannelsMessage::RoomUnhovered(id.clone()))
+        .into(),
+    ];
 
-        if let Some(children) = room_watchers.get_children(room.room_id()) {
-            let item_height = icon_size + 1.5 * structure.small_gap;
-            if expanded {
-                let length = children.len();
+    let mentions = if room.is_dm() {
+        let total = notifications.total();
+        if total > 0 { Some(total) } else { None }
+    } else {
+        notifications.highlights()
+    };
 
-                let line_height = (item_height + structure.divider_width) * length as f32;
+    if let Some(mentions) = mentions {
+        room_row.push(Space::new().width(Fill).into());
+        room_row.push(render_mention_badge(mentions, theme, structure));
+    }
 
-                column = column.push(
-                    w::container(w::stack([
-                        w::Column::with_children(children.iter().map(|room| {
-                            w::row![
-                                w::space().width(icon_size),
-                                render_channel(
-                                    theme,
-                                    structure,
-                                    active_room_id,
-                                    hovered_room_id,
-                                    room,
-                                    avatar_cache,
-                                    presence_map,
-                                    room_watchers,
-                                    collapsed_categories,
-                                    name_decoration,
-                                    icon_size,
-                                    help_view,
-                                    usize::MAX,
-                                )
-                            ]
-                            .into()
-                        }))
-                        .spacing(structure.divider_width)
-                        .into(),
-                        w::container(
-                            w::container("")
-                                .width(structure.divider_width)
-                                .height(line_height)
-                                .style(move |_| ContainerStyle {
-                                    background: Some(theme.border.into()),
-                                    border: border::rounded(structure.divider_width / 2.0),
-                                    ..Default::default()
-                                }),
-                        )
-                        .width(icon_size)
-                        .center_x(icon_size)
-                        .into(),
-                    ]))
-                    .padding(padding::left(structure.small_gap)),
-                );
-            } else if let Some(active_id) = &active_room_id
-                && let Some(active) = children.iter().find(|room| room.room_id() == active_id)
-            {
-                let line_height = item_height + structure.divider_width;
+    let mut items = vec![
+        help_view
+            .call(
+                HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
+                if room.is_dm() { "A dm" } else { "A channel" },
+                w::Row::with_children(room_row)
+                    .spacing(structure.gap)
+                    .align_y(Alignment::Center)
+                    .width(Fill),
+            )
+            .radius(structure.inner_border_radius)
+            .into(),
+    ];
 
-                column = column.push(
-                    w::container(w::stack([
+    if has_notifications && !room.is_dm() {
+        items.push(
+            w::container(
+                w::container("")
+                    .height(structure.small_gap)
+                    .width(structure.small_gap / 2.0)
+                    .style(move |_| ContainerStyle {
+                        background: Some(theme.text.normal.into()),
+                        border: border::rounded(structure.small_gap / 2.0),
+                        ..Default::default()
+                    }),
+            )
+            .width(structure.small_gap)
+            .height(Fill)
+            .center_y(Fill)
+            .into(),
+        );
+    }
+
+    let mut column = w::column![w::Stack::with_children(items)].spacing(structure.divider_width);
+
+    if is_space && let Some(children) = room_watchers.get_children(room.room_id()) {
+        let item_height = icon_size + 1.5 * structure.small_gap;
+        if expanded {
+            let length = children.len();
+
+            let line_height = (item_height + structure.divider_width) * length as f32;
+
+            column = column.push(
+                w::container(w::stack([
+                    w::Column::with_children(children.iter().map(|room| {
                         w::row![
                             w::space().width(icon_size),
                             render_channel(
@@ -431,7 +494,7 @@ fn render_channel(
                                 structure,
                                 active_room_id,
                                 hovered_room_id,
-                                active,
+                                room,
                                 avatar_cache,
                                 presence_map,
                                 room_watchers,
@@ -442,141 +505,132 @@ fn render_channel(
                                 usize::MAX,
                             )
                         ]
-                        .into(),
-                        w::container(
-                            w::container("")
-                                .width(structure.divider_width)
-                                .height(line_height)
-                                .style(move |_| ContainerStyle {
-                                    background: Some(theme.border.into()),
-                                    border: border::rounded(structure.divider_width / 2.0),
-                                    ..Default::default()
-                                }),
+                        .into()
+                    }))
+                    .spacing(structure.divider_width)
+                    .into(),
+                    w::container(
+                        w::container("")
+                            .width(structure.divider_width)
+                            .height(line_height)
+                            .style(move |_| ContainerStyle {
+                                background: Some(theme.border.into()),
+                                border: border::rounded(structure.divider_width / 2.0),
+                                ..Default::default()
+                            }),
+                    )
+                    .width(icon_size)
+                    .center_x(icon_size)
+                    .into(),
+                ]))
+                .padding(padding::left(structure.small_gap)),
+            );
+        } else if let Some(active_id) = &active_room_id
+            && let Some(active) = children.iter().find(|room| room.room_id() == active_id)
+        {
+            let line_height = item_height + structure.divider_width;
+
+            column = column.push(
+                w::container(w::stack([
+                    w::row![
+                        w::space().width(icon_size),
+                        render_channel(
+                            theme,
+                            structure,
+                            active_room_id,
+                            hovered_room_id,
+                            active,
+                            avatar_cache,
+                            presence_map,
+                            room_watchers,
+                            collapsed_categories,
+                            name_decoration,
+                            icon_size,
+                            help_view,
+                            usize::MAX,
                         )
-                        .width(icon_size)
-                        .center_x(icon_size)
-                        .into(),
-                    ]))
-                    .padding(padding::left(structure.small_gap)),
-                );
-            }
+                    ]
+                    .into(),
+                    w::container(
+                        w::container("")
+                            .width(structure.divider_width)
+                            .height(line_height)
+                            .style(move |_| ContainerStyle {
+                                background: Some(theme.border.into()),
+                                border: border::rounded(structure.divider_width / 2.0),
+                                ..Default::default()
+                            }),
+                    )
+                    .width(icon_size)
+                    .center_x(icon_size)
+                    .into(),
+                ]))
+                .padding(padding::left(structure.small_gap)),
+            );
         }
 
         column.into()
     } else {
-        let mut row = vec![
-            context_room_icon(
-                room,
-                icon_size,
-                theme,
-                structure,
-                presence_map,
-                avatar_cache,
-                bg,
-            ),
-            name,
-        ];
-
-        let mentions = if room.is_dm() {
-            let total = notifications.total();
-            if total > 0 { Some(total) } else { None }
-        } else {
-            notifications.highlights()
-        };
-
-        if let Some(mentions) = mentions {
-            row.push(Space::new().width(Fill).into());
-            row.push(render_mention_badge(mentions, theme, structure));
-        }
-
-        let mut items = vec![
-            help_view
-                .call(
-                    HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
-                    if room.is_dm() { "A dm" } else { "A channel" },
-                    w::Row::with_children(row)
-                        .spacing(structure.gap)
-                        .align_y(Alignment::Center)
-                        .width(Fill)
-                        .padding(
-                            padding::vertical(structure.small_gap * 0.75)
-                                .horizontal(structure.small_gap),
-                        ),
-                )
-                .radius(structure.inner_border_radius)
-                .into(),
-        ];
-
-        if has_notifications && !room.is_dm() {
-            items.push(
-                w::container(
-                    w::container("")
-                        .height(structure.small_gap)
-                        .width(structure.small_gap / 2.0)
-                        .style(move |_| ContainerStyle {
-                            background: Some(theme.text.normal.into()),
-                            border: border::rounded(structure.small_gap / 2.0),
-                            ..Default::default()
-                        }),
-                )
-                .width(structure.small_gap)
-                .height(Fill)
-                .center_y(Fill)
-                .into(),
-            );
-        }
-
-        let column = w::column![w::Stack::with_children(items)].spacing(structure.divider_width);
-
         if !room.is_dm() {
             column
-                .extend(
-                    room.call_participants()
-                        .iter()
-                        .map(|p| p.render_icon(icon_size, avatar_cache)),
-                )
+                .extend(room.call_participants().iter().map(|p| {
+                    render_call_participant(
+                        p,
+                        room.room_id(),
+                        theme,
+                        structure,
+                        icon_size,
+                        avatar_cache,
+                    )
+                }))
                 .into()
         } else {
             column.into()
         }
-    };
+    }
+}
 
-    w::mouse_area(
-        w::button(content)
-            .padding(0.0)
-            .style(move |_, status| {
-                let selected = is_active
-                    || matches!(status, button::Status::Hovered | button::Status::Pressed);
-                ButtonStyle {
-                    background: is_active.then_some(theme.solid_hover_bg.into()),
-                    border: Border {
-                        color: if selected && !is_space {
-                            theme.border.into()
-                        } else {
-                            Default::default()
-                        },
-                        width: structure.border_thickness,
-                        radius: structure.inner_border_radius.into(),
+fn render_call_participant(
+    member: &Arc<CallMember>,
+    room_id: &RoomId,
+    theme: Theme,
+    structure: Structure,
+    icon_size: f32,
+    avatar_cache: &AvatarCache,
+) -> Element<'static, ChannelsMessage> {
+    let room_id = room_id.to_owned();
+    let user_id = member.member.user_id().to_owned();
+
+    w::row![
+        w::container("").width(structure.small_gap + structure.font_size),
+        link(
+            w::button(
+                w::row![
+                    member.render_icon(icon_size, avatar_cache),
+                    member.render_name(structure.font_size)
+                ]
+                .spacing(structure.small_gap)
+                .align_y(Alignment::Center)
+                .width(Fill)
+            )
+            .style(move |_, status| ButtonStyle {
+                background: status.active().then_some(theme.solid_hover_bg.into()),
+                border: Border {
+                    color: if status.active() {
+                        theme.border.into()
+                    } else {
+                        Color::TRANSPARENT
                     },
-                    text_color,
-                    ..Default::default()
-                }
+                    width: structure.border_thickness,
+                    radius: structure.inner_border_radius.into()
+                },
+                ..Default::default()
             })
-            .on_press_maybe(if is_space {
-                Some(ChannelsMessage::None)
-            } else {
-                (!is_active).then_some(ChannelsMessage::SetActiveRoom(room.clone()))
-            }),
-    )
-    .on_enter(if !is_space {
-        ChannelsMessage::RoomHovered(id.clone())
-    } else {
-        ChannelsMessage::None
-    })
-    .on_exit(if !is_space {
-        ChannelsMessage::RoomUnhovered(id)
-    } else {
-        ChannelsMessage::None
-    })
+            .on_press(ChannelsMessage::None)
+            .padding(padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap)),
+            Color::TRANSPARENT,
+            move |bounds| ChannelsMessage::open_profile(room_id.clone(), user_id.clone(), bounds),
+        )
+    ]
     .into()
 }

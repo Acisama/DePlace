@@ -472,6 +472,14 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                     }
                     None
                 }
+                SidebarAction::ShowProfile {
+                    user_id,
+                    room_id,
+                    bounds,
+                } => {
+                    self.overlay.open_profile(room_id, user_id, bounds);
+                    None
+                }
             },
             HomeMessage::ActiveRoomChanged(Some(room)) => self.load_room(room),
             HomeMessage::ActiveRoomChanged(None) => None,

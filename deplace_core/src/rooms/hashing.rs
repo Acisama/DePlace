@@ -259,6 +259,8 @@ pub struct RoomHashingConfig {
     hash_avatar_url: bool,
     /// Whether the `notification_counts` should be hashed
     hash_notifications: bool,
+    /// Whether the call state (participants, own user/device in-call status) should be hashed
+    hash_call_state: bool,
 }
 
 impl Default for RoomHashingConfig {
@@ -267,6 +269,7 @@ impl Default for RoomHashingConfig {
             hash_display_name: true,
             hash_avatar_url: true,
             hash_notifications: false,
+            hash_call_state: false,
         }
     }
 }
@@ -286,6 +289,11 @@ impl RoomHashingConfig {
         self.hash_notifications = hash_notifications;
         *self
     }
+
+    pub fn hash_call_state(&mut self, hash_call_state: bool) -> Self {
+        self.hash_call_state = hash_call_state;
+        *self
+    }
 }
 
 /// Hash `display_name`
@@ -301,6 +309,11 @@ pub fn hash_avatar_url() -> RoomHashingConfig {
 /// Hash `notification_counts`
 pub fn hash_notifications() -> RoomHashingConfig {
     RoomHashingConfig::default().hash_notifications(true)
+}
+
+/// Hash call state (participants, own user/device in-call status)
+pub fn hash_call_state() -> RoomHashingConfig {
+    RoomHashingConfig::default().hash_call_state(true)
 }
 
 /// Hash `display_name` and `avatar_url`
@@ -320,6 +333,12 @@ impl DePlaceRoom {
         }
         if config.hash_notifications {
             self.inner.notification_counts.hash(state);
+        }
+        if config.hash_call_state {
+            self.inner
+                .call_participants
+                .iter()
+                .for_each(|p| p.hash(state));
         }
     }
 }

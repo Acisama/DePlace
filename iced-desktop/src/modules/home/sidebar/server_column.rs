@@ -65,7 +65,9 @@ impl ServerColumn {
                 .room_watchers(
                     hashing::hash_dms_default()
                         .hash_servers_default()
-                        .hash_all_rooms(hashing::hash_option_room(hashing::hash_notifications())),
+                        .hash_all_rooms(hashing::hash_option_room(
+                            hashing::hash_notifications().hash_call_state(true),
+                        )),
                 )
                 .clone(),
 

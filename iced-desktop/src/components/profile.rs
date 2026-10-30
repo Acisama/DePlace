@@ -201,7 +201,13 @@ pub fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
         );
     }
 
-    phosphor_icon(room.icon(), icon_size).into()
+    let icon = phosphor_icon(room.icon(), icon_size);
+
+    if room.is_call() && room.has_call_participants() {
+        icon.color(theme.colors.success.into()).into()
+    } else {
+        icon.into()
+    }
 }
 
 pub fn render_name<'a, T: Clone + 'a>(name: String, size: f32, color: Color) -> Element<'a, T> {
