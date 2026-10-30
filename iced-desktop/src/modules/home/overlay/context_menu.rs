@@ -121,13 +121,11 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        _help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, ContextMenuMessage> {
+    fn view(&self) -> iced::Element<'static, ContextMenuMessage> {
         const SIZE: f32 = 200.0;
+
+        let theme = theme();
+        let structure = structure();
 
         let position = self.position;
         let kind = self.kind.clone();

@@ -29,6 +29,12 @@ impl NeedsAvatarExt for ServerColumnMessage {
     }
 }
 
+impl HelpOverMessage for ServerColumnMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        ServerColumnMessage::HelpHover(help)
+    }
+}
+
 pub enum ServerColumnAction {
     SetActiveServer(ActiveServer),
     SetActiveDm(DePlaceRoom),
@@ -116,12 +122,10 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> Element<'static, ServerColumnMessage> {
+    fn view(&self) -> Element<'static, ServerColumnMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let hovered_server = self.hovered_server.clone();
         let avatar_cache = &self.avatar_cache;
 
@@ -133,7 +137,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         )));
         let icon_size = structure.server_column.icon_size;
 
-        let help_view = HelpView::new(help_state, theme, ServerColumnMessage::HelpHover);
+        let help_view = HelpView::new(theme);
 
         let home_icon = pill(
             theme,
@@ -146,7 +150,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             false,
             help_view
                 .call(
-                    HelpKey::Sidebar(SidebarHelpKey::HomeIcon),
+                    SidebarHelpKey::HomeIcon,
                     "Go to your direct messages",
                     w::mouse_area(svg(icon_handle).width(icon_size).height(icon_size))
                         .interaction(Interaction::Pointer)
@@ -321,15 +325,13 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         .map(|sid| sid.is_server(&id))
                         .unwrap_or(false),
                     counts.has_notifications(),
-                    help(
-                        help_state,
-                        theme,
-                        HelpKey::Sidebar(SidebarHelpKey::Server(index)),
-                        "A server, click on it to view it",
-                        badge,
-                        ServerColumnMessage::HelpHover,
-                    )
-                    .radius(icon_size * room.icon_border_radius_ratio()),
+                    help_view
+                        .call(
+                            SidebarHelpKey::Server(index),
+                            "A server, click on it to view it",
+                            badge,
+                        )
+                        .radius(icon_size * room.icon_border_radius_ratio()),
                 )
                 .into()
             },

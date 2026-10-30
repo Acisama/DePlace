@@ -21,6 +21,8 @@ use iced::{
     keyboard, mouse, touch,
 };
 
+use crate::common::help_state;
+
 /// `K` identifies a target. It must be unique per element: all targets whose
 /// key equals `hovered` are highlighted, so give each message its own key,
 /// e.g. `HelpKey::Message(event_id)`.
@@ -85,9 +87,9 @@ fn blend(a: Color, b: Color, t: f32) -> Color {
 
 // ---------------------------------------------------------------- HelpTarget
 
-pub struct HelpTarget<'a, K, Message, Theme, Renderer> {
+pub struct HelpTarget<'a, Message, Theme, Renderer> {
     content: Element<'a, Message, Theme, Renderer>,
-    key: K,
+    key: HelpKey,
     text: Cow<'a, str>,
     radius: RadiusSource<'a, Theme>,
     caption: Caption,
@@ -99,7 +101,7 @@ pub struct HelpTarget<'a, K, Message, Theme, Renderer> {
     offline_color: Color,
     active: bool,
     is_current: bool,
-    on_hover: fn(Option<K>) -> Message,
+    on_hover: fn(Option<HelpKey>) -> Message,
 }
 
 enum RadiusSource<'a, Theme> {
@@ -107,14 +109,16 @@ enum RadiusSource<'a, Theme> {
     Themed(Box<dyn Fn(&Theme) -> Radius + 'a>),
 }
 
-pub fn help<'a, K: PartialEq, Message, Theme, Renderer>(
-    state: HelpState<K>,
+pub fn help<'a, Message, Theme, Renderer>(
+    state: HelpState<HelpKey>,
     theme: deplace_core::theme::Theme,
-    key: K,
+    key: impl IntoHelpKey,
     text: impl Into<Cow<'a, str>>,
     content: impl Into<Element<'a, Message, Theme, Renderer>>,
-    on_hover: fn(Option<K>) -> Message,
-) -> HelpTarget<'a, K, Message, Theme, Renderer> {
+    on_hover: fn(Option<HelpKey>) -> Message,
+) -> HelpTarget<'a, Message, Theme, Renderer> {
+    let key = key.into_help_key();
+
     let is_current = state.active && state.hovered.as_ref() == Some(&key);
     HelpTarget {
         content: content.into(),
@@ -132,7 +136,7 @@ pub fn help<'a, K: PartialEq, Message, Theme, Renderer>(
     }
 }
 
-impl<'a, K, Message, Theme, Renderer> HelpTarget<'a, K, Message, Theme, Renderer> {
+impl<'a, Message, Theme, Renderer> HelpTarget<'a, Message, Theme, Renderer> {
     pub fn caption(mut self, caption: Caption) -> Self {
         self.caption = caption;
         self
@@ -171,8 +175,8 @@ impl<'a, K, Message, Theme, Renderer> HelpTarget<'a, K, Message, Theme, Renderer
     }
 }
 
-impl<'a, K: Clone, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for HelpTarget<'a, K, Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for HelpTarget<'a, Message, Theme, Renderer>
 where
     Renderer: text::Renderer,
 {
@@ -340,12 +344,12 @@ where
     }
 }
 
-impl<'a, K: Clone + 'a, Message: 'a, Theme: 'a, Renderer>
-    From<HelpTarget<'a, K, Message, Theme, Renderer>> for Element<'a, Message, Theme, Renderer>
+impl<'a, Message: 'a, Theme: 'a, Renderer> From<HelpTarget<'a, Message, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
 where
     Renderer: text::Renderer + 'a,
 {
-    fn from(w: HelpTarget<'a, K, Message, Theme, Renderer>) -> Self {
+    fn from(w: HelpTarget<'a, Message, Theme, Renderer>) -> Self {
         Element::new(w)
     }
 }
@@ -839,31 +843,47 @@ pub struct HelpView<T> {
     on_hover: fn(Option<HelpKey>) -> T,
 }
 
-impl<T: Clone> HelpView<T> {
-    pub fn new(
+pub trait HelpOverMessage {
+    fn help_over(help: Option<HelpKey>) -> Self;
+}
+
+impl<Message: Clone + HelpOverMessage> HelpView<Message> {
+    pub fn new(theme: deplace_core::theme::Theme) -> Self {
+        Self {
+            help_state: help_state(),
+            theme,
+            on_hover: Message::help_over,
+        }
+    }
+
+    pub fn new_with_help_state(
         help_state: HelpState<HelpKey>,
         theme: deplace_core::theme::Theme,
-        on_hover: fn(Option<HelpKey>) -> T,
     ) -> Self {
         Self {
             help_state,
             theme,
-            on_hover,
+            on_hover: Message::help_over,
         }
     }
 
     // Generic per call, unlike a closure: lets this be used with a
     // different `text`/`content` type on each call.
-    pub fn call<'a, S: Into<Cow<'a, str>>, E: Into<Element<'a, T>>>(
+    pub fn call<'a, Key, Text, Content>(
         &self,
-        key: HelpKey,
-        text: S,
-        content: E,
-    ) -> HelpTarget<'a, HelpKey, T, iced::Theme, iced::Renderer> {
+        key: Key,
+        text: Text,
+        content: Content,
+    ) -> HelpTarget<'a, Message, iced::Theme, iced::Renderer>
+    where
+        Key: IntoHelpKey,
+        Text: Into<Cow<'a, str>>,
+        Content: Into<Element<'a, Message>>,
+    {
         help(
             self.help_state,
             self.theme,
-            key,
+            key.into_help_key(),
             text,
             content,
             self.on_hover,
@@ -882,6 +902,16 @@ pub enum HelpKey {
     Message { key: MessageHelpKey, index: usize },
 }
 
+trait IntoHelpKey {
+    fn into_help_key(self) -> HelpKey;
+}
+
+impl IntoHelpKey for HelpKey {
+    fn into_help_key(self) -> HelpKey {
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HeaderHelpKey {
     Header,
@@ -896,6 +926,12 @@ pub enum HeaderHelpKey {
     CurrentCompression,
 }
 
+impl IntoHelpKey for HeaderHelpKey {
+    fn into_help_key(self) -> HelpKey {
+        HelpKey::Header(self)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChatHelpKey {
     Chat,
@@ -905,6 +941,12 @@ pub enum ChatHelpKey {
     UploadCompressedButton,
     Attachments,
     Attachment,
+}
+
+impl IntoHelpKey for ChatHelpKey {
+    fn into_help_key(self) -> HelpKey {
+        HelpKey::Chat(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -929,6 +971,12 @@ pub enum SidebarHelpKey {
     AccountName,
 }
 
+impl IntoHelpKey for SidebarHelpKey {
+    fn into_help_key(self) -> HelpKey {
+        HelpKey::Sidebar(self)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChatSidebarHelpKey {
     ChatSidebar,
@@ -942,6 +990,12 @@ pub enum ChatSidebarHelpKey {
     OfflineMembers,
     OnlineMemberCount,
     OfflineMemberCount,
+}
+
+impl IntoHelpKey for ChatSidebarHelpKey {
+    fn into_help_key(self) -> HelpKey {
+        HelpKey::ChatSidebar(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

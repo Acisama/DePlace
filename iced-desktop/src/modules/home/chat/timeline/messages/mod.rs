@@ -100,6 +100,12 @@ impl NeedsAvatarExt for TimelineItemMessage {
     }
 }
 
+impl HelpOverMessage for TimelineItemMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        TimelineItemMessage::HelpHover(help)
+    }
+}
+
 pub enum TimelineItemAction {
     Update,
     NeedsMedia(NeedsMedia),

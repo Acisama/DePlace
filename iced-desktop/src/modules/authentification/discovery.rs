@@ -1,15 +1,8 @@
 use std::hash::Hash;
 
+use crate::common::*;
 use deplace_core::matrix_api::test_server;
 use iced::widget::{Id, button::Status};
-// use iced::{
-//     Border, Element,
-//     Length::Fill,
-//     Task,
-//     widget::{self as w, Id, Space, button::Status, column, container, text},
-// };
-// use matrix_sdk::Client;
-use crate::common::*;
 use url::Url;
 
 use crate::components::{GenericState, floating_tile, text_input, weighted_text};
@@ -137,12 +130,10 @@ impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        _: HelpState<HelpKey>,
-    ) -> Element<'static, DiscoveryMessage> {
+    fn view(&self) -> Element<'static, DiscoveryMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let input: iced::widget::TextInput<'static, DiscoveryMessage> = text_input(
             "https://matrix.example.org",
             &self.homeserver_url,

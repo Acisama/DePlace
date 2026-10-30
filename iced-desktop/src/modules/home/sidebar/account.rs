@@ -12,6 +12,12 @@ pub enum AccountMessage {
     HelpHover(Option<HelpKey>),
 }
 
+impl HelpOverMessage for AccountMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        AccountMessage::HelpHover(help)
+    }
+}
+
 impl NeedsAvatarExt for AccountMessage {
     fn needs_avatar(uri: OwnedMxcUri) -> Self {
         Self::NeedsAvatar(uri)
@@ -71,13 +77,11 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, AccountMessage> {
-        let help_view = HelpView::new(help_state, theme, AccountMessage::HelpHover);
+    fn view(&self) -> iced::Element<'static, AccountMessage> {
+        let theme = theme();
+        let structure = structure();
+
+        let help_view = HelpView::new(theme);
 
         let header_height = structure.header.height;
         let button_size = structure.header.button_size;

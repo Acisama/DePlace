@@ -3,7 +3,6 @@ use std::hash::Hash;
 use deplace_core::helpers::DisplayString;
 use deplace_core::structure::Structure;
 use deplace_core::theme::{Colors, Theme};
-use help_mode::{HelpKey, HelpState};
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
 use iced::font::Weight;
@@ -329,12 +328,7 @@ pub fn phosphor_icon(svg_content: &'static str, size: f32) -> PhosphorIcon {
 
 pub trait IcedWidget<T, V> {
     fn update(&mut self, message: T) -> Option<V>;
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, T>;
+    fn view(&self) -> iced::Element<'static, T>;
 }
 
 pub trait StatusExt {

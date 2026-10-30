@@ -19,6 +19,12 @@ pub enum SidebarMessage {
     Account(AccountMessage),
 }
 
+impl HelpOverMessage for SidebarMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        SidebarMessage::HelpHover(help)
+    }
+}
+
 pub enum SidebarAction {
     NeedsMedia(NeedsMedia),
     ChangeRoom(Option<DePlaceRoom>),
@@ -78,38 +84,15 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> Element<'static, SidebarMessage> {
+    fn view(&self) -> Element<'static, SidebarMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let content = w::row![
-            w::lazy(
-                (self.server_column.clone(), help_state),
-                move |(server_column, help_state)| {
-                    server_column
-                        .view(theme, structure, *help_state)
-                        .map(SidebarMessage::ServerColumn)
-                }
-            ),
+            lazy_view(self.server_column.clone(), SidebarMessage::ServerColumn),
             w::column![
-                w::lazy(
-                    (self.channels.clone(), help_state),
-                    move |(channels, help_state)| {
-                        channels
-                            .view(theme, structure, *help_state)
-                            .map(SidebarMessage::Channels)
-                    }
-                ),
-                w::lazy(
-                    (self.account.clone(), help_state),
-                    move |(account, help_state)| {
-                        account
-                            .view(theme, structure, *help_state)
-                            .map(SidebarMessage::Account)
-                    }
-                ),
+                lazy_view(self.channels.clone(), SidebarMessage::Channels),
+                lazy_view(self.account.clone(), SidebarMessage::Account),
             ]
             .height(Fill)
             .spacing(structure.small_gap),
@@ -118,7 +101,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         .height(Fill);
 
         help(
-            help_state,
+            help_state(),
             theme,
             HelpKey::Sidebar(SidebarHelpKey::Sidebar),
             "The sidebar, used for room navigation",

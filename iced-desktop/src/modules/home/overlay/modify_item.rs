@@ -149,17 +149,15 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, ModifyItemMessage> {
+    fn view(&self) -> iced::Element<'static, ModifyItemMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let room_id = self.timeline.room().room_id().to_owned();
 
         let content = self
             .event
-            .view(room_id, theme, structure, true, help_state, 0, false)
+            .view(room_id, theme, structure, true, help_state(), 0, false)
             .map(|_| ModifyItemMessage::None);
 
         let cancel_button = render_dialogue_button(

@@ -574,43 +574,25 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        _: HelpState<HelpKey>,
-    ) -> Element<'static, HomeMessage> {
-        let help_state = self.help;
-        let sidebar = w::lazy(
-            (self.sidebar.clone(), help_state),
-            move |(sidebar, help_state)| {
-                sidebar
-                    .view(theme, structure, *help_state)
-                    .map(HomeMessage::Sidebar)
-            },
-        );
+    fn view(&self) -> Element<'static, HomeMessage> {
+        let sidebar = lazy_view(self.sidebar.clone(), HomeMessage::Sidebar);
+
+        let structure = structure();
 
         let chat = match self
             .active_room_id
             .as_ref()
             .and_then(|id| self.chats.peek(id))
         {
-            Some(chat) => w::container(w::lazy(
-                (chat.clone(), help_state),
-                move |(chat, help_state)| {
-                    let room_id = chat.room_id.clone();
-                    chat.view(theme, structure, *help_state)
-                        .map(move |msg| HomeMessage::Chat {
-                            room_id: room_id.clone(),
-                            message: msg,
-                        })
-                },
-            )),
-            None => w::container(w::lazy(self.empty_chat.clone(), move |chat| {
-                chat.view(theme, structure, help_state)
-                    .map(HomeMessage::EmptyChat)
-            }))
-            .padding(structure.gap),
+            Some(chat) => {
+                let room_id = chat.room_id.clone();
+                w::container(lazy_view(chat.clone(), move |msg| HomeMessage::Chat {
+                    room_id: room_id.clone(),
+                    message: msg,
+                }))
+            }
+            None => w::container(lazy_view(self.empty_chat.clone(), HomeMessage::EmptyChat))
+                .padding(structure.gap),
         }
         .width(Fill)
         .height(Fill);
@@ -623,12 +605,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
         let mut stack = stack![main_content];
 
         if self.overlay.is_open() {
-            let overlay = w::lazy(self.overlay.clone(), move |overlay| {
-                overlay
-                    .view(theme, structure, help_state)
-                    .map(HomeMessage::Overlay)
-            });
-            stack = stack.push(overlay);
+            stack = stack.push(lazy_view(self.overlay.clone(), HomeMessage::Overlay));
         }
 
         help_root(

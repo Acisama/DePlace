@@ -114,12 +114,10 @@ impl IcedWidget<VerificationMessage, VerificationAction> for Verification {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        _: HelpState<HelpKey>,
-    ) -> Element<'static, VerificationMessage> {
+    fn view(&self) -> Element<'static, VerificationMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let input: iced::widget::TextInput<'static, VerificationMessage> =
             text_input("Es9X xxxx xxxx...", &self.recovery_key, theme, structure)
                 .width(Fill)

@@ -162,6 +162,12 @@ pub enum InputMessage {
     RemoveAttachment(usize),
 }
 
+impl HelpOverMessage for InputMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        InputMessage::HelpOver(help)
+    }
+}
+
 pub enum InputAction {
     SendMessage(Task<()>),
     RemoveReplying,
@@ -461,15 +467,14 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, InputMessage> {
+    fn view(&self) -> iced::Element<'static, InputMessage> {
         let Some(room) = self.room_watchers.get_room(&self.room_id) else {
             return w::Space::new().into();
         };
+
+        let theme = theme();
+        let structure = structure();
+        let help_state = help_state();
 
         let keybinds = self.keybinds.clone();
         let line_height = structure.chat.text_size;
@@ -478,7 +483,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
 
         let reply_bar_size = structure.chat.text_size + structure.small_gap * 2.0;
 
-        let help_view = HelpView::new(help_state, theme, InputMessage::HelpOver);
+        let help_view = HelpView::new(theme);
 
         let input_button = |svg: &'static str, key, help, hover_tip, message| {
             w::container(

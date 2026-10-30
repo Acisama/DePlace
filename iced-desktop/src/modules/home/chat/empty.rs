@@ -22,12 +22,7 @@ impl IcedWidget<EmptyChatMessage, EmptyChatAction> for EmptyChat {
         None
     }
 
-    fn view(
-        &self,
-        _theme: Theme,
-        _structure: Structure,
-        _help_state: HelpState<HelpKey>,
-    ) -> Element<'static, EmptyChatMessage> {
+    fn view(&self) -> Element<'static, EmptyChatMessage> {
         w::container("test").into()
     }
 }

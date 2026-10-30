@@ -50,6 +50,12 @@ pub enum ChatMessage {
     HelpHover(Option<HelpKey>),
 }
 
+impl HelpOverMessage for ChatMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        ChatMessage::HelpHover(help)
+    }
+}
+
 pub enum ChatAction {
     NeedsMedia(NeedsMedia),
     Run(Task<()>),
@@ -425,30 +431,18 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> Element<'static, ChatMessage> {
-        let help_view = HelpView::new(help_state, theme, ChatMessage::HelpHover);
+    fn view(&self) -> Element<'static, ChatMessage> {
+        let theme = theme();
+        let structure = structure();
+
+        let help_view = HelpView::new(theme);
 
         let main_content = floating_tile(
             theme,
             structure,
             w::column![
-                w::lazy(
-                    (self.timeline.clone(), help_state),
-                    move |(timeline, help_state)| timeline
-                        .view(theme, structure, *help_state)
-                        .map(ChatMessage::Timeline),
-                ),
-                w::lazy(
-                    (self.input.clone(), help_state),
-                    move |(input, help_state)| input
-                        .view(theme, structure, *help_state)
-                        .map(ChatMessage::Input)
-                ),
+                lazy_view(self.timeline.clone(), ChatMessage::Timeline),
+                lazy_view(self.input.clone(), ChatMessage::Input)
             ]
             .padding(Padding {
                 top: structure.border_thickness,
@@ -470,28 +464,14 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             )
             .radius(structure.outer_border_radius);
 
-        let sidebar = w::lazy(
-            (self.sidebar.clone(), help_state),
-            move |(sidebar, help_state)| {
-                sidebar
-                    .view(theme, structure, *help_state)
-                    .map(ChatMessage::Sidebar)
-            },
-        );
+        let sidebar = lazy_view(self.sidebar.clone(), ChatMessage::Sidebar);
 
         help_view
             .call(
                 HelpKey::Chat(ChatHelpKey::Chat),
                 "The chat in the active room",
                 w::column![
-                    w::lazy(
-                        (self.header.clone(), help_state),
-                        move |(header, help_state)| {
-                            header
-                                .view(theme, structure, *help_state)
-                                .map(ChatMessage::Header)
-                        }
-                    ),
+                    lazy_view(self.header.clone(), ChatMessage::Header),
                     w::row![main_content, sidebar]
                         .height(Fill)
                         .spacing(structure.small_gap)

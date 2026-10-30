@@ -1085,15 +1085,13 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, TimelineMessage> {
+    fn view(&self) -> iced::Element<'static, TimelineMessage> {
         let Some(timeline) = self.timeline.clone() else {
             return Space::new().width(Fill).height(Fill).into();
         };
+
+        let theme = theme();
+        let structure = structure();
 
         let reached_top = self.reached_top;
         let reached_bottom = self.reached_bottom;
@@ -1101,6 +1099,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         let loading_bottom = self.loading_bottom;
 
         let focused_id = Rc::new(self.focused_message_id.clone());
+
+        let help_state = help_state();
 
         let mut stack = Stack::new()
             .push(
@@ -1110,18 +1110,14 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             list(self.content.clone(), move |index, id, item| {
                                 let is_focused =
                                     focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
-                                w::lazy(
-                                    (item.clone(), is_focused, help_state),
-                                    move |(item, is_focused, help_state)| {
-                                        let id = id.clone();
-                                        item.view(theme, structure, *is_focused, *help_state, index)
-                                            .map(move |msg| TimelineMessage::Item {
-                                                id: id.clone(),
-                                                message: msg,
-                                            })
-                                    },
-                                )
-                                .into()
+                                lazy((item.clone(), is_focused), move |(item, is_focused)| {
+                                    let id = id.clone();
+                                    item.view(theme, structure, *is_focused, help_state, index)
+                                        .map(move |msg| TimelineMessage::Item {
+                                            id: id.clone(),
+                                            message: msg,
+                                        })
+                                })
                             })
                             .id(LIST_ID),
                         )

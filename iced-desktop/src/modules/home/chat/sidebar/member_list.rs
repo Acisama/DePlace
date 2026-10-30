@@ -28,6 +28,12 @@ pub enum MemberListMessage {
     HelpHover(Option<HelpKey>),
 }
 
+impl HelpOverMessage for MemberListMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        MemberListMessage::HelpHover(help)
+    }
+}
+
 impl NeedsAvatarExt for MemberListMessage {
     fn needs_avatar(uri: OwnedMxcUri) -> Self {
         Self::NeedsAvatar(uri)
@@ -111,12 +117,10 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, MemberListMessage> {
+    fn view(&self) -> iced::Element<'static, MemberListMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let presence_map = self.presence_map.borrow();
         let (online_members, offline_members): (Vec<_>, Vec<_>) = self
             .membership_map
@@ -139,7 +143,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         let mut heading_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
         let mut column_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
 
-        let help_view = HelpView::new(help_state, theme, MemberListMessage::HelpHover);
+        let help_view = HelpView::new(theme);
 
         let icon = |text,
                     icon,

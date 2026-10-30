@@ -357,55 +357,39 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
         }
     }
 
-    fn view(
-        &self,
-        theme: crate::common::Theme,
-        structure: crate::common::Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, OverlayMessage> {
+    fn view(&self) -> iced::Element<'static, OverlayMessage> {
         let Some(state) = &self.overlay_state else {
             return Space::new().into();
         };
+
+        let theme = theme();
+        let structure = structure();
 
         let backdrop: Element<'static, OverlayMessage> = match state {
             OverlayState::Profile => {
                 let Some(profile) = &self.profile else {
                     return Space::new().into();
                 };
-                profile
-                    .view(theme, structure, help_state)
-                    .map(OverlayMessage::Profile)
+                profile.view().map(OverlayMessage::Profile)
             }
-            OverlayState::ContextMenu(menu) => menu
-                .view(theme, structure, help_state)
-                .map(OverlayMessage::ContextMenu),
+            OverlayState::ContextMenu(menu) => menu.view().map(OverlayMessage::ContextMenu),
             OverlayState::QuickSelect => render_with_backdrop(
                 theme,
                 structure,
-                self.quickselect
-                    .view(theme, structure, help_state)
-                    .map(OverlayMessage::QuickSelect),
+                self.quickselect.view().map(OverlayMessage::QuickSelect),
             ),
             OverlayState::Settings => render_with_backdrop(
                 theme,
                 structure,
-                self.settings
-                    .view(theme, structure, help_state)
-                    .map(OverlayMessage::Settings),
+                self.settings.view().map(OverlayMessage::Settings),
             ),
-            OverlayState::Media(media) => render_with_backdrop(
-                theme,
-                structure,
-                media
-                    .view(theme, structure, help_state)
-                    .map(OverlayMessage::Media),
-            ),
+            OverlayState::Media(media) => {
+                render_with_backdrop(theme, structure, media.view().map(OverlayMessage::Media))
+            }
             OverlayState::ModifyItem(modify) => render_with_backdrop(
                 theme,
                 structure,
-                modify
-                    .view(theme, structure, help_state)
-                    .map(OverlayMessage::ModifyItem),
+                modify.view().map(OverlayMessage::ModifyItem),
             ),
         };
 

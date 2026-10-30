@@ -22,7 +22,7 @@ use nucleo::{
     pattern::{CaseMatching, Normalization},
 };
 
-use crate::common::{IcedWidget, ProfileRenderExt, Structure, Theme, themed_scrollable};
+use crate::common::{IcedWidget, ProfileRenderExt, themed_scrollable};
 
 pub const QUICK_SELECT_INPUT_ID: &str = "quick_select_input";
 
@@ -247,12 +247,10 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> Element<'static, QuickSelectMessage> {
+    fn view(&self) -> Element<'static, QuickSelectMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let displayed_rooms = self.get_displayed_rooms();
 
         let mut input_field = text_input("Search for rooms...", self.input.clone())

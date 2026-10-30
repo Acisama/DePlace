@@ -145,12 +145,10 @@ impl IcedWidget<LoginMessage, LoginAction> for Login {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        _: HelpState<HelpKey>,
-    ) -> Element<'static, LoginMessage> {
+    fn view(&self) -> Element<'static, LoginMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let username_input: iced::widget::TextInput<'static, LoginMessage> =
             text_input("luke", &self.username, theme, structure)
                 .id(USERNAME_ID)

@@ -286,51 +286,34 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, SidebarMessage> {
+    fn view(&self) -> iced::Element<'static, SidebarMessage> {
         let Some(state) = self.currently_visible else {
             return w::space().into();
         };
 
         let content: Element<'static, SidebarMessage> = match state {
-            SidebarState::Member => w::lazy(
-                (self.member_profile_card.clone(), help_state),
-                move |(p, help_state)| {
-                    p.view(theme, structure, *help_state)
-                        .map(SidebarMessage::DmProfileCard)
-                },
-            )
-            .into(),
+            SidebarState::Member => lazy_view(
+                self.member_profile_card.clone(),
+                SidebarMessage::DmProfileCard,
+            ),
             SidebarState::MemberList => {
                 if self.room.is_dm() {
-                    w::lazy(
-                        (self.dm_profile_card.clone(), help_state),
-                        move |(p, help_state)| {
-                            p.view(theme, structure, *help_state)
-                                .map(SidebarMessage::MemberProfileCard)
-                        },
+                    lazy_view(
+                        self.dm_profile_card.clone(),
+                        SidebarMessage::MemberProfileCard,
                     )
-                    .into()
                 } else {
-                    w::lazy(
-                        (self.member_list.clone(), help_state),
-                        move |(p, help_state)| {
-                            p.view(theme, structure, *help_state)
-                                .map(SidebarMessage::MemberList)
-                        },
-                    )
-                    .into()
+                    lazy_view(self.member_list.clone(), SidebarMessage::MemberList)
                 }
             }
             _ => return w::container("test").into(),
         };
 
+        let theme = theme();
+        let structure = structure();
+
         help(
-            help_state,
+            help_state(),
             theme,
             HelpKey::ChatSidebar(ChatSidebarHelpKey::ChatSidebar),
             format!(

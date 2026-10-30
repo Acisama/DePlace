@@ -27,6 +27,12 @@ pub enum MediaOverlayMessage {
     HelpHover(Option<HelpKey>),
 }
 
+impl HelpOverMessage for MediaOverlayMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        MediaOverlayMessage::HelpHover(help)
+    }
+}
+
 impl NeedsAvatarExt for MediaOverlayMessage {
     fn needs_avatar(uri: OwnedMxcUri) -> Self {
         Self::NeedsMedia(NeedsMedia::avatar(uri))
@@ -126,19 +132,17 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, MediaOverlayMessage> {
+    fn view(&self) -> iced::Element<'static, MediaOverlayMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let header = structure.header;
 
         let OverlayMediaType::Image(image) = &self.media else {
             return w::column![].into();
         };
 
-        let help_view = HelpView::new(help_state, theme, MediaOverlayMessage::HelpHover);
+        // let help_view = HelpView::new(theme);
 
         w::column![
             floating_tile(

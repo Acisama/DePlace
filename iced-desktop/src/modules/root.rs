@@ -41,23 +41,20 @@ impl Screen {
 
     fn view(
         &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
     ) -> Element<'static, AppMessage> {
         match self {
             Screen::Loading => Space::new().into(),
             Screen::Discovery(discovery) => discovery
-                .view(theme, structure, help_state)
+                .view()
                 .map(AppMessage::Discovery),
             Screen::Login(login) => login
-                .view(theme, structure, help_state)
+                .view()
                 .map(AppMessage::Login),
             Screen::Verification(verification) => verification
-                .view(theme, structure, help_state)
+                .view()
                 .map(AppMessage::Verification),
             Screen::Home(home) => home
-                .view(theme, structure, help_state)
+                .view()
                 .map(AppMessage::Home),
         }
     }
@@ -322,14 +319,10 @@ impl Root {
 
     pub fn view(&self, _window: window::Id) -> Element<'_, AppMessage> {
         let background = Shader::new(self.loading).width(Fill).height(Fill);
-        let theme = self.theme;
-        let structure = self.structure;
 
         Stack::new()
             .push(background)
-            .push(w::lazy(&self.screen, move |screen| {
-                screen.view(theme, structure, HelpState::default())
-            }))
+            .push(lazy(&self.screen, |screen| screen.view()))
             .into()
     }
 }

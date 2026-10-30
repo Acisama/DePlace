@@ -30,6 +30,12 @@ pub enum HeaderMessage {
     OpenHelpMenu,
 }
 
+impl HelpOverMessage for HeaderMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        HeaderMessage::HelpHover(help)
+    }
+}
+
 impl NeedsAvatarExt for HeaderMessage {
     fn needs_avatar(uri: OwnedMxcUri) -> Self {
         HeaderMessage::NeedsAvatar(uri)
@@ -135,17 +141,15 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> Element<'static, HeaderMessage> {
+    fn view(&self) -> Element<'static, HeaderMessage> {
         let Some(room) = self.room_watchers.get_room(&self.room_id) else {
             return w::Space::new().into();
         };
 
-        let help_view = HelpView::new(help_state, theme, HeaderMessage::HelpHover);
+        let theme = theme();
+        let structure = structure();
+
+        let help_view = HelpView::new(theme);
 
         let icon_size = structure.header.icon_size;
         let button_size = structure.header.button_size;

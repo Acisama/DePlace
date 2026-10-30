@@ -124,7 +124,7 @@ impl MessageEvent {
         );
 
         let mut column = w::Column::new();
-        let help_view = HelpView::new(help_state, theme, TimelineItemMessage::HelpHover);
+        let help_view = HelpView::new_with_help_state(help_state, theme);
 
         if let Some(text_content) = text_content {
             column = column.push(help_view.call(

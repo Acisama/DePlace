@@ -29,6 +29,12 @@ impl NeedsAvatarExt for ChannelsMessage {
     }
 }
 
+impl HelpOverMessage for ChannelsMessage {
+    fn help_over(help: Option<HelpKey>) -> Self {
+        ChannelsMessage::HelpHover(help)
+    }
+}
+
 pub enum ChannelsAction {
     SetActiveRoom(DePlaceRoom),
     NeedsMedia(NeedsMedia),
@@ -120,12 +126,10 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        help_state: HelpState<HelpKey>,
-    ) -> Element<'static, ChannelsMessage> {
+    fn view(&self) -> Element<'static, ChannelsMessage> {
+        let theme = theme();
+        let structure = structure();
+
         let active_server = self.active_server.borrow().clone();
         let active_room_id = self
             .active_room
@@ -147,7 +151,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         let presence_map = &self.presence_map.borrow();
         let name_decoration = *self.name_decoration.borrow();
 
-        let help_view = HelpView::new(help_state, theme, ChannelsMessage::HelpHover);
+        let help_view = HelpView::new(theme);
 
         let (whole_key, name_key) = if active_server.is_dms() {
             (

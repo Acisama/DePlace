@@ -85,15 +85,13 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
         }
     }
 
-    fn view(
-        &self,
-        theme: Theme,
-        structure: Structure,
-        _help_state: HelpState<HelpKey>,
-    ) -> iced::Element<'static, ProfileCardMessage> {
+    fn view(&self) -> iced::Element<'static, ProfileCardMessage> {
         let Some(member) = &self.member else {
             return w::container("No other member present").into();
         };
+
+        let theme = theme();
+        let structure = structure();
 
         render_banner_column(
             member,
