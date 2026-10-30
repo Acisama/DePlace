@@ -1,4 +1,4 @@
-use deplace_core::{RestoreResult, state::ImportantPaths, structure::Structure, theme::Theme};
+use deplace_core::{RestoreResult, state::ImportantPaths};
 use iced::{advanced::subscription, widget::Shader, window};
 use interprocess::local_socket::Listener;
 
@@ -39,23 +39,13 @@ impl Screen {
         }
     }
 
-    fn view(
-        &self,
-    ) -> Element<'static, AppMessage> {
+    fn view(&self) -> Element<'static, AppMessage> {
         match self {
             Screen::Loading => Space::new().into(),
-            Screen::Discovery(discovery) => discovery
-                .view()
-                .map(AppMessage::Discovery),
-            Screen::Login(login) => login
-                .view()
-                .map(AppMessage::Login),
-            Screen::Verification(verification) => verification
-                .view()
-                .map(AppMessage::Verification),
-            Screen::Home(home) => home
-                .view()
-                .map(AppMessage::Home),
+            Screen::Discovery(discovery) => discovery.view().map(AppMessage::Discovery),
+            Screen::Login(login) => login.view().map(AppMessage::Login),
+            Screen::Verification(verification) => verification.view().map(AppMessage::Verification),
+            Screen::Home(home) => home.view().map(AppMessage::Home),
         }
     }
 }
@@ -64,8 +54,6 @@ pub struct Root {
     paths: ImportantPaths,
     screen: Screen,
     loading: shader::LoadingIndicator,
-    theme: Theme,
-    structure: Structure,
 
     id: Option<window::Id>,
     listener: Arc<Listener>,
@@ -78,8 +66,6 @@ impl Root {
             id: None,
             screen: Screen::default(),
             loading: shader::LoadingIndicator::default(),
-            theme: Theme::new(paths.theme_file.to_path_buf()),
-            structure: Structure::new(paths.structure_file.to_path_buf()),
             paths,
         }
     }

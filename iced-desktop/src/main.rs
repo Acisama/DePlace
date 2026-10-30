@@ -9,8 +9,10 @@ use std::{
     sync::Arc,
 };
 
+use common::{set_structure, set_theme};
 use deplace_core::{
-    APP_HUMAN_NAME, APP_NAME, RestoreResult, SOCKET_NAME, state::ImportantPaths, try_restore,
+    APP_HUMAN_NAME, APP_NAME, RestoreResult, SOCKET_NAME, state::ImportantPaths,
+    structure::Structure, theme::Theme, try_restore,
 };
 use iced::{Task, advanced::subscription::Recipe, futures::stream, window};
 use interprocess::local_socket::{
@@ -92,6 +94,13 @@ fn main() -> iced::Result {
             return Err(iced::Error::WindowCreationFailed(e.into()));
         }
     };
+
+    if let Some(theme) = Theme::check_file(paths.theme_file.to_path_buf()) {
+        set_theme(theme);
+    }
+    if let Some(structure) = Structure::check_file(paths.structure_file.to_path_buf()) {
+        set_structure(structure);
+    }
 
     let file_appender = tracing_appender::rolling::never(
         paths.log_dir.to_path_buf(),

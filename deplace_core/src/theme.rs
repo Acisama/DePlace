@@ -125,9 +125,10 @@ impl Default for Theme {
 }
 
 impl Theme {
-    pub fn new(file_path: PathBuf) -> Self {
+    /// Returns the theme if the file exists, otherwise inserts the default theme and returns None
+    pub fn check_file(file_path: PathBuf) -> Option<Self> {
         if cfg!(debug_assertions) {
-            return Self::default();
+            return None;
         }
 
         if !file_path.exists() {
@@ -142,20 +143,20 @@ impl Theme {
                 Err(e) => tracing::error!("Failed to serialize default structure: {}", e),
             };
 
-            default
+            None
         } else {
             let content = match std::fs::read_to_string(&file_path) {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::error!("Failed to read structure: {}", e);
-                    return Self::default();
+                    return None;
                 }
             };
             match toml_edit::de::from_str(&content) {
-                Ok(structure) => structure,
+                Ok(structure) => Some(structure),
                 Err(e) => {
                     tracing::error!("Failed to deserialize structure: {}", e);
-                    Self::default()
+                    None
                 }
             }
         }
