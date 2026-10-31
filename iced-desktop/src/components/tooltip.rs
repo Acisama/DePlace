@@ -1,6 +1,6 @@
 use deplace_core::{structure::Structure, theme::Theme};
 use iced::{
-    Border, Element, padding,
+    Border, Element, Pixels, padding,
     widget::{self as w, text::IntoFragment},
 };
 
@@ -15,6 +15,8 @@ pub fn themed_tooltip_text<'a, T: 'a>(
         w::container(w::text(tooltip).color(theme.text.normal)),
         structure,
         theme,
+        w::tooltip::Position::Bottom,
+        0,
     )
 }
 
@@ -23,13 +25,16 @@ pub fn themed_tooltip_content<'a, T: 'a>(
     tooltip_content: impl Into<Element<'a, T>>,
     structure: Structure,
     theme: Theme,
+    position: w::tooltip::Position,
+    gap: impl Into<Pixels>,
 ) -> w::tooltip::Tooltip<'a, T> {
     w::tooltip(
         content,
         w::container(tooltip_content)
             .padding(padding::horizontal(structure.small_gap).vertical(structure.small_gap / 2.0)),
-        w::tooltip::Position::Bottom,
+        position,
     )
+    .gap(gap)
     .delay(std::time::Duration::from_millis(300))
     .style(move |_| w::container::Style {
         background: Some(theme.solid_bg.into()),

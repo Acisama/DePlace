@@ -1,16 +1,20 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use deplace_core::{
     matrix_api::account_data::set_account_data,
     rooms::NotificationCounts,
-    state::{ActiveServer, ActiveServerId},
+    state::{ActiveServer, ActiveServerId, PresenceMap},
 };
 use iced::widget::svg;
 use macros::iced_cache;
 use sweeten::widget::drag::DragEvent;
 
 use super::pill::PillCanvas;
-use crate::{common::*, components::help_mode::SidebarHelpKey, modules::home::SPEAKER_ICON};
+use crate::{
+    common::*,
+    components::help_mode::SidebarHelpKey,
+    modules::home::{SPEAKER_ICON, chat::render_member_numbers},
+};
 
 #[derive(Clone, Debug)]
 pub enum ServerColumnMessage {
@@ -56,6 +60,8 @@ pub struct ServerColumn {
     active_server: Receiver<ActiveServer>,
 
     avatar_cache: AvatarCache,
+    presence_map: Receiver<PresenceMap>,
+    membership_map: Receiver<MembershipMap>,
 }
 
 impl ServerColumn {
@@ -79,6 +85,8 @@ impl ServerColumn {
 
             active_room: state.active_room(),
 
+            presence_map: state.presence_map(),
+            membership_map: state.membership_map(),
             state: state.clone(),
         }
     }
@@ -264,78 +272,24 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             column = column.push(w::column(dm_notification_pills).spacing(structure.gap));
         }
 
+        let presence_map = self.presence_map.borrow();
+        let membership_map = self.membership_map.borrow();
+
         let servers = sweeten::widget::column(self.room_watchers.servers().iter().enumerate().map(
             |(index, room)| {
-                let id = room.room_id().to_owned();
-                let children = self.room_watchers.get_all_children(&id);
-
-                let has_call = children.iter().any(|r| r.has_call_participants());
-                let own_user_in_call = children.iter().any(|r| r.own_user_is_in_call());
-
-                let counts: NotificationCounts =
-                    children.iter().map(|r| r.notification_counts()).sum();
-
-                let content = w::mouse_area(themed_tooltip_text(
-                    room.render_icon(icon_size, avatar_cache),
-                    room.get_name(),
-                    structure,
-                    theme,
-                ))
-                .interaction(Interaction::Pointer)
-                .on_release(ServerColumnMessage::ChangeActiveServer(
-                    ActiveServer::Server(room.clone()),
-                ))
-                .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
-                    id.clone(),
-                )))
-                .on_exit(ServerColumnMessage::ServerHoverEnded(
-                    ActiveServerId::Server(id.clone()),
-                ));
-
-                let mut badge = corner_badge(content, 0.4, 0.15, theme.solid_bg);
-
-                if let Some(highlights) = counts.highlights() {
-                    badge = badge.br(CornerContent::text(
-                        highlights.to_string(),
-                        theme.solid_bg,
-                        theme.accent,
-                    ))
-                }
-
-                if has_call {
-                    badge = badge.tr(CornerContent::Icon {
-                        svg_content: SPEAKER_ICON,
-                        color: if own_user_in_call {
-                            theme.solid_bg.into()
-                        } else {
-                            theme.text.normal.into()
-                        },
-                        background: if own_user_in_call {
-                            theme.colors.success.into()
-                        } else {
-                            theme.colors.offline.into()
-                        },
-                    })
-                }
-
-                pill(
+                render_server_icon(
+                    room,
+                    index,
                     theme,
                     structure,
-                    active_server.is_server(&id),
-                    hovered_server
-                        .as_ref()
-                        .map(|sid| sid.is_server(&id))
-                        .unwrap_or(false),
-                    counts.has_notifications(),
-                    help_view
-                        .call(
-                            SidebarHelpKey::Server(index),
-                            "A server, click on it to view it",
-                            badge,
-                        )
-                        .radius(icon_size * room.icon_border_radius_ratio()),
+                    &self.room_watchers,
+                    &self.avatar_cache,
+                    &active_server,
+                    &self.hovered_server,
+                    &help_view,
+                    &presence_map,
+                    &membership_map,
                 )
-                .into()
             },
         ))
         .on_drag(ServerColumnMessage::ServerDragged)
@@ -378,6 +332,127 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             .radius(structure.outer_border_radius)
             .into()
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_server_icon(
+    room: &DePlaceRoom,
+    index: usize,
+    theme: Theme,
+    structure: Structure,
+    room_watchers: &RoomWatchers,
+    avatar_cache: &AvatarCache,
+    active_server: &ActiveServer,
+    hovered_server: &Option<ActiveServerId>,
+    help_view: &HelpView<ServerColumnMessage>,
+    presence_map: &PresenceMap,
+    membership_map: &MembershipMap,
+) -> Element<'static, ServerColumnMessage> {
+    let id = room.room_id().to_owned();
+    let children = room_watchers.get_all_children(&id);
+
+    let mut online_members = 0;
+    let mut offline_members = 0;
+
+    let mut user_ids = HashSet::new();
+
+    for child in &children {
+        if let Some(map) = membership_map.get(child.room_id()) {
+            for id in map.keys() {
+                user_ids.insert(id.clone());
+            }
+        }
+    }
+
+    for id in user_ids {
+        if let Some(presence) = presence_map.get(&id)
+            && presence.presence != PresenceState::Offline
+        {
+            online_members += 1;
+        } else {
+            offline_members += 1;
+        }
+    }
+
+    let has_call = children.iter().any(|r| r.has_call_participants());
+    let own_user_in_call = children.iter().any(|r| r.own_user_is_in_call());
+
+    let counts: NotificationCounts = children.iter().map(|r| r.notification_counts()).sum();
+    let icon_size = structure.server_column.icon_size;
+
+    let content = w::mouse_area(themed_tooltip_content(
+        room.render_icon(icon_size, avatar_cache),
+        w::column![
+            weighted_text(room.get_name(), iced::font::Weight::Bold).size(structure.font_size),
+            render_member_numbers(
+                online_members,
+                offline_members,
+                theme,
+                structure,
+                help_view,
+                false
+            )
+        ],
+        structure,
+        theme,
+        w::tooltip::Position::Right,
+        structure.small_gap * 1.5 - structure.border_thickness,
+    ))
+    .interaction(Interaction::Pointer)
+    .on_release(ServerColumnMessage::ChangeActiveServer(
+        ActiveServer::Server(room.clone()),
+    ))
+    .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
+        id.clone(),
+    )))
+    .on_exit(ServerColumnMessage::ServerHoverEnded(
+        ActiveServerId::Server(id.clone()),
+    ));
+
+    let mut badge = corner_badge(content, 0.4, 0.15, theme.solid_bg);
+
+    if let Some(highlights) = counts.highlights() {
+        badge = badge.br(CornerContent::text(
+            highlights.to_string(),
+            theme.solid_bg,
+            theme.accent,
+        ))
+    }
+
+    if has_call {
+        badge = badge.tr(CornerContent::Icon {
+            svg_content: SPEAKER_ICON,
+            color: if own_user_in_call {
+                theme.solid_bg.into()
+            } else {
+                theme.text.normal.into()
+            },
+            background: if own_user_in_call {
+                theme.colors.success.into()
+            } else {
+                theme.colors.offline.into()
+            },
+        })
+    }
+
+    pill(
+        theme,
+        structure,
+        active_server.is_server(&id),
+        hovered_server
+            .as_ref()
+            .map(|sid| sid.is_server(&id))
+            .unwrap_or(false),
+        counts.has_notifications(),
+        help_view
+            .call(
+                SidebarHelpKey::Server(index),
+                "A server, click on it to view it",
+                badge,
+            )
+            .radius(icon_size * room.icon_border_radius_ratio()),
+    )
+    .into()
 }
 
 fn pill(

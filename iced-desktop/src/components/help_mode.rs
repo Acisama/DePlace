@@ -250,7 +250,7 @@ where
             && !CLAIMED.with(|c| c.replace(true))
             && !self.is_current
         {
-            shell.publish((self.on_hover)(Some(self.key.clone())));
+            shell.publish((self.on_hover)(Some(self.key)));
         }
     }
 
@@ -902,7 +902,7 @@ pub enum HelpKey {
     Message { key: MessageHelpKey, index: usize },
 }
 
-trait IntoHelpKey {
+pub trait IntoHelpKey {
     fn into_help_key(self) -> HelpKey;
 }
 

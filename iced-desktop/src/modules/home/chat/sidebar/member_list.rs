@@ -254,6 +254,17 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                 );
             };
 
+        let header = w::container(render_member_numbers(
+            online_members.len(),
+            offline_members.len(),
+            theme,
+            structure,
+            &help_view,
+            true,
+        ))
+        .width(Fill)
+        .center_x(Length::Fill);
+
         if !online_members.is_empty() {
             let length = online_members.len().to_string();
 
@@ -304,18 +315,83 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
             );
         }
 
-        w::column![
-            w::container(
-                w::Row::with_children(heading_children.into_iter()).align_y(Alignment::Center)
-            )
+        w::column![header]
+            .extend(column_children)
+            .spacing(structure.gap)
             .width(Fill)
-            .center_x(Length::Fill)
-        ]
-        .extend(column_children)
-        .spacing(structure.gap)
-        .width(Fill)
-        .height(Fill)
-        .padding(structure.gap)
-        .into()
+            .height(Fill)
+            .padding(structure.gap)
+            .into()
     }
+}
+
+pub fn render_member_numbers<T: Clone + HelpOverMessage + 'static>(
+    online_members: usize,
+    offline_members: usize,
+    theme: Theme,
+    structure: Structure,
+    help_view: &HelpView<T>,
+    big: bool,
+) -> Element<'static, T> {
+    let mut heading_children = Vec::new();
+
+    let icon = |text, icon, color, key, help, heading: &mut Vec<Element<'static, T>>| {
+        heading.push(
+            help_view
+                .call(
+                    key,
+                    help,
+                    w::row![
+                        svg(iced::advanced::svg::Handle::from_memory(icon))
+                            .width(structure.semi_large_font_size() * 0.6)
+                            .height(structure.semi_large_font_size() * 0.6)
+                            .style(move |_, _| w::svg::Style { color: Some(color) }),
+                        w::text(text)
+                            .size(if big {
+                                structure.semi_large_font_size()
+                            } else {
+                                structure.font_size
+                            })
+                            .color(color)
+                    ]
+                    .spacing(structure.small_gap)
+                    .padding(padding::horizontal(structure.gap / 2.0))
+                    .align_y(Alignment::Center),
+                )
+                .radius(structure.inner_border_radius)
+                .into(),
+        );
+    };
+
+    if online_members > 0 {
+        icon(
+            online_members.to_string(),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../assets/indicators/online.svg"
+            ))
+            .to_vec(),
+            theme.colors.online.into(),
+            HelpKey::ChatSidebar(ChatSidebarHelpKey::OnlineMemberCount),
+            "How many online members are in the current room",
+            &mut heading_children,
+        );
+    }
+
+    icon(
+        offline_members.to_string(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../assets/indicators/offline.svg"
+        ))
+        .to_vec(),
+        theme.colors.offline.into(),
+        HelpKey::ChatSidebar(ChatSidebarHelpKey::OfflineMemberCount),
+        "How many offline members are in the current room",
+        &mut heading_children,
+    );
+
+    w::Row::with_children(heading_children)
+        .align_y(Alignment::Center)
+        .into()
 }

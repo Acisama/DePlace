@@ -585,6 +585,8 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
     }
 
     fn view(&self) -> Element<'static, HomeMessage> {
+        set_help_state(self.help);
+
         let sidebar = lazy_view(self.sidebar.clone(), HomeMessage::Sidebar);
 
         let structure = structure();

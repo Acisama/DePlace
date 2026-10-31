@@ -12,6 +12,8 @@ use super::timeline::messages::TimelineItem;
 mod member_list;
 mod profilecard;
 
+pub use member_list::render_member_numbers;
+
 #[derive(Debug, EnumSetType, Hash)]
 pub enum SidebarState {
     Member,

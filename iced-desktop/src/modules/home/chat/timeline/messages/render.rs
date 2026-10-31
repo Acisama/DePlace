@@ -436,6 +436,8 @@ impl MessageEvent {
                             .height(Shrink),
                             structure,
                             theme,
+                            w::tooltip::Position::Bottom,
+                            structure.small_gap,
                         ),
                     )
                     .radius(structure.inner_border_radius)
