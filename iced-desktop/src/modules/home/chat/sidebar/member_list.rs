@@ -379,7 +379,7 @@ pub fn render_member_numbers<T: Clone + HelpOverMessage + 'static>(
     }
 
     icon(
-        offline_members.to_string(),
+        (offline_members + online_members).to_string(),
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../assets/indicators/offline.svg"

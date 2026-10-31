@@ -12,7 +12,7 @@ use sweeten::widget::drag::DragEvent;
 use super::pill::PillCanvas;
 use crate::{
     common::*,
-    components::help_mode::SidebarHelpKey,
+    components::{help_mode::SidebarHelpKey, phosphor_icon},
     modules::home::{SPEAKER_ICON, chat::render_member_numbers},
 };
 
@@ -351,6 +351,8 @@ fn render_server_icon(
     let id = room.room_id().to_owned();
     let children = room_watchers.get_all_children(&id);
 
+    let mut call_members = Vec::new();
+
     let mut online_members = 0;
     let mut offline_members = 0;
 
@@ -361,6 +363,10 @@ fn render_server_icon(
             for id in map.keys() {
                 user_ids.insert(id.clone());
             }
+        }
+
+        if child.has_call_participants() {
+            call_members.push(child.call_participants());
         }
     }
 
@@ -380,19 +386,36 @@ fn render_server_icon(
     let counts: NotificationCounts = children.iter().map(|r| r.notification_counts()).sum();
     let icon_size = structure.server_column.icon_size;
 
+    let mut tooltip_content = vec![
+        weighted_text(room.get_name(), iced::font::Weight::Bold)
+            .size(structure.font_size)
+            .into(),
+    ];
+
+    for members in call_members {
+        tooltip_content.push(
+            w::row![phosphor_icon(SPEAKER_ICON, structure.font_size).color(theme.text.dim.into())]
+                .extend(
+                    members
+                        .iter()
+                        .map(|m| m.render_icon(structure.font_size, avatar_cache)),
+                )
+                .into(),
+        );
+    }
+
+    tooltip_content.push(render_member_numbers(
+        online_members,
+        offline_members,
+        theme,
+        structure,
+        help_view,
+        false,
+    ));
+
     let content = w::mouse_area(themed_tooltip_content(
         room.render_icon(icon_size, avatar_cache),
-        w::column![
-            weighted_text(room.get_name(), iced::font::Weight::Bold).size(structure.font_size),
-            render_member_numbers(
-                online_members,
-                offline_members,
-                theme,
-                structure,
-                help_view,
-                false
-            )
-        ],
+        w::Column::with_children(tooltip_content),
         structure,
         theme,
         w::tooltip::Position::Right,
