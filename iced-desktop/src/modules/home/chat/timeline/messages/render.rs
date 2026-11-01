@@ -408,7 +408,11 @@ impl MessageEvent {
                                 },
                                 ..Default::default()
                             })
-                            .padding(structure.small_gap / 2.0)
+                            .padding(
+                                padding::vertical(structure.small_gap / 2.0)
+                                    .left(structure.small_gap)
+                                    .right(structure.small_gap - structure.divider_width * 1.5),
+                            )
                             .on_press(
                                 self.event_id
                                     .as_ref()
