@@ -10,7 +10,7 @@ use iced::{
 use sweeten::scrollable::{self, Direction};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{EMOJI_FONT, common::*};
+use crate::{EMOJI_FONT, MONO_FONT, common::*};
 
 use super::TimelineItemMessage;
 
@@ -184,7 +184,7 @@ fn render_block(
         Block::CodeBlock { code, .. } => w::container(
             themed_scrollable(
                 w::text(code.clone())
-                    .font(Font::MONOSPACE)
+                    .font(MONO_FONT)
                     .size(text_size * 0.9)
                     .color(theme.text.normal)
                     .wrapping(text::Wrapping::None),
@@ -346,7 +346,7 @@ fn render_inline_spans(
         } else {
             iced::font::Style::Normal
         },
-        ..if run.code { Font::MONOSPACE } else { UI_FONT }
+        ..if run.code { MONO_FONT } else { UI_FONT }
     };
 
     split_emoji_runs(&run.text)

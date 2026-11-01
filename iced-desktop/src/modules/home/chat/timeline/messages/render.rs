@@ -31,11 +31,15 @@ use matrix_sdk_ui::timeline::{MembershipChange, TimelineDetails};
 use phosphor_svgs::icon as icons;
 
 use crate::{
-    EMOJI_FONT,
+    EMOJI_FONT, MONO_FONT,
     common::*,
     components::{
-        MediaType, help_mode::MessageHelpKey, link::link, phosphor_icon,
-        profile::render_profile_name_with_overlay, render_media_failed_to_load,
+        MediaType,
+        help_mode::MessageHelpKey,
+        link::link,
+        phosphor_icon,
+        profile::{render_profile_name_with_overlay, render_row_of_icons},
+        render_media_failed_to_load,
         track_bounds::track_bounds,
     },
     modules::home::overlay::{MediaOverlayParams, OverlayMediaType},
@@ -362,27 +366,15 @@ impl MessageEvent {
                 }
 
                 let avatar_size = structure.chat.small_icon_size;
-                let overlap = 0.5;
 
-                let n = reactors.len();
-                let stack_width =
-                    avatar_size + (n.saturating_sub(1) as f32) * avatar_size * (1.0 - overlap);
-
-                let mut stack = Stack::new();
-                for (i, member) in members.iter().enumerate() {
-                    let avatar = member.render_icon(avatar_size, &self.avatar_cache, 0.5, theme);
-
-                    stack = stack.push(
-                        w::container(avatar)
-                            .width(Fill)
-                            .height(Fill)
-                            .align_x(Alignment::Start)
-                            .padding(iced::Padding {
-                                left: i as f32 * avatar_size * (1.0 - overlap),
-                                ..Default::default()
-                            }),
-                    );
-                }
+                let stack = render_row_of_icons(
+                    &members,
+                    bg_color,
+                    avatar_size,
+                    theme,
+                    structure,
+                    &self.avatar_cache,
+                );
 
                 help_view
                     .call(
@@ -395,14 +387,19 @@ impl MessageEvent {
                             w::button(
                                 w::row![
                                     w::text(reaction.clone()).font(EMOJI_FONT).size(text_size),
-                                    weighted_text(length.to_string(), Weight::Bold).size(text_size),
-                                    w::container(stack).width(stack_width).height(avatar_size)
+                                    w::rich_text![span(length.to_string()).font(Font {
+                                        weight: Weight::Bold,
+                                        ..MONO_FONT
+                                    })]
+                                    .on_link_click(never)
+                                    .size(text_size),
+                                    stack
                                 ]
                                 .align_y(Alignment::Center)
                                 .spacing(structure.small_gap / 2.0),
                             )
                             .style(move |_, _| ButtonStyle {
-                                background: Some(bg_color),
+                                background: Some(bg_color.into()),
                                 text_color: theme.text.normal.into(),
                                 border: Border {
                                     color: border_color,

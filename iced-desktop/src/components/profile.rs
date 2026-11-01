@@ -27,7 +27,7 @@ use matrix_sdk::{
 };
 
 use super::{
-    CopyUserIdExt, IcedColorExt, InsetShadow, StatusExt,
+    ColoredRounded, CopyUserIdExt, IcedColorExt, InsetShadow, StatusExt,
     corner_badge::{notch_circle, positioned},
     link, on_appear, phosphor_icon, weighted_text,
 };
@@ -564,4 +564,81 @@ pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + NeedsAvatarExt + 'a>(
     ])
     .width(sidebar.width.member)
     .into()
+}
+
+const MAX_ICONS: usize = 5;
+
+pub fn render_row_of_icons<'a, T: Clone + NeedsAvatarExt + 'a, P: MaybeRenderIcon>(
+    profiles: &[P],
+    background_color: Color,
+    icon_size: f32,
+    theme: Theme,
+    structure: Structure,
+    avatar_cache: &AvatarCache,
+) -> Element<'a, T> {
+    let (profiles, overflow) = if profiles.len() > MAX_ICONS {
+        (
+            profiles.iter().take(MAX_ICONS - 1).collect::<Vec<&P>>(),
+            Some(profiles.len() - MAX_ICONS),
+        )
+    } else {
+        (profiles.iter().collect::<Vec<&P>>(), None)
+    };
+
+    let overlap = 1.0 / 3.0;
+    let step = icon_size * (1.0 - overlap);
+    let get_width = |index: usize| icon_size + index as f32 * step;
+
+    let mut index = 0;
+    let mut stack = Stack::new();
+
+    let outer = structure.divider_width * 1.5;
+    let outer_width = icon_size + outer * 2.0;
+
+    for member in profiles.iter() {
+        stack = stack.push(
+            w::container(
+                w::container("")
+                    .width(outer_width)
+                    .height(outer_width)
+                    .colored_rounded(background_color, outer_width / 2.0),
+            )
+            .width(Fill)
+            .height(Fill)
+            .align_x(Alignment::Start)
+            .align_y(Alignment::Center)
+            .padding(padding::left(index as f32 * step)),
+        );
+        stack = stack.push(
+            w::container(member.render_icon(icon_size, avatar_cache, 0.5, theme))
+                .width(Fill)
+                .height(Fill)
+                .align_x(Alignment::Start)
+                .align_y(Alignment::Center)
+                .padding(padding::left(index as f32 * step + outer)),
+        );
+        index += 1;
+    }
+
+    if let Some(overflow) = overflow {
+        stack = stack.push(
+            w::container(text_icon(
+                format!("+{overflow}"),
+                icon_size,
+                icon_size / 2.0,
+                background_color,
+            ))
+            .width(Fill)
+            .height(Fill)
+            .align_x(Alignment::Start)
+            .align_y(Alignment::Center)
+            .padding(padding::left(index as f32 * step + outer)),
+        );
+        index += 1;
+    }
+
+    w::container(stack)
+        .width(get_width(index - 1) + outer * 2.0)
+        .height(outer_width)
+        .into()
 }

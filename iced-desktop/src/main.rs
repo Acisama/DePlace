@@ -100,6 +100,25 @@ const INTER_BOLD_ITALIC_FONT: &[u8] = include_bytes!(concat!(
     "/../assets/fonts/Inter-BoldItalic.ttf"
 ));
 
+// Bundled as the monospace font (see MONO_FONT) so code blocks look the same
+// across platforms instead of falling back to each OS's monospace font.
+const JETBRAINS_MONO_REGULAR_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/fonts/JetBrainsMono-Regular.ttf"
+));
+const JETBRAINS_MONO_BOLD_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/fonts/JetBrainsMono-Bold.ttf"
+));
+const JETBRAINS_MONO_ITALIC_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/fonts/JetBrainsMono-Italic.ttf"
+));
+const JETBRAINS_MONO_BOLD_ITALIC_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/fonts/JetBrainsMono-BoldItalic.ttf"
+));
+
 /// Font used to render emoji, bundled so they look the same across platforms
 /// instead of falling back to whatever color emoji font the OS ships (or none).
 /// Only applied to emoji graphemes specifically: the font also carries plain
@@ -109,6 +128,13 @@ const INTER_BOLD_ITALIC_FONT: &[u8] = include_bytes!(concat!(
 const EMOJI_FONT: Font = Font {
     family: Family::Name("Noto Color Emoji"),
     ..Font::DEFAULT
+};
+
+/// Monospace font used for code blocks/spans, bundled so they look the same
+/// across platforms instead of falling back to each OS's monospace font.
+const MONO_FONT: Font = Font {
+    family: Family::Name("JetBrains Mono"),
+    ..Font::MONOSPACE
 };
 
 fn load_tray_icon() -> Result<tray_icon::Icon, iced::Error> {
@@ -286,13 +312,17 @@ fn main() -> iced::Result {
     )
     .title(Root::title)
     .subscription(Root::subscription)
-    // Loaded, but intentionally not set as the default font because it would overwrite stuff like numbers
-    .font(NOTO_COLOR_EMOJI_FONT)
     .font(INTER_REGULAR_FONT)
     .font(INTER_BOLD_FONT)
     .font(INTER_ITALIC_FONT)
     .font(INTER_BOLD_ITALIC_FONT)
+    .font(JETBRAINS_MONO_REGULAR_FONT)
+    .font(JETBRAINS_MONO_BOLD_FONT)
+    .font(JETBRAINS_MONO_ITALIC_FONT)
+    .font(JETBRAINS_MONO_BOLD_ITALIC_FONT)
     .default_font(UI_FONT)
+    // Loaded, but intentionally not set as the default font because it would overwrite stuff like numbers
+    .font(NOTO_COLOR_EMOJI_FONT)
     .run()
 }
 
