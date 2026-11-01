@@ -337,7 +337,7 @@ jobs:
             --appdir AppDir \
             --executable AppDir/usr/bin/deplace \
             --desktop-file packaging/linux/deplace.desktop \
-            --icon-file assets/deplace_icon.svg \
+            --icon-file assets/deplace_icon.png \
             --icon-filename deplace \
             --exclude-library "*libgst*" \
             --exclude-library "libglib*" \
