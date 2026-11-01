@@ -1,5 +1,6 @@
 pub use crate::components::{
-    CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget, StatusExt,
+    ColoredRounded, CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget, StatusExt,
+    UI_FONT,
     animated_button::animated_button,
     close_button, corner_badge, floating_tile,
     help_mode::HelpKey,

@@ -261,6 +261,7 @@ pub fn section(input: TokenStream) -> TokenStream {
 
                 w::column![ #(#views),* ]
                     .spacing(structure.gap)
+                    .padding(structure.small_gap)
                     .width(::iced::Length::Fill)
                     .into()
             }

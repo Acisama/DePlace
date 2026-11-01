@@ -25,6 +25,7 @@ chrono-tz.workspace = true
 const_format.workspace = true
 deplace_core = { workspace = true, features = ["iced_desktop"] }
 dirs.workspace = true
+emojis.workspace = true
 enumset.workspace = true
 iced.workspace = true
 iced_video_player.workspace = true
@@ -49,6 +50,7 @@ tracing.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 tray-icon.workspace = true
+unicode-segmentation.workspace = true
 url.workspace = true
 url-macro.workspace = true
 uuid.workspace = true

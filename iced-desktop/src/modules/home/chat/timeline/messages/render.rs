@@ -31,6 +31,7 @@ use matrix_sdk_ui::timeline::{MembershipChange, TimelineDetails};
 use phosphor_svgs::icon as icons;
 
 use crate::{
+    EMOJI_FONT,
     common::*,
     components::{
         MediaType, help_mode::MessageHelpKey, link::link, phosphor_icon,
@@ -393,7 +394,7 @@ impl MessageEvent {
                         themed_tooltip_content(
                             w::button(
                                 w::row![
-                                    w::text(reaction.clone()).size(text_size),
+                                    w::text(reaction.clone()).font(EMOJI_FONT).size(text_size),
                                     weighted_text(length.to_string(), Weight::Bold).size(text_size),
                                     w::container(stack).width(stack_width).height(avatar_size)
                                 ]
@@ -421,7 +422,9 @@ impl MessageEvent {
                                     .unwrap_or(TimelineItemMessage::None),
                             ),
                             w::row![
-                                w::text(reaction.clone()).size(text_size * 3.0),
+                                w::text(reaction.clone())
+                                    .size(text_size * 3.0)
+                                    .font(EMOJI_FONT),
                                 w::container("")
                                     .width(structure.divider_width)
                                     .height(Fill)
@@ -575,7 +578,7 @@ impl MessageContent {
                         w::span(text)
                             .font(Font {
                                 style: iced::font::Style::Italic,
-                                ..Default::default()
+                                ..UI_FONT
                             })
                             .color(color)
                     ]
@@ -733,7 +736,7 @@ impl MessageContent {
                         w::span("Redacted")
                             .font(Font {
                                 style: iced::font::Style::Italic,
-                                ..Default::default()
+                                ..UI_FONT
                             })
                             .color(theme.text.dim)
                             .size(text_size)
@@ -1269,12 +1272,9 @@ impl ReplyContent {
         let style = self.style();
 
         let text_view: Rich<'static, (), TimelineItemMessage> =
-            w::rich_text![span(text).font(Font {
-                style,
-                ..Default::default()
-            })]
-            .color(color)
-            .size(text_size);
+            w::rich_text![span(text).font(Font { style, ..UI_FONT })]
+                .color(color)
+                .size(text_size);
 
         if let Some(icon) = self.icon() {
             w::row![

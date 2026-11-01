@@ -5,13 +5,14 @@ use deplace_core::structure::Structure;
 use deplace_core::theme::{Colors, Theme};
 use iced::advanced::svg::Renderer as SvgRenderer;
 use iced::advanced::{Widget, layout};
-use iced::font::Weight;
+use iced::border::Radius;
+use iced::font::{Family, Weight};
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::widget::image::Handle as ImageHandle;
 use iced::widget::text::{IntoFragment, Rich};
-use iced::widget::{self as w, Canvas, Scrollable, canvas, rich_text, span, svg};
+use iced::widget::{self as w, Canvas, Container, Scrollable, canvas, rich_text, span, svg};
+use iced::{Background, Color, Fill, Font, Length, Padding, Point, Renderer, Size, border};
 use iced::{Border, Element, widget::Stack};
-use iced::{Color, Fill, Font, Length, Padding, Point, Renderer, Size, border};
 use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::ruma::serde::Base64;
 use tile_background::TileBackground;
@@ -54,14 +55,18 @@ impl<T: Clone> Hash for GenericState<T> {
     }
 }
 
+/// The UI font, bundled so regular text looks the same across platforms
+/// instead of falling back to whatever system sans-serif font each OS ships.
+pub const UI_FONT: Font = Font {
+    family: Family::Name("Inter"),
+    ..Font::DEFAULT
+};
+
 pub fn weighted_text<'a, T>(
     text: impl IntoFragment<'a>,
     weight: iced::font::Weight,
 ) -> Rich<'a, (), T> {
-    rich_text([span(text).font(Font {
-        weight,
-        ..Default::default()
-    })])
+    rich_text([span(text).font(Font { weight, ..UI_FONT })])
 }
 
 impl<T: Clone> GenericState<T> {
@@ -547,4 +552,23 @@ pub fn close_button<'a, T: Clone + 'a>(
     )
     .padding(structure.small_gap / 2.0)
     .into()
+}
+
+pub trait ColoredRounded<'a, T: Clone + 'a>
+where
+    Self: Sized,
+{
+    fn colored_rounded(self, color: impl Into<Background>, rounded: impl Into<Radius>) -> Self;
+}
+
+impl<'a, T: Clone + 'a> ColoredRounded<'a, T> for Container<'a, T> {
+    fn colored_rounded(self, color: impl Into<Background>, rounded: impl Into<Radius>) -> Self {
+        let background = color.into();
+        let rounded = rounded.into();
+        self.style(move |_| w::container::Style {
+            background: Some(background),
+            border: border::rounded(rounded),
+            ..Default::default()
+        })
+    }
 }

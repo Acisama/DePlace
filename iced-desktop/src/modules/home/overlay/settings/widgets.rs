@@ -330,7 +330,7 @@ fn setting_row<T, Message: 'static + Clone + ToggleCloudExt>(
 
     let row = w::row![text, Space::new().width(Fill), row_content, cloud_button]
         .align_y(Alignment::Center)
-        .padding(structure.small_gap / 2.0)
+        .padding(padding::vertical(structure.small_gap / 2.0))
         .spacing(structure.small_gap);
 
     if let Some(extra_content) = extra_content {
@@ -386,13 +386,20 @@ pub fn render_subsection<Message: Clone + 'static>(
         ..Default::default()
     });
 
-    let mut column = w::column![header]
-        .spacing(structure.small_gap)
-        .padding(structure.small_gap)
-        .width(Fill);
+    let mut column = w::column![header].spacing(structure.small_gap).width(Fill);
 
     if expanded {
-        column = column.push(content);
+        column = column.push(w::row![
+            w::container(
+                w::container("")
+                    .width(structure.divider_width)
+                    .height(Fill)
+                    .colored_rounded(theme.border, structure.divider_width / 2.0)
+            )
+            .width(structure.small_gap * 2.0)
+            .center_x(structure.small_gap * 2.0),
+            content
+        ]);
     }
 
     column.into()

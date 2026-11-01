@@ -9,12 +9,12 @@ use std::{
     sync::Arc,
 };
 
-use common::{set_structure, set_theme};
+use common::{UI_FONT, set_structure, set_theme};
 use deplace_core::{
     APP_HUMAN_NAME, APP_NAME, RestoreResult, SOCKET_NAME, state::ImportantPaths,
     structure::Structure, theme::Theme, try_restore,
 };
-use iced::{Task, advanced::subscription::Recipe, futures::stream, window};
+use iced::{Font, Task, advanced::subscription::Recipe, font::Family, futures::stream, window};
 use interprocess::local_socket::{
     GenericNamespaced, Listener, ListenerNonblockingMode, ListenerOptions, prelude::*,
 };
@@ -75,6 +75,41 @@ const ICON_PNG: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../assets/deplace_icon.png"
 ));
+
+const NOTO_COLOR_EMOJI_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/fonts/NotoColorEmoji-Regular.ttf"
+));
+
+// Bundled as the UI font (see components::UI_FONT) so regular text looks the
+// same across platforms instead of falling back to each OS's sans-serif font.
+const INTER_REGULAR_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/fonts/Inter-Regular.ttf"
+));
+const INTER_BOLD_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/fonts/Inter-Bold.ttf"
+));
+const INTER_ITALIC_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/fonts/Inter-Italic.ttf"
+));
+const INTER_BOLD_ITALIC_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/fonts/Inter-BoldItalic.ttf"
+));
+
+/// Font used to render emoji, bundled so they look the same across platforms
+/// instead of falling back to whatever color emoji font the OS ships (or none).
+/// Only applied to emoji graphemes specifically: the font also carries plain
+/// glyphs for digits/space/#/* (keycap emoji components) with emoji-sized
+/// advance widths, so using it as a whole-span/default font distorts ordinary
+/// text around the emoji.
+const EMOJI_FONT: Font = Font {
+    family: Family::Name("Noto Color Emoji"),
+    ..Font::DEFAULT
+};
 
 fn load_tray_icon() -> Result<tray_icon::Icon, iced::Error> {
     let image = image::load_from_memory_with_format(crate::ICON_PNG, image::ImageFormat::Png)
@@ -251,8 +286,13 @@ fn main() -> iced::Result {
     )
     .title(Root::title)
     .subscription(Root::subscription)
-    // Use monospace in specific things, not everywhere
-    // .default_font(iced::Font::MONOSPACE)
+    // Loaded, but intentionally not set as the default font because it would overwrite stuff like numbers
+    .font(NOTO_COLOR_EMOJI_FONT)
+    .font(INTER_REGULAR_FONT)
+    .font(INTER_BOLD_FONT)
+    .font(INTER_ITALIC_FONT)
+    .font(INTER_BOLD_ITALIC_FONT)
+    .default_font(UI_FONT)
     .run()
 }
 

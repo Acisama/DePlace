@@ -8,10 +8,30 @@ use iced::{
     widget::text::{LineHeight, Span},
 };
 use sweeten::scrollable::{self, Direction};
+use unicode_segmentation::UnicodeSegmentation;
 
-use crate::common::*;
+use crate::{EMOJI_FONT, common::*};
 
 use super::TimelineItemMessage;
+
+/// Splits `text` into consecutive segments of (text, is_emoji), merging
+/// adjacent graphemes of the same kind so plain runs stay a single span.
+fn split_emoji_runs(text: &str) -> Vec<(String, bool)> {
+    let mut segments: Vec<(String, bool)> = Vec::new();
+
+    for grapheme in text.graphemes(true) {
+        let is_emoji = emojis::get(grapheme).is_some();
+
+        match segments.last_mut() {
+            Some((segment, last_is_emoji)) if *last_is_emoji == is_emoji => {
+                segment.push_str(grapheme);
+            }
+            _ => segments.push((grapheme.to_string(), is_emoji)),
+        }
+    }
+
+    segments
+}
 
 pub trait FormattedBodyView {
     fn view(
@@ -260,8 +280,8 @@ fn render_inline(
 
     let mut spans: Vec<Span<'static, TimelineItemMessage>> = content
         .iter()
-        .map(|inline| {
-            render_inline_span(
+        .flat_map(|inline| {
+            render_inline_spans(
                 inline,
                 bold,
                 default_color,
@@ -289,19 +309,19 @@ fn render_inline(
         .into()
 }
 
-fn render_inline_span(
+fn render_inline_spans(
     inline: &Inline,
     force_bold: bool,
     default_color: DePlaceColor,
     theme: Theme,
     structure: Structure,
     membership_map: &IndexMap<OwnedUserId, RoomMember>,
-) -> Span<'static, TimelineItemMessage> {
+) -> Vec<Span<'static, TimelineItemMessage>> {
     let run = match inline {
-        Inline::LineBreak => return w::span("\n".to_string()),
+        Inline::LineBreak => return vec![w::span("\n".to_string())],
         Inline::Text(run) => run,
         Inline::Mention(mention) => {
-            return render_mention(theme, structure, mention, membership_map);
+            return vec![render_mention(theme, structure, mention, membership_map)];
         }
     };
 
@@ -319,31 +339,32 @@ fn render_inline_span(
     }
 
     let bold = run.bold || force_bold;
-    let font = (bold || run.italic || run.code).then_some(Font {
+    let text_font = Font {
         weight: if bold { Weight::Bold } else { Weight::Normal },
         style: if run.italic {
             iced::font::Style::Italic
         } else {
             iced::font::Style::Normal
         },
-        ..if run.code {
-            Font::MONOSPACE
-        } else {
-            Font::DEFAULT
-        }
-    });
+        ..if run.code { Font::MONOSPACE } else { UI_FONT }
+    };
 
-    w::span(run.text.clone())
-        .font_maybe(font)
-        .color(color.to_iced())
-        .background_maybe(background.map(|c| c.to_iced()))
-        .underline(run.underline)
-        .strikethrough(run.strikethrough)
-        .link_maybe(
-            run.link
-                .as_ref()
-                .map(|link| TimelineItemMessage::LinkClick(link.clone())),
-        )
+    split_emoji_runs(&run.text)
+        .into_iter()
+        .map(|(segment, is_emoji)| {
+            w::span(segment)
+                .font(if is_emoji { EMOJI_FONT } else { text_font })
+                .color(color.to_iced())
+                .background_maybe(background.map(|c| c.to_iced()))
+                .underline(run.underline)
+                .strikethrough(run.strikethrough)
+                .link_maybe(
+                    run.link
+                        .as_ref()
+                        .map(|link| TimelineItemMessage::LinkClick(link.clone())),
+                )
+        })
+        .collect()
 }
 
 fn render_mention(
