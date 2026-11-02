@@ -60,8 +60,7 @@ pub enum TimelineItemMessage {
     SetIsEditing(bool),
     MessageEventBounds(Rectangle),
     OpenProfileOverlay {
-        room_id: OwnedRoomId,
-        user_id: OwnedUserId,
+        member: Member,
         bounds: Rectangle,
     },
     HelpHover(Option<HelpKey>),
@@ -85,12 +84,8 @@ pub enum TimelineItemMessage {
 }
 
 impl OpenProfileOverlayExt for TimelineItemMessage {
-    fn open_profile(room_id: OwnedRoomId, user_id: OwnedUserId, bounds: Rectangle) -> Self {
-        Self::OpenProfileOverlay {
-            room_id,
-            user_id,
-            bounds,
-        }
+    fn open_profile(member: Member, bounds: Rectangle) -> Self {
+        Self::OpenProfileOverlay { member, bounds }
     }
 }
 
@@ -116,8 +111,7 @@ pub enum TimelineItemAction {
     MessageEventBounds(Rectangle),
     HoverChanged(bool),
     OpenProfileOverlay {
-        room_id: OwnedRoomId,
-        user_id: OwnedUserId,
+        member: Member,
         bounds: Rectangle,
     },
     HelpHover(Option<HelpKey>),
@@ -426,15 +420,9 @@ impl TimelineItem {
                 Some(TimelineItemAction::OpenDeleteMenu(event_id))
             }
             TimelineItemMessage::HelpHover(help) => Some(TimelineItemAction::HelpHover(help)),
-            TimelineItemMessage::OpenProfileOverlay {
-                room_id,
-                user_id,
-                bounds,
-            } => Some(TimelineItemAction::OpenProfileOverlay {
-                room_id,
-                user_id,
-                bounds,
-            }),
+            TimelineItemMessage::OpenProfileOverlay { member, bounds } => {
+                Some(TimelineItemAction::OpenProfileOverlay { member, bounds })
+            }
             TimelineItemMessage::MessageEventBounds(bounds) => {
                 Some(TimelineItemAction::MessageEventBounds(bounds))
             }
@@ -607,7 +595,7 @@ impl TimelineItem {
 
                 render_event(
                     w::lazy((event.clone(), is_hovered), move |(event, is_hovered)| {
-                        event.view(theme, room_id.clone(), structure, *is_hovered)
+                        event.view(theme, structure, *is_hovered)
                     }),
                     structure,
                     theme,
@@ -744,36 +732,6 @@ impl Hash for TimelineItemKind {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TimelineProfile {
-    pub display_name: Arc<Option<String>>,
-    pub avatar_url: Arc<Option<OwnedMxcUri>>,
-    user_id: Arc<OwnedUserId>,
-}
-
-impl ProfileLike for TimelineProfile {
-    type Id<'a>
-        = &'a UserId
-    where
-        Self: 'a;
-
-    fn icon_border_radius_ratio(&self) -> f32 {
-        0.5
-    }
-
-    fn profile_name(&self) -> Option<String> {
-        (*self.display_name).clone()
-    }
-
-    fn get_avatar(&self) -> Option<OwnedMxcUri> {
-        (*self.avatar_url).clone()
-    }
-
-    fn profile_id(&self) -> Self::Id<'_> {
-        &self.user_id
-    }
-}
-
 pub type ReactionInfoMap = Arc<IndexMap<String, (bool, Vec<OwnedUserId>)>>;
 
 #[iced_cache(Debug, Clone)]
@@ -784,8 +742,8 @@ struct MessageEvent {
     timestamp: SystemTime,
 
     event_id: Option<OwnedEventId>,
-    sender: OwnedUserId,
-    sender_profile: TimelineDetails<TimelineProfile>,
+    #[hash]
+    sender: Member,
 
     in_reply_to: Arc<Vec<ReplyToDetails>>,
 
@@ -826,13 +784,6 @@ impl ExtraHash for MessageEvent {
         self.date_format.borrow().hash(state);
         self.hour_format.borrow().hash(state);
         self.timezone.borrow().hash(state);
-
-        match self.sender_profile {
-            TimelineDetails::Error(_) => 0.hash(state),
-            TimelineDetails::Pending => 1.hash(state),
-            TimelineDetails::Unavailable => 2.hash(state),
-            TimelineDetails::Ready(_) => 3.hash(state),
-        }
 
         match self.send_state {
             None => 0.hash(state),
@@ -1082,7 +1033,7 @@ struct ReplyToDetails {
 
 #[derive(Debug)]
 struct ReplyEvent {
-    sender_profile: TimelineDetails<TimelineProfile>,
+    sender: Member,
     content: ReplyContent,
 }
 
@@ -1107,7 +1058,7 @@ struct SystemEvent {
     timestamp: SystemTime,
 
     _event_id: Option<OwnedEventId>,
-    sender_profile: TimelineDetails<TimelineProfile>,
+    sender: Member,
 
     timezone: Receiver<Tz>,
     hour_format: Receiver<HourFormat>,

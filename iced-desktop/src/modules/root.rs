@@ -71,6 +71,7 @@ impl Root {
             paths,
         }
     }
+
     pub fn update(&mut self, message: AppMessage) -> Task<AppMessage> {
         self.loading.transition_to(self.screen.state_index());
 

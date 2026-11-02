@@ -33,11 +33,7 @@ pub enum SidebarAction {
     HelpHover(Option<HelpKey>),
     OpenSettings,
     OpenQuickselect,
-    ShowProfile {
-        user_id: OwnedUserId,
-        room_id: OwnedRoomId,
-        bounds: Rectangle,
-    },
+    ShowProfile { member: Member, bounds: Rectangle },
 }
 
 #[iced_cache(Clone)]
@@ -80,15 +76,9 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 ChannelsAction::SetActiveRoom(room) => Some(SidebarAction::ChangeRoom(Some(room))),
                 ChannelsAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
                 ChannelsAction::OpenQuickselect => Some(SidebarAction::OpenQuickselect),
-                ChannelsAction::ShowProfile {
-                    user_id,
-                    room_id,
-                    bounds,
-                } => Some(SidebarAction::ShowProfile {
-                    user_id,
-                    room_id,
-                    bounds,
-                }),
+                ChannelsAction::ShowProfile { member, bounds } => {
+                    Some(SidebarAction::ShowProfile { member, bounds })
+                }
             },
             SidebarMessage::Account(msg) => match self.account.update(msg)? {
                 AccountAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),

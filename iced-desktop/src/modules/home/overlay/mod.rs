@@ -136,15 +136,10 @@ impl Overlay {
         }
     }
 
-    pub fn open_profile(&mut self, room_id: OwnedRoomId, user_id: OwnedUserId, bounds: Rectangle) {
-        tracing::trace!("Opening profile for {:?}", user_id);
+    pub fn open_profile(&mut self, member: Member, bounds: Rectangle) {
+        tracing::trace!("Opening profile for {:?}", member.user_id());
         self.overlay_state = Some(OverlayState::Profile);
-        self.profile = self
-            .membership_map
-            .borrow()
-            .get(&room_id)
-            .and_then(|m| m.get(&user_id).cloned())
-            .map(|member| OverlayProfile::new(&self.state, member, bounds));
+        self.profile = Some(OverlayProfile::new(&self.state, member, bounds));
     }
 
     pub fn open_context_menu(&mut self, menu: ContextMenu) {

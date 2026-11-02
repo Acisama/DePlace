@@ -34,11 +34,7 @@ pub enum SidebarMessage {
 pub enum SidebarAction {
     NeedsMedia(NeedsMedia),
     Perform(Task<SidebarMessage>),
-    ShowProfile {
-        room_id: OwnedRoomId,
-        user_id: OwnedUserId,
-        bounds: Rectangle,
-    },
+    ShowProfile { member: Member, bounds: Rectangle },
     HelpHover(Option<HelpKey>),
 }
 
@@ -102,8 +98,8 @@ impl Sidebar {
             content: list::Content::new(),
             pinned_messages_version: 0,
 
-            member_profile_card: ProfileCard::new(state),
-            dm_profile_card: ProfileCard::new(state),
+            member_profile_card: ProfileCard::new(None),
+            dm_profile_card: ProfileCard::new(None),
             member_list: MemberList::new(state, room),
         }
     }
@@ -157,9 +153,9 @@ impl Sidebar {
     }
 
     fn calculate_currently_visible(&mut self) {
-        if self.room.is_dm() {
-            self.dm_profile_card.set_member(self.room.dm_other_member());
-        }
+        // if self.room.is_dm() {
+        //     self.dm_profile_card.set_member(self.room.dm_other_member());
+        // }
 
         self.currently_visible = [
             SidebarState::Member,
@@ -199,15 +195,9 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
             SidebarMessage::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             SidebarMessage::MemberList(message) => match self.member_list.update(message)? {
                 MemberListAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
-                MemberListAction::ShowProfile {
-                    room_id,
-                    user_id,
-                    bounds,
-                } => Some(SidebarAction::ShowProfile {
-                    room_id,
-                    user_id,
-                    bounds,
-                }),
+                MemberListAction::ShowProfile { member, bounds } => {
+                    Some(SidebarAction::ShowProfile { member, bounds })
+                }
                 MemberListAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             },
             SidebarMessage::MemberProfileCard(message) => {

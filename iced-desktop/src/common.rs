@@ -24,6 +24,7 @@ pub use deplace_core::{
     colors::DePlaceColor,
     get_change,
     helpers::{DisplayString, EventChange, get_current_and_prev},
+    member::Member,
     rooms::{DePlaceRoom, RoomWatchers, hashing},
     settings::Settings,
     state::{

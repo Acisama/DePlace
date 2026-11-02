@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use crate::common::*;
 use crate::components::{blurhash_to_image, thumbhash_to_image};
-use crate::modules::home::chat::timeline::messages::{RtcNotification, TimelineProfile};
+use crate::modules::home::chat::timeline::messages::RtcNotification;
 
 use super::{
     ImageMessage, MessageContent, MessageEvent, ReactionInfoMap, ReplyContent, ReplyEvent,
@@ -43,8 +43,14 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
     ) -> TimelineItem {
         TimelineItem {
             id: self.unique_id().0.clone(),
+            kind: TimelineItemKind::from_ui(
+                self.kind(),
+                state,
+                pinned_event_ids,
+                &room_id,
+                own_user_id,
+            ),
             room_id,
-            kind: TimelineItemKind::from_ui(self.kind(), state, pinned_event_ids, own_user_id),
         }
     }
 }
@@ -54,6 +60,7 @@ impl TimelineItemKind {
         value: &UiTimelineItemKind,
         state: &AppState,
         pinned_event_ids: &BTreeSet<OwnedEventId>,
+        room_id: &OwnedRoomId,
         own_user_id: &OwnedUserId,
     ) -> Self {
         match value {
@@ -71,17 +78,7 @@ impl TimelineItemKind {
                     .timestamp()
                     .to_system_time()
                     .unwrap_or_else(SystemTime::now);
-                let sender = event.sender().to_owned();
-                let sender_profile = match event.sender_profile().clone() {
-                    TimelineDetails::Pending => TimelineDetails::Pending,
-                    TimelineDetails::Error(e) => TimelineDetails::Error(e),
-                    TimelineDetails::Unavailable => TimelineDetails::Unavailable,
-                    TimelineDetails::Ready(p) => TimelineDetails::Ready(TimelineProfile {
-                        display_name: Arc::new(p.display_name.clone()),
-                        avatar_url: Arc::new(p.avatar_url.clone()),
-                        user_id: Arc::new(sender.clone()),
-                    }),
-                };
+                let sender = state.get_member(event.sender(), room_id);
                 let event_id = event.event_id().map(|id| id.to_owned());
 
                 // With a normal closure, there would be move problems
@@ -97,7 +94,7 @@ impl TimelineItemKind {
                             event: Box::new(SystemEvent {
                                 timestamp,
                                 _event_id: event_id,
-                                sender_profile,
+                                sender,
                                 content: Arc::new($content),
 
                                 timezone: state.settings().timezone.watch(),
@@ -260,7 +257,6 @@ impl TimelineItemKind {
                                 date_format: settings.date_format.watch(),
 
                                 sender,
-                                sender_profile,
 
                                 is_replying_to: false,
 
@@ -269,7 +265,7 @@ impl TimelineItemKind {
                                 in_reply_to: Arc::new(
                                     m.in_reply_to
                                         .as_ref()
-                                        .map(get_reply_details)
+                                        .map(|e| get_reply_details(e, state, room_id))
                                         .unwrap_or_default(),
                                 ),
 
@@ -511,7 +507,11 @@ impl From<&Box<VideoInfo>> for VisualInfo {
     }
 }
 
-fn get_reply_details(event: &InReplyToDetails) -> Vec<ReplyToDetails> {
+fn get_reply_details(
+    event: &InReplyToDetails,
+    state: &AppState,
+    room_id: &OwnedRoomId,
+) -> Vec<ReplyToDetails> {
     let mut replies = Vec::new();
 
     let mut current_event = event.event.clone();
@@ -519,7 +519,7 @@ fn get_reply_details(event: &InReplyToDetails) -> Vec<ReplyToDetails> {
 
     loop {
         let ConvertTimelineReplyResult(next_opt, converted) =
-            convert_timeline_reply(&current_event, current_id);
+            convert_timeline_reply(&current_event, state, current_id, room_id);
 
         replies.push(converted);
 
@@ -541,7 +541,9 @@ struct ConvertTimelineReplyResult(
 
 fn convert_timeline_reply(
     event: &TimelineDetails<Box<EmbeddedEvent>>,
+    state: &AppState,
     event_id: OwnedEventId,
+    room_id: &OwnedRoomId,
 ) -> ConvertTimelineReplyResult {
     let embedded = match event {
         TimelineDetails::Error(e) => {
@@ -639,16 +641,7 @@ fn convert_timeline_reply(
         ReplyToDetails {
             event_id,
             event: TimelineDetails::Ready(ReplyEvent {
-                sender_profile: match &embedded.sender_profile {
-                    TimelineDetails::Error(e) => TimelineDetails::Error(e.clone()),
-                    TimelineDetails::Unavailable => TimelineDetails::Unavailable,
-                    TimelineDetails::Pending => TimelineDetails::Pending,
-                    TimelineDetails::Ready(p) => TimelineDetails::Ready(TimelineProfile {
-                        display_name: Arc::new(p.display_name.clone()),
-                        avatar_url: Arc::new(p.avatar_url.clone()),
-                        user_id: Arc::new(embedded.sender.clone()),
-                    }),
-                },
+                sender: state.get_member(&embedded.sender, room_id),
                 content,
             }),
         },

@@ -1,6 +1,3 @@
-use std::collections::BTreeSet;
-
-use deplace_core::state::PresenceMap;
 use iced::Alignment;
 use macros::iced_cache;
 
@@ -11,15 +8,8 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum ProfileMessage {
-    NeedsAvatar(OwnedMxcUri),
     CopyUserId(OwnedUserId),
     UserIdCopied,
-}
-
-impl NeedsAvatarExt for ProfileMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        Self::NeedsAvatar(uri)
-    }
 }
 
 impl CopyUserIdExt for ProfileMessage {
@@ -35,39 +25,20 @@ pub enum ProfileAction {
 
 #[iced_cache(Clone, Debug)]
 pub struct OverlayProfile {
-    state: AppState,
-
-    member: RoomMember,
+    member: Member,
 
     bounds: Rectangle,
-
-    avatar_cache: AvatarCache,
-    presence_map: Receiver<PresenceMap>,
 }
 
 impl OverlayProfile {
-    pub fn new(state: &AppState, member: RoomMember, bounds: Rectangle) -> Self {
-        Self {
-            state: state.clone(),
-
-            member,
-            bounds,
-
-            avatar_cache: state.avatar_cache().clone(),
-            avatar_states_for_hash: BTreeSet::new(),
-
-            presence_map: state.presence_map().clone(),
-        }
+    pub fn new(state: &AppState, member: Member, bounds: Rectangle) -> Self {
+        Self { member, bounds }
     }
 }
 
 impl IcedWidget<ProfileMessage, ProfileAction> for OverlayProfile {
     fn update(&mut self, message: ProfileMessage) -> Option<ProfileAction> {
         match message {
-            ProfileMessage::NeedsAvatar(uri) => {
-                self.avatar_states_for_hash.insert(uri.clone());
-                Some(ProfileAction::NeedsMedia(NeedsMedia::avatar(uri)))
-            }
             ProfileMessage::CopyUserId(id) => Some(ProfileAction::CopyUserId(id)),
             ProfileMessage::UserIdCopied => None,
         }
@@ -79,30 +50,22 @@ impl IcedWidget<ProfileMessage, ProfileAction> for OverlayProfile {
 
         let bounds = self.bounds;
         let member = self.member.clone();
-        let presence_map = self.presence_map.borrow().clone();
-        let avatar_cache = self.avatar_cache.clone();
 
         w::responsive(move |size| {
             let content: Element<'static, ProfileMessage> = floating_tile(
                 theme,
                 structure,
-                w::container(render_banner_column(
-                    &member,
-                    &presence_map,
-                    &avatar_cache,
-                    theme,
-                    structure,
-                ))
-                .style(move |_| ContainerStyle {
-                    background: Some(theme.solid_bg.into()),
-                    border: Border {
-                        color: theme.border.into(),
-                        width: structure.border_thickness,
-                        radius: structure.outer_border_radius.into(),
-                    },
-                    ..Default::default()
-                })
-                .padding(padding::bottom(structure.gap)),
+                w::container(render_banner_column(&member, theme, structure))
+                    .style(move |_| ContainerStyle {
+                        background: Some(theme.solid_bg.into()),
+                        border: Border {
+                            color: theme.border.into(),
+                            width: structure.border_thickness,
+                            radius: structure.outer_border_radius.into(),
+                        },
+                        ..Default::default()
+                    })
+                    .padding(padding::bottom(structure.gap)),
             )
             .into();
 

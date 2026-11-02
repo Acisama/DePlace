@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -94,7 +96,7 @@ impl Instrument {
 pub struct SonicSignature {
     pub root: u8,
     pub scale: Scale,
-    pub progression: Vec<i8>,
+    pub progression: Arc<Vec<i8>>,
     pub rhythm: Rhythm,
     pub instrument: Instrument,
 }
@@ -139,7 +141,7 @@ impl SonicSignature {
         Self {
             scale: SCALES[hash[0] as usize % SCALES.len()],
             root: hash[1] % 12,
-            progression: PROGS[hash[2] as usize % PROGS.len()].to_vec(),
+            progression: Arc::new(PROGS[hash[2] as usize % PROGS.len()].to_vec()),
             rhythm: RHYTHMS[hash[6] as usize % RHYTHMS.len()],
             instrument: INSTRUMENTS[hash[7] as usize % INSTRUMENTS.len()],
         }
@@ -402,7 +404,7 @@ impl SonicSignature {
         mix(self.scale as u8);
         mix(self.rhythm as u8);
         mix(self.instrument as u8);
-        for &d in &self.progression {
+        for &d in self.progression.iter() {
             mix(d as u8);
         }
         h

@@ -38,7 +38,7 @@ use crate::{
         help_mode::MessageHelpKey,
         link::link,
         phosphor_icon,
-        profile::{render_profile_name_with_overlay, render_row_of_icons},
+        profile::{ProfileRenderExt2, render_row_of_icons},
         render_media_failed_to_load,
         track_bounds::track_bounds,
     },
@@ -120,7 +120,7 @@ impl MessageEvent {
             self.is_local_echo(),
             self.contains_only_emojis,
             membership_map,
-            &self.sender,
+            self.sender.user_id(),
             &room_id,
             &self.event_id,
             self.timestamp,
@@ -172,10 +172,9 @@ impl MessageEvent {
         let timezone = *self.timezone.borrow();
         let hour_format = *self.hour_format.borrow();
 
-        let (icon, name, _) = if show_header {
+        let (icon, name) = if show_header {
             {
                 let size = structure.chat.icon_size;
-                let rounding = size / 2.0;
 
                 let name_row =
                     move |name_view: Element<'static, TimelineItemMessage>,
@@ -228,34 +227,13 @@ impl MessageEvent {
                         .into()
                 };
 
-                match &self.sender_profile {
-                    TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
-                        Some(icon(unknown_icon(size, rounding, theme), &help_view)),
-                        Some(name_row(render_unknown_name(text_size, theme), &help_view)),
-                        theme.colors.error,
-                    ),
-                    TimelineDetails::Pending => (
-                        Some(icon(loading_icon(size, rounding, theme), &help_view)),
-                        Some(name_row(render_loading_name(text_size, theme), &help_view)),
-                        theme.colors.offline,
-                    ),
-                    TimelineDetails::Ready(p) => (
-                        Some(icon(p.render_icon(size, &self.avatar_cache), &help_view)),
-                        Some(name_row(
-                            render_profile_name_with_overlay(
-                                p,
-                                room_id.clone(),
-                                p.profile_id().to_owned(),
-                                text_size,
-                            ),
-                            &help_view,
-                        )),
-                        p.color(),
-                    ),
-                }
+                (
+                    Some(icon(self.sender.render_icon(size), &help_view)),
+                    Some(name_row(self.sender.render_name(text_size), &help_view)),
+                )
             }
         } else {
-            (None, None, theme.colors.offline)
+            (None, None)
         };
 
         let small_icon_size = structure.chat.small_icon_size;
@@ -281,28 +259,9 @@ impl MessageEvent {
                         w::text("Loading...").color(theme.colors.offline).boxed(),
                     ),
                     TimelineDetails::Ready(p) => {
-                        let (icon, name, color) = match &p.sender_profile {
-                            TimelineDetails::Error(_) | TimelineDetails::Unavailable => (
-                                unknown_icon(small_icon_size, small_icon_size / 2.0, theme),
-                                render_unknown_name(small_text_size, theme),
-                                theme.colors.error,
-                            ),
-                            TimelineDetails::Pending => (
-                                loading_icon(small_icon_size, small_icon_size / 2.0, theme),
-                                render_loading_name(small_text_size, theme),
-                                theme.colors.offline,
-                            ),
-                            TimelineDetails::Ready(p) => (
-                                p.render_icon(small_icon_size, &self.avatar_cache),
-                                render_profile_name_with_overlay(
-                                    p,
-                                    room_id.clone(),
-                                    p.profile_id().to_owned(),
-                                    small_text_size,
-                                ),
-                                p.color(),
-                            ),
-                        };
+                        let icon = p.sender.render_icon(small_icon_size);
+                        let name = p.sender.render_name(small_text_size);
+                        let color = p.sender.name_color();
 
                         let content = p.content.view(theme, small_text_size);
 
@@ -543,7 +502,7 @@ impl MessageContent {
         is_local_echo: bool,
         contains_only_emojis: bool,
         membership_map: &IndexMap<OwnedUserId, RoomMember>,
-        sender_id: &OwnedUserId,
+        sender_id: &UserId,
         room_id: &OwnedRoomId,
         event_id: &Option<OwnedEventId>,
         timestamp: SystemTime,
@@ -687,7 +646,7 @@ impl MessageContent {
                     TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
                         media: OverlayMediaType::Image(Arc::new(image.clone())),
                         source: image.source.clone(),
-                        sender_id: sender_id.clone(),
+                        sender_id: sender_id.to_owned(),
                         room_id: room_id.clone(),
                         event_id: event_id.clone(),
                         timestamp,
@@ -792,7 +751,7 @@ impl MessageContent {
                     TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
                         media: OverlayMediaType::Video(Arc::new(video.clone())),
                         source: video.source.clone(),
-                        sender_id: sender_id.clone(),
+                        sender_id: sender_id.to_owned(),
                         room_id: room_id.clone(),
                         event_id: event_id.clone(),
                         timestamp,
@@ -1040,7 +999,6 @@ impl SystemEvent {
     pub fn view(
         &self,
         theme: Theme,
-        room_id: OwnedRoomId,
         structure: Structure,
         is_hovered: bool,
     ) -> Element<'static, TimelineItemMessage> {
@@ -1049,18 +1007,7 @@ impl SystemEvent {
         let col_width = structure.chat_col_width();
         let text_size = structure.chat.text_size;
 
-        let sender_name = move || match &self.sender_profile {
-            TimelineDetails::Error(_) | TimelineDetails::Unavailable => {
-                render_unknown_name(text_size, theme)
-            }
-            TimelineDetails::Pending => render_loading_name(text_size, theme),
-            TimelineDetails::Ready(p) => render_profile_name_with_overlay(
-                p,
-                room_id.clone(),
-                p.profile_id().to_owned(),
-                text_size,
-            ),
-        };
+        let sender_name = move || self.sender.render_name_with_overlay(text_size);
 
         let content = self.content.render_content(theme, structure, sender_name);
         let content = if is_hovered {

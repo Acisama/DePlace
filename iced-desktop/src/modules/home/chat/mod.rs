@@ -68,8 +68,7 @@ pub enum ChatAction {
     JoinCall,
     LeaveCall,
     ShowProfile {
-        room_id: OwnedRoomId,
-        user_id: OwnedUserId,
+        member: Member,
         bounds: Rectangle,
     },
     HelpHover(Option<HelpKey>),
@@ -333,15 +332,9 @@ impl Chat {
             TimelineAction::Scroll { direction, task } => {
                 Some(ChatAction::TimelineScroll { direction, task })
             }
-            TimelineAction::OpenProfileOverlay {
-                room_id,
-                user_id,
-                bounds,
-            } => Some(ChatAction::ShowProfile {
-                room_id,
-                user_id,
-                bounds,
-            }),
+            TimelineAction::OpenProfileOverlay { member, bounds } => {
+                Some(ChatAction::ShowProfile { member, bounds })
+            }
             TimelineAction::HelpHover(help_key) => Some(ChatAction::HelpHover(help_key)),
             TimelineAction::ContextMenu(menu) => Some(ChatAction::ContextMenu(menu)),
             TimelineAction::OpenModifyItem(modify) => Some(ChatAction::OpenModifyItem(modify)),
@@ -400,15 +393,9 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 SidebarAction::Perform(task) => {
                     Some(ChatAction::Perform(task.map(ChatMessage::Sidebar)))
                 }
-                SidebarAction::ShowProfile {
-                    room_id,
-                    user_id,
-                    bounds,
-                } => Some(ChatAction::ShowProfile {
-                    room_id,
-                    user_id,
-                    bounds,
-                }),
+                SidebarAction::ShowProfile { member, bounds } => {
+                    Some(ChatAction::ShowProfile { member, bounds })
+                }
                 SidebarAction::HelpHover(key) => Some(ChatAction::HelpHover(key)),
             },
             ChatMessage::Timeline(msg) => self.handle_timeline_message(msg),

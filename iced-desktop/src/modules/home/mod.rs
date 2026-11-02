@@ -178,6 +178,14 @@ impl Home {
             },
         ));
 
+        let member_update_task = Task::stream(iced::futures::stream::unfold(
+            state.member_update_receiver(),
+            |mut rx| async move {
+                rx.changed().await.ok()?;
+                Some((HomeMessage::SyncTick, rx))
+            },
+        ));
+
         (
             home,
             Task::batch([
@@ -186,6 +194,7 @@ impl Home {
                 settings_watch_task,
                 sync_tick_task,
                 media_progress_tick_task,
+                member_update_task,
             ]),
         )
     }
@@ -389,13 +398,9 @@ impl Home {
                 }))),
                 ChatAction::JoinCall => join_call(&chat.room_id),
                 ChatAction::LeaveCall => leave_call(&chat.room_id),
-                ChatAction::ShowProfile {
-                    room_id,
-                    user_id,
-                    bounds,
-                } => {
+                ChatAction::ShowProfile { member, bounds } => {
                     chat.clear_hover();
-                    self.overlay.open_profile(room_id, user_id, bounds);
+                    self.overlay.open_profile(member, bounds);
                     None
                 }
                 ChatAction::OpenModifyItem(modify) => {
@@ -474,12 +479,8 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                     }
                     None
                 }
-                SidebarAction::ShowProfile {
-                    user_id,
-                    room_id,
-                    bounds,
-                } => {
-                    self.overlay.open_profile(room_id, user_id, bounds);
+                SidebarAction::ShowProfile { member, bounds } => {
+                    self.overlay.open_profile(member, bounds);
                     None
                 }
             },

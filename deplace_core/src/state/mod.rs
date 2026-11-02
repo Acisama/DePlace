@@ -16,7 +16,7 @@ use matrix_sdk::{
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
 };
 use media_fetcher::MediaProcessor;
-use ruma::{OwnedMxcUri, RoomId, events::presence::PresenceEventContent};
+use ruma::{OwnedMxcUri, RoomId, UserId, events::presence::PresenceEventContent};
 use tokio::sync::watch::{self, Receiver, Ref, Sender};
 
 use crate::{
@@ -25,6 +25,7 @@ use crate::{
     matrix_api::account_data::{
         BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data,
     },
+    member::{Member, ProfileStore},
     notifications::NotificationManager,
     rooms::{DePlaceRoom, RoomWatcherHashingConfig, RoomWatchers, SpaceHierarchy},
     settings::Settings,
@@ -195,6 +196,7 @@ struct AppStateInner {
     pub settings: Settings,
 
     media_processor: MediaProcessor,
+    profile_store: ProfileStore,
 
     own_display_name: Sender<Option<String>>,
     own_avatar_url: Sender<Option<OwnedMxcUri>>,
@@ -326,6 +328,7 @@ impl AppState {
                 image_cache: cache::ImageCache::new(client.clone()),
 
                 media_processor,
+                profile_store: ProfileStore::new(&client),
 
                 room_watchers,
 
@@ -387,6 +390,14 @@ impl AppState {
         let mut watchers = self.inner.room_watchers.clone();
         watchers.hash_config = config;
         watchers
+    }
+
+    pub fn get_member(&self, user_id: &UserId, room_id: &RoomId) -> Member {
+        self.inner.profile_store.get_member(user_id, room_id)
+    }
+
+    pub fn member_update_receiver(&self) -> Receiver<()> {
+        self.inner.profile_store.changed.subscribe()
     }
 
     pub fn own_display_name(&self) -> Receiver<Option<String>> {

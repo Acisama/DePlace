@@ -85,8 +85,7 @@ pub enum TimelineAction {
         task: Task<bool>,
     },
     OpenProfileOverlay {
-        room_id: OwnedRoomId,
-        user_id: OwnedUserId,
+        member: Member,
         bounds: Rectangle,
     },
     HelpHover(Option<HelpKey>),
@@ -667,18 +666,15 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         ))
                     }),
                     TimelineItemAction::HelpHover(help) => Some(TimelineAction::HelpHover(help)),
-                    TimelineItemAction::OpenProfileOverlay {
-                        room_id,
-                        user_id,
-                        bounds,
-                    } => Some(TimelineAction::OpenProfileOverlay {
-                        room_id,
-                        user_id,
-                        bounds: Rectangle {
-                            y: bounds.y - self.scrolled_from_top,
-                            ..bounds
-                        },
-                    }),
+                    TimelineItemAction::OpenProfileOverlay { member, bounds } => {
+                        Some(TimelineAction::OpenProfileOverlay {
+                            member,
+                            bounds: Rectangle {
+                                y: bounds.y - self.scrolled_from_top,
+                                ..bounds
+                            },
+                        })
+                    }
                     TimelineItemAction::HoverChanged(hovered) => {
                         if hovered {
                             if let Some(old_id) = &self.hovered_item_id

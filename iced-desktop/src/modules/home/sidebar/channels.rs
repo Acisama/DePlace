@@ -28,8 +28,7 @@ pub enum ChannelsMessage {
     HelpHover(Option<HelpKey>),
     OpenQuickselect,
     ShowProfile {
-        user_id: OwnedUserId,
-        room_id: OwnedRoomId,
+        member: Member,
         bounds: Rectangle,
     },
     CallParticipantHovered {
@@ -43,12 +42,8 @@ pub enum ChannelsMessage {
 }
 
 impl OpenProfileOverlayExt for ChannelsMessage {
-    fn open_profile(room_id: OwnedRoomId, user_id: OwnedUserId, bounds: Rectangle) -> Self {
-        Self::ShowProfile {
-            user_id,
-            room_id,
-            bounds,
-        }
+    fn open_profile(member: Member, bounds: Rectangle) -> Self {
+        Self::ShowProfile { member, bounds }
     }
 }
 
@@ -69,11 +64,7 @@ pub enum ChannelsAction {
     NeedsMedia(NeedsMedia),
     HelpHover(Option<HelpKey>),
     OpenQuickselect,
-    ShowProfile {
-        user_id: OwnedUserId,
-        room_id: OwnedRoomId,
-        bounds: Rectangle,
-    },
+    ShowProfile { member: Member, bounds: Rectangle },
 }
 
 #[iced_cache(Clone)]
@@ -163,15 +154,9 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                 }
                 None
             }
-            ChannelsMessage::ShowProfile {
-                user_id,
-                room_id,
-                bounds,
-            } => Some(ChannelsAction::ShowProfile {
-                user_id,
-                room_id,
-                bounds,
-            }),
+            ChannelsMessage::ShowProfile { member, bounds } => {
+                Some(ChannelsAction::ShowProfile { member, bounds })
+            }
             ChannelsMessage::CallParticipantHovered {
                 room_id,
                 participant,
@@ -651,45 +636,45 @@ fn render_call_participant(
 
     w::row![
         w::container("").width(structure.small_gap + structure.font_size),
-        link(
-            w::mouse_area(
-                w::container(
-                    w::row![
-                        member.render_icon(icon_size, avatar_cache),
-                        member.render_name(structure.font_size)
-                    ]
-                    .spacing(structure.small_gap)
-                    .align_y(Alignment::Center)
-                    .width(Fill),
-                )
-                .padding(
-                    padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap),
-                )
-                .style(move |_| ContainerStyle {
-                    background: is_hovered.then_some(theme.solid_hover_bg.into()),
-                    border: Border {
-                        color: if is_hovered {
-                            theme.border.into()
-                        } else {
-                            Color::TRANSPARENT
-                        },
-                        width: structure.border_thickness,
-                        radius: structure.inner_border_radius.into(),
-                    },
-                    ..Default::default()
-                }),
-            )
-            .on_enter(ChannelsMessage::CallParticipantHovered {
-                room_id: hover_room_id.clone(),
-                participant: member.clone(),
-            })
-            .on_exit(ChannelsMessage::CallParticipantUnhovered {
-                room_id: hover_room_id,
-                participant: member.clone(),
-            }),
-            Color::TRANSPARENT,
-            move |bounds| ChannelsMessage::open_profile(room_id.clone(), user_id.clone(), bounds),
-        )
+        // link(
+        //     w::mouse_area(
+        //         w::container(
+        //             w::row![
+        //                 member.render_icon(icon_size, avatar_cache),
+        //                 member.render_name(structure.font_size)
+        //             ]
+        //             .spacing(structure.small_gap)
+        //             .align_y(Alignment::Center)
+        //             .width(Fill),
+        //         )
+        //         .padding(
+        //             padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap),
+        //         )
+        //         .style(move |_| ContainerStyle {
+        //             background: is_hovered.then_some(theme.solid_hover_bg.into()),
+        //             border: Border {
+        //                 color: if is_hovered {
+        //                     theme.border.into()
+        //                 } else {
+        //                     Color::TRANSPARENT
+        //                 },
+        //                 width: structure.border_thickness,
+        //                 radius: structure.inner_border_radius.into(),
+        //             },
+        //             ..Default::default()
+        //         }),
+        //     )
+        //     .on_enter(ChannelsMessage::CallParticipantHovered {
+        //         room_id: hover_room_id.clone(),
+        //         participant: member.clone(),
+        //     })
+        //     .on_exit(ChannelsMessage::CallParticipantUnhovered {
+        //         room_id: hover_room_id,
+        //         participant: member.clone(),
+        //     }),
+        //     Color::TRANSPARENT,
+        //     move |bounds| ChannelsMessage::open_profile(room_id.clone(), user_id.clone(), bounds),
+        // )
     ]
     .boxed()
 }

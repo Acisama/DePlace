@@ -21,7 +21,7 @@ pub enum MemberListMessage {
         bounds: Rectangle,
     },
     MemberPressed {
-        member: RoomMember,
+        member: Member,
         bounds: Rectangle,
     },
     NeedsAvatar(OwnedMxcUri),
@@ -42,11 +42,7 @@ impl NeedsAvatarExt for MemberListMessage {
 
 pub enum MemberListAction {
     NeedsMedia(NeedsMedia),
-    ShowProfile {
-        room_id: OwnedRoomId,
-        user_id: OwnedUserId,
-        bounds: Rectangle,
-    },
+    ShowProfile { member: Member, bounds: Rectangle },
     HelpHover(Option<HelpKey>),
 }
 
@@ -104,11 +100,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                     member.user_id(),
                     bounds
                 );
-                Some(MemberListAction::ShowProfile {
-                    room_id: self.room_id.clone(),
-                    user_id: member.user_id().to_owned(),
-                    bounds,
-                })
+                Some(MemberListAction::ShowProfile { member, bounds })
             }
             MemberListMessage::NeedsAvatar(uri) => {
                 self.avatar_states_for_hash.insert(uri.clone());
@@ -233,13 +225,13 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                                             radius: structure.inner_border_radius.into(),
                                         },
                                         ..Default::default()
-                                    })
-                                    .on_press_maybe(
-                                        bounds.map(|bounds| MemberListMessage::MemberPressed {
-                                            member: member.clone(),
-                                            bounds,
-                                        }),
-                                    ),
+                                    }),
+                                    // .on_press_maybe(
+                                    //     bounds.map(|bounds| MemberListMessage::MemberPressed {
+                                    //         member: member.into(),
+                                    //         bounds,
+                                    //     }),
+                                    // ),
                                     move |bounds| MemberListMessage::Bounds {
                                         user_id: id.clone(),
                                         bounds,
