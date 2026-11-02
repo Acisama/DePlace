@@ -398,7 +398,7 @@ fn render_channel(
     let expanded = !collapsed_categories.contains(room.room_id());
     let is_active = active_room_id.as_ref().is_some_and(|id| id == id_ref);
 
-    let mut room_row = vec![
+    let mut room_stack = w::stack![
         w::mouse_area(
             w::button(
                 help_view
@@ -472,8 +472,16 @@ fn render_channel(
     };
 
     if let Some(mentions) = mentions {
-        room_row.push(Space::new().width(Fill).boxed());
-        room_row.push(render_mention_badge(mentions, theme, structure));
+        room_stack = room_stack.push_element(
+            w::row![
+                Space::new().width(Fill),
+                render_mention_badge(mentions, theme, structure),
+                Space::new().width(structure.small_gap)
+            ]
+            .height(Fill)
+            .width(Fill)
+            .align_y(Alignment::Center),
+        );
     }
 
     let mut items = vec![
@@ -481,10 +489,7 @@ fn render_channel(
             .call(
                 HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
                 if room.is_dm() { "A dm" } else { "A channel" },
-                w::Row::with_children(room_row)
-                    .spacing(structure.gap)
-                    .align_y(Alignment::Center)
-                    .width(Fill),
+                room_stack,
             )
             .radius(structure.inner_border_radius)
             .boxed(),

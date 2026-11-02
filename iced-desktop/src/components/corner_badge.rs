@@ -214,9 +214,10 @@ fn build_overlay<Message: 'static>(
     let mut stack = Stack::new();
     for (content, h, v) in corners {
         if let Some(content) = content {
+            let visible = content_circle(content, content_diameter);
+            stack = stack.push(positioned(visible, h, v, 0.0));
             let notch = notch_circle(notch_diameter, background);
             stack = stack.push(positioned(notch, h, v, overflow));
-
             let visible = content_circle(content, content_diameter);
             stack = stack.push(positioned(visible, h, v, 0.0));
         }
@@ -262,6 +263,7 @@ impl<Content: DePlaceWidget<Message>, Message: 'static> Widget<Message, iced::Th
         );
 
         tree.children[1] = Tree::new(&self.overlay);
+        self.overlay.diff(&mut tree.children[1]);
         self.overlay.layout(
             &mut tree.children[1],
             renderer,

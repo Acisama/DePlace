@@ -262,7 +262,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             })
             .collect();
 
-        let mut column = w::column![home_icon];
+        let mut column = w::column![home_icon].spacing(structure.gap);
 
         if !dm_notification_pills.is_empty() {
             column = column.push_element(w::column(dm_notification_pills).spacing(structure.gap));
@@ -307,9 +307,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         }),
                 )
                 .width(Fill)
-                .height(structure.divider_width + 2.0 * structure.gap)
-                .align_x(Alignment::Center)
-                .align_y(Alignment::Center),
+                .align_x(Alignment::Center),
             )
             .push_element(servers);
 
