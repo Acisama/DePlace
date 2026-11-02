@@ -321,7 +321,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
             .width(Fill)
             .height(Fill)
             .padding(structure.gap)
-            .into()
+            .boxed()
     }
 }
 
@@ -393,5 +393,5 @@ pub fn render_member_numbers<T: Clone + HelpOverMessage + 'static>(
 
     w::Row::with_children(heading_children)
         .align_y(Alignment::Center)
-        .into()
+        .boxed()
 }

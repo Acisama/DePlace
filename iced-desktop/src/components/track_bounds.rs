@@ -1,23 +1,25 @@
 use iced::{
-    Element, Event, Length, Rectangle, Size, Vector,
+    Element, Event, Length, Rectangle, Renderer, Size, Theme, Vector, Widget as _,
     advanced::{
         Layout, Shell, Widget, layout, mouse, overlay, renderer,
-        widget::{Operation, Tree, tree},
+        widget::{Meta, Operation, Tree, tree},
     },
     window,
 };
 
-pub struct TrackBounds<'a, Message, Theme, Renderer> {
-    content: Element<'a, Message, Theme, Renderer>,
-    on_change: Box<dyn Fn(Rectangle) -> Message + 'a>,
+use crate::common::DePlaceWidget;
+
+pub struct TrackBounds<Message, Content: DePlaceWidget<Message>> {
+    content: Content,
+    on_change: Box<dyn Fn(Rectangle) -> Message + 'static>,
 }
 
-pub fn track_bounds<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
-    on_change: impl Fn(Rectangle) -> Message + 'a,
-) -> TrackBounds<'a, Message, Theme, Renderer> {
+pub fn track_bounds<Message, Content: DePlaceWidget<Message>>(
+    content: Content,
+    on_change: impl Fn(Rectangle) -> Message + 'static,
+) -> TrackBounds<Message, Content> {
     TrackBounds {
-        content: content.into(),
+        content,
         on_change: Box::new(on_change),
     }
 }
@@ -27,10 +29,10 @@ struct State {
     last_bounds: Option<Rectangle>,
 }
 
-impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for TrackBounds<'_, Message, Theme, Renderer>
-where
-    Renderer: renderer::Renderer,
+impl<Message, Content: DePlaceWidget<Message>> Meta for TrackBounds<Message, Content> {}
+
+impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
+    for TrackBounds<Message, Content>
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
@@ -42,13 +44,11 @@ where
         tree.diff_children(std::slice::from_mut(&mut self.content));
     }
     fn size(&self) -> Size<Length> {
-        self.content.as_widget().size()
+        self.content.size()
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
-        self.content
-            .as_widget_mut()
-            .layout(&mut tree.children[0], renderer, limits);
+        self.content.layout(&mut tree.children[0], renderer, limits);
 
         tree.size = tree.children[0].size;
     }
@@ -73,7 +73,7 @@ where
             }
         }
 
-        self.content.as_widget_mut().update(
+        self.content.update(
             &mut tree.children[0],
             event,
             layout,
@@ -94,7 +94,7 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget().draw(
+        self.content.draw(
             &tree.children[0],
             renderer,
             theme,
@@ -113,13 +113,8 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        self.content.as_widget_mut().operate(
-            &mut tree.children[0],
-            layout,
-            viewport,
-            renderer,
-            operation,
-        );
+        self.content
+            .operate(&mut tree.children[0], layout, viewport, renderer, operation);
     }
 
     fn mouse_interaction(
@@ -130,13 +125,8 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(
-            &tree.children[0],
-            layout,
-            cursor,
-            viewport,
-            renderer,
-        )
+        self.content
+            .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
     }
 
     fn overlay<'b>(
@@ -148,7 +138,7 @@ where
         translation: Vector,
         window: Size,
     ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
-        self.content.as_widget_mut().overlay(
+        self.content.overlay(
             &mut tree.children[0],
             layout,
             renderer,
@@ -159,14 +149,13 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<TrackBounds<'a, Message, Theme, Renderer>>
+impl<'a, Message, Content> From<TrackBounds<Message, Content>>
     for Element<'a, Message, Theme, Renderer>
 where
     Message: 'a,
-    Theme: 'a,
-    Renderer: 'a + renderer::Renderer,
+    Content: DePlaceWidget<Message> + 'a,
 {
-    fn from(widget: TrackBounds<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(widget)
+    fn from(widget: TrackBounds<Message, Content>) -> Self {
+        widget.boxed()
     }
 }

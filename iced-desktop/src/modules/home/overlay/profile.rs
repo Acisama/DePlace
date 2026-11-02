@@ -132,6 +132,6 @@ impl IcedWidget<ProfileMessage, ProfileAction> for OverlayProfile {
                     })
             }
         })
-        .into()
+        .boxed()
     }
 }

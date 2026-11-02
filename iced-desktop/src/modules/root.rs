@@ -4,7 +4,7 @@ use interprocess::local_socket::Listener;
 
 use crate::{SocketListener, TrayAction, TrayIconClickListener, TrayMenuListener, common::*};
 
-use crate::components::shader;
+use crate::components::{MapElementExt, shader};
 use crate::{
     AppMessage,
     modules::{
@@ -41,11 +41,13 @@ impl Screen {
 
     fn view(&self) -> Element<'static, AppMessage> {
         match self {
-            Screen::Loading => Space::new().into(),
-            Screen::Discovery(discovery) => discovery.view().map(AppMessage::Discovery),
-            Screen::Login(login) => login.view().map(AppMessage::Login),
-            Screen::Verification(verification) => verification.view().map(AppMessage::Verification),
-            Screen::Home(home) => home.view().map(AppMessage::Home),
+            Screen::Loading => Space::new().boxed(),
+            Screen::Discovery(discovery) => discovery.view().map_el(AppMessage::Discovery),
+            Screen::Login(login) => login.view().map_el(AppMessage::Login),
+            Screen::Verification(verification) => {
+                verification.view().map_el(AppMessage::Verification)
+            }
+            Screen::Home(home) => home.view().map_el(AppMessage::Home),
         }
     }
 }
@@ -306,9 +308,6 @@ impl Root {
     pub fn view(&self, _window: window::Id) -> Element<'_, AppMessage> {
         let background = Shader::new(self.loading).width(Fill).height(Fill);
 
-        Stack::new()
-            .push(background)
-            .push(lazy(&self.screen, |screen| screen.view()))
-            .into()
+        w::stack![background, lazy(&self.screen, |screen| screen.view()),].boxed()
     }
 }

@@ -142,7 +142,11 @@ fn walk(
                         #message_name::ToggleSubsection(#id),
                         theme,
                         structure,
-                        w::column![ #(#sub_views),* ].spacing(structure.small_gap).into(),
+                        {
+                            let column: w::Column<::iced::Element<'static, #message_name>> =
+                                w::column![ #(#sub_views),* ];
+                            column.spacing(structure.small_gap).boxed()
+                        },
                     )
                 }
             }
@@ -254,16 +258,20 @@ pub fn section(input: TokenStream) -> TokenStream {
             }
 
             fn view(&self) -> ::iced::Element<'static, #message_name> {
+                use ::iced::Widget as _;
                 use ::iced::widget as w;
 
                 let theme = theme();
                 let structure = structure();
 
-                w::column![ #(#views),* ]
+                let column: w::Column<::iced::Element<'static, #message_name>> =
+                    w::column![ #(#views),* ];
+
+                column
                     .spacing(structure.gap)
                     .padding(structure.small_gap)
                     .width(::iced::Length::Fill)
-                    .into()
+                    .boxed()
             }
         }
     };

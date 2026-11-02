@@ -359,7 +359,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
 
     fn view(&self) -> iced::Element<'static, OverlayMessage> {
         let Some(state) = &self.overlay_state else {
-            return Space::new().into();
+            return Space::new().boxed();
         };
 
         let theme = theme();
@@ -368,37 +368,37 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
         let backdrop: Element<'static, OverlayMessage> = match state {
             OverlayState::Profile => {
                 let Some(profile) = &self.profile else {
-                    return Space::new().into();
+                    return Space::new().boxed();
                 };
-                profile.view().map(OverlayMessage::Profile)
+                profile.view().map_el(OverlayMessage::Profile)
             }
-            OverlayState::ContextMenu(menu) => menu.view().map(OverlayMessage::ContextMenu),
+            OverlayState::ContextMenu(menu) => menu.view().map_el(OverlayMessage::ContextMenu),
             OverlayState::QuickSelect => render_with_backdrop(
                 theme,
                 structure,
-                self.quickselect.view().map(OverlayMessage::QuickSelect),
+                self.quickselect.view().map_el(OverlayMessage::QuickSelect),
             ),
             OverlayState::Settings => render_with_backdrop(
                 theme,
                 structure,
-                self.settings.view().map(OverlayMessage::Settings),
+                self.settings.view().map_el(OverlayMessage::Settings),
             ),
             OverlayState::Media(media) => {
-                render_with_backdrop(theme, structure, media.view().map(OverlayMessage::Media))
+                render_with_backdrop(theme, structure, media.view().map_el(OverlayMessage::Media))
             }
             OverlayState::ModifyItem(modify) => render_with_backdrop(
                 theme,
                 structure,
-                modify.view().map(OverlayMessage::ModifyItem),
+                modify.view().map_el(OverlayMessage::ModifyItem),
             ),
         };
 
         let area = mouse_area(backdrop).on_press(OverlayMessage::Close);
 
         if matches!(state, OverlayState::ContextMenu(_)) {
-            area.into()
+            area.boxed()
         } else {
-            area.interaction(iced::mouse::Interaction::Idle).into()
+            area.interaction(iced::mouse::Interaction::Idle).boxed()
         }
     }
 }
@@ -418,5 +418,5 @@ fn render_with_backdrop(
             background: Some(theme.backdrop.into()),
             ..Default::default()
         })
-        .into()
+        .boxed()
 }

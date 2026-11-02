@@ -10,7 +10,9 @@ use macros::{iced_cache, iced_icon};
 
 use crate::{
     common::*,
-    components::{help_mode::SidebarHelpKey, link::link, profile::OpenProfileOverlayExt},
+    components::{
+        PushElement, help_mode::SidebarHelpKey, link::link, profile::OpenProfileOverlayExt,
+    },
 };
 
 use super::render_mention_badge;
@@ -269,7 +271,8 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                             w::container(pan(weighted_text(active_server_name, Weight::Bold)
                                 .size(structure.large_font_size)
                                 .style(move |_| TextStyle {
-                                    color: Some(theme.text.normal.into())
+                                    color: Some(theme.text.normal.into()),
+                                    selection: Some(theme.accent.into())
                                 })
                                 .wrapping(text::Wrapping::None)
                                 .center()
@@ -458,7 +461,7 @@ fn render_channel(
         )
         .on_enter(ChannelsMessage::RoomHovered(id.clone()))
         .on_exit(ChannelsMessage::RoomUnhovered(id.clone()))
-        .into(),
+        .boxed(),
     ];
 
     let mentions = if room.is_dm() {
@@ -469,7 +472,7 @@ fn render_channel(
     };
 
     if let Some(mentions) = mentions {
-        room_row.push(Space::new().width(Fill).into());
+        room_row.push(Space::new().width(Fill).boxed());
         room_row.push(render_mention_badge(mentions, theme, structure));
     }
 
@@ -484,7 +487,7 @@ fn render_channel(
                     .width(Fill),
             )
             .radius(structure.inner_border_radius)
-            .into(),
+            .boxed(),
     ];
 
     if has_notifications && !room.is_dm() {
@@ -502,7 +505,7 @@ fn render_channel(
             .width(structure.small_gap)
             .height(Fill)
             .center_y(Fill)
-            .into(),
+            .boxed(),
         );
     }
 
@@ -515,7 +518,7 @@ fn render_channel(
 
             let line_height = (item_height + structure.divider_width) * length as f32;
 
-            column = column.push(
+            column = column.push_element(
                 w::container(w::stack([
                     w::Column::with_children(children.iter().map(|room| {
                         w::row![
@@ -537,10 +540,9 @@ fn render_channel(
                                 usize::MAX,
                             )
                         ]
-                        .into()
                     }))
                     .spacing(structure.divider_width)
-                    .into(),
+                    .boxed(),
                     w::container(
                         w::container("")
                             .width(structure.divider_width)
@@ -553,7 +555,7 @@ fn render_channel(
                     )
                     .width(icon_size)
                     .center_x(icon_size)
-                    .into(),
+                    .boxed(),
                 ]))
                 .padding(padding::left(structure.small_gap)),
             );
@@ -562,7 +564,7 @@ fn render_channel(
         {
             let line_height = item_height + structure.divider_width;
 
-            column = column.push(
+            column = column.push_element(
                 w::container(w::stack([
                     w::row![
                         w::space().width(icon_size),
@@ -583,7 +585,7 @@ fn render_channel(
                             usize::MAX,
                         )
                     ]
-                    .into(),
+                    .boxed(),
                     w::container(
                         w::container("")
                             .width(structure.divider_width)
@@ -596,13 +598,13 @@ fn render_channel(
                     )
                     .width(icon_size)
                     .center_x(icon_size)
-                    .into(),
+                    .boxed(),
                 ]))
                 .padding(padding::left(structure.small_gap)),
             );
         }
 
-        column.into()
+        column.boxed()
     } else {
         if !room.is_dm() {
             column
@@ -621,9 +623,9 @@ fn render_channel(
                         avatar_cache,
                     )
                 }))
-                .into()
+                .boxed()
         } else {
-            column.into()
+            column.boxed()
         }
     }
 }
@@ -684,5 +686,5 @@ fn render_call_participant(
             move |bounds| ChannelsMessage::open_profile(room_id.clone(), user_id.clone(), bounds),
         )
     ]
-    .into()
+    .boxed()
 }

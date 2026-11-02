@@ -1,39 +1,36 @@
 //! A wrapper widget that publishes a message once, the first time it is processed
 //! by the runtime, instead of in response to user interaction.
-use iced::advanced::widget::{Operation, Tree, tree};
+use iced::advanced::widget::{Meta, Operation, Tree, tree};
 use iced::advanced::{Shell, Widget, layout, mouse, overlay, renderer};
 use iced::{Element, Event, Length, Rectangle, Size, Vector, advanced::Layout};
+use iced::{Renderer, Widget as _};
+
+use crate::common::DePlaceWidget;
 
 /// A wrapper widget that publishes `Message` once, the first time it is processed
 /// by the runtime, without waiting for user interaction.
 ///
 /// This was created to be used in the timeline, so that an image or video is
 /// only fetched by the client, when it is supposed to appear.
-pub struct OnAppear<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer> {
+pub struct OnAppear<Message, Content: DePlaceWidget<Message>> {
     /// The content of the widget, that is dispalyed
-    content: Element<'a, Message, Theme, Renderer>,
+    content: Content,
     /// The Message that is emitted exactly once, on the first time the widget is being processed by the runtime.
     message: Message,
 }
 
-impl<'a, Message, Theme, Renderer> OnAppear<'a, Message, Theme, Renderer> {
-    pub fn new(
-        content: impl Into<Element<'a, Message, Theme, Renderer>>,
-        message: Message,
-    ) -> Self {
-        Self {
-            content: content.into(),
-            message,
-        }
+impl<Message, Content: DePlaceWidget<Message>> OnAppear<Message, Content> {
+    pub fn new(content: Content, message: Message) -> Self {
+        Self { content, message }
     }
 }
 
 /// Creates an [`OnAppear`] that publishes `message` once, the first time it is
 /// processed by the runtime, without waiting for any user interaction.
-pub fn on_appear<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+pub fn on_appear<Message, Content: DePlaceWidget<Message>>(
+    content: Content,
     message: Message,
-) -> OnAppear<'a, Message, Theme, Renderer> {
+) -> OnAppear<Message, Content> {
     OnAppear::new(content, message)
 }
 
@@ -42,11 +39,10 @@ struct State {
     fired: bool,
 }
 
-impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for OnAppear<'_, Message, Theme, Renderer>
-where
-    Renderer: renderer::Renderer,
-    Message: Clone,
+impl<Message, Content: DePlaceWidget<Message>> Meta for OnAppear<Message, Content> {}
+
+impl<Message: Clone, Content: DePlaceWidget<Message>> Widget<Message, iced::Theme, Renderer>
+    for OnAppear<Message, Content>
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
@@ -61,13 +57,11 @@ where
     }
 
     fn size(&self) -> Size<Length> {
-        self.content.as_widget().size()
+        self.content.size()
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
-        self.content
-            .as_widget_mut()
-            .layout(&mut tree.children[0], renderer, limits)
+        self.content.layout(&mut tree.children[0], renderer, limits)
     }
 
     fn operate(
@@ -78,13 +72,8 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        self.content.as_widget_mut().operate(
-            &mut tree.children[0],
-            layout,
-            viewport,
-            renderer,
-            operation,
-        );
+        self.content
+            .operate(&mut tree.children[0], layout, viewport, renderer, operation);
     }
 
     fn update(
@@ -97,7 +86,7 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget_mut().update(
+        self.content.update(
             &mut tree.children[0],
             event,
             layout,
@@ -126,26 +115,21 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(
-            &tree.children[0],
-            layout,
-            cursor,
-            viewport,
-            renderer,
-        )
+        self.content
+            .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
     }
 
     fn draw(
         &self,
         tree: &Tree,
         renderer: &mut Renderer,
-        theme: &Theme,
+        theme: &iced::Theme,
         style: &renderer::Style,
         layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget().draw(
+        self.content.draw(
             &tree.children[0],
             renderer,
             theme,
@@ -164,8 +148,8 @@ where
         viewport: &Rectangle,
         translation: Vector,
         window: Size,
-    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
-        self.content.as_widget_mut().overlay(
+    ) -> Vec<overlay::Element<'b, Message, iced::Theme, Renderer>> {
+        self.content.overlay(
             &mut tree.children[0],
             layout,
             renderer,
@@ -176,14 +160,13 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<OnAppear<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
+impl<'a, Message, Content> From<OnAppear<Message, Content>>
+    for Element<'a, Message, iced::Theme, Renderer>
 where
+    Content: DePlaceWidget<Message> + 'a,
     Message: 'a + Clone,
-    Theme: 'a,
-    Renderer: 'a + renderer::Renderer,
 {
-    fn from(widget: OnAppear<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(widget)
+    fn from(widget: OnAppear<Message, Content>) -> Self {
+        widget.boxed()
     }
 }

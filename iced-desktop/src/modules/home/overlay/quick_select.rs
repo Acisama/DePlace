@@ -391,6 +391,6 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
         ]
         .width(Length::Fill)
         .height(Length::Fill)
-        .into()
+        .boxed()
     }
 }

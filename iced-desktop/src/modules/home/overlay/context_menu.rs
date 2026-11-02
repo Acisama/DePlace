@@ -182,7 +182,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                 bottom: 0.0,
             })
         })
-        .into()
+        .boxed()
     }
 }
 
@@ -213,75 +213,63 @@ fn render_message_context_menu(
     };
 
     if can_edit {
-        buttons.push(
-            render_context_menu_button(
-                structure,
-                theme.text.dim,
-                theme.text.normal,
-                theme.solid_hover_bg,
-                EDIT_ICON,
-                "Edit this message",
-                message(MessageMessage::Edit),
-            )
-            .into(),
-        );
+        buttons.push(render_context_menu_button(
+            structure,
+            theme.text.dim,
+            theme.text.normal,
+            theme.solid_hover_bg,
+            EDIT_ICON,
+            "Edit this message",
+            message(MessageMessage::Edit),
+        ));
     }
 
     if can_reply {
-        buttons.push(
-            render_context_menu_button(
-                structure,
-                theme.text.dim,
-                theme.text.normal,
-                theme.solid_hover_bg,
-                REPLY_ICON,
-                "Reply to this message",
-                message(MessageMessage::SetReplyingTo),
-            )
-            .into(),
-        );
+        buttons.push(render_context_menu_button(
+            structure,
+            theme.text.dim,
+            theme.text.normal,
+            theme.solid_hover_bg,
+            REPLY_ICON,
+            "Reply to this message",
+            message(MessageMessage::SetReplyingTo),
+        ));
     }
 
     if can_pin {
-        buttons.push(
-            render_context_menu_button(
-                structure,
-                theme.colors.pins,
-                theme.solid_bg,
-                theme.colors.pins,
-                if is_pinned { UNPIN_ICON } else { PIN_ICON },
-                if is_pinned {
-                    "Unpin this message"
-                } else {
-                    "Pin this message"
-                },
-                message(MessageMessage::Pin(is_pinned)),
-            )
-            .into(),
-        );
+        buttons.push(render_context_menu_button(
+            structure,
+            theme.colors.pins,
+            theme.solid_bg,
+            theme.colors.pins,
+            if is_pinned { UNPIN_ICON } else { PIN_ICON },
+            if is_pinned {
+                "Unpin this message"
+            } else {
+                "Pin this message"
+            },
+            message(MessageMessage::Pin(is_pinned)),
+        ));
     }
 
     if can_redact {
-        buttons.push(
-            render_context_menu_button(
-                structure,
-                theme.colors.red,
-                theme.solid_bg,
-                theme.colors.red,
-                REDACT_ICON,
-                "Redact this message",
-                message(MessageMessage::Delete),
-            )
-            .into(),
-        );
+        buttons.push(render_context_menu_button(
+            structure,
+            theme.colors.red,
+            theme.solid_bg,
+            theme.colors.red,
+            REDACT_ICON,
+            "Redact this message",
+            message(MessageMessage::Delete),
+        ));
     }
 
     if buttons.is_empty() {
-        Space::new().into()
+        Space::new().boxed()
     } else {
         w::container(equal_width(buttons))
             .padding(structure.small_gap)
-            .into()
+            .boxed()
     }
 }
 
@@ -294,7 +282,7 @@ fn render_context_menu_button(
     icon: &'static str,
     label: &'static str,
     message: ContextMenuMessage,
-) -> w::Button<'static, ContextMenuMessage> {
+) -> w::Button<'static, ContextMenuMessage, Row<Element<'static, ContextMenuMessage>>> {
     w::button(
         w::row![
             phosphor_icon(icon, structure.font_size),

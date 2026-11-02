@@ -5,27 +5,39 @@
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::overlay;
 use iced::advanced::renderer;
-use iced::advanced::widget::{Operation, Tree};
+use iced::advanced::widget::{Meta, Operation, Tree};
 use iced::advanced::{Shell, Widget};
-use iced::{Element, Event, Length, Padding, Pixels, Rectangle, Size, Vector, mouse};
+use iced::{
+    Element, Event, Length, Padding, Pixels, Rectangle, Renderer, Size, Vector, Widget as _, mouse,
+};
 
-pub struct EqualWidth<'a, Message, Theme, Renderer> {
-    children: Vec<Element<'a, Message, Theme, Renderer>>,
+use crate::common::DePlaceWidget;
+
+pub struct EqualWidth<Message, Content>
+where
+    Content: DePlaceWidget<Message>,
+{
+    children: Vec<Content>,
     spacing: f32,
     padding: Padding,
+    _marker: std::marker::PhantomData<Message>,
 }
 
-pub fn equal_width<'a, Message, Theme, Renderer>(
-    children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
-) -> EqualWidth<'a, Message, Theme, Renderer> {
+pub fn equal_width<Message, Content>(
+    children: impl IntoIterator<Item = Content>,
+) -> EqualWidth<Message, Content>
+where
+    Content: DePlaceWidget<Message>,
+{
     EqualWidth {
         children: children.into_iter().collect(),
         spacing: 0.0,
         padding: Padding::ZERO,
+        _marker: std::marker::PhantomData,
     }
 }
 
-impl<'a, Message, Theme, Renderer> EqualWidth<'a, Message, Theme, Renderer> {
+impl<Message, Content: DePlaceWidget<Message>> EqualWidth<Message, Content> {
     pub fn spacing(mut self, amount: impl Into<Pixels>) -> Self {
         self.spacing = amount.into().0;
         self
@@ -37,10 +49,10 @@ impl<'a, Message, Theme, Renderer> EqualWidth<'a, Message, Theme, Renderer> {
     }
 }
 
-impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for EqualWidth<'a, Message, Theme, Renderer>
-where
-    Renderer: renderer::Renderer,
+impl<Message, Content: DePlaceWidget<Message>> Meta for EqualWidth<Message, Content> {}
+
+impl<Message, Content: DePlaceWidget<Message>> Widget<Message, iced::Theme, Renderer>
+    for EqualWidth<Message, Content>
 {
     fn size(&self) -> Size<Length> {
         // Explicit Shrink: unlike `Fit`, it never merges with the
@@ -67,7 +79,7 @@ where
 
         let mut widest = 0.0f32;
         for (child, state) in self.children.iter_mut().zip(&mut tree.children) {
-            child.as_widget_mut().layout(state, renderer, &measure);
+            child.layout(state, renderer, &measure);
             widest = widest.max(state.size.width);
         }
         let widest = widest.min(max.width);
@@ -81,7 +93,7 @@ where
             if i > 0 {
                 y += self.spacing;
             }
-            child.as_widget_mut().layout(state, renderer, &pinned);
+            child.layout(state, renderer, &pinned);
             state.translation = Vector::new(self.padding.left, self.padding.top + y);
             y += state.size.height;
         }
@@ -93,16 +105,14 @@ where
         &self,
         tree: &Tree,
         renderer: &mut Renderer,
-        theme: &Theme,
+        theme: &iced::Theme,
         style: &renderer::Style,
         layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
         for (child, (layout, tree)) in self.children.iter().zip(layout.iter(&tree.children)) {
-            child
-                .as_widget()
-                .draw(tree, renderer, theme, style, layout, cursor, viewport);
+            child.draw(tree, renderer, theme, style, layout, cursor, viewport);
         }
     }
 
@@ -121,9 +131,7 @@ where
                 .iter_mut()
                 .zip(layout.iter_mut(&mut tree.children))
             {
-                child
-                    .as_widget_mut()
-                    .operate(tree, layout, viewport, renderer, operation);
+                child.operate(tree, layout, viewport, renderer, operation);
             }
         });
     }
@@ -143,9 +151,7 @@ where
             .iter_mut()
             .zip(layout.iter_mut(&mut tree.children))
         {
-            child
-                .as_widget_mut()
-                .update(tree, event, layout, cursor, renderer, shell, viewport);
+            child.update(tree, event, layout, cursor, renderer, shell, viewport);
         }
     }
 
@@ -161,9 +167,7 @@ where
             .iter()
             .zip(layout.iter(&tree.children))
             .map(|(child, (layout, tree))| {
-                child
-                    .as_widget()
-                    .mouse_interaction(tree, layout, cursor, viewport, renderer)
+                child.mouse_interaction(tree, layout, cursor, viewport, renderer)
             })
             .max()
             .unwrap_or_default()
@@ -177,7 +181,7 @@ where
         viewport: &Rectangle,
         translation: Vector,
         window: Size,
-    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
+    ) -> Vec<overlay::Element<'b, Message, iced::Theme, Renderer>> {
         overlay::from_children(
             &mut self.children,
             tree,
@@ -190,14 +194,13 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<EqualWidth<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
+impl<'a, Message, Content> From<EqualWidth<Message, Content>>
+    for Element<'a, Message, iced::Theme, Renderer>
 where
+    Content: DePlaceWidget<Message> + 'a,
     Message: 'a,
-    Theme: 'a,
-    Renderer: 'a + renderer::Renderer,
 {
-    fn from(widget: EqualWidth<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(widget)
+    fn from(widget: EqualWidth<Message, Content>) -> Self {
+        widget.boxed()
     }
 }

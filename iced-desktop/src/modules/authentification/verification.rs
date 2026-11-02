@@ -173,6 +173,6 @@ impl IcedWidget<VerificationMessage, VerificationAction> for Verification {
             .padding(structure.gap),
         );
 
-        w::container(tile).center(Fill).into()
+        w::container(tile).center(Fill).boxed()
     }
 }

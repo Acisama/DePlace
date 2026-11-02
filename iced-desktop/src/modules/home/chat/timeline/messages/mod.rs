@@ -527,17 +527,17 @@ impl TimelineItem {
         help_state: HelpState<HelpKey>,
         index: usize,
     ) -> iced::Element<'static, TimelineItemMessage> {
-        let fallback = || -> iced::Element<'static, TimelineItemMessage> {
+        let fallback = || {
             w::text(format!("{:?}", self))
                 .color(theme.colors.error)
                 .size(structure.chat.text_size)
-                .into()
+                .boxed()
         };
         let render_error_message = |text: String| {
             w::text(text)
                 .color(theme.colors.error)
                 .size(structure.chat.text_size)
-                .into()
+                .boxed()
         };
 
         let room_id = self.room_id.clone();
@@ -551,7 +551,7 @@ impl TimelineItem {
                 if depends_on_system_messages
                     .is_some_and(|dep| system_messages_to_show.borrow().is_disjoint(dep))
                 {
-                    return w::space().into();
+                    return EMPTY_WIDGET.boxed();
                 }
                 w::row![
                     w::container("")
@@ -570,7 +570,7 @@ impl TimelineItem {
                 ]
                 .align_y(Alignment::Center)
                 .spacing(structure.small_gap)
-                .into()
+                .boxed()
             }
             TimelineItemKind::FailedToParseMessageLike { event_type, error } => {
                 render_error_message(format!(
@@ -591,7 +591,7 @@ impl TimelineItem {
                     .style(move |_| ContainerStyle::default().background(theme.accent)),
             )
             .padding(padding::vertical(structure.small_gap))
-            .into(),
+            .boxed(),
             TimelineItemKind::TimelineStart => fallback(),
             TimelineItemKind::System {
                 is_hovered,
@@ -600,7 +600,7 @@ impl TimelineItem {
                 system_messages_to_show,
             } => {
                 if !event.should_show(*system_messages_to_show.borrow()) {
-                    return w::space().into();
+                    return EMPTY_WIDGET.boxed();
                 }
 
                 let is_hovered = *is_hovered;

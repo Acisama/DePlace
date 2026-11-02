@@ -230,16 +230,16 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_dialogue_button<'a, T: Clone + 'a>(
+fn render_dialogue_button<'a, Message: Clone + 'a>(
     structure: Structure,
     label: impl IntoFragment<'a>,
-    message: T,
+    message: Message,
     bg_color: Option<DePlaceColor>,
     hover_bg_color: DePlaceColor,
     text_color: DePlaceColor,
     hover_text_color: DePlaceColor,
     border_color: DePlaceColor,
-) -> w::Button<'a, T> {
+) -> w::Button<'a, Message, Text<'a>> {
     w::button(w::text(label).width(Fill).center())
         .style(move |_, status| ButtonStyle {
             background: if status.active() {
@@ -268,14 +268,14 @@ fn render_dialogue_button<'a, T: Clone + 'a>(
         .on_press(message)
 }
 
-fn render_floating_dialogue<'a, T: Clone + 'a>(
+fn render_floating_dialogue<'a, Message: Clone + 'a, Content: DePlaceWidget<Message> + 'a>(
     theme: Theme,
     structure: Structure,
     heading: impl IntoFragment<'a>,
     subheading: impl IntoFragment<'a>,
-    content: impl Into<Element<'a, T>>,
-    buttons: impl IntoIterator<Item = w::Button<'a, T>>,
-) -> iced::Element<'a, T> {
+    content: Content,
+    buttons: impl IntoIterator<Item = w::Button<'a, Message, Text<'a>>>,
+) -> Element<'a, Message> {
     floating_tile(
         theme,
         structure,
@@ -286,7 +286,7 @@ fn render_floating_dialogue<'a, T: Clone + 'a>(
             w::text(subheading)
                 .size(structure.font_size)
                 .color(theme.text.dim),
-            w::container(content.into())
+            w::container(content)
                 .style(move |_| ContainerStyle {
                     background: Some(theme.solid_bg.into()),
                     border: Border {
@@ -298,8 +298,7 @@ fn render_floating_dialogue<'a, T: Clone + 'a>(
                 })
                 .padding(structure.small_gap),
             Space::new(),
-            w::Row::with_children(buttons.into_iter().map(|b| b.into()))
-                .spacing(structure.small_gap)
+            w::Row::with_children(buttons).spacing(structure.small_gap)
         ]
         .spacing(structure.small_gap)
         .padding(structure.gap),

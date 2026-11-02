@@ -1,29 +1,32 @@
 //! A wrapper widget that pans its content back and forth horizontally,
 //! instead of letting it overflow, whenever it doesn't fit the width it's
 //! given.
-use iced::advanced::widget::{Operation, Tree, tree};
-use iced::advanced::{Layout, Shell, Widget, layout, mouse, overlay, renderer};
-use iced::{Element, Event, Length, Rectangle, Size, Vector, window};
+use iced::advanced::widget::{Meta, Operation, Tree, tree};
+use iced::advanced::{Layout, Renderer as _, Shell, Widget, layout, mouse, overlay, renderer};
+use iced::{Element, Event, Length, Rectangle, Renderer, Size, Theme, Vector, Widget as _, window};
 
+use crate::common::DePlaceWidget;
 use crate::components::animation_clock::elapsed_seconds;
 
 /// How long content pauses at each end of the pan before reversing.
 const PAUSE_SECONDS: f32 = 1.0;
 
-pub struct Pan<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer> {
-    content: Element<'a, Message, Theme, Renderer>,
+pub struct Pan<Message, Content: DePlaceWidget<Message>> {
+    content: Content,
     width: Length,
     height: Length,
     speed: f32,
+    _marker: std::marker::PhantomData<Message>,
 }
 
-impl<'a, Message, Theme, Renderer> Pan<'a, Message, Theme, Renderer> {
-    pub fn new(content: impl Into<Element<'a, Message, Theme, Renderer>>) -> Self {
+impl<Message, Content: DePlaceWidget<Message>> Pan<Message, Content> {
+    pub fn new(content: Content) -> Self {
         Self {
-            content: content.into(),
+            content,
             width: Length::Shrink,
             height: Length::Shrink,
             speed: 40.0,
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -46,9 +49,7 @@ impl<'a, Message, Theme, Renderer> Pan<'a, Message, Theme, Renderer> {
 
 /// Wraps `content` so that, whenever it doesn't fit the width it's given, it
 /// pans back and forth horizontally instead of overflowing.
-pub fn pan<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> Pan<'a, Message, Theme, Renderer> {
+pub fn pan<Message, Content: DePlaceWidget<Message>>(content: Content) -> Pan<Message, Content> {
     Pan::new(content)
 }
 
@@ -77,17 +78,17 @@ fn shift(overflow: f32, speed: f32) -> f32 {
     }
 }
 
-impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for Pan<'_, Message, Theme, Renderer>
-where
-    Renderer: renderer::Renderer,
+impl<Message, Content: DePlaceWidget<Message>> Meta for Pan<Message, Content> {}
+
+impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
+    for Pan<Message, Content>
 {
     fn tag(&self) -> tree::Tag {
-        self.content.as_widget().tag()
+        self.content.tag()
     }
 
     fn state(&self) -> tree::State {
-        self.content.as_widget().state()
+        self.content.state()
     }
 
     fn diff(&mut self, tree: &mut Tree) {
@@ -111,9 +112,7 @@ where
         );
 
         let child = &mut tree.children[0];
-        self.content
-            .as_widget_mut()
-            .layout(child, renderer, &unbounded);
+        self.content.layout(child, renderer, &unbounded);
 
         tree.size = limits.resolve(self.width, self.height, child.size);
     }
@@ -130,7 +129,6 @@ where
             return;
         };
         self.content
-            .as_widget_mut()
             .operate(tree, layout, viewport, renderer, operation);
     }
 
@@ -165,7 +163,7 @@ where
             None => cursor.obstruct() + translation,
         };
 
-        self.content.as_widget_mut().update(
+        self.content.update(
             content_tree,
             event,
             content_layout,
@@ -196,7 +194,7 @@ where
             None => cursor.obstruct() + translation,
         };
 
-        self.content.as_widget().mouse_interaction(
+        self.content.mouse_interaction(
             content_tree,
             content_layout,
             cursor,
@@ -235,7 +233,7 @@ where
             renderer.with_translation(
                 (-translation).hint(renderer.hint_factor().unwrap_or(1.0)),
                 |renderer| {
-                    self.content.as_widget().draw(
+                    self.content.draw(
                         content_tree,
                         renderer,
                         theme,
@@ -267,7 +265,7 @@ where
         let my_translation = Vector::new(shift(overflow, self.speed), 0.0);
         let viewport = viewport.intersection(&bounds).unwrap_or(*viewport);
 
-        self.content.as_widget_mut().overlay(
+        self.content.overlay(
             content_tree,
             content_layout,
             renderer,
@@ -278,14 +276,13 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<Pan<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
+impl<'a, Message, Content> From<Pan<Message, Content>>
+    for Element<'a, Message, iced::Theme, iced::Renderer>
 where
     Message: 'a,
-    Theme: 'a,
-    Renderer: 'a + renderer::Renderer,
+    Content: DePlaceWidget<Message> + 'a,
 {
-    fn from(widget: Pan<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(widget)
+    fn from(widget: Pan<Message, Content>) -> Self {
+        widget.boxed()
     }
 }

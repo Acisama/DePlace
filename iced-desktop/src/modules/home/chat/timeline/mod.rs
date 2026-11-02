@@ -10,7 +10,7 @@ use iced::Vector;
 use iced::advanced::widget::operate;
 use iced::advanced::widget::operation::scrollable::{RelativeOffset, snap_to};
 use iced::keyboard::Key::Character;
-use iced::widget::operation::scroll_to_reveal;
+use iced::widget::operation::scrollable::scroll_to_reveal;
 use macros::iced_cache;
 use matrix_sdk::{
     media::UniqueKey,
@@ -23,7 +23,7 @@ use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
 use messages::{MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::widget::list;
 
-use crate::components::phosphor_icon;
+use crate::components::{PushElement, phosphor_icon};
 use crate::modules::home::overlay::{ContextMenu, ContextMenuKind, MediaOverlayParams, ModifyItem};
 use crate::modules::home::{COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, UNPIN_ICON};
 use crate::{
@@ -1087,7 +1087,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
     fn view(&self) -> iced::Element<'static, TimelineMessage> {
         let Some(timeline) = self.timeline.clone() else {
-            return Space::new().width(Fill).height(Fill).into();
+            return Space::new().width(Fill).height(Fill).boxed();
         };
 
         let theme = theme();
@@ -1102,71 +1102,68 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
         let help_state = help_state();
 
-        let mut stack = Stack::new()
-            .push(
-                w::container(track_scroll(
-                    themed_scrollable(
-                        w::container(
-                            list(self.content.clone(), move |index, id, item| {
-                                let is_focused =
-                                    focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
-                                lazy((item.clone(), is_focused), move |(item, is_focused)| {
-                                    let id = id.clone();
-                                    item.view(theme, structure, *is_focused, help_state, index)
-                                        .map(move |msg| TimelineMessage::Item {
-                                            id: id.clone(),
-                                            message: msg,
-                                        })
-                                })
+        let mut stack = w::stack![
+            w::container(track_scroll(
+                themed_scrollable(
+                    w::container(
+                        list(self.content.clone(), move |index, id, item| {
+                            let is_focused = focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
+                            lazy((item.clone(), is_focused), move |(item, is_focused)| {
+                                let id = id.clone();
+                                item.view(theme, structure, *is_focused, help_state, index)
+                                    .map_el(move |msg| TimelineMessage::Item {
+                                        id: id.clone(),
+                                        message: msg,
+                                    })
                             })
-                            .id(LIST_ID),
-                        )
-                        // .padding(padding::bottom(structure.gap * 3.0))
-                        .width(Fill)
-                        .height(Fill)
-                        .align_bottom(Fill),
-                        theme,
-                        structure,
+                        })
+                        .id(LIST_ID),
                     )
-                    .spacing(structure.small_gap)
+                    // .padding(padding::bottom(structure.gap * 3.0))
                     .width(Fill)
-                    .anchor_bottom()
-                    .smooth_scroll(true)
-                    .on_scroll(move |scroll| {
-                        let viewport = scroll.destination();
-
-                        let max_offset =
-                            (viewport.content.height - viewport.bounds.height).max(0.0);
-                        let offset = viewport.absolute_offset().y;
-                        let position = viewport.relative_offset();
-
-                        let mut direction = None;
-                        if !reached_top
-                            && !loading_top
-                            && max_offset - offset <= structure.chat.icon_size * 6.0
-                        {
-                            direction = Some(PaginationDirection::Backward);
-                        } else if !reached_bottom
-                            && !loading_bottom
-                            && offset <= structure.chat.icon_size * 6.0
-                        {
-                            direction = Some(PaginationDirection::Forward);
-                        }
-
-                        TimelineMessage::Scroll {
-                            direction,
-                            position,
-                        }
-                    })
-                    .id(SCROLLABLE_ID),
-                    SCROLLABLE_ID,
-                    TimelineMessage::ScrolledFromTop,
-                ))
-                .padding(padding::bottom(15.0))
+                    .height(Fill)
+                    .align_bottom(Fill),
+                    theme,
+                    structure,
+                )
+                .spacing(structure.small_gap)
                 .width(Fill)
-                .align_bottom(Fill),
-            )
-            .height(Fill);
+                .anchor_bottom()
+                .smooth_scroll(true)
+                .on_scroll(move |scroll| {
+                    let viewport = scroll.destination();
+
+                    let max_offset = (viewport.content.height - viewport.bounds.height).max(0.0);
+                    let offset = viewport.absolute_offset().y;
+                    let position = viewport.relative_offset();
+
+                    let mut direction = None;
+                    if !reached_top
+                        && !loading_top
+                        && max_offset - offset <= structure.chat.icon_size * 6.0
+                    {
+                        direction = Some(PaginationDirection::Backward);
+                    } else if !reached_bottom
+                        && !loading_bottom
+                        && offset <= structure.chat.icon_size * 6.0
+                    {
+                        direction = Some(PaginationDirection::Forward);
+                    }
+
+                    TimelineMessage::Scroll {
+                        direction,
+                        position,
+                    }
+                })
+                .id(SCROLLABLE_ID),
+                SCROLLABLE_ID,
+                TimelineMessage::ScrolledFromTop,
+            ))
+            .padding(padding::bottom(15.0))
+            .width(Fill)
+            .align_bottom(Fill),
+        ]
+        .height(Fill);
 
         if let Some(hovered_item_id) = self.hovered_item_id.clone()
             && let Some(bounds) = self.message_event_bounds.get(&hovered_item_id).cloned()
@@ -1205,31 +1202,36 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             let menu_event = message.clone();
 
             let context_menu_catcher: Element<'static, ContextMenu> = w::float(
-                sweeten::widget::mouse_area(Space::new().width(bounds.width).height(bounds.height))
-                    .on_right_press(move |position, _| ContextMenu {
-                        // `position` is local to this catcher's own bounds (per
-                        // sweeten's `position_in`), so shift it by the row's
-                        // absolute position to land in the same window-space
-                        // coordinates as `bounds`.
-                        position: Point::new(
-                            bounds.x + position.x,
-                            bounds.y - scrolled_from_top + position.y,
-                        ),
-                        kind: ContextMenuKind::Message {
-                            timeline: menu_timeline.clone(),
-                            event: menu_event.clone(),
-                            room_id: menu_room_id.clone(),
-                            event_id: menu_event_id.clone(),
-                            item_id: menu_item_id.clone(),
+                sweeten::widget::mouse_area(
+                    Space::new()
+                        .width(bounds.width)
+                        .height(bounds.height)
+                        .boxed(),
+                )
+                .on_right_press(move |position, _| ContextMenu {
+                    // `position` is local to this catcher's own bounds (per
+                    // sweeten's `position_in`), so shift it by the row's
+                    // absolute position to land in the same window-space
+                    // coordinates as `bounds`.
+                    position: Point::new(
+                        bounds.x + position.x,
+                        bounds.y - scrolled_from_top + position.y,
+                    ),
+                    kind: ContextMenuKind::Message {
+                        timeline: menu_timeline.clone(),
+                        event: menu_event.clone(),
+                        room_id: menu_room_id.clone(),
+                        event_id: menu_event_id.clone(),
+                        item_id: menu_item_id.clone(),
 
-                            is_pinned,
+                        is_pinned,
 
-                            can_edit,
-                            can_reply,
-                            can_pin,
-                            can_redact,
-                        },
-                    }),
+                        can_edit,
+                        can_reply,
+                        can_pin,
+                        can_redact,
+                    },
+                }),
             )
             .translate(move |own_bounds, _| {
                 let target_x = bounds.x;
@@ -1237,11 +1239,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                 Vector::new(target_x - own_bounds.x, target_y - own_bounds.y)
             })
-            .into();
+            .boxed();
 
             stack = stack
-                .push(context_menu_catcher.map(TimelineMessage::ContextMenu))
-                .push(
+                .push_element(context_menu_catcher.map_el(TimelineMessage::ContextMenu))
+                .push_element(
                     w::float(render_timeline_item_buttons(
                         structure,
                         theme,
@@ -1319,7 +1321,6 @@ fn render_timeline_item_buttons(
                 border: border::rounded(structure.semi_border_radius()),
                 ..Default::default()
             })
-            .into()
     };
 
     if can_edit {
@@ -1398,8 +1399,8 @@ fn render_timeline_item_buttons(
             id: item_id,
             hovered: false,
         })
-        .into()
+        .boxed()
     } else {
-        Space::new().into()
+        EMPTY_WIDGET.boxed()
     }
 }

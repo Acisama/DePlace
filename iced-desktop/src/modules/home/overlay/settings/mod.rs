@@ -131,12 +131,14 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
         let structure = structure();
 
         let content: iced::Element<'static, SettingsMessage> = match self.active_section {
-            SettingsSection::General => self.general.view().map(SettingsMessage::General),
-            SettingsSection::Appearance => self.appearance.view().map(SettingsMessage::Appearance),
-            SettingsSection::Audio => self.audio.view().map(SettingsMessage::Audio),
-            SettingsSection::Chats => self.chats.view().map(SettingsMessage::Chats),
-            SettingsSection::Updates => self.updates.view().map(SettingsMessage::Updates),
-            SettingsSection::Profile => w::text("test").into(),
+            SettingsSection::General => self.general.view().map_el(SettingsMessage::General),
+            SettingsSection::Appearance => {
+                self.appearance.view().map_el(SettingsMessage::Appearance)
+            }
+            SettingsSection::Audio => self.audio.view().map_el(SettingsMessage::Audio),
+            SettingsSection::Chats => self.chats.view().map_el(SettingsMessage::Chats),
+            SettingsSection::Updates => self.updates.view().map_el(SettingsMessage::Updates),
+            SettingsSection::Profile => w::text("test").boxed(),
         };
 
         w::column![
@@ -251,7 +253,7 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
         ]
         .width(Length::Fill)
         .height(Length::Fill)
-        .into()
+        .boxed()
     }
 }
 
@@ -300,7 +302,7 @@ fn render_section(
         }
     })
     .width(Length::Fill)
-    .into()
+    .boxed()
 }
 
 fn render_profile_section(
@@ -381,5 +383,5 @@ fn render_profile_section(
         }
     })
     .width(Length::Fill)
-    .into()
+    .boxed()
 }

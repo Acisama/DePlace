@@ -467,9 +467,9 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
         }
     }
 
-    fn view(&self) -> iced::Element<'static, InputMessage> {
+    fn view(&self) -> Element<'static, InputMessage> {
         let Some(room) = self.room_watchers.get_room(&self.room_id) else {
-            return w::Space::new().into();
+            return EMPTY_WIDGET.boxed();
         };
 
         let theme = theme();
@@ -542,7 +542,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                     .width(size)
                                     .height(size)
                                     .border_radius(structure.semi_border_radius())
-                                    .into(),
+                                    .boxed(),
                                 ThumbnailType::Extention(ext) => {
                                     let color = DePlaceColor::from(ext.as_str()).to_iced();
                                     w::stack![
@@ -573,7 +573,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                         .height(size),
                                     ]
                                     .clip(true)
-                                    .into()
+                                    .boxed()
                                 }
                             };
 
@@ -591,7 +591,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                 ],
                             )
                             .radius(radius(structure.semi_border_radius()).bottom(0.0))
-                            .into()
+                            .boxed()
                     });
 
                 help_view

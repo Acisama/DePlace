@@ -5,9 +5,11 @@
 use deplace_core::rich_text::{Block, FormattedBody, Inline, Mention};
 use iced::{
     Length,
-    widget::text::{LineHeight, Span},
+    widget::{
+        scrollable::{self, Direction},
+        text::{LineHeight, Span},
+    },
 };
-use sweeten::scrollable::{self, Direction};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{EMOJI_FONT, MONO_FONT, common::*};
@@ -95,13 +97,13 @@ fn render_blocks(
             w::text("(edited)")
                 .color(theme.text.dim)
                 .size(structure.chat.small_text_size)
-                .into()
+                .boxed()
         }));
 
     w::Column::with_children(content)
         .spacing(structure.small_gap / 2.0)
         .width(Fill)
-        .into()
+        .boxed()
 }
 
 fn render_block(
@@ -145,7 +147,7 @@ fn render_block(
                 false,
             ))
             .padding(padding)
-            .into()
+            .boxed()
         }
         Block::BlockQuote(blocks) => w::container(render_blocks(
             blocks,
@@ -167,7 +169,7 @@ fn render_block(
             ..Default::default()
         })
         .width(Fill)
-        .into(),
+        .boxed(),
         Block::List {
             ordered,
             start,
@@ -204,8 +206,8 @@ fn render_block(
             border: border::rounded(structure.smaller_border_radius),
             ..Default::default()
         })
-        .into(),
-        Block::ThematicBreak => w::rule::horizontal(structure.border_thickness).into(),
+        .boxed(),
+        Block::ThematicBreak => w::rule::horizontal(structure.border_thickness).boxed(),
     }
 }
 
@@ -235,9 +237,12 @@ fn render_list(
             w::text(format!("{}.", start + i as i64))
                 .size(text_size)
                 .color(theme.text.normal)
-                .into()
+                .boxed()
         } else {
-            w::text("•").size(text_size).color(theme.text.normal).into()
+            w::text("•")
+                .size(text_size)
+                .color(theme.text.normal)
+                .boxed()
         };
 
         w::row![
@@ -253,12 +258,11 @@ fn render_list(
             )
         ]
         .spacing(structure.small_gap / 2.0)
-        .into()
     }))
     .spacing(structure.small_gap / 2.0)
     .padding(padding::left(structure.small_gap))
     .width(Fill)
-    .into()
+    .boxed()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -306,7 +310,7 @@ fn render_inline(
         .size(text_size)
         .width(Fill)
         .on_link_click(|v| v)
-        .into()
+        .boxed()
 }
 
 fn render_inline_spans(

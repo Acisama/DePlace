@@ -10,18 +10,18 @@ use std::borrow::Cow;
 use std::cell::Cell;
 
 use iced::advanced::layout::{self, Layout};
-use iced::advanced::overlay;
 use iced::advanced::renderer;
 use iced::advanced::text::{self, Paragraph as _, Text};
-use iced::advanced::widget::{Operation, Tree};
+use iced::advanced::widget::{Meta, Operation, Tree};
+use iced::advanced::{Renderer as _, overlay};
 use iced::advanced::{Shell, Widget};
 use iced::border::Radius;
 use iced::{
-    Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Size, Vector, alignment,
-    keyboard, mouse, touch,
+    Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Renderer, Size, Theme, Vector,
+    Widget as _, alignment, keyboard, mouse, touch,
 };
 
-use crate::common::help_state;
+use crate::common::{DePlaceWidget, help_state};
 
 /// `K` identifies a target. It must be unique per element: all targets whose
 /// key equals `hovered` are highlighted, so give each message its own key,
@@ -87,11 +87,11 @@ fn blend(a: Color, b: Color, t: f32) -> Color {
 
 // ---------------------------------------------------------------- HelpTarget
 
-pub struct HelpTarget<'a, Message, Theme, Renderer> {
-    content: Element<'a, Message, Theme, Renderer>,
+pub struct HelpTarget<'a, Message, Content: DePlaceWidget<Message>> {
+    content: Content,
     key: HelpKey,
     text: Cow<'a, str>,
-    radius: RadiusSource<'a, Theme>,
+    radius: RadiusSource,
     caption: Caption,
     accent: Color,
     text_color: Color,
@@ -104,24 +104,24 @@ pub struct HelpTarget<'a, Message, Theme, Renderer> {
     on_hover: fn(Option<HelpKey>) -> Message,
 }
 
-enum RadiusSource<'a, Theme> {
+enum RadiusSource {
     Fixed(Radius),
-    Themed(Box<dyn Fn(&Theme) -> Radius + 'a>),
+    Themed(Box<dyn Fn(&Theme) -> Radius + 'static>),
 }
 
-pub fn help<'a, Message, Theme, Renderer>(
+pub fn help<'a, Message, Content: DePlaceWidget<Message>>(
     state: HelpState<HelpKey>,
     theme: deplace_core::theme::Theme,
     key: impl IntoHelpKey,
     text: impl Into<Cow<'a, str>>,
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+    content: Content,
     on_hover: fn(Option<HelpKey>) -> Message,
-) -> HelpTarget<'a, Message, Theme, Renderer> {
+) -> HelpTarget<'a, Message, Content> {
     let key = key.into_help_key();
 
     let is_current = state.active && state.hovered.as_ref() == Some(&key);
     HelpTarget {
-        content: content.into(),
+        content,
         key,
         text: text.into(),
         radius: RadiusSource::Fixed(Radius::default()),
@@ -136,7 +136,7 @@ pub fn help<'a, Message, Theme, Renderer>(
     }
 }
 
-impl<'a, Message, Theme, Renderer> HelpTarget<'a, Message, Theme, Renderer> {
+impl<'a, Message, Content: DePlaceWidget<Message>> HelpTarget<'a, Message, Content> {
     pub fn caption(mut self, caption: Caption) -> Self {
         self.caption = caption;
         self
@@ -150,7 +150,7 @@ impl<'a, Message, Theme, Renderer> HelpTarget<'a, Message, Theme, Renderer> {
 
     /// Corner radius taken from the same style function the element uses,
     /// e.g. `.radius_with(|t| bubble_style(t).border.radius)`.
-    pub fn radius_with(mut self, f: impl Fn(&Theme) -> Radius + 'a) -> Self {
+    pub fn radius_with(mut self, f: impl Fn(&Theme) -> Radius + 'static) -> Self {
         self.radius = RadiusSource::Themed(Box::new(f));
         self
     }
@@ -175,13 +175,15 @@ impl<'a, Message, Theme, Renderer> HelpTarget<'a, Message, Theme, Renderer> {
     }
 }
 
-impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for HelpTarget<'a, Message, Theme, Renderer>
+impl<'a, Message, Content: DePlaceWidget<Message>> Meta for HelpTarget<'a, Message, Content> {}
+
+impl<'a, Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
+    for HelpTarget<'a, Message, Content>
 where
     Renderer: text::Renderer,
 {
     fn size(&self) -> Size<Length> {
-        self.content.as_widget().size()
+        self.content.size()
     }
 
     fn diff(&mut self, tree: &mut Tree) {
@@ -189,9 +191,7 @@ where
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
-        self.content
-            .as_widget_mut()
-            .layout(&mut tree.children[0], renderer, limits);
+        self.content.layout(&mut tree.children[0], renderer, limits);
         tree.size = tree.children[0].size;
     }
 
@@ -203,13 +203,8 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        self.content.as_widget_mut().operate(
-            &mut tree.children[0],
-            layout,
-            viewport,
-            renderer,
-            operation,
-        );
+        self.content
+            .operate(&mut tree.children[0], layout, viewport, renderer, operation);
     }
 
     fn update(
@@ -234,7 +229,7 @@ where
         }
 
         // Children first, so the innermost target claims the hover.
-        self.content.as_widget_mut().update(
+        self.content.update(
             &mut tree.children[0],
             event,
             layout,
@@ -264,7 +259,7 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget().draw(
+        self.content.draw(
             &tree.children[0],
             renderer,
             theme,
@@ -286,13 +281,8 @@ where
         if self.active {
             return mouse::Interaction::Help;
         }
-        self.content.as_widget().mouse_interaction(
-            &tree.children[0],
-            layout,
-            cursor,
-            viewport,
-            renderer,
-        )
+        self.content
+            .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
     }
 
     fn overlay<'b>(
@@ -304,7 +294,7 @@ where
         translation: Vector,
         window: Size,
     ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
-        let mut overlays = self.content.as_widget_mut().overlay(
+        let mut overlays = self.content.overlay(
             &mut tree.children[0],
             layout,
             renderer,
@@ -344,23 +334,24 @@ where
     }
 }
 
-impl<'a, Message: 'a, Theme: 'a, Renderer> From<HelpTarget<'a, Message, Theme, Renderer>>
+impl<'a, Message, Content> From<HelpTarget<'a, Message, Content>>
     for Element<'a, Message, Theme, Renderer>
 where
-    Renderer: text::Renderer + 'a,
+    Message: 'a,
+    Content: DePlaceWidget<Message> + 'a,
 {
-    fn from(w: HelpTarget<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(w)
+    fn from(w: HelpTarget<'a, Message, Content>) -> Self {
+        w.boxed()
     }
 }
 
 // --------------------------------------------------------------- HelpOverlay
 
-struct HelpOverlay<'a, 'b, Theme> {
+struct HelpOverlay<'a> {
     target: Rectangle,
     visible: Rectangle,
-    radius: &'b RadiusSource<'a, Theme>,
-    text: &'b str,
+    radius: &'a RadiusSource,
+    text: &'a str,
     caption: Caption,
     accent: Color,
     text_color: Color,
@@ -376,8 +367,7 @@ struct HelpOverlay<'a, 'b, Theme> {
     position: usize,
 }
 
-impl<Message, Theme, Renderer> overlay::Overlay<Message, Theme, Renderer>
-    for HelpOverlay<'_, '_, Theme>
+impl<Message> overlay::Overlay<Message, Theme, Renderer> for HelpOverlay<'_>
 where
     Renderer: text::Renderer,
 {
@@ -418,7 +408,7 @@ fn grow(r: Radius, by: f32) -> Radius {
     }
 }
 
-impl<Theme> HelpOverlay<'_, '_, Theme> {
+impl HelpOverlay<'_> {
     fn draw_layer<Renderer: text::Renderer>(
         &self,
         renderer: &mut Renderer,
@@ -625,22 +615,22 @@ impl<Theme> HelpOverlay<'_, '_, Theme> {
 /// Wrap your whole view in this. While help mode is on it swallows clicks and
 /// keys, exits on click or Escape, clears the hover when the cursor is over no
 /// target, and dims the window when nothing is hovered.
-pub struct HelpRoot<'a, Message, Theme, Renderer> {
-    content: Element<'a, Message, Theme, Renderer>,
+pub struct HelpRoot<Message, Content: DePlaceWidget<Message>> {
+    content: Content,
     active: bool,
     has_hover: bool,
     on_clear: Message,
     on_exit: Message,
 }
 
-pub fn help_root<'a, K, Message, Theme, Renderer>(
+pub fn help_root<K, Message, Content: DePlaceWidget<Message>>(
     state: &HelpState<K>,
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+    content: Content,
     on_hover: fn(Option<K>) -> Message,
     on_exit: Message,
-) -> HelpRoot<'a, Message, Theme, Renderer> {
+) -> HelpRoot<Message, Content> {
     HelpRoot {
-        content: content.into(),
+        content,
         active: state.active,
         has_hover: state.hovered.is_some(),
         on_clear: on_hover(None),
@@ -648,13 +638,13 @@ pub fn help_root<'a, K, Message, Theme, Renderer>(
     }
 }
 
-impl<'a, Message: Clone, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for HelpRoot<'a, Message, Theme, Renderer>
-where
-    Renderer: text::Renderer,
+impl<Message, Content: DePlaceWidget<Message>> Meta for HelpRoot<Message, Content> {}
+
+impl<Message: Clone, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
+    for HelpRoot<Message, Content>
 {
     fn size(&self) -> Size<Length> {
-        self.content.as_widget().size()
+        self.content.size()
     }
 
     fn diff(&mut self, tree: &mut Tree) {
@@ -662,9 +652,7 @@ where
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
-        self.content
-            .as_widget_mut()
-            .layout(&mut tree.children[0], renderer, limits);
+        self.content.layout(&mut tree.children[0], renderer, limits);
         tree.size = tree.children[0].size;
     }
 
@@ -676,13 +664,8 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        self.content.as_widget_mut().operate(
-            &mut tree.children[0],
-            layout,
-            viewport,
-            renderer,
-            operation,
-        );
+        self.content
+            .operate(&mut tree.children[0], layout, viewport, renderer, operation);
     }
 
     fn update(
@@ -736,7 +719,7 @@ where
             CLAIMED.with(|c| c.set(false));
         }
 
-        self.content.as_widget_mut().update(
+        self.content.update(
             &mut tree.children[0],
             event,
             layout,
@@ -761,7 +744,7 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget().draw(
+        self.content.draw(
             &tree.children[0],
             renderer,
             theme,
@@ -793,13 +776,8 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(
-            &tree.children[0],
-            layout,
-            cursor,
-            viewport,
-            renderer,
-        )
+        self.content
+            .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
     }
 
     fn overlay<'b>(
@@ -816,7 +794,7 @@ where
         // outermost ancestor in the (single, app-wide) active chain has run.
         MAX_POSITION.with(|m| m.set(0));
 
-        self.content.as_widget_mut().overlay(
+        self.content.overlay(
             &mut tree.children[0],
             layout,
             renderer,
@@ -827,13 +805,14 @@ where
     }
 }
 
-impl<'a, Message: Clone + 'a, Theme: 'a, Renderer> From<HelpRoot<'a, Message, Theme, Renderer>>
+impl<'a, Message, Content> From<HelpRoot<Message, Content>>
     for Element<'a, Message, Theme, Renderer>
 where
-    Renderer: text::Renderer + 'a,
+    Message: Clone + 'a,
+    Content: DePlaceWidget<Message> + 'a,
 {
-    fn from(w: HelpRoot<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(w)
+    fn from(w: HelpRoot<Message, Content>) -> Self {
+        w.boxed()
     }
 }
 
@@ -874,11 +853,11 @@ impl<Message: Clone + HelpOverMessage> HelpView<Message> {
         key: Key,
         text: Text,
         content: Content,
-    ) -> HelpTarget<'a, Message, iced::Theme, iced::Renderer>
+    ) -> HelpTarget<'a, Message, Content>
     where
         Key: IntoHelpKey,
         Text: Into<Cow<'a, str>>,
-        Content: Into<Element<'a, Message>>,
+        Content: DePlaceWidget<Message>,
     {
         help(
             self.help_state,

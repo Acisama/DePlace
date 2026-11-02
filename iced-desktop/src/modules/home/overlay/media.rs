@@ -139,7 +139,7 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
         let header = structure.header;
 
         let OverlayMediaType::Image(image) = &self.media else {
-            return w::column![].into();
+            return w::space().boxed();
         };
 
         // let help_view = HelpView::new(theme);
@@ -199,7 +199,7 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
         .width(Fill)
         .height(Fill)
         .spacing(structure.gap)
-        .into()
+        .boxed()
     }
 }
 
@@ -234,7 +234,7 @@ fn render_image(
                 .height(Fill)
                 .content_fit(iced::ContentFit::Contain)
                 .border_radius(structure.inner_border_radius)
-                .into(),
+                .boxed(),
         );
     }
 
@@ -255,13 +255,13 @@ fn render_image(
                     .height(Fill)
                     .content_fit(iced::ContentFit::Contain)
                     .border_radius(structure.inner_border_radius)
-                    .into(),
+                    .boxed(),
             );
         }
         _ => {}
     }
 
-    let stack = Stack::with_children(stack_children).clip(true).into();
+    let stack = Stack::with_children(stack_children).clip(true).boxed();
 
     if !fired {
         on_appear(

@@ -11,7 +11,7 @@ use deplace_core::{
 use iced::{
     Alignment, Border, Color, ContentFit, Element,
     Length::Fill,
-    Rectangle,
+    Rectangle, Widget,
     alignment::{Horizontal, Vertical},
     border::{self, Radius},
     font::Weight,
@@ -57,7 +57,7 @@ pub fn text_icon<'a, T: 'a>(
             .width(size)
             .height(size),
     ]
-    .into()
+    .boxed()
 }
 
 pub fn unknown_icon<'a, T: 'a>(size: f32, rounding: f32, theme: Theme) -> Element<'a, T> {
@@ -86,7 +86,7 @@ pub fn render_avatar<'a, T: NeedsAvatarExt + Clone + 'a>(
             .height(size)
             .content_fit(ContentFit::Cover)
             .border_radius(rounding)
-            .into(),
+            .boxed(),
         Some(MediaState::Loading) | None => {
             on_appear(fallback(), T::needs_avatar(avatar_url)).into()
         }
@@ -216,7 +216,7 @@ pub fn render_name<'a, T: Clone + 'a>(name: String, size: f32, color: Color) -> 
         .color(color)
         .line_height(LineHeight::Relative(1.0))
         .align_y(Alignment::End)
-        .into()
+        .boxed()
 }
 
 pub fn render_unknown_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
@@ -267,21 +267,21 @@ pub fn render_name_decorated<'a, T: Clone + 'a>(
     decoration_color: Color,
 ) -> Element<'a, T> {
     match decoration {
-        NameDecoration::None => w::text(name).size(size).color(text_color).into(),
+        NameDecoration::None => w::text(name).size(size).color(text_color).boxed(),
         NameDecoration::FirstLetter => {
             let mut chars = name.chars();
             let Some((first, rest)) = chars.next().map(|first| (first, chars.collect::<String>()))
             else {
-                return Space::new().into();
+                return Space::new().boxed();
             };
 
             w::row![
                 w::text(first).size(size).color(decoration_color),
                 w::text(rest).size(size).color(text_color)
             ]
-            .into()
+            .boxed()
         }
-        NameDecoration::FullColor => w::text(name).size(size).color(decoration_color).into(),
+        NameDecoration::FullColor => w::text(name).size(size).color(decoration_color).boxed(),
         NameDecoration::Gradient => {
             let chars = name.chars();
             let length = name.len();
@@ -299,7 +299,7 @@ pub fn render_name_decorated<'a, T: Clone + 'a>(
                     .collect::<Vec<_>>(),
             )
             .on_link_click(never)
-            .into()
+            .boxed()
         }
     }
 }
@@ -371,9 +371,9 @@ pub fn render_presence_badge<'a, T: 'a + Clone>(
     let ratio = 0.25;
     let bg_circle_size = structure.icon_gap;
 
-    Stack::new()
-        .push(icon)
-        .push(responsive(move |size| {
+    w::stack![
+        icon,
+        responsive(move |size| {
             let base_dim = size.width.min(size.height);
             let notch_diameter = base_dim * (ratio + bg_circle_size);
             let content_diameter = base_dim * ratio;
@@ -391,13 +391,14 @@ pub fn render_presence_badge<'a, T: 'a + Clone>(
                         .width(content_diameter)
                         .height(content_diameter)
                         .style(move |_, _| w::svg::Style { color: Some(color) })
-                        .into(),
+                        .boxed(),
                     h,
                     v,
                     0.0,
                 ))
-        }))
-        .into()
+        })
+    ]
+    .boxed()
 }
 
 pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
@@ -485,7 +486,7 @@ pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + NeedsAvatarExt + 'a>(
 
     let id = member.user_id().to_owned();
 
-    w::stack([
+    w::stack![
         w::column![
             w::container("")
                 .style(move |_| w::container::Style {
@@ -521,13 +522,12 @@ pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + NeedsAvatarExt + 'a>(
                 })
             ]
             .padding(padding::left(structure.small_gap * 2.0))
-        ]
-        .into(),
+        ],
         w::row![
             Space::new().width(structure.small_gap * 2.0 - icon_gap / 2.0),
             w::column![
                 Space::new().height(sidebar.banner_height - 2.0 / 3.0 * bg_icon_size),
-                w::stack([
+                w::stack![
                     w::container(
                         w::container("")
                             .width(bg_icon_size)
@@ -537,8 +537,7 @@ pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + NeedsAvatarExt + 'a>(
                                 border: border::rounded(bg_icon_size / 2.0),
                                 ..Default::default()
                             })
-                    )
-                    .into(),
+                    ),
                     w::row![
                         Space::new().width(icon_gap / 2.0),
                         w::column![
@@ -554,16 +553,14 @@ pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + NeedsAvatarExt + 'a>(
                             )
                         ]
                     ]
-                    .into()
-                ])
+                ]
                 .width(Fill)
             ]
             .width(Fill)
         ]
-        .into(),
-    ])
+    ]
     .width(sidebar.width.member)
-    .into()
+    .boxed()
 }
 
 const MAX_ICONS: usize = 5;
@@ -607,7 +604,8 @@ pub fn render_row_of_icons<'a, T: Clone + NeedsAvatarExt + 'a, P: MaybeRenderIco
             .height(Fill)
             .align_x(Alignment::Start)
             .align_y(Alignment::Center)
-            .padding(padding::left(index as f32 * step)),
+            .padding(padding::left(index as f32 * step))
+            .boxed(),
         );
         stack = stack.push(
             w::container(member.render_icon(icon_size, avatar_cache, 0.5, theme))
@@ -615,7 +613,8 @@ pub fn render_row_of_icons<'a, T: Clone + NeedsAvatarExt + 'a, P: MaybeRenderIco
                 .height(Fill)
                 .align_x(Alignment::Start)
                 .align_y(Alignment::Center)
-                .padding(padding::left(index as f32 * step + outer)),
+                .padding(padding::left(index as f32 * step + outer))
+                .boxed(),
         );
         index += 1;
     }
@@ -632,7 +631,8 @@ pub fn render_row_of_icons<'a, T: Clone + NeedsAvatarExt + 'a, P: MaybeRenderIco
             .height(Fill)
             .align_x(Alignment::Start)
             .align_y(Alignment::Center)
-            .padding(padding::left(index as f32 * step + outer)),
+            .padding(padding::left(index as f32 * step + outer))
+            .boxed(),
         );
         index += 1;
     }
@@ -640,5 +640,5 @@ pub fn render_row_of_icons<'a, T: Clone + NeedsAvatarExt + 'a, P: MaybeRenderIco
     w::container(stack)
         .width(get_width(index - 1) + outer * 2.0)
         .height(outer_width)
-        .into()
+        .boxed()
 }

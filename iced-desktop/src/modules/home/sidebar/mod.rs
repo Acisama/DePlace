@@ -157,5 +157,5 @@ pub fn render_mention_badge<'a, T: 'a>(
         border: border::rounded(diameter / 2.0),
         ..Default::default()
     })
-    .into()
+    .boxed()
 }

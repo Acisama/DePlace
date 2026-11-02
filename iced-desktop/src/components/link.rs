@@ -1,10 +1,12 @@
 use iced::{
-    Color, Element, Event, Length, Rectangle, Size,
+    Color, Element, Event, Length, Rectangle, Renderer, Size, Widget as _,
     advanced::{
-        Layout, Shell, Widget, layout, mouse, overlay, renderer,
-        widget::{Operation, Tree},
+        Layout, Renderer as _, Shell, Widget, layout, mouse, overlay, renderer,
+        widget::{Meta, Operation, Tree},
     },
 };
+
+use crate::common::DePlaceWidget;
 
 /// Wraps `content`, drawing an underline under it and switching to a pointer
 /// cursor whenever it's hovered, and calling `on_press` with the content's
@@ -14,41 +16,39 @@ use iced::{
 /// hover is derived from the cursor position on every `draw`/`mouse_interaction`
 /// call, and the bounds handed to `on_press` are read straight from `layout`
 /// at the moment of the click.
-pub struct Link<'a, Message, Theme, Renderer> {
-    content: Element<'a, Message, Theme, Renderer>,
+pub struct Link<Message, Content: DePlaceWidget<Message>> {
+    content: Content,
     underline_color: Color,
-    on_press: Box<dyn Fn(Rectangle) -> Message + 'a>,
+    on_press: Box<dyn Fn(Rectangle) -> Message + 'static>,
 }
 
-pub fn link<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+pub fn link<Message, Content: DePlaceWidget<Message>>(
+    content: Content,
     underline_color: Color,
-    on_press: impl Fn(Rectangle) -> Message + 'a,
-) -> Link<'a, Message, Theme, Renderer> {
+    on_press: impl Fn(Rectangle) -> Message + 'static,
+) -> Link<Message, Content> {
     Link {
-        content: content.into(),
+        content,
         underline_color,
         on_press: Box::new(on_press),
     }
 }
 
-impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for Link<'_, Message, Theme, Renderer>
-where
-    Renderer: renderer::Renderer,
+impl<Message, Content: DePlaceWidget<Message>> Meta for Link<Message, Content> {}
+
+impl<Message, Content: DePlaceWidget<Message>> Widget<Message, iced::Theme, Renderer>
+    for Link<Message, Content>
 {
     fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children(std::slice::from_mut(&mut self.content));
     }
 
     fn size(&self) -> Size<Length> {
-        self.content.as_widget().size()
+        self.content.size()
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
-        self.content
-            .as_widget_mut()
-            .layout(&mut tree.children[0], renderer, limits);
+        self.content.layout(&mut tree.children[0], renderer, limits);
 
         tree.size = tree.children[0].size;
     }
@@ -63,7 +63,7 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget_mut().update(
+        self.content.update(
             &mut tree.children[0],
             event,
             layout,
@@ -89,13 +89,13 @@ where
         &self,
         tree: &Tree,
         renderer: &mut Renderer,
-        theme: &Theme,
+        theme: &iced::Theme,
         style: &renderer::Style,
         layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget().draw(
+        self.content.draw(
             &tree.children[0],
             renderer,
             theme,
@@ -131,13 +131,8 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        self.content.as_widget_mut().operate(
-            &mut tree.children[0],
-            layout,
-            viewport,
-            renderer,
-            operation,
-        );
+        self.content
+            .operate(&mut tree.children[0], layout, viewport, renderer, operation);
     }
 
     fn mouse_interaction(
@@ -151,13 +146,8 @@ where
         if cursor.is_over(layout.bounds()) {
             mouse::Interaction::Pointer
         } else {
-            self.content.as_widget().mouse_interaction(
-                &tree.children[0],
-                layout,
-                cursor,
-                viewport,
-                renderer,
-            )
+            self.content
+                .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
         }
     }
 
@@ -169,8 +159,8 @@ where
         viewport: &Rectangle,
         translation: iced::Vector,
         window: Size,
-    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
-        self.content.as_widget_mut().overlay(
+    ) -> Vec<overlay::Element<'b, Message, iced::Theme, Renderer>> {
+        self.content.overlay(
             &mut tree.children[0],
             layout,
             renderer,
@@ -181,14 +171,13 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<Link<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
+impl<'a, Message, Content: DePlaceWidget<Message>> From<Link<Message, Content>>
+    for Element<'a, Message, iced::Theme, Renderer>
 where
     Message: 'a,
-    Theme: 'a,
-    Renderer: 'a + renderer::Renderer,
+    Content: DePlaceWidget<Message> + 'a,
 {
-    fn from(widget: Link<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(widget)
+    fn from(widget: Link<Message, Content>) -> Self {
+        widget.boxed()
     }
 }

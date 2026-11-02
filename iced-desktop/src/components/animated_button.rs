@@ -1,11 +1,14 @@
 use std::time::{Duration, Instant};
 
-use iced::advanced::widget::{Operation, Tree, tree};
-use iced::advanced::{Layout, Shell, Widget, layout, mouse, overlay, renderer};
+use iced::advanced::widget::{Meta, Operation, Tree, tree};
+use iced::advanced::{Layout, Renderer as _, Shell, Widget, layout, mouse, overlay, renderer};
 use iced::widget::button::{self, Catalog, Status, Style, StyleFn};
 use iced::{
-    Background, Color, Element, Event, Length, Padding, Rectangle, Size, Vector, touch, window,
+    Background, Color, Element, Event, Length, Padding, Rectangle, Renderer, Size, Vector,
+    Widget as _, touch, window,
 };
+
+use crate::common::DePlaceWidget;
 
 /// A [`button`](iced::widget::button) that eases its background and text
 /// color across [`Status`] changes instead of snapping to them.
@@ -14,34 +17,32 @@ use iced::{
 /// Status) -> Style`); the widget just samples that function at both the
 /// status it's transitioning *from* and the one it's transitioning *to* and
 /// lerps between the two results every frame.
-pub struct AnimatedButton<'a, Message, Theme, Renderer>
+pub struct AnimatedButton<Message, Content>
 where
-    Renderer: renderer::Renderer,
-    Theme: Catalog,
+    Content: DePlaceWidget<Message>,
 {
-    content: Element<'a, Message, Theme, Renderer>,
+    content: Content,
     on_press: Option<Message>,
     width: Length,
     height: Length,
     padding: Padding,
     duration: Duration,
-    class: Theme::Class<'a>,
+    class: StyleFn<'static, iced::Theme>,
 }
 
-impl<'a, Message, Theme, Renderer> AnimatedButton<'a, Message, Theme, Renderer>
+impl<Message, Content> AnimatedButton<Message, Content>
 where
-    Renderer: renderer::Renderer,
-    Theme: Catalog,
+    Content: DePlaceWidget<Message>,
 {
-    pub fn new(content: impl Into<Element<'a, Message, Theme, Renderer>>) -> Self {
+    pub fn new(content: Content) -> Self {
         Self {
-            content: content.into(),
+            content,
             on_press: None,
             width: Length::Fit,
             height: Length::Fit,
             padding: button::DEFAULT_PADDING,
             duration: Duration::from_millis(100),
-            class: Theme::default(),
+            class: iced::Theme::default(),
         }
     }
 
@@ -72,11 +73,8 @@ where
     }
 
     #[must_use]
-    pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self
-    where
-        Theme::Class<'a>: From<StyleFn<'a, Theme>>,
-    {
-        self.class = (Box::new(style) as StyleFn<'a, Theme>).into();
+    pub fn style(mut self, style: impl Fn(&iced::Theme, Status) -> Style + 'static) -> Self {
+        self.class = Box::new(style) as StyleFn<'static, iced::Theme>;
         self
     }
 }
@@ -90,12 +88,15 @@ struct State {
     transition: Option<(Status, Instant)>,
 }
 
-impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for AnimatedButton<'a, Message, Theme, Renderer>
+impl<Message, Content> Meta for AnimatedButton<Message, Content> where
+    Content: DePlaceWidget<Message>
+{
+}
+
+impl<Message, Content> Widget<Message, iced::Theme, Renderer> for AnimatedButton<Message, Content>
 where
     Message: Clone,
-    Renderer: renderer::Renderer,
-    Theme: Catalog,
+    Content: DePlaceWidget<Message>,
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
@@ -112,7 +113,7 @@ where
     fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children(std::slice::from_mut(&mut self.content));
 
-        let size = self.content.as_widget().size();
+        let size = self.content.size();
         self.width = self.width.stack(size.width);
         self.height = self.height.stack(size.height);
     }
@@ -132,7 +133,7 @@ where
             self.height,
             self.padding,
             |tree, limits| {
-                self.content.as_widget_mut().layout(tree, renderer, limits);
+                self.content.layout(tree, renderer, limits);
 
                 tree.size
             },
@@ -154,7 +155,6 @@ where
             };
 
             self.content
-                .as_widget_mut()
                 .operate(tree, layout, viewport, renderer, operation);
         });
     }
@@ -174,7 +174,7 @@ where
             return;
         };
 
-        self.content.as_widget_mut().update(
+        self.content.update(
             content_tree,
             event,
             content_layout,
@@ -252,7 +252,7 @@ where
         &self,
         tree: &Tree,
         renderer: &mut Renderer,
-        theme: &Theme,
+        theme: &iced::Theme,
         _style: &renderer::Style,
         layout: Layout,
         cursor: mouse::Cursor,
@@ -295,7 +295,7 @@ where
             return;
         };
 
-        self.content.as_widget().draw(
+        self.content.draw(
             content_tree,
             renderer,
             theme,
@@ -331,13 +331,12 @@ where
         viewport: &Rectangle,
         translation: Vector,
         window: Size,
-    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
+    ) -> Vec<overlay::Element<'b, Message, iced::Theme, Renderer>> {
         let Some((layout, tree)) = layout.iter_mut(&mut tree.children).next() else {
             return vec![];
         };
 
         self.content
-            .as_widget_mut()
             .overlay(tree, layout, renderer, viewport, translation, window)
     }
 }
@@ -380,24 +379,19 @@ fn lerp_background(from: Option<Background>, to: Option<Background>, t: f32) -> 
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<AnimatedButton<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
+impl<'a, Message, Content> From<AnimatedButton<Message, Content>> for Element<'a, Message>
 where
     Message: Clone + 'a,
-    Theme: Catalog + 'a,
-    Renderer: 'a + renderer::Renderer,
+    Content: DePlaceWidget<Message> + 'a,
 {
-    fn from(button: AnimatedButton<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(button)
+    fn from(button: AnimatedButton<Message, Content>) -> Self {
+        button.boxed()
     }
 }
 
-pub fn animated_button<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> AnimatedButton<'a, Message, Theme, Renderer>
+pub fn animated_button<Message, Content>(content: Content) -> AnimatedButton<Message, Content>
 where
-    Renderer: renderer::Renderer,
-    Theme: Catalog,
+    Content: DePlaceWidget<Message>,
 {
     AnimatedButton::new(content)
 }

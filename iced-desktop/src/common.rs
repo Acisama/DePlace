@@ -1,8 +1,9 @@
+pub use crate::EMPTY_WIDGET;
 pub use crate::components::{
-    ColoredRounded, CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget, StatusExt,
-    UI_FONT,
+    ColoredRounded, CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget,
+    MapElementExt, StatusExt, UI_FONT,
     animated_button::animated_button,
-    close_button, corner_badge, floating_tile,
+    close_button, corner_badge,
     help_mode::HelpKey,
     help_mode::HelpView,
     help_mode::{Caption, HelpOverMessage, HelpState, help, help_root},
@@ -14,6 +15,7 @@ pub use crate::components::{
         render_unknown_name, text_icon, unknown_icon,
     },
     text_input, themed_scrollable,
+    tile_background::floating_tile,
     tooltip::{themed_tooltip_content, themed_tooltip_text},
     weighted_text,
 };
@@ -35,11 +37,12 @@ pub use deplace_core::{
     structure::Structure,
     theme::Theme,
 };
+use iced::advanced::Widget;
 pub use iced::{
     Border, Color, Element, Font,
     Length::Fill,
     Padding, Point, Rectangle, Renderer, Shadow, Size, Subscription, Task, Theme as IcedTheme,
-    border,
+    Widget as _, border,
     font::Weight,
     mouse::{self, Interaction},
     padding,
@@ -111,7 +114,10 @@ where
     Dep: Hash + 'a,
     View: Into<Element<'static, Message>> + 'static,
 {
-    w::lazy((dep, style_gen(), help_state()), move |(dep, ..)| view(dep)).into()
+    w::lazy((dep, style_gen(), help_state()), move |(dep, ..)| {
+        view(dep).into()
+    })
+    .boxed()
 }
 
 pub fn lazy_view<'a, Message, Dep, Action, OuterMessage>(
@@ -123,8 +129,9 @@ where
     OuterMessage: 'static,
     Dep: Hash + IcedWidget<Message, Action> + 'a,
 {
-    Element::from(w::lazy((dep, style_gen(), help_state()), |(dep, ..)| {
-        dep.view()
-    }))
-    .map(map_message)
+    w::lazy((dep, style_gen(), help_state()), |(dep, ..)| dep.view()).map_el(map_message)
 }
+
+pub trait DePlaceWidget<Message>: Widget<Message, iced::Theme, Renderer> {}
+
+impl<Message, T> DePlaceWidget<Message> for T where T: Widget<Message, iced::Theme, Renderer> {}

@@ -23,6 +23,6 @@ impl IcedWidget<EmptyChatMessage, EmptyChatAction> for EmptyChat {
     }
 
     fn view(&self) -> Element<'static, EmptyChatMessage> {
-        w::container("test").into()
+        w::container("test").boxed()
     }
 }

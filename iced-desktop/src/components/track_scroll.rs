@@ -1,9 +1,9 @@
 use iced::{
-    Element, Event, Length, Rectangle, Size, Vector,
+    Element, Event, Length, Rectangle, Renderer, Size, Theme, Vector, Widget as _,
     advanced::{
         Layout, Shell, Widget, layout, mouse, overlay, renderer,
         widget::{
-            Operation, Tree,
+            Meta, Operation, Tree,
             operation::{self, Outcome, Scrollable as ScrollableOperationState},
             tree,
         },
@@ -11,6 +11,8 @@ use iced::{
     widget::Id,
     window,
 };
+
+use crate::common::DePlaceWidget;
 
 struct FindScrolledFromTop {
     target: Id,
@@ -43,19 +45,19 @@ impl Operation<f32> for FindScrolledFromTop {
     }
 }
 
-pub struct TrackScroll<'a, Message, Theme, Renderer> {
-    content: Element<'a, Message, Theme, Renderer>,
+pub struct TrackScroll<Message, Content: DePlaceWidget<Message>> {
+    content: Content,
     scrollable_id: iced::widget::Id,
-    on_change: Box<dyn Fn(f32) -> Message + 'a>,
+    on_change: Box<dyn Fn(f32) -> Message + 'static>,
 }
 
-pub fn track_scroll<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+pub fn track_scroll<Message, Content: DePlaceWidget<Message>>(
+    content: Content,
     scrollable_id: iced::widget::Id,
-    on_change: impl Fn(f32) -> Message + 'a,
-) -> TrackScroll<'a, Message, Theme, Renderer> {
+    on_change: impl Fn(f32) -> Message + 'static,
+) -> TrackScroll<Message, Content> {
     TrackScroll {
-        content: content.into(),
+        content,
         scrollable_id,
         on_change: Box::new(on_change),
     }
@@ -66,10 +68,10 @@ struct State {
     last_value: Option<f32>,
 }
 
-impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for TrackScroll<'_, Message, Theme, Renderer>
-where
-    Renderer: renderer::Renderer,
+impl<Message, Content: DePlaceWidget<Message>> Meta for TrackScroll<Message, Content> {}
+
+impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
+    for TrackScroll<Message, Content>
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
@@ -81,13 +83,11 @@ where
         tree.diff_children(std::slice::from_mut(&mut self.content));
     }
     fn size(&self) -> Size<Length> {
-        self.content.as_widget().size()
+        self.content.size()
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
-        self.content
-            .as_widget_mut()
-            .layout(&mut tree.children[0], renderer, limits);
+        self.content.layout(&mut tree.children[0], renderer, limits);
 
         tree.size = tree.children[0].size;
     }
@@ -102,7 +102,7 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget_mut().update(
+        self.content.update(
             &mut tree.children[0],
             event,
             layout,
@@ -117,7 +117,7 @@ where
                 target: self.scrollable_id.clone(),
                 value: None,
             };
-            self.content.as_widget_mut().operate(
+            self.content.operate(
                 &mut tree.children[0],
                 layout,
                 viewport,
@@ -145,7 +145,7 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget().draw(
+        self.content.draw(
             &tree.children[0],
             renderer,
             theme,
@@ -163,13 +163,8 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        self.content.as_widget_mut().operate(
-            &mut tree.children[0],
-            layout,
-            viewport,
-            renderer,
-            operation,
-        );
+        self.content
+            .operate(&mut tree.children[0], layout, viewport, renderer, operation);
     }
     fn mouse_interaction(
         &self,
@@ -179,13 +174,8 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(
-            &tree.children[0],
-            layout,
-            cursor,
-            viewport,
-            renderer,
-        )
+        self.content
+            .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
     }
     fn overlay<'b>(
         &'b mut self,
@@ -196,7 +186,7 @@ where
         translation: Vector,
         window: Size,
     ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
-        self.content.as_widget_mut().overlay(
+        self.content.overlay(
             &mut tree.children[0],
             layout,
             renderer,
@@ -207,14 +197,13 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<TrackScroll<'a, Message, Theme, Renderer>>
+impl<'a, Message, Content> From<TrackScroll<Message, Content>>
     for Element<'a, Message, Theme, Renderer>
 where
     Message: 'a,
-    Theme: 'a,
-    Renderer: 'a + renderer::Renderer,
+    Content: 'a + DePlaceWidget<Message>,
 {
-    fn from(widget: TrackScroll<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(widget)
+    fn from(widget: TrackScroll<Message, Content>) -> Self {
+        widget.boxed()
     }
 }

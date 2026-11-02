@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use iced::advanced::svg;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, path::Arc};
-use iced::{Color, Element, Event, Radians, Rectangle, Renderer, Theme, mouse};
+use iced::{Color, Element, Event, Radians, Rectangle, Renderer, Theme, Widget, mouse};
 
 pub struct PieProgress {
     pub value: f32, // 0.0..=1.0
@@ -133,5 +133,5 @@ pub fn pie_progress<'a, Message: 'a>(
     })
     .width(size)
     .height(size)
-    .into()
+    .boxed()
 }

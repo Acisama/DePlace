@@ -5,14 +5,14 @@ use deplace_core::{
     rooms::NotificationCounts,
     state::{ActiveServer, ActiveServerId, PresenceMap},
 };
-use iced::widget::svg;
+use iced::{Alignment, widget::svg};
 use macros::iced_cache;
 use sweeten::widget::drag::DragEvent;
 
 use super::pill::PillCanvas;
 use crate::{
     common::*,
-    components::{help_mode::SidebarHelpKey, phosphor_icon},
+    components::{PushElement, help_mode::SidebarHelpKey, phosphor_icon},
     modules::home::{SPEAKER_ICON, chat::render_member_numbers},
 };
 
@@ -251,25 +251,21 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     .map(|server_id| server_id.is_server(&id))
                     .unwrap_or(false);
 
-                Some(
-                    pill(
-                        theme,
-                        structure,
-                        self.active_room.borrow().as_ref().map(|r| r.room_id())
-                            == Some(room.room_id()),
-                        hovered,
-                        num.is_some(),
-                        badge,
-                    )
-                    .into(),
-                )
+                Some(pill(
+                    theme,
+                    structure,
+                    self.active_room.borrow().as_ref().map(|r| r.room_id()) == Some(room.room_id()),
+                    hovered,
+                    num.is_some(),
+                    badge,
+                ))
             })
             .collect();
 
         let mut column = w::column![home_icon];
 
         if !dm_notification_pills.is_empty() {
-            column = column.push(w::column(dm_notification_pills).spacing(structure.gap));
+            column = column.push_element(w::column(dm_notification_pills).spacing(structure.gap));
         }
 
         let presence_map = self.presence_map.borrow();
@@ -296,24 +292,26 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         .spacing(structure.gap);
 
         let column = column
-            .push(w::row![
-                Space::new().width(structure.small_gap),
+            .push_element(
                 w::container(
-                    Space::new()
+                    w::container(EMPTY_WIDGET)
                         .width(icon_size)
                         .height(structure.divider_width)
+                        .style(move |_| w::container::Style {
+                            background: Some(theme.border.into()),
+                            border: Border {
+                                radius: (structure.small_gap / 2.0).into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }),
                 )
-                .style(move |_| w::container::Style {
-                    background: Some(theme.border.into()),
-                    border: Border {
-                        radius: (structure.small_gap / 2.0).into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-            ])
-            .push(servers)
-            .spacing(structure.gap);
+                .width(Fill)
+                .height(structure.divider_width + 2.0 * structure.gap)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+            )
+            .push_element(servers);
 
         help_view
             .call(
@@ -389,7 +387,7 @@ fn render_server_icon(
     let mut tooltip_content = vec![
         weighted_text(room.get_name(), iced::font::Weight::Bold)
             .size(structure.font_size)
-            .into(),
+            .boxed(),
     ];
 
     for members in call_members {
@@ -400,7 +398,7 @@ fn render_server_icon(
                         .iter()
                         .map(|m| m.render_icon(structure.font_size, avatar_cache)),
                 )
-                .into(),
+                .boxed(),
         );
     }
 
@@ -475,7 +473,6 @@ fn render_server_icon(
             )
             .radius(icon_size * room.icon_border_radius_ratio()),
     )
-    .into()
 }
 
 fn pill(
@@ -485,7 +482,7 @@ fn pill(
     hovered: bool,
     has_messages: bool,
     content: impl Into<Element<'static, ServerColumnMessage>>,
-) -> Stack<'static, ServerColumnMessage> {
+) -> Element<'static, ServerColumnMessage> {
     let target = if active {
         structure.server_column.icon_size
     } else if hovered {
@@ -506,15 +503,19 @@ fn pill(
     // before forwarding (e.g. an active help-mode target) still reaches
     // content first, same as `floating_tile` does for its background layer.
     Stack::new()
-        .push(w::row![Space::new().width(structure.small_gap), content])
-        .push_under(w::column![
-            Canvas::new(PillCanvas {
-                target,
-                width: structure.small_gap / 2.0,
-                color: theme.text.normal.into(),
-                radius: structure.small_gap / 4.0,
-            })
-            .width(structure.small_gap / 2.0)
-            .height(structure.server_column.icon_size)
-        ])
+        .push(w::row![Space::new().width(structure.small_gap), content].boxed())
+        .push_under(
+            w::column![
+                Canvas::new(PillCanvas {
+                    target,
+                    width: structure.small_gap / 2.0,
+                    color: theme.text.normal.into(),
+                    radius: structure.small_gap / 4.0,
+                })
+                .width(structure.small_gap / 2.0)
+                .height(structure.server_column.icon_size)
+            ]
+            .boxed(),
+        )
+        .boxed()
 }

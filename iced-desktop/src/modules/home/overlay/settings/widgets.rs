@@ -1,4 +1,7 @@
-use crate::{common::*, components::phosphor_icon};
+use crate::{
+    common::*,
+    components::{PushElement, phosphor_icon},
+};
 use deplace_core::settings::{EnumSetPresets, EnumVariants, MatrixSettingField};
 use enumset::{EnumSet, EnumSetType};
 use iced::{Alignment, Length};
@@ -60,7 +63,7 @@ impl SettingWidget for bool {
         )
         .interaction(Interaction::Pointer);
 
-        setting_row(field, theme, structure, switch.into(), None)
+        setting_row(field, theme, structure, switch, EMPTY_WIDGET)
     }
 }
 
@@ -88,7 +91,7 @@ where
     .on_select(move |(value, _)| on_change(value))
     .width(structure.settings.dropdown_width)
     .text_size(structure.font_size)
-    .style(move |_, status| w::pick_list::Style {
+    .style(move |_: &iced::Theme, status| w::pick_list::Style {
         text_color: theme.text.normal.into(),
         placeholder_color: theme.text.dim.into(),
         handle_color: theme.text.dim.into(),
@@ -120,7 +123,7 @@ where
         shadow: Default::default(),
     });
 
-    setting_row(field, theme, structure, dropdown.into(), None)
+    setting_row(field, theme, structure, dropdown, EMPTY_WIDGET)
 }
 
 macro_rules! impl_dropdown_widget {
@@ -176,57 +179,12 @@ where
             let is_active = val == &active_value;
 
             themed_tooltip_text(
-                w::button(w::text(*name).size(structure.small_font_size).center())
-                    .style(move |_, status| ButtonStyle {
-                        text_color: if status.active() {
-                            theme.text.normal.into()
-                        } else if is_active {
-                            theme.colors.success.into()
-                        } else {
-                            theme.text.dim.into()
-                        },
-                        background: Some(bg_color(is_active)),
-                        border: Border {
-                            color: if status.active() {
-                                theme.accent.into()
-                            } else if is_active {
-                                theme.colors.success.into()
-                            } else {
-                                theme.border.into()
-                            },
-                            width: structure.border_thickness,
-                            radius: structure.semi_border_radius().into(),
-                        },
-                        ..Default::default()
-                    })
-                    .on_press(on_change(*val))
-                    .padding(
-                        padding::horizontal(structure.small_gap)
-                            .vertical(structure.small_gap / 2.0),
-                    ),
-                *desc,
-                structure,
-                theme,
-            )
-            .into()
-        }))
-        .width(Fill)
-        .spacing(structure.small_gap)
-        .into();
-
-        let chips = variants.into_iter().map(|(variant, label)| {
-            let is_active = active_value.contains(variant);
-            let mut new_value = active_value;
-            if is_active {
-                new_value.remove(variant);
-            } else {
-                new_value.insert(variant);
-            }
-
-            w::button(w::text(label).size(structure.font_size).center())
-                .padding(structure.small_gap)
-                .on_press(on_change(new_value))
-                .style(move |_, status| ButtonStyle {
+                w::button(
+                    w::text::<iced::Theme>(*name)
+                        .size(structure.small_font_size)
+                        .center(),
+                )
+                .style(move |_: &iced::Theme, status| ButtonStyle {
                     text_color: if status.active() {
                         theme.text.normal.into()
                     } else if is_active {
@@ -244,11 +202,60 @@ where
                             theme.border.into()
                         },
                         width: structure.border_thickness,
-                        radius: structure.inner_border_radius.into(),
+                        radius: structure.semi_border_radius().into(),
                     },
                     ..Default::default()
                 })
-                .into()
+                .on_press(on_change(*val))
+                .padding(
+                    padding::horizontal(structure.small_gap).vertical(structure.small_gap / 2.0),
+                ),
+                *desc,
+                structure,
+                theme,
+            )
+        }))
+        .width(Fill)
+        .spacing(structure.small_gap);
+
+        let chips = variants.into_iter().map(|(variant, label)| {
+            let is_active = active_value.contains(variant);
+            let mut new_value = active_value;
+            if is_active {
+                new_value.remove(variant);
+            } else {
+                new_value.insert(variant);
+            }
+
+            w::button(
+                w::text::<iced::Theme>(label)
+                    .size(structure.font_size)
+                    .center(),
+            )
+            .padding(structure.small_gap)
+            .on_press(on_change(new_value))
+            .style(move |_: &iced::Theme, status| ButtonStyle {
+                text_color: if status.active() {
+                    theme.text.normal.into()
+                } else if is_active {
+                    theme.colors.success.into()
+                } else {
+                    theme.text.dim.into()
+                },
+                background: Some(bg_color(is_active)),
+                border: Border {
+                    color: if status.active() {
+                        theme.accent.into()
+                    } else if is_active {
+                        theme.colors.success.into()
+                    } else {
+                        theme.border.into()
+                    },
+                    width: structure.border_thickness,
+                    radius: structure.inner_border_radius.into(),
+                },
+                ..Default::default()
+            })
         });
 
         let grid = w::grid(chips)
@@ -256,7 +263,7 @@ where
             .columns(5)
             .height(Length::Shrink);
 
-        setting_row(field, theme, structure, row_content, Some(grid.into()))
+        setting_row(field, theme, structure, row_content, Some(grid))
     }
 }
 
@@ -308,16 +315,21 @@ fn cloud_button<Message: 'static + Clone + ToggleCloudExt>(
         structure,
         theme,
     )
-    .into()
+    .boxed()
 }
 
-fn setting_row<T, Message: 'static + Clone + ToggleCloudExt>(
+fn setting_row<T, Message, RowContent, ExtraContent>(
     field: &MatrixSettingField<T>,
     theme: Theme,
     structure: Structure,
-    row_content: Element<'static, Message>,
-    extra_content: Option<Element<'static, Message>>,
-) -> Element<'static, Message> {
+    row_content: RowContent,
+    extra_content: Option<ExtraContent>,
+) -> Element<'static, Message>
+where
+    Message: 'static + Clone + ToggleCloudExt,
+    RowContent: DePlaceWidget<Message> + 'static,
+    ExtraContent: DePlaceWidget<Message> + 'static,
+{
     let cloud_button = cloud_button(field.local_name, &field.uses_cloud, theme, structure);
     let text = themed_tooltip_text(
         w::text(field.human_readable)
@@ -336,9 +348,9 @@ fn setting_row<T, Message: 'static + Clone + ToggleCloudExt>(
     if let Some(extra_content) = extra_content {
         w::column![row, extra_content]
             .spacing(structure.small_gap)
-            .into()
+            .boxed()
     } else {
-        row.into()
+        row.boxed()
     }
 }
 
@@ -389,7 +401,7 @@ pub fn render_subsection<Message: Clone + 'static>(
     let mut column = w::column![header].spacing(structure.small_gap).width(Fill);
 
     if expanded {
-        column = column.push(w::row![
+        column = column.push_element(w::row![
             w::container(
                 w::container("")
                     .width(structure.divider_width)
@@ -402,9 +414,9 @@ pub fn render_subsection<Message: Clone + 'static>(
         ]);
     }
 
-    column.into()
+    column.boxed()
 }
 
 pub fn render_spacer<Message: Clone + 'static>(structure: Structure) -> Element<'static, Message> {
-    w::space().height(structure.gap).into()
+    w::space().height(structure.gap).boxed()
 }

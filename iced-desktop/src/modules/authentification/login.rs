@@ -6,15 +6,8 @@ use deplace_core::{
     state::ImportantPaths,
 };
 use iced::widget::{Id, button::Status};
-// use iced::{
-//     Border, Element,
-//     Length::Fill,
-//     Task,
-//     widget::{self as w, Id, Space, button::Status, column, container, text},
-// };
-// use matrix_sdk::Client;
 
-use crate::components::{GenericState, floating_tile, text_input, weighted_text};
+use crate::components::{GenericState, text_input, weighted_text};
 
 #[derive(Debug, Clone)]
 pub enum LoginMessage {
@@ -228,6 +221,6 @@ impl IcedWidget<LoginMessage, LoginAction> for Login {
             .padding(structure.gap),
         );
 
-        w::container(tile).center(Fill).into()
+        w::container(tile).center(Fill).boxed()
     }
 }

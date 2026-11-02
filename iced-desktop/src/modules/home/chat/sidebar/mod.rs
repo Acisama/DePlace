@@ -290,7 +290,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
 
     fn view(&self) -> iced::Element<'static, SidebarMessage> {
         let Some(state) = self.currently_visible else {
-            return w::space().into();
+            return EMPTY_WIDGET.boxed();
         };
 
         let content: Element<'static, SidebarMessage> = match state {
@@ -308,7 +308,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                     lazy_view(self.member_list.clone(), SidebarMessage::MemberList)
                 }
             }
-            _ => return w::container("test").into(),
+            _ => return w::container("test").boxed(),
         };
 
         let theme = theme();

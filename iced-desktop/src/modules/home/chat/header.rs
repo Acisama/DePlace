@@ -147,7 +147,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
 
     fn view(&self) -> Element<'static, HeaderMessage> {
         let Some(room) = self.room_watchers.get_room(&self.room_id) else {
-            return w::Space::new().into();
+            return EMPTY_WIDGET.boxed();
         };
 
         let theme = theme();

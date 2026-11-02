@@ -1,21 +1,24 @@
 use std::hash::Hash;
 
-use deplace_core::helpers::DisplayString;
-use deplace_core::structure::Structure;
-use deplace_core::theme::{Colors, Theme};
-use iced::advanced::svg::Renderer as SvgRenderer;
-use iced::advanced::{Widget, layout};
-use iced::border::Radius;
-use iced::font::{Family, Weight};
-use iced::widget::canvas::{Frame, Path, Stroke};
-use iced::widget::image::Handle as ImageHandle;
-use iced::widget::text::{IntoFragment, Rich};
-use iced::widget::{self as w, Canvas, Container, Scrollable, canvas, rich_text, span, svg};
-use iced::{Background, Color, Fill, Font, Length, Padding, Point, Renderer, Size, border};
-use iced::{Border, Element, widget::Stack};
-use matrix_sdk::ruma::OwnedUserId;
-use matrix_sdk::ruma::serde::Base64;
-use tile_background::TileBackground;
+use deplace_core::{
+    helpers::DisplayString,
+    structure::Structure,
+    theme::{Colors, Theme},
+};
+use iced::{
+    Background, Border, Color, Element, Fill, Font, Point, Renderer, Size, Widget as _,
+    advanced::{Widget, layout, svg::Renderer as SvgRenderer, widget::Meta},
+    border::{self, Radius},
+    font::{Family, Weight},
+    widget::{
+        self as w, Canvas, Column, Container, Row, Scrollable, Stack,
+        canvas::{self, Frame, Path, Stroke},
+        image::Handle as ImageHandle,
+        rich_text, span, svg,
+        text::{IntoFragment, Rich},
+    },
+};
+use matrix_sdk::ruma::{OwnedUserId, serde::Base64};
 
 pub mod animated_button;
 pub mod animation_clock;
@@ -36,6 +39,8 @@ pub mod track_scroll;
 pub use corner_badge::{CornerContent, corner_badge};
 pub use on_appear::on_appear;
 pub use pan::pan;
+
+use crate::common::DePlaceWidget;
 
 pub enum GenericState<T: Clone> {
     Ready,
@@ -98,66 +103,6 @@ impl<T: Clone> GenericState<T> {
         weighted_text(text, iced::font::Weight::Semibold)
             .color(color)
             .size(structure.font_size)
-    }
-}
-
-/// A card-like surface used throughout the app (chat, sidebars, settings, auth
-/// screens, ...), returned by [`floating_tile`].
-///
-/// Its background is a fake blur: rather than blurring whatever actually sits
-/// behind the tile, it samples a shared, heavily-downscaled copy of the app's
-/// animated background shader (see [`tile_background`]). That means it never
-/// shows blurred *content* - only a positionally-matching patch of the animated
-/// background - which is enough to sell the frosted-glass look without a real
-/// per-pixel blur pass.
-///
-/// The background is a separate widget layered behind the content (needed to
-/// sample the shared blur texture), so `.padding()`/`.width()`/`.height()`
-/// forward to the content layer rather than being native `Stack` methods.
-pub struct FloatingTile<'a, T> {
-    content: w::Container<'a, T>,
-    background: w::Shader<T, TileBackground>,
-}
-
-impl<'a, T> FloatingTile<'a, T> {
-    pub fn padding(mut self, padding: impl Into<Padding>) -> Self {
-        self.content = self.content.padding(padding);
-        self
-    }
-
-    pub fn width(mut self, width: impl Into<Length>) -> Self {
-        self.content = self.content.width(width);
-        self
-    }
-
-    pub fn height(mut self, height: impl Into<Length>) -> Self {
-        self.content = self.content.height(height);
-        self
-    }
-}
-
-impl<'a, T> From<FloatingTile<'a, T>> for Element<'a, T>
-where
-    T: 'a,
-{
-    fn from(tile: FloatingTile<'a, T>) -> Self {
-        Stack::new()
-            .push(tile.content)
-            .push_under(tile.background)
-            .into()
-    }
-}
-
-pub fn floating_tile<'a, T>(
-    theme: Theme,
-    structure: Structure,
-    content: impl Into<Element<'a, T>>,
-) -> FloatingTile<'a, T> {
-    FloatingTile {
-        content: w::container(content),
-        background: w::Shader::new(TileBackground::new(theme, structure))
-            .width(Fill)
-            .height(Fill),
     }
 }
 
@@ -253,6 +198,27 @@ impl<Message> canvas::Program<Message> for InsetShadow {
     }
 }
 
+pub trait MapElementExt<'a, Message, Theme, Renderer> {
+    fn map_el<B>(self, f: impl Fn(Message) -> B + 'a) -> Element<'a, B, Theme, Renderer>
+    where
+        B: 'static;
+}
+
+impl<'a, Message, Theme, Renderer, W> MapElementExt<'a, Message, Theme, Renderer> for W
+where
+    Message: 'static,
+    Theme: 'static,
+    Renderer: iced::advanced::Renderer + 'static,
+    W: Widget<Message, Theme, Renderer> + 'a,
+{
+    fn map_el<B>(self, f: impl Fn(Message) -> B + 'a) -> Element<'a, B, Theme, Renderer>
+    where
+        B: 'static,
+    {
+        self.map(f).boxed()
+    }
+}
+
 pub trait IcedColorExt {
     fn scale_lightness(&self, factor: f32) -> Self;
 }
@@ -282,6 +248,8 @@ impl PhosphorIcon {
         self
     }
 }
+
+impl Meta for PhosphorIcon {}
 
 impl<Message, Theme, R: SvgRenderer> Widget<Message, Theme, R> for PhosphorIcon {
     fn size(&self) -> Size<iced::Length> {
@@ -323,7 +291,7 @@ where
     R: SvgRenderer + 'a,
 {
     fn from(icon: PhosphorIcon) -> Self {
-        Element::new(icon)
+        icon.boxed()
     }
 }
 
@@ -397,11 +365,11 @@ pub fn thumbhash_to_image(hash: &Base64) -> Option<ImageHandle> {
     Some(ImageHandle::from_rgba(width as u32, height as u32, pixels))
 }
 
-pub fn themed_scrollable<'a, T: 'a>(
-    content: impl Into<Element<'a, T>>,
+pub fn themed_scrollable<'a, T: 'a, W>(
+    content: W,
     theme: Theme,
     structure: Structure,
-) -> Scrollable<'a, T> {
+) -> Scrollable<'a, T, W> {
     w::scrollable(content)
         .style(move |_, status| {
             let border = Border {
@@ -498,28 +466,27 @@ pub fn render_media_failed_to_load<'a, T: Clone + 'a>(
         .width(width)
         .height(height),
     ]
-    .into()
+    .boxed()
 }
 
-pub trait Explainable<'a, T: Clone + 'a>
+pub trait Explainable<'a, Message, Entity, Theme, Renderer>
 where
-    Self: Sized,
+    Message: 'a,
+    Renderer: iced::advanced::Renderer,
+    Self: Widget<Message, Theme, Renderer>,
 {
-    fn to_element(self) -> Element<'a, T>;
-    fn explain(self, color: Color) -> Element<'a, T>;
-    fn explain_white(self) -> Element<'a, T> {
-        self.explain(Color::WHITE)
-    }
+    fn explain_white(self) -> impl Widget<Message, Theme, Renderer>;
 }
 
-impl<'a, T: Clone + 'a, E: Into<Element<'a, T>>> Explainable<'a, T> for E {
-    fn to_element(self) -> Element<'a, T> {
-        self.into()
-    }
-
-    fn explain(self, color: Color) -> Element<'a, T> {
-        let el = self.into();
-        el.explain(color)
+impl<'a, Message, Entity, Theme, Renderer> Explainable<'a, Message, Entity, Theme, Renderer>
+    for Entity
+where
+    Message: 'a,
+    Renderer: iced::advanced::Renderer,
+    Entity: Widget<Message, Theme, Renderer>,
+{
+    fn explain_white(self) -> impl Widget<Message, Theme, Renderer> {
+        self.explain(Color::WHITE)
     }
 }
 
@@ -551,7 +518,7 @@ pub fn close_button<'a, T: Clone + 'a>(
         .on_press(on_press),
     )
     .padding(structure.small_gap / 2.0)
-    .into()
+    .boxed()
 }
 
 pub trait ColoredRounded<'a, T: Clone + 'a>
@@ -570,5 +537,33 @@ impl<'a, T: Clone + 'a> ColoredRounded<'a, T> for Container<'a, T> {
             border: border::rounded(rounded),
             ..Default::default()
         })
+    }
+}
+
+pub trait PushElement<'a, Message: 'a, Content: DePlaceWidget<Message> + 'a> {
+    fn push_element(self, element: Content) -> Self;
+}
+
+impl<'a, Message: 'a, Content: DePlaceWidget<Message> + 'a> PushElement<'a, Message, Content>
+    for Column<Element<'a, Message>>
+{
+    fn push_element(self, element: Content) -> Self {
+        self.push(element.boxed())
+    }
+}
+
+impl<'a, Message: 'a, Content: DePlaceWidget<Message> + 'a> PushElement<'a, Message, Content>
+    for Row<Element<'a, Message>>
+{
+    fn push_element(self, element: Content) -> Self {
+        self.push(element.boxed())
+    }
+}
+
+impl<'a, Message: 'a, Content: DePlaceWidget<Message> + 'a> PushElement<'a, Message, Content>
+    for Stack<Element<'a, Message>>
+{
+    fn push_element(self, element: Content) -> Self {
+        self.push(element.boxed())
     }
 }

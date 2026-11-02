@@ -34,7 +34,7 @@ use crate::{
     EMOJI_FONT, MONO_FONT,
     common::*,
     components::{
-        MediaType,
+        MediaType, PushElement,
         help_mode::MessageHelpKey,
         link::link,
         phosphor_icon,
@@ -52,7 +52,7 @@ use super::{
 
 #[allow(clippy::too_many_arguments)]
 pub fn render_event(
-    content: impl Into<Element<'static, TimelineItemMessage>>,
+    content: impl DePlaceWidget<TimelineItemMessage> + 'static,
     structure: Structure,
     theme: Theme,
     is_hovered: bool,
@@ -78,8 +78,7 @@ pub fn render_event(
         })
         .padding(structure.border_thickness);
 
-    let content_element: Element<'static, TimelineItemMessage> =
-        track_bounds(inner_container, TimelineItemMessage::MessageEventBounds).into();
+    let content_element = track_bounds(inner_container, TimelineItemMessage::MessageEventBounds);
 
     w::container(
         sweeten::widget::mouse_area(content_element)
@@ -91,7 +90,7 @@ pub fn render_event(
     } else {
         0.0
     }))
-    .into()
+    .boxed()
 }
 
 impl MessageEvent {
@@ -181,38 +180,36 @@ impl MessageEvent {
                 let name_row =
                     move |name_view: Element<'static, TimelineItemMessage>,
                           help_view: &HelpView<TimelineItemMessage>| {
-                        Element::from(
-                            w::row![
-                                help_view.call(
-                                    HelpKey::Message {
-                                        key: MessageHelpKey::Name,
-                                        index,
-                                    },
-                                    "The name of the user who sent this message",
-                                    name_view
-                                ),
-                                help_view.call(
-                                    HelpKey::Message {
-                                        key: MessageHelpKey::Date,
-                                        index,
-                                    },
-                                    "The date and time this message was sent",
-                                    w::text(format_message_long_date(
-                                        self.timestamp,
-                                        timezone,
-                                        hour_format,
-                                        *self.date_format.borrow(),
-                                    ))
-                                    .line_height(LineHeight::Relative(1.0))
-                                    .size(structure.chat.small_text_size)
-                                    .color(theme.text.dim)
-                                    .align_y(Alignment::End)
-                                )
-                            ]
-                            .spacing(structure.small_gap)
-                            .padding(padding::bottom(structure.small_gap / 2.0))
-                            .align_y(Alignment::End),
-                        )
+                        w::row![
+                            help_view.call(
+                                HelpKey::Message {
+                                    key: MessageHelpKey::Name,
+                                    index,
+                                },
+                                "The name of the user who sent this message",
+                                name_view
+                            ),
+                            help_view.call(
+                                HelpKey::Message {
+                                    key: MessageHelpKey::Date,
+                                    index,
+                                },
+                                "The date and time this message was sent",
+                                w::text(format_message_long_date(
+                                    self.timestamp,
+                                    timezone,
+                                    hour_format,
+                                    *self.date_format.borrow(),
+                                ))
+                                .line_height(LineHeight::Relative(1.0))
+                                .size(structure.chat.small_text_size)
+                                .color(theme.text.dim)
+                                .align_y(Alignment::End)
+                            )
+                        ]
+                        .spacing(structure.small_gap)
+                        .padding(padding::bottom(structure.small_gap / 2.0))
+                        .align_y(Alignment::End)
                     };
 
                 let icon = move |content,
@@ -275,13 +272,13 @@ impl MessageEvent {
                         theme.colors.error,
                         w::text("Failed to get reply")
                             .color(theme.colors.error)
-                            .into(),
+                            .boxed(),
                     ),
                     TimelineDetails::Pending => (
                         loading_icon(small_icon_size, small_icon_size / 2.0, theme),
                         render_loading_name(small_text_size, theme),
                         theme.colors.offline,
-                        w::text("Loading...").color(theme.colors.offline).into(),
+                        w::text("Loading...").color(theme.colors.offline).boxed(),
                     ),
                     TimelineDetails::Ready(p) => {
                         let (icon, name, color) = match &p.sender_profile {
@@ -313,35 +310,33 @@ impl MessageEvent {
                     }
                 };
 
-                help_view
-                    .call(
-                        HelpKey::Message {
-                            key: MessageHelpKey::Reply(reply_index),
-                            index,
-                        },
-                        "A message this message directly or indirectly replies to",
-                        w::row![
-                            w::container(
-                                w::container(Space::new())
-                                    .style(move |_| ContainerStyle {
-                                        background: Some(color.into()),
-                                        border: border::rounded(pill_width / 2.0),
-                                        ..Default::default()
-                                    })
-                                    .width(pill_width)
-                                    .height(Fill)
-                            )
-                            .height(Fill)
-                            .padding(padding::right(pill_width)),
-                            w::column![
-                                w::row![icon, w::text(" ").size(small_text_size), name]
-                                    .align_y(Alignment::Center),
-                                content
-                            ]
+                help_view.call(
+                    HelpKey::Message {
+                        key: MessageHelpKey::Reply(reply_index),
+                        index,
+                    },
+                    "A message this message directly or indirectly replies to",
+                    w::row![
+                        w::container(
+                            w::container(Space::new())
+                                .style(move |_| ContainerStyle {
+                                    background: Some(color.into()),
+                                    border: border::rounded(pill_width / 2.0),
+                                    ..Default::default()
+                                })
+                                .width(pill_width)
+                                .height(Fill)
+                        )
+                        .height(Fill)
+                        .padding(padding::right(pill_width)),
+                        w::column![
+                            w::row![icon, w::text(" ").size(small_text_size), name]
+                                .align_y(Alignment::Center),
+                            content
                         ]
-                        .height(Shrink),
-                    )
-                    .into()
+                    ]
+                    .height(Shrink),
+                )
             },
         ))
         .spacing(structure.small_gap)
@@ -445,7 +440,6 @@ impl MessageEvent {
                         ),
                     )
                     .radius(structure.inner_border_radius)
-                    .into()
             }))
         });
 
@@ -463,14 +457,14 @@ impl MessageEvent {
             .width(pre_col_width)
             .height(Length::Fill)
             .padding(pill_width)
-            .to_element()
+            .boxed()
         };
 
         let content = w::container(
             w::row![
                 highlight_color
                     .map(|color| pill(color.into()))
-                    .unwrap_or(Space::new().width(pre_col_width).into()),
+                    .unwrap_or(Space::new().width(pre_col_width).boxed()),
                 w::column![
                     w::row![
                         Space::new().width(structure.chat_col_width() - pre_col_width),
@@ -493,8 +487,8 @@ impl MessageEvent {
                             .size(structure.chat.small_text_size)
                             .width(structure.chat.icon_size)
                             .center()
-                            .into()))
-                                .unwrap_or(Space::new().width(structure.chat.icon_size).into()),
+                            .boxed()))
+                                .unwrap_or(Space::new().width(structure.chat.icon_size).boxed()),
                             Space::new().height(structure.divider_width),
                         ],
                         Space::new().width(pre_col_width),
@@ -530,9 +524,9 @@ impl MessageEvent {
                 if as_dummy {
                     w::container(themed_scrollable(content, theme, structure))
                         .height(Length::Shrink.max(structure.chat.max_media_height))
-                        .to_element()
+                        .boxed()
                 } else {
-                    content.into()
+                    content.boxed()
                 },
             )
             .radius(structure.inner_border_radius)
@@ -568,7 +562,7 @@ impl MessageContent {
             |text: String, color: Color| w::text(text).size(text_size).color(color);
         let render_warning_text = |text: &'static str| {
             (
-                Some(render_text_color(text.to_string(), theme.colors.warning.into()).into()),
+                Some(render_text_color(text.to_string(), theme.colors.warning.into()).boxed()),
                 None,
             )
         };
@@ -584,7 +578,7 @@ impl MessageContent {
                             .color(color)
                     ]
                     .on_link_click(never)
-                    .into(),
+                    .boxed(),
                 ),
                 None,
             )
@@ -649,17 +643,17 @@ impl MessageContent {
                             },
                             ..Default::default()
                         })
-                        .into(),
+                        .boxed(),
                     ),
                 )
             }
             MessageContent::Image { image, is_hovered } => {
-                let mut stack = Stack::new().push(w::lazy(image.clone(), move |image| {
+                let mut stack = w::stack![w::lazy(image.clone(), move |image| {
                     image.image_view(theme, structure)
-                }));
+                })];
 
                 if *is_hovered {
-                    stack = stack.push(
+                    stack = stack.push_element(
                         w::container(
                             w::container(
                                 w::text(image.label())
@@ -710,7 +704,7 @@ impl MessageContent {
                             .on_exit(TimelineItemMessage::MediaMouseLeave)
                             .interaction(Interaction::Pointer)
                             .on_press(open_media)
-                            .into(),
+                            .boxed(),
                     ),
                 )
             }
@@ -743,7 +737,7 @@ impl MessageContent {
                             .size(text_size)
                     ]
                     .on_link_click(never)
-                    .into(),
+                    .boxed(),
                 ),
                 None,
             ),
@@ -759,12 +753,12 @@ impl MessageContent {
                 (render_body(formatted_body), None)
             }
             MessageContent::Video { video, is_hovered } => {
-                let mut stack = Stack::new().push(w::lazy(video.clone(), move |video| {
+                let mut stack = w::stack![w::lazy(video.clone(), move |video| {
                     video.video_view(theme, structure)
-                }));
+                })];
 
                 if *is_hovered {
-                    stack = stack.push(
+                    stack = stack.push_element(
                         w::container(
                             w::container(
                                 w::text(video.label())
@@ -815,7 +809,7 @@ impl MessageContent {
                             .on_exit(TimelineItemMessage::MediaMouseLeave)
                             .interaction(Interaction::Pointer)
                             .on_press(open_media)
-                            .into(),
+                            .boxed(),
                     ),
                 )
             }
@@ -885,7 +879,7 @@ impl ImageMessage {
                     .height(height)
                     .content_fit(iced::ContentFit::Fill)
                     .border_radius(structure.inner_border_radius)
-                    .into(),
+                    .boxed(),
             );
         }
 
@@ -902,7 +896,7 @@ impl ImageMessage {
                     .width(width)
                     .height(height)
                     .border_radius(structure.inner_border_radius)
-                    .into(),
+                    .boxed(),
             ),
             _ => {}
         };
@@ -916,7 +910,7 @@ impl ImageMessage {
                         thumbnail_key,
                     )),
                 )
-                .into(),
+                .boxed(),
             )
         }
 
@@ -931,7 +925,7 @@ impl ImageMessage {
                 },
                 ..Default::default()
             })
-            .into()
+            .boxed()
     }
 }
 
@@ -992,7 +986,7 @@ impl VideoMessage {
         let mut stack = Stack::new();
 
         if let Some(image) = self.blur_preview.clone() {
-            stack = stack.push(
+            stack = stack.push_element(
                 w::image(image)
                     .width(width)
                     .height(height)
@@ -1002,7 +996,7 @@ impl VideoMessage {
         }
 
         stack = match cached_video.as_ref().unwrap_or(&MediaState::Loading) {
-            MediaState::Loaded(video) => stack.push(
+            MediaState::Loaded(video) => stack.push_element(
                 w::mouse_area(
                     VideoPlayer::<TimelineItemMessage>::new(video.0.clone())
                         .width(width)
@@ -1017,7 +1011,7 @@ impl VideoMessage {
                 height,
                 MediaType::Video,
             )),
-            MediaState::Loading => stack.push(
+            MediaState::Loading => stack.push_element(
                 w::container(
                     weighted_text("Loading Video...", Weight::Normal)
                         .size(structure.chat.text_size),
@@ -1030,7 +1024,7 @@ impl VideoMessage {
         };
 
         if cached_video.is_none() {
-            stack = stack.push(on_appear(
+            stack = stack.push_element(on_appear(
                 Space::new(),
                 TimelineItemMessage::NeedsMedia(NeedsMedia::Video {
                     source: self.source.clone(),
@@ -1038,7 +1032,7 @@ impl VideoMessage {
             ))
         }
 
-        stack.into()
+        stack.boxed()
     }
 }
 
@@ -1072,20 +1066,18 @@ impl SystemEvent {
         let content = if is_hovered {
             w::row![
                 content,
-                Element::from(
-                    w::text(format_message_long_date(
-                        self.timestamp,
-                        *self.timezone.borrow(),
-                        *self.hour_format.borrow(),
-                        *self.date_format.borrow(),
-                    ))
-                    .size(structure.chat.text_size)
-                    .color(theme.text.dim),
-                )
+                w::text(format_message_long_date(
+                    self.timestamp,
+                    *self.timezone.borrow(),
+                    *self.hour_format.borrow(),
+                    *self.date_format.borrow(),
+                ))
+                .size(structure.chat.text_size)
+                .color(theme.text.dim),
             ]
             .align_y(Alignment::Center)
             .spacing(structure.small_gap)
-            .into()
+            .boxed()
         } else {
             content
         };
@@ -1099,7 +1091,7 @@ impl SystemEvent {
         ]
         .padding(padding::vertical(structure.small_gap / 2.0))
         .align_y(Alignment::Center)
-        .into()
+        .boxed()
     }
 }
 
@@ -1180,7 +1172,7 @@ impl SystemMessage {
                 w::text(text).size(text_size).color(theme.text.dim)
             ]
             .align_y(Alignment::Center)
-            .into()
+            .boxed()
         };
 
         match self {
@@ -1284,9 +1276,9 @@ impl ReplyContent {
                 text_view
             ]
             .align_y(Alignment::Center)
-            .into()
+            .boxed()
         } else {
-            text_view.into()
+            text_view.boxed()
         }
     }
 

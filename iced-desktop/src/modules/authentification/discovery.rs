@@ -5,7 +5,7 @@ use deplace_core::matrix_api::test_server;
 use iced::widget::{Id, button::Status};
 use url::Url;
 
-use crate::components::{GenericState, floating_tile, text_input, weighted_text};
+use crate::components::{GenericState, text_input, weighted_text};
 
 #[derive(Debug, Clone)]
 pub enum DiscoveryMessage {
@@ -195,6 +195,6 @@ impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
             .padding(structure.gap),
         );
 
-        w::container(tile).center(Fill).into()
+        w::container(tile).center(Fill).boxed()
     }
 }

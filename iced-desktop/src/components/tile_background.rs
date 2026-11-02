@@ -3,9 +3,14 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use deplace_core::structure::Structure;
 use deplace_core::theme::Theme;
-use iced::Rectangle;
-use iced::wgpu;
+use iced::Length::Fill;
+use iced::advanced::widget::{Meta, Operation, Tree};
+use iced::advanced::{Layout, Renderer as _, Shell, Widget, layout, mouse, overlay, renderer};
 use iced::widget::shader::{self, Pipeline, Primitive, Viewport};
+use iced::{Element, Event, Length, Padding, Renderer, Size, Vector, Widget as _, wgpu};
+use iced::{Rectangle, widget as w};
+
+use crate::common::DePlaceWidget;
 
 use super::animation_clock;
 
@@ -693,5 +698,214 @@ impl<Message> shader::Program<Message> for TileBackground {
             blur: self.theme.blur,
             slot: AtomicU32::new(0),
         }
+    }
+}
+
+/// A card-like surface used throughout the app (chat, sidebars, settings, auth
+/// screens, ...), returned by [`floating_tile`].
+///
+/// Its background is a fake blur: rather than blurring whatever actually sits
+/// behind the tile, it samples a shared, heavily-downscaled copy of the app's
+/// animated background shader (see [`tile_background`]). That means it never
+/// shows blurred *content* - only a positionally-matching patch of the animated
+/// background - which is enough to sell the frosted-glass look without a real
+/// per-pixel blur pass.
+///
+/// The background is a separate widget layered behind the content (needed to
+/// sample the shared blur texture), so `.padding()`/`.width()`/`.height()`
+/// forward to the content layer rather than being native `Stack` methods.
+pub struct FloatingTile<'a, Message, Content: DePlaceWidget<Message>> {
+    content: w::Container<'a, Content>,
+    background: w::Shader<Message, TileBackground>,
+}
+
+impl<'a, Message, Content: DePlaceWidget<Message>> FloatingTile<'a, Message, Content> {
+    pub fn padding(mut self, padding: impl Into<Padding>) -> Self {
+        self.content = self.content.padding(padding);
+        self
+    }
+
+    pub fn width(mut self, width: impl Into<Length>) -> Self {
+        self.content = self.content.width(width);
+        self
+    }
+
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.content = self.content.height(height);
+        self
+    }
+}
+
+impl<'a, Message, Content: DePlaceWidget<Message>> Meta for FloatingTile<'a, Message, Content> {}
+
+impl<'a, Message, Content: DePlaceWidget<Message>> Widget<Message, iced::Theme, Renderer>
+    for FloatingTile<'a, Message, Content>
+{
+    fn size(&self) -> Size<Length> {
+        self.content.size()
+    }
+
+    fn diff(&mut self, tree: &mut Tree) {
+        if tree.children.len() != 2 {
+            tree.children = vec![
+                Tree::new(&self.content),
+                Tree::new::<_, iced::Theme, Renderer>(&self.background),
+            ];
+        }
+
+        tree.children[0].diff(&mut self.content);
+        tree.children[1].diff::<_, iced::Theme, Renderer>(&mut self.background);
+    }
+
+    fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
+        self.content.layout(&mut tree.children[0], renderer, limits);
+        let size = tree.children[0].size;
+
+        // The background only ever needs to cover exactly the content's
+        // footprint, so force it to that size regardless of its own
+        // preferred `width`/`height`.
+        Widget::<Message, iced::Theme, Renderer>::layout(
+            &mut self.background,
+            &mut tree.children[1],
+            renderer,
+            &layout::Limits::new(size, size),
+        );
+        tree.children[1].size = size;
+
+        tree.size = size;
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &iced::Theme,
+        style: &renderer::Style,
+        layout: Layout,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let Some(clip) = layout.bounds().intersection(viewport) else {
+            return;
+        };
+
+        // Layers composite strictly in creation order, and within a layer
+        // the shader's custom-primitive pass always renders after quads
+        // regardless of draw-call order. So `content` must be drawn in a
+        // *later* layer than `background`, not just an isolated one, or
+        // it ends up stuck underneath it. Both are clipped to `clip` (not
+        // the full `viewport`) so neither bleeds into whatever else shares
+        // their enclosing layer outside this tile.
+        renderer.with_layer(clip, |renderer| {
+            self.background.draw(
+                &tree.children[1],
+                renderer,
+                theme,
+                style,
+                layout,
+                cursor,
+                viewport,
+            );
+        });
+
+        renderer.with_layer(clip, |renderer| {
+            self.content.draw(
+                &tree.children[0],
+                renderer,
+                theme,
+                style,
+                layout,
+                cursor,
+                viewport,
+            );
+        });
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.content
+            .operate(&mut tree.children[0], layout, viewport, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            shell,
+            viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content
+            .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, iced::Theme, Renderer>> {
+        self.content.overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+            window,
+        )
+    }
+}
+
+impl<'a, Message, Content: DePlaceWidget<Message>> From<FloatingTile<'a, Message, Content>>
+    for Element<'a, Message>
+where
+    Message: 'a,
+    Content: 'a + DePlaceWidget<Message>,
+{
+    fn from(tile: FloatingTile<'a, Message, Content>) -> Self {
+        tile.boxed()
+    }
+}
+
+pub fn floating_tile<'a, Message, Content: DePlaceWidget<Message>>(
+    theme: Theme,
+    structure: Structure,
+    content: Content,
+) -> FloatingTile<'a, Message, Content> {
+    FloatingTile {
+        content: w::container(content),
+        background: w::Shader::new(TileBackground::new(theme, structure))
+            .width(Fill)
+            .height(Fill),
     }
 }

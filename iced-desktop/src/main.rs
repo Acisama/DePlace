@@ -14,7 +14,10 @@ use deplace_core::{
     APP_HUMAN_NAME, APP_NAME, RestoreResult, SOCKET_NAME, state::ImportantPaths,
     structure::Structure, theme::Theme, try_restore,
 };
-use iced::{Font, Task, advanced::subscription::Recipe, font::Family, futures::stream, window};
+use iced::{
+    Font, Task, advanced::subscription::Recipe, font::Family, futures::stream, widget::Space,
+    window,
+};
 use interprocess::local_socket::{
     GenericNamespaced, Listener, ListenerNonblockingMode, ListenerOptions, prelude::*,
 };
@@ -136,6 +139,8 @@ const MONO_FONT: Font = Font {
     family: Family::Name("JetBrains Mono"),
     ..Font::MONOSPACE
 };
+
+pub const EMPTY_WIDGET: Option<Space> = None;
 
 fn load_tray_icon() -> Result<tray_icon::Icon, iced::Error> {
     let image = image::load_from_memory_with_format(crate::ICON_PNG, image::ImageFormat::Png)
