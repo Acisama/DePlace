@@ -137,6 +137,10 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
         loop {
             let update = match receiver.recv().await {
                 Ok(update) => update,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!("Room update receiver lagged, skipped {n} updates");
+                    continue;
+                }
                 Err(e) => {
                     tracing::error!("Failed to receive room update: {e:?}");
                     break;
@@ -234,7 +238,7 @@ async fn compute_call_participants(
             };
             let member = profile_store.get_member(room_id, ev.state_key.user_id());
 
-            for membership in ev.content.active_memberships(None) {
+            for membership in ev.content.active_memberships(Some(ev.origin_server_ts)) {
                 call_participants.insert(CallMember::new(&membership, member.clone()));
             }
         }

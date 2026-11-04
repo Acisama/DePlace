@@ -64,7 +64,7 @@ impl DisplayString for MemberProfileChange {
 
         if let Some(Change { old, new }) = &self.avatar_url_change() {
             if new.is_some() && old.is_none() {
-                changes.push("set a profile picture".to_string());
+                changes.push("set their profile picture".to_string());
             } else if new.is_none() && old.is_some() {
                 changes.push("removed their profile picture".to_string());
             } else {

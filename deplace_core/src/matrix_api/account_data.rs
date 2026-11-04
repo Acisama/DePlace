@@ -6,29 +6,6 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use matrix_sdk::ruma::events::macros::EventContent;
 
-use crate::{colors::DePlaceColor, member::synth::SonicSignature};
-
-#[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]
-#[ruma_event(type = "com.deplace.sonic_signature", kind = GlobalAccountData)]
-pub struct SonicSignatureDataContent {
-    #[serde(default)]
-    pub signature: Option<SonicSignature>,
-}
-
-#[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]
-#[ruma_event(type = "com.deplace.name_color", kind = GlobalAccountData)]
-pub struct NameColorContent {
-    #[serde(default)]
-    pub color: Option<DePlaceColor>,
-}
-
-#[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]
-#[ruma_event(type = "com.deplace.banner_color", kind = GlobalAccountData)]
-pub struct BannerColorContent {
-    #[serde(default)]
-    pub color: Option<DePlaceColor>,
-}
-
 #[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]
 #[ruma_event(type = "com.deplace.breadcrumbs", kind = GlobalAccountData)]
 pub struct BreadcrumbsContent {

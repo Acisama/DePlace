@@ -196,7 +196,11 @@ impl ProfileLike for DePlaceRoom {
     }
 
     fn color(&self) -> DePlaceColor {
-        self.info.read().color
+        if let Some(member) = self.other_dm_member() {
+            member.color()
+        } else {
+            self.info.read().color
+        }
     }
 
     fn initial(&self) -> char {

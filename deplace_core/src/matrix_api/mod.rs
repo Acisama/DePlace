@@ -18,6 +18,7 @@ mod hierarchy;
 mod matrixrtc;
 mod members;
 pub mod messages;
+pub mod profile_data;
 pub mod sync;
 
 #[cfg(feature = "iced")]

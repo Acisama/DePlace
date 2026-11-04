@@ -27,9 +27,7 @@ pub struct RoomMembers {
 
 impl Hash for RoomMembers {
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
-        self.active()
-            .iter()
-            .for_each(|m| m.hash_selective(h, true, true, true, true));
+        self.active().iter().for_each(|m| m.hash_all(h));
     }
 }
 

@@ -111,6 +111,7 @@ pub struct ChatTimeline {
     user_can_redact_other: bool,
 
     /// The members of the room, used to rerender the timeline when members change
+    #[hash]
     room_members: Arc<RoomMembers>,
 
     // Stuff the messages depend on
@@ -188,8 +189,6 @@ impl ExtraHash for ChatTimeline {
                 bounds.height.to_bits().hash(state);
             }
         }
-
-        self.room_members.hash(state);
     }
 }
 

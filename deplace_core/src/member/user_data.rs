@@ -9,8 +9,8 @@ use ruma::{
 use crate::{
     colors::DePlaceColor,
     helpers::DisplayString,
-    matrix_api::account_data::{
-        BannerColorContent, DePlaceAccountData, NameColorContent, SonicSignatureDataContent,
+    matrix_api::profile_data::{
+        BannerColorField, DePlaceProfileField, NameColorField, SonicSignatureField,
     },
     state::AppState,
 };
@@ -102,17 +102,14 @@ impl CustomData {
     }
 
     pub async fn load(client: &Client, user_id: &UserId) -> Self {
-        let sonic_signature = SonicSignatureDataContent::fetch(client)
+        let sonic_signature = SonicSignatureField::fetch(client, user_id)
             .await
-            .signature
             .unwrap_or_else(|| SonicSignature::from_string(user_id.as_str()));
-        let name_color = NameColorContent::fetch(client)
+        let name_color = NameColorField::fetch(client, user_id)
             .await
-            .color
             .unwrap_or_else(|| DePlaceColor::from(user_id.as_str()));
-        let banner_color = BannerColorContent::fetch(client)
+        let banner_color = BannerColorField::fetch(client, user_id)
             .await
-            .color
             .unwrap_or_else(|| DePlaceColor::from(user_id.as_str()));
 
         Self {
