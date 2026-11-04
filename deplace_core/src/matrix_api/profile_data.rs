@@ -42,8 +42,6 @@ where
     T: StaticProfileField,
 {
     async fn fetch(client: &Client, user_id: &UserId) -> Option<Self::Value> {
-        tracing::debug!("Getting profile field \"{}\" for {user_id}", Self::NAME);
-
         let request = get_profile_field::v3::Request::new(user_id.to_owned(), Self::NAME.into());
 
         let response = match client.send(request).await {
@@ -56,11 +54,13 @@ where
                     Some(ErrorKind::NotFound | ErrorKind::Unrecognized)
                 ) =>
             {
-                tracing::debug!("Profile field {} not available for {user_id}: {e}", Self::NAME);
                 return None;
             }
             Err(e) => {
-                tracing::error!("Failed to get profile field {} for {user_id}: {e}", Self::NAME);
+                tracing::error!(
+                    "Failed to get profile field {} for {user_id}: {e}",
+                    Self::NAME
+                );
                 return None;
             }
         };

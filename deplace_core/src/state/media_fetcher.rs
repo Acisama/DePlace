@@ -572,10 +572,7 @@ impl matrix_sdk::media::MediaFetcher for MediaProcessor {
         // key, so two concurrent requests for the same media share one network fetch
         // instead of racing to write into the same `progresses` entry.
         let shared = match self.in_flight.entry(key.clone()) {
-            Entry::Occupied(entry) => {
-                tracing::debug!("Piggybacking on in-flight media fetch: {}", key);
-                entry.get().clone()
-            }
+            Entry::Occupied(entry) => entry.get().clone(),
             Entry::Vacant(entry) => {
                 let started_at = SystemTime::now();
                 let progress = DownloadProgress::new(started_at);

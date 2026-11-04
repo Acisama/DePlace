@@ -660,6 +660,7 @@ impl AppState {
                         breadcrumbs
                             .last_space_ids
                             .insert(room.room_id().to_owned(), room_id);
+                        breadcrumbs.dms_last = false;
                     }
                 }
             });
