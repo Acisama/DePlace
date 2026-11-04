@@ -244,7 +244,7 @@ pub(crate) struct AppStateInner {
 impl AppState {
     pub async fn new(
         client: Client,
-        user_device: UserDevice,
+        own_device: Arc<UserDevice>,
         settings: Settings,
         keybinds: Keybinds,
         important_paths: ImportantPaths,
@@ -260,8 +260,6 @@ impl AppState {
         let profile_store = Arc::new(ProfileStore::new(&client));
         let room_store =
             Arc::new(RoomStore::new(&client, profile_store.clone(), last_server_order).await);
-
-        let own_device = Arc::new(user_device);
 
         let breadcrumbs = Mutex::new(breadcrumbs_content);
 
@@ -308,7 +306,12 @@ impl AppState {
         let (own_display_name, _) = watch::channel(None);
         let (own_avatar_url, _) = watch::channel(None);
 
-        spawn_initial_load(profile_store.clone(), client.clone());
+        spawn_initial_load(
+            profile_store.clone(),
+            client.clone(),
+            room_store.clone(),
+            own_device.clone(),
+        );
 
         Ok(Self {
             inner: Arc::new(AppStateInner {

@@ -7,7 +7,7 @@ use ruma::{
     events::{call::member::MembershipData, rtc::notification::CallIntent},
 };
 
-use crate::member::Member;
+use crate::{member::Member, state::UserDevice};
 
 use super::notifications::NotificationCounts;
 
@@ -65,6 +65,26 @@ impl RoomLive {
             call_participants: IndexSet::new(),
             own_user_is_in_call: false,
             own_user_device_is_in_call: false,
+        }
+    }
+
+    pub(crate) fn calculate_own_call(&mut self, own_device: &UserDevice) {
+        self.own_user_is_in_call = false;
+        self.own_user_device_is_in_call = false;
+
+        for part in &self.call_participants {
+            if self.own_user_device_is_in_call && self.own_user_is_in_call {
+                return;
+            }
+
+            if part.member.user_id() != own_device.user_id {
+                continue;
+            }
+
+            self.own_user_is_in_call = true;
+            if part.device_id.as_ref() == &own_device.device_id {
+                self.own_user_device_is_in_call = true;
+            }
         }
     }
 

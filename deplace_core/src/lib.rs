@@ -1,5 +1,7 @@
 #![recursion_limit = "256"]
 
+use std::sync::Arc;
+
 use colors::DePlaceColor;
 use room::live::CallMember;
 use ruma::uint;
@@ -131,18 +133,19 @@ pub async fn try_restore(paths: ImportantPaths) -> RestoreResult {
 
     matrix_api::save_session(&client);
 
-    let device = UserDevice {
+    let device = Arc::new(UserDevice {
         user_id: user_id.clone(),
         device_id: device_id.clone(),
-    };
-    let state = match AppState::new(client.clone(), device, settings, keybinds, paths).await {
+    });
+    let state = match AppState::new(client.clone(), device.clone(), settings, keybinds, paths).await
+    {
         Ok(state) => state,
         Err(e) => {
             tracing::error!("Failed to create app state: {e}");
             return RestoreResult::NeedsLogin(client);
         }
     };
-    spawn_sync_runners(&client, &state);
+    spawn_sync_runners(&client, &state, device);
 
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");
     RestoreResult::Success(Box::new(state))

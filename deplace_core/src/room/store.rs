@@ -1,9 +1,11 @@
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{cmp::Reverse, collections::HashMap, sync::Arc, time::Instant};
 
 use dashmap::{DashMap, mapref::entry::Entry};
 use futures::{StreamExt, future::join_all};
 use matrix_sdk::{Client, Room, RoomState, room::ParentSpace};
-use ruma::{OwnedRoomId, RoomId, events::space::child::SpaceChildEventContent};
+use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId, events::space::child::SpaceChildEventContent,
+};
 use tokio::sync::watch;
 
 use crate::{Shared, matrix_api::account_data::ServerOrderContent, member::ProfileStore};
@@ -105,7 +107,7 @@ impl RoomStore {
     }
 
     #[cfg(feature = "iced")]
-    fn spawn_avatar_load(&self, dp_room: DePlaceRoom) {
+    pub(crate) fn spawn_avatar_load(&self, dp_room: DePlaceRoom) {
         let changed = self.changed.clone();
         let client = self.client.clone();
 
@@ -176,7 +178,7 @@ impl RoomStore {
     /// no longer drives room discovery: `get_room` inserts (and spawns a load
     /// for) any room that isn't in the map yet.
     pub fn recompute_dms(&self) {
-        let dms: Vec<DePlaceRoom> = self
+        let mut dms: Vec<(DePlaceRoom, Option<MilliSecondsSinceUnixEpoch>)> = self
             .client
             .rooms()
             .into_iter()
@@ -184,11 +186,18 @@ impl RoomStore {
             .filter_map(|room| {
                 let is_dm = room.is_dm();
                 let dp_room = self.get_room(room.room_id())?;
-                is_dm.then_some(dp_room)
+
+                if !is_dm {
+                    return None;
+                }
+
+                Some((dp_room, room.latest_event_timestamp()))
             })
             .collect();
+        dms.sort_by_key(|(_, timestamp)| Reverse(*timestamp));
 
-        self.dms.set(dms);
+        self.dms
+            .set(dms.into_iter().map(|(room, _)| room).collect());
     }
 
     pub fn servers(&self) -> Arc<Vec<OwnedRoomId>> {

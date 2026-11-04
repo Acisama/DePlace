@@ -4,15 +4,17 @@ use std::{pin::pin, sync::Arc};
 use futures_util::StreamExt;
 use indexmap::IndexSet;
 use matrix_sdk::{
-    Client, config::SyncSettings, deserialized_responses::SyncOrStrippedState,
+    Client, Room, config::SyncSettings, deserialized_responses::SyncOrStrippedState,
     ruma::presence::PresenceState, sync::SyncResponse,
 };
 use matrix_sdk_base::RoomInfoNotableUpdateReasons;
+use ruma::RoomId;
 use ruma::events::call::member::CallMemberEventContent;
 
 use crate::member::ProfileStore;
 use crate::member::user_data::handle_presence_update;
 use crate::room::live::CallMember;
+use crate::state::UserDevice;
 use crate::thumbnail_format;
 use crate::{
     matrix_api::{hierarchy::run_space_hierarchy_update, save_session},
@@ -27,14 +29,14 @@ use iced::advanced::image::Handle as ImageHandle;
 
 use super::members::handle_member_event;
 
-pub fn spawn_sync_runners(client: &Client, state: &AppState) {
+pub fn spawn_sync_runners(client: &Client, state: &AppState, own_device: Arc<UserDevice>) {
     if let Err(e) = client.event_cache().subscribe() {
         tracing::error!("Failed to subscribe to event cache: {e}");
     }
 
     tokio::spawn(run_sync_stream(client.clone(), state.clone()));
     tokio::spawn(run_keystore_save_stream(client.clone()));
-    spawn_room_sync(client.clone(), state.clone());
+    spawn_room_sync(client.clone(), state.clone(), own_device.clone());
     run_space_hierarchy_update(client);
 
     client.add_event_handler_context(state.clone());
@@ -126,7 +128,7 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
     state.bump_sync_tick();
 }
 
-fn spawn_room_sync(client: Client, state: AppState) {
+fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>) {
     let mut receiver = client.room_info_notable_update_receiver();
 
     tokio::spawn(async move {
@@ -177,6 +179,11 @@ fn spawn_room_sync(client: Client, state: AppState) {
                         info.avatar_url = avatar_url.clone();
                     }
                 });
+
+                #[cfg(feature = "iced")]
+                if avatar_url_changed {
+                    state.room_store_ref().spawn_avatar_load(dp_room.clone());
+                }
             }
 
             if room.is_dm()
@@ -187,66 +194,89 @@ fn spawn_room_sync(client: Client, state: AppState) {
                 state.room_store_ref().recompute_dms();
             }
 
-            if !update.reasons.intersects(
-                RoomInfoNotableUpdateReasons::LATEST_EVENT
-                    | RoomInfoNotableUpdateReasons::RECENCY_STAMP
-                    | RoomInfoNotableUpdateReasons::READ_RECEIPT
-                    | RoomInfoNotableUpdateReasons::UNREAD_MARKER,
-            ) {
-                continue;
-            }
-
             let notifications = room.unread_notification_counts().into();
-            let mut call_participants = IndexSet::new();
-
-            if room.has_active_room_call() {
-                let events = match room
-                    .get_state_events_static::<CallMemberEventContent>()
-                    .await
-                {
-                    Ok(events) => events,
-                    Err(e) => {
-                        tracing::error!("Failed to get call member events: {e}");
-                        Vec::new()
-                    }
-                };
-
-                for raw in events {
-                    let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
-                        continue;
-                    };
-                    let matrix_sdk::ruma::events::SyncStateEvent::Original(ev) = ev else {
-                        continue;
-                    };
-                    let member = profile_store.get_member(&room_id, ev.state_key.user_id());
-
-                    for membership in ev.content.active_memberships(None) {
-                        call_participants.insert(CallMember::new(&membership, member.clone()));
-                    }
-                }
-            }
-
-            call_participants.sort_by_cached_key(|p| {
-                (
-                    p.member.raw_display_name_lowercase().unwrap_or_default(),
-                    p.member.user_id.clone(),
-                )
-            });
+            let call_participants = compute_call_participants(&room, &room_id, profile_store).await;
 
             dp_room.update_live_if_modified(|live| {
                 live.notification_counts = notifications;
                 live.call_participants = call_participants.clone();
+                live.calculate_own_call(&own_device);
             });
         }
     });
 }
 
-pub(crate) fn spawn_initial_load(profile_store: Arc<ProfileStore>, client: Client) {
+async fn compute_call_participants(
+    room: &Room,
+    room_id: &RoomId,
+    profile_store: &ProfileStore,
+) -> IndexSet<CallMember> {
+    let mut call_participants = IndexSet::new();
+
+    if room.has_active_room_call() {
+        let events = match room
+            .get_state_events_static::<CallMemberEventContent>()
+            .await
+        {
+            Ok(events) => events,
+            Err(e) => {
+                tracing::error!("Failed to get call member events: {e}");
+                Vec::new()
+            }
+        };
+
+        for raw in events {
+            let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
+                continue;
+            };
+            let matrix_sdk::ruma::events::SyncStateEvent::Original(ev) = ev else {
+                continue;
+            };
+            let member = profile_store.get_member(room_id, ev.state_key.user_id());
+
+            for membership in ev.content.active_memberships(None) {
+                call_participants.insert(CallMember::new(&membership, member.clone()));
+            }
+        }
+    }
+
+    call_participants.sort_by_cached_key(|p| {
+        (
+            p.member.raw_display_name_lowercase().unwrap_or_default(),
+            p.member.user_id.clone(),
+        )
+    });
+
+    call_participants
+}
+
+pub(crate) fn spawn_initial_load(
+    profile_store: Arc<ProfileStore>,
+    client: Client,
+    room_store: Arc<crate::room::store::RoomStore>,
+    own_device: Arc<UserDevice>,
+) {
     tokio::spawn(async move {
         let mut user_ids = HashSet::new();
 
         for room in client.rooms() {
             user_ids.extend(profile_store.load_room_members(&room).await);
+
+            if !room.has_active_room_call() {
+                continue;
+            }
+
+            let Some(dp_room) = room_store.get_room(room.room_id()) else {
+                continue;
+            };
+
+            let call_participants =
+                compute_call_participants(&room, room.room_id(), &profile_store).await;
+
+            dp_room.update_live_if_modified(|live| {
+                live.call_participants = call_participants.clone();
+                live.calculate_own_call(&own_device);
+            });
         }
 
         let user_ids: Vec<_> = user_ids.into_iter().collect();

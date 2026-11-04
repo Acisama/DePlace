@@ -4,6 +4,7 @@ use std::rc::Rc;
 use chrono_tz::Tz;
 use deplace_core::PaginationDirection;
 use deplace_core::matrix_api::attachments::download_file_to_picked;
+use deplace_core::member::room::RoomMembers;
 use deplace_core::settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType};
 use enumset::EnumSet;
 use iced::Vector;
@@ -108,6 +109,9 @@ pub struct ChatTimeline {
     user_can_redact_own: bool,
     user_can_redact_other: bool,
 
+    /// The members of the room, used to rerender the timeline when members change
+    room_members: Arc<RoomMembers>,
+
     // Stuff the messages depend on
     system_messages_to_show: Receiver<EnumSet<SystemMessageType>>,
     timezone: Receiver<Tz>,
@@ -183,6 +187,8 @@ impl ExtraHash for ChatTimeline {
                 bounds.height.to_bits().hash(state);
             }
         }
+
+        self.room_members.hash(state);
     }
 }
 
@@ -204,6 +210,8 @@ impl ChatTimeline {
         let mut timeline = Self {
             state: state.clone(),
             timeline: None,
+
+            room_members: room.members(),
 
             system_messages_to_show: settings.system_messages_to_show.watch(),
             timezone: settings.timezone.watch(),

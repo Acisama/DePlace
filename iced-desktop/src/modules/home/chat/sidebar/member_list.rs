@@ -81,7 +81,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         let theme = theme();
         let structure = structure();
 
-        let members = self.room.members();
+        let members = self.room.members_ref();
 
         let online_members = members.online();
         let offline_members = members.offline();

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{Error, Result};
 use matrix_sdk::{
     Client, SqliteStoreConfig,
@@ -200,10 +202,10 @@ where
     }
     settings.refresh().await;
 
-    let device = UserDevice {
+    let device = Arc::new(UserDevice {
         user_id: user_id.to_owned(),
         device_id: device_id.to_owned(),
-    };
+    });
 
     save_session(&client);
 
@@ -215,7 +217,7 @@ where
             return LoginResult::Error(e.to_string());
         }
     };
-    spawn_sync_runners(&client, &state);
+    spawn_sync_runners(&client, &state, device.clone());
 
     LoginResult::Success(state)
 }

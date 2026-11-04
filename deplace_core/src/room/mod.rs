@@ -126,8 +126,12 @@ impl DePlaceRoom {
         self.live.change_if_modified(f);
     }
 
-    pub fn members(&self) -> &RoomMembers {
+    pub fn members_ref(&self) -> &RoomMembers {
         &self.members
+    }
+
+    pub fn members(&self) -> Arc<RoomMembers> {
+        self.members.clone()
     }
 
     /// The other party in a DM, read live off the current member list rather

@@ -65,6 +65,9 @@ impl Member {
             self.room_data.data.load().display_string.hash(state);
         }
         if hash_avatar {
+            #[cfg(feature = "iced")]
+            self.room_data.data.load().avatar_handle.hash(state);
+            #[cfg(not(feature = "iced"))]
             self.room_data.data.load().avatar_url.hash(state);
         }
     }

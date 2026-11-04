@@ -53,7 +53,7 @@ pub struct ServerColumn {
 impl ExtraHash for ServerColumn {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         for room in self.room_store.dm_rooms().iter() {
-            room.hash_selective(state, false, true, false);
+            room.hash_selective(state, false, true, true);
         }
 
         for server_id in self.room_store.servers().iter() {
@@ -188,12 +188,17 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         HelpKey::Sidebar(SidebarHelpKey::DmsWithNotifications),
                         "Direct messages with unread notifications or ongoing calls",
                         w::mouse_area(
-                            w::button(room.render_icon(icon_size))
-                                .padding(0.0)
-                                .style(move |_, _| ButtonStyle {
-                                    ..Default::default()
-                                })
-                                .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
+                            w::button(room.render_simple_icon(
+                                icon_size,
+                                theme,
+                                structure,
+                                theme.solid_bg.into(),
+                            ))
+                            .padding(0.0)
+                            .style(move |_, _| ButtonStyle {
+                                ..Default::default()
+                            })
+                            .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
                         )
                         .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
                             id.clone(),
@@ -331,7 +336,7 @@ fn render_server_icon(
 
     let mut call_members = Vec::new();
 
-    let members = room.members();
+    let members = room.members_ref();
 
     let online_members = members.online_len();
     let offline_members = members.offline_len();

@@ -82,7 +82,7 @@ impl ExtraHash for ServerChannels {
         self.name_decoration.borrow().hash(state);
 
         for room in self.room_store.dm_rooms().iter() {
-            room.hash_selective(state, true, true, false);
+            room.hash_all(state);
         }
 
         if let Some(server) = self.active_server.borrow().as_server() {
@@ -521,10 +521,8 @@ fn render_channel(
         } else if let Some(active_id) = &active_room_id
             && let Some(active) = children.iter().find(|room| room.room_id() == active_id)
         {
-            let line_height = item_height + structure.divider_width;
-
             column = column.push_element(
-                w::container(w::stack([
+                w::container(w::stack![
                     w::row![
                         w::space().width(icon_size),
                         render_channel(
@@ -541,12 +539,11 @@ fn render_channel(
                             help_view,
                             usize::MAX,
                         )
-                    ]
-                    .boxed(),
+                    ],
                     w::container(
                         w::container("")
                             .width(structure.divider_width)
-                            .height(line_height)
+                            .height(icon_size)
                             .style(move |_| ContainerStyle {
                                 background: Some(theme.border.into()),
                                 border: border::rounded(structure.divider_width / 2.0),
@@ -555,8 +552,7 @@ fn render_channel(
                     )
                     .width(icon_size)
                     .center_x(icon_size)
-                    .boxed(),
-                ]))
+                ])
                 .padding(padding::left(structure.small_gap)),
             );
         }
@@ -564,21 +560,47 @@ fn render_channel(
         column.boxed()
     } else {
         if !room.is_dm() {
-            column
-                .extend(live.call_participants().into_iter().map(|p| {
-                    let is_hovered = hovered_call_participant
-                        .as_ref()
-                        .is_some_and(|(r, u)| r == room.room_id() && u == &p);
+            let item_height = icon_size + structure.small_gap;
 
-                    render_call_participant(
-                        p,
-                        room.room_id(),
-                        is_hovered,
-                        theme,
-                        structure,
-                        icon_size,
-                    )
-                }))
+            let participants = live.call_participants();
+            let line_height = (item_height + structure.divider_width) * participants.len() as f32;
+
+            column
+                .push(
+                    w::container(w::stack![
+                        w::Column::with_children(participants.into_iter().map(|p| {
+                            let is_hovered = hovered_call_participant
+                                .as_ref()
+                                .is_some_and(|(r, u)| r == room.room_id() && u == &p);
+
+                            render_call_participant(
+                                p,
+                                room.room_id(),
+                                is_hovered,
+                                theme,
+                                structure,
+                                icon_size,
+                            )
+                        }))
+                        .spacing(structure.divider_width)
+                        .padding(padding::left(icon_size)),
+                        w::container(
+                            w::container("")
+                                .width(structure.divider_width)
+                                .height(line_height)
+                                .style(move |_| ContainerStyle {
+                                    background: Some(theme.border.into()),
+                                    border: border::rounded(structure.divider_width / 2.0),
+                                    ..Default::default()
+                                }),
+                        )
+                        .width(icon_size)
+                        .center_x(icon_size)
+                        .boxed(),
+                    ])
+                    .padding(padding::left(structure.small_gap))
+                    .boxed(),
+                )
                 .boxed()
         } else {
             column.boxed()
