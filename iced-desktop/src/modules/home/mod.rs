@@ -396,8 +396,8 @@ impl Home {
                         message,
                     }
                 }))),
-                ChatAction::JoinCall => join_call(&chat.room_id),
-                ChatAction::LeaveCall => leave_call(&chat.room_id),
+                ChatAction::JoinCall => join_call(&self.state, &chat.room_id),
+                ChatAction::LeaveCall => leave_call(&self.state, &chat.room_id),
                 ChatAction::ShowProfile { member, bounds } => {
                     chat.clear_hover();
                     self.overlay.open_profile(member, bounds);
@@ -446,14 +446,41 @@ impl Home {
     }
 }
 
-fn join_call(room_id: &RoomId) -> Option<HomeAction> {
-    tracing::trace!("Join room {}", room_id);
-    None
+/// Joins the MatrixRTC call in a room: gets a LiveKit token from the room's
+/// RTC focus, signals the join to the room and plays all call audio there
+fn join_call(state: &AppState, room_id: &RoomId) -> Option<HomeAction> {
+    let Some(audio) = state.audio() else {
+        tracing::warn!("Not joining the call in {room_id}: no audio connection");
+        return None;
+    };
+
+    let join = deplace_core::matrix_api::matrixrtc::join_matrixrtc_call(
+        state.client(),
+        room_id.to_string(),
+        state.livekit_room_manager(),
+        audio,
+    );
+
+    Some(HomeAction::Run(Task::future(async move {
+        if let Err(e) = join.await {
+            tracing::error!("Could not join the call: {e:#}");
+        }
+    })))
 }
 
-fn leave_call(room_id: &RoomId) -> Option<HomeAction> {
-    tracing::trace!("Leave room {}", room_id);
-    None
+/// Leaves the MatrixRTC call in a room, if there is one
+fn leave_call(state: &AppState, room_id: &RoomId) -> Option<HomeAction> {
+    let leave = deplace_core::matrix_api::matrixrtc::leave_matrixrtc_call(
+        state.client(),
+        state.livekit_room_manager(),
+        room_id.to_string(),
+    );
+
+    Some(HomeAction::Run(Task::future(async move {
+        if let Err(e) = leave.await {
+            tracing::error!("Could not leave the call: {e:#}");
+        }
+    })))
 }
 
 impl IcedWidget<HomeMessage, HomeAction> for Home {

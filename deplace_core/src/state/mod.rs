@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env::temp_dir,
     fmt::Debug,
     hash::Hash,
@@ -22,6 +23,7 @@ use crate::{
     keybinds::Keybinds,
     matrix_api::{
         account_data::{BreadcrumbsContent, DePlaceAccountData, ServerOrderContent},
+        matrixrtc::LiveKitRoomManager,
         sync::spawn_initial_load,
     },
     member::ProfileStore,
@@ -228,6 +230,9 @@ pub(crate) struct AppStateInner {
     /// not open
     audio: Option<AudioThread>,
 
+    /// All MatrixRTC calls the app is currently in, keyed by room id.
+    livekit_room_manager: LiveKitRoomManager,
+
     sync_tick: Sender<u64>,
 
     pub active_room: Sender<Option<DePlaceRoom>>,
@@ -318,6 +323,9 @@ impl AppState {
             })
             .ok();
 
+        let livekit_room_manager: LiveKitRoomManager =
+            Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+
         let (own_display_name, _) = watch::channel(None);
         let (own_avatar_url, _) = watch::channel(None);
 
@@ -355,6 +363,8 @@ impl AppState {
                 notification_manager: NotificationManager::default(),
 
                 audio,
+
+                livekit_room_manager,
 
                 client,
                 own_device,
@@ -440,6 +450,11 @@ impl AppState {
     /// then.
     pub fn audio(&self) -> Option<AudioThread> {
         self.inner.audio.clone()
+    }
+
+    /// All MatrixRTC calls the app is currently in, keyed by room id
+    pub fn livekit_room_manager(&self) -> LiveKitRoomManager {
+        self.inner.livekit_room_manager.clone()
     }
 
     pub fn important_paths(&self) -> &ImportantPaths {

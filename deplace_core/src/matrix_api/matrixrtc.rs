@@ -119,7 +119,6 @@ impl LiveKitRoomData {
     }
 }
 
-#[tracing::instrument(skip(audio))]
 pub async fn join_matrixrtc_call(
     matrix_client: Client,
     room_id: String,
@@ -555,7 +554,7 @@ impl Default for CallSessionInfo {
     }
 }
 
-pub(crate) async fn leave_matrixrtc_call(
+pub async fn leave_matrixrtc_call(
     matrix_client: Client,
     livekit_room_manager: LiveKitRoomManager,
     room_id: String,

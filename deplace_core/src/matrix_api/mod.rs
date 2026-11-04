@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 pub mod account_data;
 pub mod attachments;
 mod hierarchy;
-mod matrixrtc;
+pub mod matrixrtc;
 mod members;
 pub mod messages;
 pub mod profile_data;
