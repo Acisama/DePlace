@@ -10,7 +10,9 @@ use sweeten::widget::drag::DragEvent;
 use super::pill::PillCanvas;
 use crate::{
     common::*,
-    components::{PushElement, help_mode::SidebarHelpKey, phosphor_icon},
+    components::{
+        PushElement, help_mode::SidebarHelpKey, phosphor_icon, profile::render_row_of_icons,
+    },
     modules::home::{SPEAKER_ICON, chat::render_member_numbers},
 };
 
@@ -367,9 +369,18 @@ fn render_server_icon(
 
     for members in call_members {
         tooltip_content.push(
-            w::row![phosphor_icon(SPEAKER_ICON, structure.font_size).color(theme.text.dim.into())]
-                .extend(members.iter().map(|m| m.render_icon(structure.font_size)))
-                .boxed(),
+            w::row![
+                phosphor_icon(SPEAKER_ICON, structure.large_font_size).color(theme.text.dim.into()),
+                render_row_of_icons(
+                    members.into_iter().collect::<Vec<_>>().as_ref(),
+                    theme.solid_bg.into(),
+                    structure.large_font_size,
+                    structure
+                )
+            ]
+            .spacing(structure.small_gap / 2.0)
+            .align_y(Alignment::Center)
+            .boxed(),
         );
     }
 
@@ -384,7 +395,7 @@ fn render_server_icon(
 
     let content = w::mouse_area(themed_tooltip_content(
         room.render_icon(icon_size),
-        w::Column::with_children(tooltip_content),
+        w::Column::with_children(tooltip_content).spacing(structure.small_gap / 2.0),
         structure,
         theme,
         w::tooltip::Position::Right,

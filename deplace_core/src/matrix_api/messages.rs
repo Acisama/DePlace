@@ -262,6 +262,8 @@ impl RoomSendingExt for Timeline {
             extra_content: None,
         };
 
+        tracing::debug!(filename = %attachment.filename, size, "queuing attachment for upload");
+
         self.send_attachment(
             AttachmentSource::Data {
                 bytes: attachment.data.into(),
@@ -272,6 +274,8 @@ impl RoomSendingExt for Timeline {
         )
         .use_send_queue()
         .await?;
+
+        tracing::debug!("attachment queued successfully");
 
         Ok(())
     }

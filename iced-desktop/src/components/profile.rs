@@ -27,7 +27,7 @@ use crate::{
 };
 
 use super::{
-    ColoredRounded, CopyUserIdExt, IcedColorExt, InsetShadow, StatusExt,
+    ColoredRounded, CopyUserIdExt, IcedColorExt, InsetShadow, PushElement, StatusExt,
     corner_badge::{notch_circle, positioned},
     link, phosphor_icon, weighted_text,
 };
@@ -499,8 +499,8 @@ pub fn render_banner_column<'a, T: CopyUserIdExt + Clone + 'a>(
 
 const MAX_ICONS: usize = 5;
 
-pub fn render_row_of_icons<'a, T: 'a>(
-    profiles: &[Member],
+pub fn render_row_of_icons<'a, T: 'a, Profile: ProfileLike>(
+    profiles: &[Profile],
     background_color: Color,
     icon_size: f32,
     structure: Structure,
@@ -510,11 +510,11 @@ pub fn render_row_of_icons<'a, T: 'a>(
             profiles
                 .iter()
                 .take(MAX_ICONS - 1)
-                .collect::<Vec<&Member>>(),
+                .collect::<Vec<&Profile>>(),
             Some(profiles.len() - MAX_ICONS),
         )
     } else {
-        (profiles.iter().collect::<Vec<&Member>>(), None)
+        (profiles.iter().collect::<Vec<&Profile>>(), None)
     };
 
     let overlap = 1.0 / 3.0;
@@ -524,11 +524,11 @@ pub fn render_row_of_icons<'a, T: 'a>(
     let mut index = 0;
     let mut stack = Stack::new();
 
-    let outer = structure.divider_width * 1.5;
+    let outer = structure.divider_width;
     let outer_width = icon_size + outer * 2.0;
 
     for member in profiles.iter() {
-        stack = stack.push(
+        stack = stack.push_element(
             w::container(
                 w::container("")
                     .width(outer_width)
@@ -539,23 +539,21 @@ pub fn render_row_of_icons<'a, T: 'a>(
             .height(Fill)
             .align_x(Alignment::Start)
             .align_y(Alignment::Center)
-            .padding(padding::left(index as f32 * step))
-            .boxed(),
+            .padding(padding::left(index as f32 * step)),
         );
-        stack = stack.push(
+        stack = stack.push_element(
             w::container(member.render_icon(icon_size))
                 .width(Fill)
                 .height(Fill)
                 .align_x(Alignment::Start)
                 .align_y(Alignment::Center)
-                .padding(padding::left(index as f32 * step + outer))
-                .boxed(),
+                .padding(padding::left(index as f32 * step + outer)),
         );
         index += 1;
     }
 
     if let Some(overflow) = overflow {
-        stack = stack.push(
+        stack = stack.push_element(
             w::container(text_icon(
                 format!("+{overflow}"),
                 icon_size,
@@ -566,8 +564,7 @@ pub fn render_row_of_icons<'a, T: 'a>(
             .height(Fill)
             .align_x(Alignment::Start)
             .align_y(Alignment::Center)
-            .padding(padding::left(index as f32 * step + outer))
-            .boxed(),
+            .padding(padding::left(index as f32 * step + outer)),
         );
         index += 1;
     }
@@ -575,5 +572,6 @@ pub fn render_row_of_icons<'a, T: 'a>(
     w::container(stack)
         .width(get_width(index - 1) + outer * 2.0)
         .height(outer_width)
+        .center_y(outer_width)
         .boxed()
 }
