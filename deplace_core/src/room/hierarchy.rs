@@ -3,9 +3,19 @@ use std::{
     sync::Arc,
 };
 
-use ruma::{OwnedRoomId, RoomId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId};
 
 use crate::matrix_api::account_data::ServerOrderContent;
+
+/// Fields needed to order a child room within a space, mirroring the
+/// `m.space.child` ordering algorithm: rooms with a valid `order` sort
+/// lexicographically ahead of those without one; ties (including all
+/// order-less rooms) fall back to `origin_server_ts`, then room ID.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChildOrder {
+    pub order: Option<String>,
+    pub origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
+}
 
 #[derive(Clone, Debug)]
 pub struct SpaceHierarchy {
@@ -13,7 +23,7 @@ pub struct SpaceHierarchy {
     pub parent_to_all_children: Arc<BTreeMap<OwnedRoomId, Arc<BTreeSet<OwnedRoomId>>>>,
     pub child_to_parents: Arc<BTreeMap<OwnedRoomId, BTreeSet<OwnedRoomId>>>,
 
-    pub parent_to_child_orders: Arc<BTreeMap<OwnedRoomId, BTreeMap<OwnedRoomId, String>>>,
+    pub parent_to_child_orders: Arc<BTreeMap<OwnedRoomId, BTreeMap<OwnedRoomId, ChildOrder>>>,
 
     pub servers: Arc<Vec<OwnedRoomId>>,
     last_server_order: Arc<ServerOrderContent>,
@@ -84,33 +94,45 @@ impl SpaceHierarchy {
 
     fn sort_children(&mut self, parent: &RoomId) {
         if let Some(children) = Arc::make_mut(&mut self.parent_to_children).get_mut(parent) {
+            let orders = self.parent_to_child_orders.get(parent);
             Arc::make_mut(children).sort_by_key(|id| {
-                self.parent_to_child_orders
-                    .get(id)
-                    .and_then(|map| map.get(id))
+                let child_order = orders.and_then(|map| map.get(id));
+                let order = child_order.and_then(|c| c.order.clone());
+                let no_order = order.is_none();
+                let ts = child_order.and_then(|c| c.origin_server_ts);
+                (no_order, order.unwrap_or_default(), ts, id.clone())
             });
         }
     }
 
     fn apply_server_order(&mut self) {
-        if self.last_server_order.servers == *self.servers {
-            return;
+        let current_servers: BTreeSet<OwnedRoomId> = self.servers.iter().cloned().collect();
+
+        let known: BTreeSet<&OwnedRoomId> = self.last_server_order.servers.iter().collect();
+        let mut remembered = self.last_server_order.servers.clone();
+        for server in &current_servers {
+            if !known.contains(server) {
+                remembered.push(server.clone());
+            }
+        }
+        if remembered != self.last_server_order.servers {
+            self.last_server_order = Arc::new(ServerOrderContent {
+                servers: remembered,
+            });
         }
 
-        let mut all_servers: BTreeSet<OwnedRoomId> = self.servers.iter().cloned().collect();
+        let mut remaining = current_servers;
         let mut new_server_order = Vec::new();
-
         for server in &self.last_server_order.servers {
-            if all_servers.remove(server) {
+            if remaining.remove(server) {
                 new_server_order.push(server.clone());
             }
         }
+        new_server_order.extend(remaining);
 
-        new_server_order.extend(all_servers);
-        self.servers = Arc::new(new_server_order.clone());
-        self.last_server_order = Arc::new(ServerOrderContent {
-            servers: new_server_order,
-        });
+        if *self.servers != new_server_order {
+            self.servers = Arc::new(new_server_order);
+        }
     }
 
     fn bump_parent_version(&mut self, parent: OwnedRoomId) {
@@ -122,16 +144,15 @@ impl SpaceHierarchy {
     pub fn update_child_parents(
         &mut self,
         child_id: OwnedRoomId,
-        new_parents: HashMap<OwnedRoomId, Option<String>>,
+        new_parents: HashMap<OwnedRoomId, ChildOrder>,
     ) {
         let new_parents_set = new_parents
             .into_iter()
             .map(|(parent_id, order)| {
-                if let Some(order) = order {
-                    Arc::make_mut(&mut self.parent_to_child_orders)
-                        .get_mut(&parent_id)
-                        .and_then(|map| map.insert(child_id.clone(), order));
-                }
+                Arc::make_mut(&mut self.parent_to_child_orders)
+                    .entry(parent_id.clone())
+                    .or_default()
+                    .insert(child_id.clone(), order);
 
                 parent_id
             })
@@ -221,9 +242,11 @@ impl SpaceHierarchy {
 
     pub fn reorder_servers(&mut self, index: usize, target_index: usize) -> ServerOrderContent {
         Arc::make_mut(&mut self.servers).swap(index, target_index);
-        ServerOrderContent {
+        let order = ServerOrderContent {
             servers: (*self.servers).clone(),
-        }
+        };
+        self.last_server_order = Arc::new(order.clone());
+        order
     }
 
     pub fn get_first_child_of(&self, parent: &RoomId) -> Option<OwnedRoomId> {

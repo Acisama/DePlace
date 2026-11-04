@@ -10,7 +10,10 @@ use tokio::sync::watch;
 
 use crate::{Shared, matrix_api::account_data::ServerOrderContent, member::ProfileStore};
 
-use super::{DePlaceRoom, hierarchy::SpaceHierarchy};
+use super::{
+    DePlaceRoom,
+    hierarchy::{ChildOrder, SpaceHierarchy},
+};
 
 pub type RoomMap = DashMap<OwnedRoomId, DePlaceRoom>;
 
@@ -262,10 +265,7 @@ async fn apply_parent_update(hierarchy: &Shared<SpaceHierarchy>, room: &Room) {
     });
 }
 
-async fn fetch_parent_spaces(
-    room: &Room,
-    room_id: &RoomId,
-) -> HashMap<OwnedRoomId, Option<String>> {
+async fn fetch_parent_spaces(room: &Room, room_id: &RoomId) -> HashMap<OwnedRoomId, ChildOrder> {
     let stream = match room.parent_spaces().await {
         Ok(stream) => stream,
         Err(e) => {
@@ -286,28 +286,33 @@ async fn fetch_parent_spaces(
             _ => continue,
         };
 
-        let order = match parent_room
+        let original_event = match parent_room
             .get_state_event_static_for_key::<SpaceChildEventContent, _>(room_id)
             .await
         {
-            Ok(child) => child
-                .and_then(|raw| match raw.deserialize() {
-                    Ok(child) => child.as_sync().cloned(),
-                    Err(e) => {
-                        tracing::error!("Failed to deserialize child event: {e}");
-                        None
-                    }
-                })
-                .and_then(|v| v.as_original().cloned())
-                .and_then(|v| v.content.order.clone())
-                .map(|o| o.to_string()),
+            Ok(child) => child.and_then(|raw| match raw.deserialize() {
+                Ok(child) => child.as_sync().cloned(),
+                Err(e) => {
+                    tracing::error!("Failed to deserialize child event: {e}");
+                    None
+                }
+            }),
             Err(e) => {
                 tracing::error!("Failed to get child event for {room_id}: {e}");
                 None
             }
+        }
+        .and_then(|v| v.as_original().cloned());
+
+        let child_order = ChildOrder {
+            order: original_event
+                .as_ref()
+                .and_then(|v| v.content.order.clone())
+                .map(|o| o.to_string()),
+            origin_server_ts: original_event.map(|v| v.origin_server_ts),
         };
 
-        parents.insert(parent_room.room_id().to_owned(), order);
+        parents.insert(parent_room.room_id().to_owned(), child_order);
     }
 
     parents

@@ -387,7 +387,13 @@ fn frame_to_stereo_48k(frame: &AudioFrame<'_>) -> Vec<f32> {
     let stereo: Vec<f32> = match channels {
         1 => samples.iter().flat_map(|&s| [s, s]).collect(),
         2 => samples,
-        _ => samples.chunks_exact(2).flatten().copied().collect(),
+        _ => samples
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .flatten()
+            .copied()
+            .collect(),
     };
 
     resample(&stereo, frame.sample_rate)

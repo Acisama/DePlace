@@ -82,6 +82,7 @@ where
                 })
                 .unwrap_or_default()
         } else {
+            tracing::warn!("No account data found for {}, using default", T::TYPE);
             T::default()
         }
     }
