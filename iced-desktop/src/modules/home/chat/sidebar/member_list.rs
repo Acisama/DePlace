@@ -192,11 +192,13 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         );
 
         if live.has_call_participants() {
-            row = row.push_element(
+            let length = live.call_participants().len();
+
+            row = row.push_element(themed_tooltip_text(
                 help_view
                     .call(
                         ChatSidebarHelpKey::ActiveCallMemberCount,
-                        format!("Active call members — {}", live.call_participants().len()),
+                        "How many members are in an active call in this room",
                         w::row![
                             phosphor_icon(MIC_ICON, structure.semi_large_font_size() * 0.9)
                                 .color(theme.colors.offline.into()),
@@ -209,7 +211,10 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                         .align_y(Alignment::Center),
                     )
                     .radius(structure.inner_border_radius),
-            );
+                format!("{} active call members", length),
+                structure,
+                theme,
+            ));
         }
 
         let header = w::container(row).width(Fill).center_x(Length::Fill);
@@ -258,31 +263,42 @@ pub fn render_member_numbers<T: Clone + HelpOverMessage + 'static>(
 ) -> w::Row<Element<'static, T>> {
     let mut heading_children = Vec::new();
 
-    let icon = |text, icon, color, key, help, heading: &mut Vec<Element<'static, T>>| {
+    let icon = move |text,
+                     icon,
+                     color,
+                     key,
+                     help,
+                     description: String,
+                     heading: &mut Vec<Element<'static, T>>| {
         heading.push(
-            help_view
-                .call(
-                    key,
-                    help,
-                    w::row![
-                        svg(iced::advanced::svg::Handle::from_memory(icon))
-                            .width(structure.semi_large_font_size() * 0.6)
-                            .height(structure.semi_large_font_size() * 0.6)
-                            .style(move |_, _| w::svg::Style { color: Some(color) }),
-                        w::text(text)
-                            .size(if big {
-                                structure.semi_large_font_size()
-                            } else {
-                                structure.font_size
-                            })
-                            .color(color)
-                    ]
-                    .spacing(structure.small_gap)
-                    .padding(padding::horizontal(structure.gap / 2.0))
-                    .align_y(Alignment::Center),
-                )
-                .radius(structure.inner_border_radius)
-                .into(),
+            themed_tooltip_text(
+                help_view
+                    .call(
+                        key,
+                        help,
+                        w::row![
+                            svg(iced::advanced::svg::Handle::from_memory(icon))
+                                .width(structure.semi_large_font_size() * 0.6)
+                                .height(structure.semi_large_font_size() * 0.6)
+                                .style(move |_, _| w::svg::Style { color: Some(color) }),
+                            w::text(text)
+                                .size(if big {
+                                    structure.semi_large_font_size()
+                                } else {
+                                    structure.font_size
+                                })
+                                .color(color)
+                        ]
+                        .spacing(structure.small_gap)
+                        .padding(padding::horizontal(structure.gap / 2.0))
+                        .align_y(Alignment::Center),
+                    )
+                    .radius(structure.inner_border_radius),
+                description.clone(),
+                structure,
+                theme,
+            )
+            .boxed(),
         );
     };
 
@@ -297,6 +313,7 @@ pub fn render_member_numbers<T: Clone + HelpOverMessage + 'static>(
             theme.colors.online.into(),
             HelpKey::ChatSidebar(ChatSidebarHelpKey::OnlineMemberCount),
             "How many online members are in the current room",
+            format!("{} online in this room", online_members),
             &mut heading_children,
         );
     }
@@ -311,6 +328,7 @@ pub fn render_member_numbers<T: Clone + HelpOverMessage + 'static>(
         theme.colors.offline.into(),
         HelpKey::ChatSidebar(ChatSidebarHelpKey::OfflineMemberCount),
         "How many offline members are in the current room",
+        format!("{} total room members", offline_members),
         &mut heading_children,
     );
 
