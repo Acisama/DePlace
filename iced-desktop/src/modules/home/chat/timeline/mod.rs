@@ -778,13 +778,6 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 self.refresh_all_datedividers();
                 self.messages_version += 1;
 
-                if length < 50 {
-                    // Not enough content yet to meaningfully snap to
-                    // `scroll_position` -- deferred to `Diffs`, once the
-                    // top-up below actually lands.
-                    return self.pagination_task(PaginationDirection::Backward, 50 - length as u16);
-                }
-
                 self.restored_scroll = true;
                 Some(TimelineAction::Run(self.restore_scroll_task()))
             }
