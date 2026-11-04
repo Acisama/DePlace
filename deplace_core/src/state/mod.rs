@@ -18,6 +18,7 @@ use tokio::sync::watch::{self, Receiver, Sender};
 
 use crate::{
     APP_NAME,
+    audio::AudioThread,
     keybinds::Keybinds,
     matrix_api::{
         account_data::{BreadcrumbsContent, DePlaceAccountData, ServerOrderContent},
@@ -220,6 +221,13 @@ pub(crate) struct AppStateInner {
 
     notification_manager: NotificationManager,
 
+    /// The app's one audio connection, started when the app starts.
+    ///
+    /// Everything that wants to make a sound (calls, notification sounds,
+    /// whatever else) goes through this. `None` means the sound device would
+    /// not open
+    audio: Option<AudioThread>,
+
     sync_tick: Sender<u64>,
 
     pub active_room: Sender<Option<DePlaceRoom>>,
@@ -303,6 +311,13 @@ impl AppState {
 
         let (keybinds, _) = watch::channel(keybinds);
 
+        let audio = AudioThread::start()
+            .map_err(|e| {
+                tracing::warn!("Could not start audio, the app will be silent: {e:#}");
+                e
+            })
+            .ok();
+
         let (own_display_name, _) = watch::channel(None);
         let (own_avatar_url, _) = watch::channel(None);
 
@@ -338,6 +353,8 @@ impl AppState {
                 own_avatar_handle: Sender::default(),
 
                 notification_manager: NotificationManager::default(),
+
+                audio,
 
                 client,
                 own_device,
@@ -416,6 +433,13 @@ impl AppState {
 
     pub fn notification_manager(&self) -> &NotificationManager {
         &self.inner.notification_manager
+    }
+
+    /// The app's audio connection, shared by everything that makes a sound.
+    /// `None` if the sound device would not open, sounds are simply skipped
+    /// then.
+    pub fn audio(&self) -> Option<AudioThread> {
+        self.inner.audio.clone()
     }
 
     pub fn important_paths(&self) -> &ImportantPaths {

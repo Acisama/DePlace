@@ -4,9 +4,11 @@
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose;
+use futures::StreamExt;
 use livekit::e2ee::EncryptionType;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
-use livekit::track::RemoteTrack;
+use livekit::prelude::TrackSid;
+use livekit::track::{RemoteAudioTrack, RemoteTrack};
 use matrix_sdk::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::api::client::rtc::RtcTransport;
@@ -19,10 +21,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use crate::audio::AudioThread;
 // use cpal::traits::{DeviceTrait, HostTrait};
 // use futures::StreamExt;
 // use livekit::track::{LocalAudioTrack, LocalTrack, RemoteAudioTrack, RemoteTrack};
-// use livekit::webrtc::audio_stream::native::NativeAudioStream;
+use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::native::frame_cryptor::EncryptionState;
 use livekit::{E2eeOptions, RoomEvent};
 use matrix_sdk::ruma::MilliSecondsSinceUnixEpoch;
@@ -48,6 +51,55 @@ type PendingUpdates = HashMap<String, Vec<(String, EncryptionKeysEventContent)>>
 
 static PENDING_KEY_UPDATES: LazyLock<Mutex<PendingUpdates>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Forwards everything one remote call track says to the speakers. The
+/// task stops when the call is left or the track
+/// goes away, whichever happens first.
+fn spawn_remote_audio_pump(
+    track: RemoteAudioTrack,
+    cancellationtoken: CancellationToken,
+    audio: AudioThread,
+) -> tokio::task::JoinHandle<()> {
+    event!(
+        Level::DEBUG,
+        "Starting to play remote call track {}",
+        track.sid()
+    );
+
+    tokio::spawn(async move {
+        let player = match audio.frame_player().await {
+            Ok(player) => player,
+            Err(e) => {
+                event!(
+                    Level::WARN,
+                    "Could not create a player for a call track: {e:#}"
+                );
+                return;
+            }
+        };
+
+        let mut stream = NativeAudioStream::new(track.rtc_track(), 48_000, 2);
+
+        loop {
+            tokio::select! {
+                _ = cancellationtoken.cancelled() => break,
+
+                frame = stream.next() => match frame {
+                    Some(frame) => player.push(&frame),
+                    // Track is done, nothing will ever come again
+                    None => break,
+                }
+            }
+        }
+
+        event!(
+            Level::DEBUG,
+            "Stopped playing remote call track {}",
+            track.sid()
+        );
+    })
+}
+
 use livekit::Room as LiveKitRoom;
 
 pub type LiveKitRoomManager = Arc<Mutex<HashMap<String, LiveKitRoomData>>>;
@@ -67,11 +119,12 @@ impl LiveKitRoomData {
     }
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(audio))]
 pub async fn join_matrixrtc_call(
     matrix_client: Client,
     room_id: String,
     livekit_room_manager: LiveKitRoomManager,
+    audio: AudioThread,
 ) -> anyhow::Result<()> {
     event!(Level::INFO, "Started joining call");
 
@@ -399,7 +452,12 @@ pub async fn join_matrixrtc_call(
     // handle events
     let room_id_clone = canonical_room_id.clone();
     let cancellationtoken_clone = cancellationtoken.clone();
+    let audio_clone = audio.clone();
     tokio::spawn(async move {
+        // One pump per remote audio track, so tracks can go away again
+        // without their audio playing forever
+        let mut audio_pumps: HashMap<TrackSid, tokio::task::JoinHandle<()>> = HashMap::new();
+
         loop {
             tokio::select! {
                 _ = cancellationtoken_clone.cancelled() => {
@@ -422,13 +480,29 @@ pub async fn join_matrixrtc_call(
                                 // let _ = channel.send(CallEvent::EncryptionStateChanged {participant: participant.identity().as_str().into(), state: encryption_state}).log_as_warn();
                                 // };
                                 event!(Level::DEBUG, "Encryption state changed for {participant:?}, new state: {state:?}");
-                            } else if let RoomEvent::TrackSubscribed { track, .. } = ev
-                                && let RemoteTrack::Audio(ref audio_track) = track
+                            } else if let RoomEvent::TrackSubscribed {
+                                track: RemoteTrack::Audio(audio_track),
+                                participant,
+                                ..
+                            } = &ev
                             {
-                                event!(Level::DEBUG, "Subscribed to new audio track: {:?}", track);
-                                // if let Err(e) = register_new_track(handle.clone(), audio_track, sender.clone(), cancellationtoken_clone.clone()).await {
-                                    // warn!("Could not register output of remote track: {e}")
-                                // }
+                                event!(Level::DEBUG, "Subscribed to new audio track: {:?} from {:?}", audio_track, participant);
+                                let pump = spawn_remote_audio_pump(
+                                    audio_track.clone(),
+                                    cancellationtoken_clone.clone(),
+                                    audio_clone.clone(),
+                                );
+                                audio_pumps.insert(audio_track.sid(), pump);
+                            }
+                            else if let RoomEvent::TrackUnsubscribed {
+                                track: RemoteTrack::Audio(audio_track),
+                                ..
+                            } = &ev
+                            {
+                                event!(Level::DEBUG, "Unsubscribed from audio track: {:?}", audio_track);
+                                if let Some(pump) = audio_pumps.remove(&audio_track.sid()) {
+                                    pump.abort();
+                                }
                             }
                         }
                         None => {
