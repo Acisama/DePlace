@@ -25,7 +25,7 @@ use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
 use messages::{MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::widget::list;
 
-use crate::components::{PushElement, phosphor_icon};
+use crate::components::{PushElement, fills_parent, phosphor_icon};
 use crate::modules::home::overlay::{ContextMenu, ContextMenuKind, MediaOverlayParams, ModifyItem};
 use crate::modules::home::{COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, UNPIN_ICON};
 use crate::{
@@ -71,6 +71,7 @@ pub enum TimelineMessage {
     RestoreScrollPosition,
     KeyboardEvent(iced::keyboard::Event),
     ScrollTo(Option<Rectangle>),
+    FillsParent(bool),
     HelpHover(Option<HelpKey>),
 }
 
@@ -1084,6 +1085,13 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     w::operation::Animation::Smooth,
                 )))
             }
+            TimelineMessage::FillsParent(fills) => {
+                if fills || self.reached_top {
+                    None
+                } else {
+                    self.pagination_task(PaginationDirection::Backward, 30)
+                }
+            }
             TimelineMessage::None => None,
         }
     }
@@ -1108,7 +1116,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         let mut stack = w::stack![
             w::container(track_scroll(
                 themed_scrollable(
-                    w::container(
+                    w::container(fills_parent(
                         list(self.content.clone(), move |index, id, item| {
                             let is_focused = focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
                             lazy((item.clone(), is_focused), move |(item, is_focused)| {
@@ -1121,7 +1129,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             })
                         })
                         .id(LIST_ID),
-                    )
+                        TimelineMessage::FillsParent,
+                    ))
                     // .padding(padding::bottom(structure.gap * 3.0))
                     .width(Fill)
                     .height(Fill)

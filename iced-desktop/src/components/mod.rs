@@ -24,6 +24,7 @@ pub mod animated_button;
 pub mod animation_clock;
 pub mod corner_badge;
 pub mod equal_width;
+pub mod fills_parent;
 pub mod help_mode;
 pub mod link;
 pub mod on_appear;
@@ -37,6 +38,7 @@ pub mod track_bounds;
 pub mod track_scroll;
 
 pub use corner_badge::{CornerContent, corner_badge};
+pub use fills_parent::fills_parent;
 pub use on_appear::on_appear;
 pub use pan::pan;
 
