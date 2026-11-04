@@ -9,16 +9,16 @@ use iced::{
 
 use crate::common::DePlaceWidget;
 
-/// A wrapper that reports whether its content fills the parent's space
-/// (vertically).
+/// A wrapper that emits a message once, when it is built, if its content
+/// doesn't fill the parent's space (vertically).
 pub struct FillsParent<Message, Content: DePlaceWidget<Message>> {
     content: Content,
-    on_change: Box<dyn Fn(bool) -> Message + 'static>,
+    on_change: Box<dyn Fn() -> Message + 'static>,
 }
 
 pub fn fills_parent<Message, Content: DePlaceWidget<Message>>(
     content: Content,
-    on_change: impl Fn(bool) -> Message + 'static,
+    on_change: impl Fn() -> Message + 'static,
 ) -> FillsParent<Message, Content> {
     FillsParent {
         content,
@@ -30,7 +30,7 @@ pub fn fills_parent<Message, Content: DePlaceWidget<Message>>(
 struct State {
     parent_height: f32,
     content_height: f32,
-    last_published: Option<(bool, f32, f32)>,
+    checked: bool,
 }
 
 impl<Message, Content: DePlaceWidget<Message>> Meta for FillsParent<Message, Content> {}
@@ -74,13 +74,15 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
         if let Event::Window(window::Event::RedrawRequested(_)) = event {
             let state: &mut State = tree.state.downcast_mut();
 
-            let filled =
-                !state.parent_height.is_finite() || state.content_height >= state.parent_height;
+            if !state.checked {
+                state.checked = true;
 
-            let current = (filled, state.parent_height, state.content_height);
-            if state.last_published != Some(current) {
-                state.last_published = Some(current);
-                shell.publish((self.on_change)(filled));
+                let fills_parent =
+                    state.parent_height.is_finite() && state.content_height >= state.parent_height;
+
+                if !fills_parent {
+                    shell.publish((self.on_change)());
+                }
             }
         }
 

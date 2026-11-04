@@ -71,7 +71,7 @@ pub enum TimelineMessage {
     RestoreScrollPosition,
     KeyboardEvent(iced::keyboard::Event),
     ScrollTo(Option<Rectangle>),
-    FillsParent(bool),
+    FillsParent,
     HelpHover(Option<HelpKey>),
 }
 
@@ -1085,8 +1085,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     w::operation::Animation::Smooth,
                 )))
             }
-            TimelineMessage::FillsParent(fills) => {
-                if fills || self.reached_top {
+            TimelineMessage::FillsParent => {
+                if self.reached_top {
                     None
                 } else {
                     self.pagination_task(PaginationDirection::Backward, 30)
@@ -1129,7 +1129,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             })
                         })
                         .id(LIST_ID),
-                        TimelineMessage::FillsParent,
+                        || TimelineMessage::FillsParent,
                     ))
                     // .padding(padding::bottom(structure.gap * 3.0))
                     .width(Fill)
