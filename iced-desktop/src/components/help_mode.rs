@@ -969,6 +969,7 @@ pub enum ChatSidebarHelpKey {
     OfflineMembers,
     OnlineMemberCount,
     OfflineMemberCount,
+    ActiveCallMemberCount,
 }
 
 impl IntoHelpKey for ChatSidebarHelpKey {

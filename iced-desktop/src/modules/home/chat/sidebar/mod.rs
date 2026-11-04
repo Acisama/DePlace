@@ -25,7 +25,6 @@ pub enum SidebarState {
 #[derive(Debug, Clone)]
 pub enum SidebarMessage {
     DmProfileCard(ProfileCardMessage),
-    MemberProfileCard(ProfileCardMessage),
     PinnedDiffs(Vec<VectorDiff<(String, Arc<TimelineItem>)>>),
     MemberList(MemberListMessage),
     HelpHover(Option<HelpKey>),
@@ -44,7 +43,6 @@ pub struct Sidebar {
     #[hash]
     currently_visible: Option<SidebarState>,
 
-    member_profile_card: ProfileCard,
     dm_profile_card: ProfileCard,
     member_list: MemberList,
 
@@ -61,13 +59,7 @@ impl ExtraHash for Sidebar {
         if let Some(vis_state) = &self.currently_visible {
             match vis_state {
                 SidebarState::Member => self.dm_profile_card.hash(state),
-                SidebarState::MemberList => {
-                    if !self.room.is_dm() {
-                        self.member_list.hash(state)
-                    } else {
-                        self.member_profile_card.hash(state)
-                    }
-                }
+                SidebarState::MemberList => self.member_list.hash(state),
                 SidebarState::Pins => {}
                 SidebarState::Search => {}
             }
@@ -97,7 +89,6 @@ impl Sidebar {
             content: list::Content::new(),
             pinned_messages_version: 0,
 
-            member_profile_card: ProfileCard::new(None),
             dm_profile_card: ProfileCard::new(None),
             member_list: MemberList::new(room),
         }
@@ -152,9 +143,9 @@ impl Sidebar {
     }
 
     fn calculate_currently_visible(&mut self) {
-        // if self.room.is_dm() {
-        //     self.dm_profile_card.set_member(self.room.dm_other_member());
-        // }
+        if self.room.is_dm() {
+            self.dm_profile_card.set_member(self.room.other_dm_member());
+        }
 
         self.currently_visible = [
             SidebarState::Member,
@@ -176,17 +167,6 @@ impl Sidebar {
     }
 }
 
-fn handle_profile_card_message(
-    profile_card: &mut ProfileCard,
-    message: ProfileCardMessage,
-) -> Option<SidebarAction> {
-    match profile_card.update(message)? {
-        ProfileCardAction::Perform(task) => Some(SidebarAction::Perform(
-            task.map(SidebarMessage::MemberProfileCard),
-        )),
-    }
-}
-
 impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
     fn update(&mut self, message: SidebarMessage) -> Option<SidebarAction> {
         match message {
@@ -197,11 +177,12 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 }
                 MemberListAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             },
-            SidebarMessage::MemberProfileCard(message) => {
-                handle_profile_card_message(&mut self.member_profile_card, message)
-            }
             SidebarMessage::DmProfileCard(message) => {
-                handle_profile_card_message(&mut self.dm_profile_card, message)
+                match self.dm_profile_card.update(message)? {
+                    ProfileCardAction::Perform(task) => Some(SidebarAction::Perform(
+                        task.map(SidebarMessage::DmProfileCard),
+                    )),
+                }
             }
             SidebarMessage::PinnedDiffs(diffs) => {
                 let room_id = self.room.room_id().to_owned();
@@ -281,16 +262,12 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         };
 
         let content: Element<'static, SidebarMessage> = match state {
-            SidebarState::Member => lazy_view(
-                self.member_profile_card.clone(),
-                SidebarMessage::DmProfileCard,
-            ),
+            SidebarState::Member => {
+                lazy_view(self.dm_profile_card.clone(), SidebarMessage::DmProfileCard)
+            }
             SidebarState::MemberList => {
                 if self.room.is_dm() {
-                    lazy_view(
-                        self.dm_profile_card.clone(),
-                        SidebarMessage::MemberProfileCard,
-                    )
+                    lazy_view(self.dm_profile_card.clone(), SidebarMessage::DmProfileCard)
                 } else {
                     lazy_view(self.member_list.clone(), SidebarMessage::MemberList)
                 }

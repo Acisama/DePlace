@@ -1,13 +1,16 @@
 use std::collections::HashMap;
 
+use deplace_core::member::room::RoomMembers;
 use iced::{Alignment, Length, widget::svg};
 use macros::iced_cache;
 
 use crate::{
     common::*,
     components::{
-        help_mode::ChatSidebarHelpKey, profile::MemberRenderExt, track_bounds::track_bounds,
+        PushElement, help_mode::ChatSidebarHelpKey, phosphor_icon, profile::MemberRenderExt,
+        track_bounds::track_bounds,
     },
+    modules::home::MIC_ICON,
 };
 
 #[derive(Debug, Clone)]
@@ -40,6 +43,9 @@ pub struct MemberList {
     room: DePlaceRoom,
 
     #[hash]
+    members: Arc<RoomMembers>,
+
+    #[hash]
     hovered_member: Option<OwnedUserId>,
 
     member_bounds: HashMap<OwnedUserId, Rectangle>,
@@ -48,11 +54,18 @@ pub struct MemberList {
     room_id: OwnedRoomId,
 }
 
+impl ExtraHash for MemberList {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.room.hash_selective(state, false, true, false);
+    }
+}
+
 impl MemberList {
     pub fn new(room: &DePlaceRoom) -> Self {
         Self {
             room: room.clone(),
 
+            members: room.members(),
             hovered_member: None,
 
             member_bounds: HashMap::new(),
@@ -85,44 +98,11 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         let theme = theme();
         let structure = structure();
 
-        let members = self.room.members_ref();
+        let online_members = self.members.online();
+        let offline_members = self.members.offline();
 
-        let online_members = members.online();
-        let offline_members = members.offline();
-
-        let mut heading_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
         let mut column_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
-
         let help_view = HelpView::new(theme);
-
-        let icon = |text,
-                    icon,
-                    color,
-                    key,
-                    help,
-                    heading: &mut Vec<Element<'static, MemberListMessage>>| {
-            heading.push(
-                help_view
-                    .call(
-                        key,
-                        help,
-                        w::row![
-                            svg(iced::advanced::svg::Handle::from_memory(icon))
-                                .width(structure.semi_large_font_size() * 0.6)
-                                .height(structure.semi_large_font_size() * 0.6)
-                                .style(move |_, _| w::svg::Style { color: Some(color) }),
-                            w::text(text)
-                                .size(structure.semi_large_font_size())
-                                .color(color)
-                        ]
-                        .spacing(structure.small_gap)
-                        .padding(padding::horizontal(structure.gap / 2.0))
-                        .align_y(Alignment::Center),
-                    )
-                    .radius(structure.inner_border_radius)
-                    .into(),
-            );
-        };
 
         let icon_size = structure.sidebar.dm_icon_height;
 
@@ -200,37 +180,47 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                 );
             };
 
-        let header = w::container(render_member_numbers(
+        let live = self.room.live();
+
+        let mut row = render_member_numbers(
             online_members.len(),
             offline_members.len(),
             theme,
             structure,
             &help_view,
             true,
-        ))
-        .width(Fill)
-        .center_x(Length::Fill);
+        );
+
+        if live.has_call_participants() {
+            row = row.push_element(
+                help_view
+                    .call(
+                        ChatSidebarHelpKey::ActiveCallMemberCount,
+                        format!("Active call members — {}", live.call_participants().len()),
+                        w::row![
+                            phosphor_icon(MIC_ICON, structure.semi_large_font_size() * 0.9)
+                                .color(theme.colors.offline.into()),
+                            w::text(live.call_participants_count())
+                                .size(structure.semi_large_font_size())
+                                .color(theme.colors.offline)
+                        ]
+                        .spacing(structure.small_gap)
+                        .padding(padding::horizontal(structure.gap / 2.0))
+                        .align_y(Alignment::Center),
+                    )
+                    .radius(structure.inner_border_radius),
+            );
+        }
+
+        let header = w::container(row).width(Fill).center_x(Length::Fill);
 
         if !online_members.is_empty() {
             let length = online_members.len().to_string();
 
-            icon(
-                length.clone(),
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../assets/indicators/online.svg"
-                ))
-                .to_vec(),
-                theme.colors.online.into(),
-                HelpKey::ChatSidebar(ChatSidebarHelpKey::OnlineMemberCount),
-                "How many online members are in the current room",
-                &mut heading_children,
-            );
-
             expand_column(
                 format!("Online — {}", length),
                 online_members,
-                HelpKey::ChatSidebar(ChatSidebarHelpKey::OnlineMembers),
+                ChatSidebarHelpKey::OnlineMembers,
                 "List of online members in the current room",
                 &mut column_children,
             );
@@ -238,24 +228,11 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
 
         let length = offline_members.len().to_string();
 
-        icon(
-            length.clone(),
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../assets/indicators/offline.svg"
-            ))
-            .to_vec(),
-            theme.colors.offline.into(),
-            HelpKey::ChatSidebar(ChatSidebarHelpKey::OfflineMemberCount),
-            "How many offline members are in the current room",
-            &mut heading_children,
-        );
-
         if !offline_members.is_empty() {
             expand_column(
                 format!("Offline — {}", length),
                 offline_members,
-                HelpKey::ChatSidebar(ChatSidebarHelpKey::OfflineMembers),
+                ChatSidebarHelpKey::OfflineMembers,
                 "List of offline members in the current room",
                 &mut column_children,
             );
@@ -278,7 +255,7 @@ pub fn render_member_numbers<T: Clone + HelpOverMessage + 'static>(
     structure: Structure,
     help_view: &HelpView<T>,
     big: bool,
-) -> Element<'static, T> {
+) -> w::Row<Element<'static, T>> {
     let mut heading_children = Vec::new();
 
     let icon = |text, icon, color, key, help, heading: &mut Vec<Element<'static, T>>| {
@@ -337,7 +314,5 @@ pub fn render_member_numbers<T: Clone + HelpOverMessage + 'static>(
         &mut heading_children,
     );
 
-    w::Row::with_children(heading_children)
-        .align_y(Alignment::Center)
-        .boxed()
+    w::Row::with_children(heading_children).align_y(Alignment::Center)
 }

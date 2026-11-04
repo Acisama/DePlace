@@ -6,6 +6,7 @@ use std::{
 use live::RoomLive;
 use matrix_sdk::Room;
 use ruma::{OwnedRoomId, RoomId, UserId};
+use tokio::sync::OnceCell;
 
 use crate::{
     Shared,
@@ -17,8 +18,10 @@ pub mod info;
 pub mod live;
 pub mod notifications;
 pub mod store;
+pub mod timelines;
 
 use info::RoomInfo;
+use timelines::RoomTimelines;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DePlaceRoomType {
@@ -67,6 +70,7 @@ pub struct DePlaceRoom {
     pub(crate) info: Arc<Shared<RoomInfo>>,
     pub(crate) live: Arc<Shared<RoomLive>>,
     pub(crate) members: Arc<RoomMembers>,
+    timelines: Arc<OnceCell<RoomTimelines>>,
 }
 
 impl DePlaceRoom {
@@ -81,7 +85,19 @@ impl DePlaceRoom {
             info: Arc::new(Shared::new(RoomInfo::new(room))),
             live: Arc::new(Shared::new(RoomLive::new(room))),
             members,
+            timelines: Arc::new(OnceCell::new()),
         }
+    }
+
+    /// Returns this room's live and pinned-events timelines, building them
+    /// on first call and reusing the cached result afterwards. Does not
+    /// paginate -- callers that need more than what's already locally
+    /// cached are responsible for that themselves.
+    pub async fn timelines(&self) -> anyhow::Result<RoomTimelines> {
+        self.timelines
+            .get_or_try_init(|| RoomTimelines::build(&self.room))
+            .await
+            .cloned()
     }
 
     pub fn hash_selective<H: Hasher>(&self, state: &mut H, info: bool, live: bool, members: bool) {

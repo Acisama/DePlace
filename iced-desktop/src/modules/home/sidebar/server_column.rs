@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use deplace_core::{
     matrix_api::account_data::DePlaceAccountData,
     room::notifications::NotificationCounts,
@@ -338,10 +340,8 @@ fn render_server_icon(
 
     let mut call_members = Vec::new();
 
-    let members = room.members_ref();
-
-    let online_members = members.online_len();
-    let offline_members = members.offline_len();
+    let mut online_members = HashSet::new();
+    let mut offline_members = HashSet::new();
 
     let mut has_call = false;
     let mut own_user_in_call = false;
@@ -357,6 +357,10 @@ fn render_server_icon(
             own_user_in_call |= live.own_user_is_in_call();
             call_members.push(live.call_participants());
         }
+
+        let members = child.members_ref();
+        online_members.extend(members.online().iter().map(|m| m.user_id().to_owned()));
+        offline_members.extend(members.offline().iter().map(|m| m.user_id().to_owned()));
     }
 
     let icon_size = structure.server_column.icon_size;
@@ -384,14 +388,17 @@ fn render_server_icon(
         );
     }
 
-    tooltip_content.push(render_member_numbers(
-        online_members,
-        offline_members,
-        theme,
-        structure,
-        help_view,
-        false,
-    ));
+    tooltip_content.push(
+        render_member_numbers(
+            online_members.len(),
+            offline_members.len(),
+            theme,
+            structure,
+            help_view,
+            false,
+        )
+        .boxed(),
+    );
 
     let content = w::mouse_area(themed_tooltip_content(
         room.render_icon(icon_size),

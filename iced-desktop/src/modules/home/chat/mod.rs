@@ -9,9 +9,6 @@ use input::{ChatInput, InputAction, InputMessage};
 use macros::iced_cache;
 use matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels;
 use matrix_sdk_ui::Timeline;
-use matrix_sdk_ui::timeline::{
-    DateDividerMode, TimelineBuilder, TimelineFocus, TimelineReadReceiptTracking,
-};
 use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 use timeline::messages::{TimelineItem, ToTimelineItem};
 use timeline::{ChatTimeline, TimelineAction};
@@ -96,19 +93,6 @@ pub struct Chat {
 impl Chat {
     pub fn new(state: &AppState, room: DePlaceRoom) -> (Self, Task<(OwnedRoomId, ChatMessage)>) {
         let sdk_room = room.room.clone();
-        let builder = TimelineBuilder::new(&sdk_room)
-            .with_date_divider_mode(DateDividerMode::Daily)
-            .with_focus(TimelineFocus::Live {
-                hide_threaded_events: false,
-            })
-            .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
-            .add_failed_to_parse(true);
-
-        let pinned_builder = TimelineBuilder::new(&sdk_room)
-            .with_date_divider_mode(DateDividerMode::Daily)
-            .with_focus(TimelineFocus::PinnedEvents)
-            .track_read_marker_and_receipts(TimelineReadReceiptTracking::Disabled)
-            .add_failed_to_parse(true);
 
         let room_id = room.room_id().to_owned();
 
@@ -125,20 +109,24 @@ impl Chat {
         let room_id_clone = room_id.clone();
         let own_user_id = state.own_id();
         let profile_store = state.profile_store();
+        let timelines_room = room.clone();
 
         let stream = stream::once(async move {
-            tracing::debug!("Building timeline for room {}", room_id_clone);
-            let timeline = match builder.build().await {
-                Ok(t) => Arc::new(t),
+            tracing::debug!("Loading timelines for room {}", room_id_clone);
+            let timelines = match timelines_room.timelines().await {
+                Ok(t) => t,
                 Err(e) => {
                     tracing::error!(
-                        "Failed to build timeline for room {}: {:?}",
+                        "Failed to build timelines for room {}: {:?}",
                         room_id_clone,
                         e
                     );
                     return stream::pending().left_stream(); // never resolves; room stays empty
                 }
             };
+            let timeline = timelines.live;
+            let pinned_timeline = timelines.pinned;
+
             let (initial, updates) = timeline.subscribe().await;
             tracing::debug!(
                 "Subscribed to timeline for room {} with {} initial items",
@@ -146,17 +134,6 @@ impl Chat {
                 initial.len()
             );
 
-            let pinned_timeline = match pinned_builder.build().await {
-                Ok(t) => Arc::new(t),
-                Err(e) => {
-                    tracing::error!(
-                        "Failed to build timeline for room {}: {:?}",
-                        room_id_clone,
-                        e
-                    );
-                    return stream::pending().left_stream(); // never resolves; room stays empty
-                }
-            };
             let (pinned_initial, pinned_updates) = pinned_timeline.subscribe().await;
             tracing::debug!(
                 "Subscribed to pinned timeline for room {} with {} initial items",

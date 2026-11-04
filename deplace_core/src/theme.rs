@@ -95,7 +95,7 @@ impl Default for Theme {
         let solid_hover_bg = DePlaceColor::from_hsla(0.6667 * 360.0, 0.2105, 0.1490, 1.0);
 
         Self {
-            blur: 40.0,
+            blur: 50.0,
             solid_bg,
             solid_hover_bg,
             border: DePlaceColor::from_hsla(0.0, 0.0, 0.2, 1.0),
