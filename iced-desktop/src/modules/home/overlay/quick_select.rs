@@ -1,15 +1,11 @@
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::HashSet,
     sync::{Arc, Mutex},
 };
 
 use crate::common::*;
 
-use deplace_core::{
-    ProfileLike,
-    settings::NameDecoration,
-    state::{AppState, PresenceMap},
-};
+use deplace_core::{settings::NameDecoration, state::AppState};
 use iced::{
     Alignment, Element, Length,
     keyboard::{Event, Key, key::Named},
@@ -29,9 +25,8 @@ pub const QUICK_SELECT_INPUT_ID: &str = "quick_select_input";
 #[iced_cache(Clone)]
 pub struct QuickSelect {
     state: AppState,
-    avatar_cache: AvatarCache,
 
-    room_watchers: RoomWatchers,
+    room_store: Arc<RoomStore>,
 
     name_decoration: Receiver<NameDecoration>,
 
@@ -46,13 +41,15 @@ pub struct QuickSelect {
     matcher: Arc<Mutex<Nucleo<OwnedRoomId>>>,
     injector: Injector<OwnedRoomId>,
     pooled_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
-
-    presence_map: Receiver<PresenceMap>,
 }
 
 impl ExtraHash for QuickSelect {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name_decoration.borrow().hash(state);
+
+        for room in self.room_store.get_all_rooms() {
+            room.hash_selective(state, true, false, false);
+        }
     }
 }
 
@@ -62,20 +59,12 @@ pub enum QuickSelectMessage {
     SelectRoom(OwnedRoomId),
     KeyboardEvent(Event),
     RoomSwitchDone,
-    NeedsAvatar(OwnedMxcUri),
     HoverRoom(usize),
     UnhoverRoom(usize),
 }
 
-impl NeedsAvatarExt for QuickSelectMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        Self::NeedsAvatar(uri)
-    }
-}
-
 #[derive(Debug)]
 pub enum QuickSelectAction {
-    NeedsMedia(NeedsMedia),
     ChangeRoom(Option<DePlaceRoom>),
     Close,
 }
@@ -85,24 +74,16 @@ impl QuickSelect {
         let matcher = Nucleo::new(Config::DEFAULT, Arc::new(|| {}), None, 1);
         let injector = matcher.injector();
 
-        let room_watchers = state.room_watchers(hashing::hash_all_rooms_default());
-
         Self {
-            avatar_cache: state.avatar_cache().clone(),
-
-            avatar_states_for_hash: BTreeSet::new(),
-
             name_decoration: state.settings().name_decoration.watch(),
 
-            room_watchers,
+            room_store: state.room_store(),
 
             state: state.clone(),
             input: String::new(),
             matcher: Arc::new(Mutex::new(matcher)),
             injector,
             pooled_rooms: Arc::new(Mutex::new(HashSet::new())),
-
-            presence_map: state.presence_map(),
 
             selected_index: 0,
             hovered_index: None,
@@ -115,13 +96,13 @@ impl QuickSelect {
             return;
         };
 
-        for room in self.room_watchers.all_rooms().get_all_rooms() {
+        for room in self.room_store.get_all_rooms() {
             if pooled_rooms.contains(room.room_id()) {
                 continue;
             }
             let room_id = room.room_id().to_owned();
             pooled_rooms.insert(room_id.clone());
-            let name = room.get_name();
+            let name = room.displayname();
             self.injector.push(room_id, move |_, dst| {
                 dst[0] = name.clone().into();
             });
@@ -189,10 +170,6 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                 }
                 None
             }
-            QuickSelectMessage::NeedsAvatar(uri) => {
-                self.avatar_states_for_hash.insert(uri.clone());
-                Some(QuickSelectAction::NeedsMedia(NeedsMedia::avatar(uri)))
-            }
             // QuickSelectMessage::SelectRoom(room_id) => Some(QuickSelectAction::Run(Some(room_id))),
             QuickSelectMessage::KeyboardEvent(event) => {
                 if let Event::KeyPressed { key, .. } = event {
@@ -238,7 +215,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                 None
             }
             QuickSelectMessage::SelectRoom(room_id) => {
-                let room = self.room_watchers.get_room(&room_id);
+                let room = self.room_store.get_room(&room_id);
                 self.clear();
                 tracing::trace!("Quick selected room {room_id}");
                 Some(QuickSelectAction::ChangeRoom(room.clone()))
@@ -293,11 +270,8 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
             .width(Length::Fill);
 
         let name_decoration = *self.name_decoration.borrow();
-        let presence_map = &self.presence_map.borrow();
-
-        let avatar_cache = &self.avatar_cache;
         for (index, room_id) in displayed_rooms.into_iter().enumerate() {
-            if let Some(room) = self.room_watchers.get_room(&room_id) {
+            if let Some(room) = self.room_store.get_room(&room_id) {
                 let is_selected = index == self.selected_index;
                 let is_hovered = self.hovered_index == Some(index);
 
@@ -318,15 +292,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                 let item_button = w::mouse_area(
                     w::container(
                         w::row![
-                            context_room_icon(
-                                &room,
-                                icon_size,
-                                theme,
-                                structure,
-                                presence_map,
-                                avatar_cache,
-                                background_color
-                            ),
+                            room.render_simple_icon(icon_size, theme, structure, background_color),
                             room.render_name_decorated(
                                 structure.font_size,
                                 name_decoration,

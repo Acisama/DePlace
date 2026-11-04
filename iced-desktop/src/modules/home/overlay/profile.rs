@@ -19,7 +19,6 @@ impl CopyUserIdExt for ProfileMessage {
 }
 
 pub enum ProfileAction {
-    NeedsMedia(NeedsMedia),
     CopyUserId(OwnedUserId),
 }
 
@@ -31,7 +30,7 @@ pub struct OverlayProfile {
 }
 
 impl OverlayProfile {
-    pub fn new(state: &AppState, member: Member, bounds: Rectangle) -> Self {
+    pub fn new(_state: &AppState, member: Member, bounds: Rectangle) -> Self {
         Self { member, bounds }
     }
 }

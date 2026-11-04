@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 const BASE_MIDI: i32 = 57;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Scale {
     #[default]
@@ -31,7 +31,7 @@ impl Scale {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Rhythm {
     #[default]
@@ -61,7 +61,7 @@ impl Rhythm {
 /// The lead voice. All of them are smooth — no noise, no hard edges — so the
 /// difference between two users is character rather than one of them sounding
 /// rougher than the rest.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Hash)]
 pub enum Instrument {
     #[default]
     Synth,
@@ -92,7 +92,7 @@ impl Instrument {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Hash)]
 pub struct SonicSignature {
     pub root: u8,
     pub scale: Scale,

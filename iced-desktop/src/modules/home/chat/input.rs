@@ -1,5 +1,4 @@
 use deplace_core::{
-    helpers::RoomPlaceholderExt,
     keybinds::Keybinds,
     matrix_api::{attachments::MatrixAttachment, messages::RoomSendingExt},
 };
@@ -180,10 +179,7 @@ pub struct ChatInput {
     state: AppState,
     pub timeline: Option<Arc<Timeline>>,
 
-    #[hash]
-    room_id: OwnedRoomId,
-
-    room_watchers: RoomWatchers,
+    room: DePlaceRoom,
 
     id: Id,
 
@@ -198,15 +194,19 @@ pub struct ChatInput {
     keybinds: Receiver<Keybinds>,
 }
 
+impl ExtraHash for ChatInput {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.room.hash_selective(state, true, false, true);
+    }
+}
+
 impl ChatInput {
     pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
-        let room_id = room.room_id().to_owned();
         Self {
             state: state.clone(),
             timeline: None,
 
-            room_watchers: state.room_watchers(hashing::hash_room_default(room_id.clone())),
-            room_id,
+            room: room.clone(),
 
             id: Id::unique(),
             content: Box::leak(Box::new(text_editor::Content::new())),
@@ -368,7 +368,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 let Some(timeline) = self.timeline.clone() else {
                     tracing::warn!(
                         "Tried to send message in room {} without a timeline",
-                        self.room_id
+                        self.room.room_id()
                     );
                     return None;
                 };
@@ -468,10 +468,6 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
     }
 
     fn view(&self) -> Element<'static, InputMessage> {
-        let Some(room) = self.room_watchers.get_room(&self.room_id) else {
-            return EMPTY_WIDGET.boxed();
-        };
-
         let theme = theme();
         let structure = structure();
         let help_state = help_state();
@@ -655,7 +651,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             .width(Fill),
                         w::container(
                             msg.view(
-                                self.room_id.clone(),
+                                self.room.room_id().to_owned(),
                                 theme,
                                 structure,
                                 true,
@@ -690,7 +686,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                     w::stack![
                         w::text_editor(self.content())
                             .id(self.id.clone())
-                            .placeholder(format!("Message {}", room.get_input_placeholder()))
+                            .placeholder(format!("Message {}", self.room.get_input_placeholder()))
                             .padding(
                                 Padding::new(structure.small_gap * 2.0)
                                     .left(button_size * 2.0 + structure.small_gap * 2.0)

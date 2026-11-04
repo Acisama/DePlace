@@ -100,7 +100,7 @@ impl SearchExt for DePlaceRoom {
         search_parameters: SearchParameters,
     ) -> impl Stream<Item = SearchResultUpdate> {
         let room_id = self.room_id().to_owned();
-        let room = self.sdk_room().clone();
+        let room = self.room.clone();
 
         room.search_messages_events(search_parameters.build_query())
             .then(move |res| {

@@ -27,12 +27,12 @@ use ruma::{
     push::{Action, Tweak},
 };
 
+#[cfg(not(windows))]
+use crate::SOCKET_NAME;
 use crate::{
     APP_HUMAN_NAME,
     state::{AppState, ImportantPaths},
 };
-#[cfg(not(windows))]
-use crate::{SOCKET_NAME, rooms::DePlaceRoom};
 
 /// Converts a [`core::time::Duration`] to a human-readable string, using seconds, minutes, and hours.
 fn duration_to_string(duration: core::time::Duration) -> String {
@@ -342,9 +342,7 @@ impl NotificationManager {
                     state
                         .set_active_server(
                             state
-                                .set_active_room(Some(
-                                    DePlaceRoom::from_room(room, state.own_device_ref()).await,
-                                ))
+                                .set_active_room(state.room_store_ref().get_room(&room_id))
                                 .await,
                             false,
                         )

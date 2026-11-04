@@ -33,8 +33,7 @@ pub use modify_item::ModifyItem;
 pub struct MediaOverlayParams {
     pub media: OverlayMediaType,
     pub source: MediaSource,
-    pub sender_id: OwnedUserId,
-    pub room_id: OwnedRoomId,
+    pub sender: Member,
     pub event_id: OwnedEventId,
     pub timestamp: SystemTime,
 }
@@ -45,8 +44,6 @@ pub struct Overlay {
 
     #[hash]
     overlay_state: Option<OverlayState>,
-
-    membership_map: Receiver<MembershipMap>,
 
     quickselect: QuickSelect,
     settings: SettingsView,
@@ -96,8 +93,6 @@ impl Overlay {
             state: state.clone(),
 
             overlay_state: None,
-
-            membership_map: state.membership_map(),
 
             quickselect,
             settings,
@@ -152,18 +147,10 @@ impl Overlay {
     }
 
     pub fn open_media_overlay(&mut self, params: MediaOverlayParams) {
-        let borrow = self.membership_map.borrow();
-        let Some(members) = borrow.get(&params.room_id) else {
-            return;
-        };
-        let Some(sender) = members.get(&params.sender_id).cloned() else {
-            return;
-        };
-
         self.overlay_state = Some(OverlayState::Media(MediaOverlay::new(
             &self.state,
             params.media,
-            sender,
+            params.sender,
             params.timestamp,
             params.event_id,
         )));
@@ -216,7 +203,6 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                         Some(OverlayAction::ChangeRoom(room))
                     }
                     QuickSelectAction::Close => self.close(),
-                    QuickSelectAction::NeedsMedia(media) => Some(OverlayAction::NeedsMedia(media)),
                 }
             }
             OverlayMessage::Settings(msg) => {
@@ -225,7 +211,6 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                 }
                 match self.settings.update(msg)? {
                     SettingsAction::Run(task) => Some(OverlayAction::Run(task)),
-                    SettingsAction::NeedsMedia(media) => Some(OverlayAction::NeedsMedia(media)),
                 }
             }
             OverlayMessage::KeyboardEvent(event) => match self.overlay_state.as_mut()? {
@@ -241,9 +226,6 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                         QuickSelectAction::Close => {
                             self.overlay_state = None;
                             None
-                        }
-                        QuickSelectAction::NeedsMedia(media) => {
-                            Some(OverlayAction::NeedsMedia(media))
                         }
                     }
                 }
@@ -299,7 +281,6 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
             OverlayMessage::Profile(message) => {
                 if let Some(profile) = &mut self.profile {
                     match profile.update(message)? {
-                        ProfileAction::NeedsMedia(media) => Some(OverlayAction::NeedsMedia(media)),
                         ProfileAction::CopyUserId(user_id) => Some(OverlayAction::Perform(
                             iced::clipboard::write(user_id.to_string())
                                 .map_err(|_| tracing::error!("Failed to copy to clipboard"))

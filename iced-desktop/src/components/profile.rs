@@ -1,14 +1,12 @@
 use deplace_core::{
-    DePlaceRoom, ProfileLike,
-    member::Member,
+    Avatar, DePlaceRoom, ProfileLike,
+    member::{Member, user_data::Presence},
+    room::DePlaceRoomType,
     settings::NameDecoration,
-    state::{
-        PresenceMap,
-        cache::{AvatarCache, MediaState},
-    },
     structure::Structure,
     theme::Theme,
 };
+
 use iced::{
     Alignment, Border, Color, ContentFit, Element,
     Length::Fill,
@@ -22,17 +20,16 @@ use iced::{
         text::{IntoFragment, LineHeight},
     },
 };
-use matrix_sdk::{
-    room::RoomMember,
-    ruma::{OwnedMxcUri, presence::PresenceState},
-};
 
-use crate::common::{structure, theme, themed_tooltip_content};
+use crate::{
+    common::{structure, theme, themed_tooltip_content},
+    modules::home::{DEFAULT_ROOM_ICON, SPACE_ICON, SPEAKER_ICON},
+};
 
 use super::{
     ColoredRounded, CopyUserIdExt, IcedColorExt, InsetShadow, StatusExt,
     corner_badge::{notch_circle, positioned},
-    link, on_appear, phosphor_icon, weighted_text,
+    link, phosphor_icon, weighted_text,
 };
 
 pub fn text_icon<'a, T: 'a>(
@@ -71,34 +68,37 @@ pub fn loading_icon<'a, T: 'a>(size: f32, rounding: f32, theme: Theme) -> Elemen
     text_icon('#', size, rounding, theme.colors.offline.into())
 }
 
-pub fn render_avatar<'a, T: NeedsAvatarExt + Clone + 'a>(
-    uri: Option<OwnedMxcUri>,
+pub fn render_avatar<'a, T: 'a>(
     size: f32,
     rounding: f32,
     fallback: impl FnOnce() -> Element<'a, T>,
-    avatar_cache: &AvatarCache,
+    avatar: Avatar,
 ) -> Element<'a, T> {
-    let Some(avatar_url) = uri else {
-        return fallback();
-    };
-
-    match avatar_cache.get(&avatar_url) {
-        Some(MediaState::Failed) => fallback(),
-        Some(MediaState::Loaded(avatar)) => w::image((*avatar).clone())
+    match avatar {
+        Avatar::Ok { image, .. } => w::image(image)
             .width(size)
             .height(size)
             .content_fit(ContentFit::Cover)
             .border_radius(rounding)
             .boxed(),
-        Some(MediaState::Loading) | None => {
-            on_appear(fallback(), T::needs_avatar(avatar_url)).into()
-        }
-    }
-}
+        Avatar::Error(error) => {
+            let theme = theme();
+            let structure = structure();
 
-/// A trait for messages which have a NeedAvatar variant
-pub trait NeedsAvatarExt {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self;
+            themed_tooltip_content(
+                fallback(),
+                w::text((*error).clone())
+                    .color(theme.colors.error)
+                    .size(structure.font_size),
+                structure,
+                theme,
+                w::tooltip::Position::Top,
+                0.0,
+            )
+            .boxed()
+        }
+        Avatar::NoAvatar => fallback(),
+    }
 }
 
 pub trait OpenProfileOverlayExt: Sized {
@@ -106,15 +106,14 @@ pub trait OpenProfileOverlayExt: Sized {
 }
 
 pub trait ProfileRenderExt {
-    fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
-        &self,
-        size: f32,
-        avatar_cache: &AvatarCache,
-    ) -> Element<'a, T>;
+    /// Renders the profile's avatar icon.
+    fn render_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
 
-    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T>;
+    /// Renders the profile's name in bold using the profile's color.
+    fn render_name<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
 
-    fn render_name_decorated<'a, T: Clone + 'a>(
+    /// Renders the profile's name with the normal text color, but decorated with the profile's color.
+    fn render_name_decorated<'a, T: 'a>(
         &self,
         size: f32,
         decoration: NameDecoration,
@@ -122,34 +121,54 @@ pub trait ProfileRenderExt {
     ) -> Element<'a, T>;
 }
 
-impl<Profile: ProfileLike> ProfileRenderExt for Profile {
-    /// Renders the profile's avatar icon.
-    fn render_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
+pub trait MemberRenderExt {
+    /// Renders the profile's avatar icon with the user's presence indicator.
+    fn render_icon_with_presence<'a, T: 'a>(
         &self,
         size: f32,
-        avatar_cache: &AvatarCache,
-    ) -> Element<'a, T> {
+        theme: Theme,
+        structure: Structure,
+        background_color: Color,
+    ) -> Element<'a, T>;
+
+    /// Render the name, but open the profile on click.
+    fn render_name_with_overlay<'a, T: OpenProfileOverlayExt + 'a>(
+        &self,
+        text_size: f32,
+    ) -> Element<'a, T>;
+}
+
+pub trait RoomRenderExt {
+    fn render_simple_icon<'a, T: 'a>(
+        &self,
+        size: f32,
+        theme: Theme,
+        structure: Structure,
+        background_color: Color,
+    ) -> Element<'a, T>;
+}
+
+impl<Profile: ProfileLike> ProfileRenderExt for Profile {
+    fn render_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
         let rounding = size * self.icon_border_radius_ratio();
 
         let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
 
-        render_avatar(self.get_avatar(), size, rounding, fallback, avatar_cache)
+        render_avatar(size, rounding, fallback, self.avatar_handle())
     }
 
-    /// Renders the profile's name in bold using the profile's color.
-    fn render_name<'a, T: Clone + 'a>(&self, size: f32) -> Element<'a, T> {
-        render_name(self.get_name(), size, self.color().to_iced())
+    fn render_name<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
+        render_name(self.displayname(), size, self.color().to_iced())
     }
 
-    /// Renders the profile's name with the normal text color, but decorated with the profile's color.
-    fn render_name_decorated<'a, T: Clone + 'a>(
+    fn render_name_decorated<'a, T: 'a>(
         &self,
         size: f32,
         decoration: NameDecoration,
         text_color: Color,
     ) -> Element<'a, T> {
         render_name_decorated(
-            self.get_name(),
+            self.displayname(),
             size,
             decoration,
             text_color,
@@ -158,58 +177,65 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
     }
 }
 
-pub trait MaybeRenderIcon {
-    fn render_icon<'a, T: Clone + NeedsAvatarExt + 'a>(
+impl MemberRenderExt for Member {
+    fn render_icon_with_presence<'a, T: 'a>(
         &self,
         size: f32,
-        avatar_cache: &AvatarCache,
-        rounding_factor: f32,
         theme: Theme,
-    ) -> Element<'a, T>;
-}
-
-impl MaybeRenderIcon for Option<&RoomMember> {
-    fn render_icon<'a, T: Clone + NeedsAvatarExt + 'a>(
-        &self,
-        size: f32,
-        avatar_cache: &AvatarCache,
-        rounding_factor: f32,
-        theme: Theme,
+        structure: Structure,
+        background_color: Color,
     ) -> Element<'a, T> {
-        match self {
-            Some(member) => member.render_icon(size, avatar_cache),
-            None => unknown_icon(size, size * rounding_factor, theme),
-        }
-    }
-}
-
-pub fn context_room_icon<'a, T: NeedsAvatarExt + Clone + 'a>(
-    room: &DePlaceRoom,
-    icon_size: f32,
-    theme: Theme,
-    structure: Structure,
-    presence_map: &PresenceMap,
-    avatar_cache: &AvatarCache,
-    background_color: Color,
-) -> Element<'a, T> {
-    if room.is_dm() {
-        return render_room_with_presence_map(
-            room,
-            presence_map,
+        render_presence_badge(
+            self.render_icon(size),
+            self.presence(),
             theme,
             structure,
-            icon_size,
-            avatar_cache,
             background_color,
-        );
+        )
     }
 
-    let icon = phosphor_icon(room.icon(), icon_size);
+    fn render_name_with_overlay<'a, T: OpenProfileOverlayExt + 'a>(
+        &self,
+        text_size: f32,
+    ) -> Element<'a, T> {
+        let member = self.clone();
 
-    if room.is_call() && room.has_call_participants() {
-        icon.color(theme.colors.success.into()).into()
-    } else {
-        icon.into()
+        link::link(
+            self.render_name(text_size),
+            self.name_color().to_iced(),
+            move |bounds| T::open_profile(member.clone(), bounds),
+        )
+        .into()
+    }
+}
+
+impl RoomRenderExt for DePlaceRoom {
+    fn render_simple_icon<'a, T: 'a>(
+        &self,
+        size: f32,
+        theme: Theme,
+        structure: Structure,
+        background_color: Color,
+    ) -> Element<'a, T> {
+        if let Some(member) = self.other_dm_member() {
+            return member.render_icon_with_presence(size, theme, structure, background_color);
+        }
+
+        match self.room_type() {
+            DePlaceRoomType::Call => {
+                let icon = phosphor_icon(SPEAKER_ICON, size);
+
+                if self.has_active_call() {
+                    icon.color(theme.colors.success.into()).into()
+                } else {
+                    icon.into()
+                }
+            }
+            DePlaceRoomType::Space => phosphor_icon(SPACE_ICON, size).into(),
+            DePlaceRoomType::Standard | DePlaceRoomType::Direct => {
+                phosphor_icon(DEFAULT_ROOM_ICON, size).into()
+            }
+        }
     }
 }
 
@@ -241,7 +267,7 @@ pub fn blend_colors(color_a: Color, color_b: Color, factor: f32) -> Color {
     }
 }
 
-pub fn render_name_decorated<'a, T: Clone + 'a>(
+pub fn render_name_decorated<'a, T: 'a>(
     name: String,
     size: f32,
     decoration: NameDecoration,
@@ -318,13 +344,13 @@ pub fn render_loading_name_decorated<'a, T: Clone + 'a>(
 
 pub fn render_presence_badge<'a, T: 'a>(
     icon: Element<'a, T>,
-    presence: &PresenceState,
+    presence: Presence,
     theme: Theme,
     structure: Structure,
     background_color: Color,
 ) -> Element<'a, T> {
     let (color, badge) = match presence {
-        matrix_sdk::ruma::presence::PresenceState::Offline => (
+        Presence::Offline => (
             theme.colors.offline.into(),
             include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -332,7 +358,7 @@ pub fn render_presence_badge<'a, T: 'a>(
             ))
             .to_vec(),
         ),
-        matrix_sdk::ruma::presence::PresenceState::Unavailable => (
+        Presence::Unavailable => (
             theme.colors.idle.into(),
             include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -340,7 +366,7 @@ pub fn render_presence_badge<'a, T: 'a>(
             ))
             .to_vec(),
         ),
-        _ => (
+        Presence::Online => (
             theme.colors.online.into(),
             include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -383,76 +409,7 @@ pub fn render_presence_badge<'a, T: 'a>(
     .boxed()
 }
 
-pub fn render_presence<'a, T: 'a + Clone + NeedsAvatarExt>(
-    member: &RoomMember,
-    presence: &PresenceState,
-    theme: Theme,
-    structure: Structure,
-    icon_size: f32,
-    avatar_cache: &AvatarCache,
-    background_color: Color,
-) -> Element<'a, T> {
-    render_presence_badge(
-        member.render_icon(icon_size, avatar_cache),
-        presence,
-        theme,
-        structure,
-        background_color,
-    )
-}
-
-pub fn render_presence_with_map<'a, T: 'a + Clone + NeedsAvatarExt>(
-    member: &RoomMember,
-    presence_map: &PresenceMap,
-    theme: Theme,
-    structure: Structure,
-    icon_size: f32,
-    avatar_cache: &AvatarCache,
-    background_color: Color,
-) -> Element<'a, T> {
-    let presence = presence_map
-        .get(member.user_id())
-        .map(|p| p.presence.clone())
-        .unwrap_or(matrix_sdk::ruma::presence::PresenceState::Offline);
-
-    render_presence(
-        member,
-        &presence,
-        theme,
-        structure,
-        icon_size,
-        avatar_cache,
-        background_color,
-    )
-}
-
-pub fn render_room_with_presence_map<'a, T: 'a + Clone + NeedsAvatarExt>(
-    room: &DePlaceRoom,
-    presence_map: &PresenceMap,
-    theme: Theme,
-    structure: Structure,
-    icon_size: f32,
-    avatar_cache: &AvatarCache,
-    background_color: iced::Color,
-) -> Element<'a, T> {
-    if room.is_dm()
-        && let Some(other_member) = room.dm_other_member()
-    {
-        render_presence_with_map(
-            &other_member,
-            presence_map,
-            theme,
-            structure,
-            icon_size,
-            avatar_cache,
-            background_color,
-        )
-    } else {
-        room.render_icon(icon_size, avatar_cache)
-    }
-}
-
-pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + 'a>(
+pub fn render_banner_column<'a, T: CopyUserIdExt + Clone + 'a>(
     member: &Member,
     theme: Theme,
     structure: Structure,
@@ -542,21 +499,22 @@ pub fn render_banner_column<'a, T: Clone + CopyUserIdExt + 'a>(
 
 const MAX_ICONS: usize = 5;
 
-pub fn render_row_of_icons<'a, T: Clone + NeedsAvatarExt + 'a, P: MaybeRenderIcon>(
-    profiles: &[P],
+pub fn render_row_of_icons<'a, T: 'a>(
+    profiles: &[Member],
     background_color: Color,
     icon_size: f32,
-    theme: Theme,
     structure: Structure,
-    avatar_cache: &AvatarCache,
 ) -> Element<'a, T> {
     let (profiles, overflow) = if profiles.len() > MAX_ICONS {
         (
-            profiles.iter().take(MAX_ICONS - 1).collect::<Vec<&P>>(),
+            profiles
+                .iter()
+                .take(MAX_ICONS - 1)
+                .collect::<Vec<&Member>>(),
             Some(profiles.len() - MAX_ICONS),
         )
     } else {
-        (profiles.iter().collect::<Vec<&P>>(), None)
+        (profiles.iter().collect::<Vec<&Member>>(), None)
     };
 
     let overlap = 1.0 / 3.0;
@@ -585,7 +543,7 @@ pub fn render_row_of_icons<'a, T: Clone + NeedsAvatarExt + 'a, P: MaybeRenderIco
             .boxed(),
         );
         stack = stack.push(
-            w::container(member.render_icon(icon_size, avatar_cache, 0.5, theme))
+            w::container(member.render_icon(icon_size))
                 .width(Fill)
                 .height(Fill)
                 .align_x(Alignment::Start)
@@ -618,105 +576,4 @@ pub fn render_row_of_icons<'a, T: Clone + NeedsAvatarExt + 'a, P: MaybeRenderIco
         .width(get_width(index - 1) + outer * 2.0)
         .height(outer_width)
         .boxed()
-}
-
-pub trait ProfileRenderExt2 {
-    fn render_icon<'a, T: 'a>(&self, icon_size: f32) -> Element<'a, T>;
-    fn render_name<'a, T: 'a>(&self, text_size: f32) -> Element<'a, T>;
-    fn render_name_with_overlay<'a, T: OpenProfileOverlayExt + 'a>(
-        &self,
-        text_size: f32,
-    ) -> Element<'a, T>;
-    fn render_icon_with_presence<'a, T: 'a>(
-        &self,
-        icon_size: f32,
-        theme: Theme,
-        structure: Structure,
-        background_color: Color,
-    ) -> Element<'a, T>;
-}
-
-impl ProfileRenderExt2 for Member {
-    fn render_icon<'a, T: 'a>(&self, icon_size: f32) -> Element<'a, T> {
-        let rounding = icon_size / 2.0;
-
-        let fallback = move || {
-            text_icon(
-                self.initial(),
-                icon_size,
-                rounding,
-                self.name_color().to_iced(),
-            )
-        };
-
-        match self.image_handle() {
-            Some(Ok(handle)) => w::image(handle)
-                .width(icon_size)
-                .height(icon_size)
-                .content_fit(ContentFit::Cover)
-                .border_radius(icon_size / 2.0)
-                .boxed(),
-            Some(Err(error)) => {
-                let text = (*error).to_string();
-                let theme = theme();
-                let structure = structure();
-
-                themed_tooltip_content(
-                    text_icon(
-                        self.initial(),
-                        icon_size,
-                        rounding,
-                        self.name_color().to_iced(),
-                    ),
-                    w::text(text)
-                        .color(theme.colors.error)
-                        .size(structure.font_size),
-                    structure,
-                    theme,
-                    w::tooltip::Position::Top,
-                    0.0,
-                )
-                .boxed()
-            }
-            None => fallback(),
-        }
-    }
-
-    fn render_name<'a, T: 'a>(&self, text_size: f32) -> Element<'a, T> {
-        render_name(self.display_name(), text_size, self.name_color().to_iced())
-    }
-
-    fn render_name_with_overlay<'a, T: OpenProfileOverlayExt + 'a>(
-        &self,
-        text_size: f32,
-    ) -> Element<'a, T> {
-        let display_name = self.display_name();
-        let name_color = self.name_color().to_iced();
-        let member = self.clone();
-
-        link::link(
-            render_name(display_name, text_size, name_color),
-            name_color,
-            move |bounds| T::open_profile(member.clone(), bounds),
-        )
-        .into()
-    }
-
-    fn render_icon_with_presence<'a, T: 'a>(
-        &self,
-        icon_size: f32,
-        theme: Theme,
-        structure: Structure,
-        background_color: Color,
-    ) -> Element<'a, T> {
-        let presence = self.presence();
-
-        render_presence_badge(
-            self.render_icon(icon_size),
-            &presence,
-            theme,
-            structure,
-            background_color,
-        )
-    }
 }

@@ -1,12 +1,8 @@
-use std::collections::BTreeSet;
-
 use crate::{
     common::*,
     components::{CopyUserIdExt, profile::render_banner_column},
 };
-use deplace_core::state::PresenceMap;
 use macros::iced_cache;
-use matrix_sdk::room::RoomMember;
 
 #[derive(Debug, Clone)]
 pub enum ProfileCardMessage {
@@ -21,14 +17,22 @@ impl CopyUserIdExt for ProfileCardMessage {
 }
 
 pub enum ProfileCardAction {
-    NeedsMedia(NeedsMedia),
     Perform(Task<ProfileCardMessage>),
 }
 
 #[iced_cache(Clone, Debug)]
 pub struct ProfileCard {
-    #[hash]
     member: Option<Member>,
+}
+
+impl ExtraHash for ProfileCard {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if let Some(member) = &self.member {
+            member.hash_all(state);
+        } else {
+            0.hash(state);
+        }
+    }
 }
 
 impl ProfileCard {
@@ -61,6 +65,6 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
         let theme = theme();
         let structure = structure();
 
-        render_banner_column(&member, theme, structure)
+        render_banner_column(member, theme, structure)
     }
 }

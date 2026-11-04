@@ -1,16 +1,13 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
-use deplace_core::state::PresenceMap;
 use iced::{Alignment, Length, widget::svg};
 use macros::iced_cache;
-use matrix_sdk::{
-    room::RoomMember,
-    ruma::{events::presence::PresenceEventContent, presence::PresenceState},
-};
 
 use crate::{
     common::*,
-    components::{help_mode::ChatSidebarHelpKey, track_bounds::track_bounds},
+    components::{
+        help_mode::ChatSidebarHelpKey, profile::MemberRenderExt, track_bounds::track_bounds,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -24,7 +21,6 @@ pub enum MemberListMessage {
         member: Member,
         bounds: Rectangle,
     },
-    NeedsAvatar(OwnedMxcUri),
     HelpHover(Option<HelpKey>),
 }
 
@@ -34,53 +30,29 @@ impl HelpOverMessage for MemberListMessage {
     }
 }
 
-impl NeedsAvatarExt for MemberListMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        Self::NeedsAvatar(uri)
-    }
-}
-
 pub enum MemberListAction {
-    NeedsMedia(NeedsMedia),
     ShowProfile { member: Member, bounds: Rectangle },
     HelpHover(Option<HelpKey>),
 }
 
 #[iced_cache(Debug, Clone)]
 pub struct MemberList {
-    state: AppState,
-
-    #[hash]
-    room_id: OwnedRoomId,
-
-    membership_map: Receiver<MembershipMap>,
-    presence_map: Receiver<PresenceMap>,
+    room: DePlaceRoom,
 
     #[hash]
     hovered_member: Option<OwnedUserId>,
 
     member_bounds: HashMap<OwnedUserId, Rectangle>,
-
-    avatar_cache: AvatarCache,
 }
 
 impl MemberList {
-    pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
+    pub fn new(room: &DePlaceRoom) -> Self {
         Self {
-            state: state.clone(),
-
-            room_id: room.room_id().to_owned(),
-
-            membership_map: state.membership_map(),
-            presence_map: state.presence_map(),
+            room: room.clone(),
 
             hovered_member: None,
 
-            avatar_cache: state.avatar_cache().clone(),
-
             member_bounds: HashMap::new(),
-
-            avatar_states_for_hash: BTreeSet::new(),
         }
     }
 }
@@ -102,10 +74,6 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                 );
                 Some(MemberListAction::ShowProfile { member, bounds })
             }
-            MemberListMessage::NeedsAvatar(uri) => {
-                self.avatar_states_for_hash.insert(uri.clone());
-                Some(MemberListAction::NeedsMedia(NeedsMedia::avatar(uri)))
-            }
         }
     }
 
@@ -113,24 +81,10 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         let theme = theme();
         let structure = structure();
 
-        let presence_map = self.presence_map.borrow();
-        let (online_members, offline_members): (Vec<_>, Vec<_>) = self
-            .membership_map
-            .borrow()
-            .get(&self.room_id)
-            .cloned()
-            .unwrap_or_default()
-            .values()
-            .map(|member| {
-                (
-                    presence_map
-                        .get(member.user_id())
-                        .cloned()
-                        .unwrap_or(PresenceEventContent::new(PresenceState::Offline)),
-                    member.clone(),
-                )
-            })
-            .partition(|(presence, _)| !matches!(presence.presence, PresenceState::Offline));
+        let members = self.room.members();
+
+        let online_members = members.online();
+        let offline_members = members.offline();
 
         let mut heading_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
         let mut column_children: Vec<Element<'static, MemberListMessage>> = Vec::new();
@@ -167,11 +121,10 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         };
 
         let icon_size = structure.sidebar.dm_icon_height;
-        let avatar_cache = &self.avatar_cache;
 
         let expand_column =
             |text,
-             members: Vec<(PresenceEventContent, RoomMember)>,
+             members: Arc<Vec<Member>>,
              key,
              help,
              column: &mut Vec<Element<'static, MemberListMessage>>| {
@@ -184,20 +137,17 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                                 w::text(text).color(theme.text.dim),
                                 Space::new().height(structure.small_gap / 4.0)
                             ]
-                            .extend(members.iter().map(|(p, member)| {
+                            .extend(members.iter().map(|member| {
                                 let id = member.user_id().to_owned();
                                 let bounds = self.member_bounds.get(&id).cloned();
 
                                 track_bounds(
                                     w::button(
                                         w::row![
-                                            render_presence(
-                                                member,
-                                                &p.presence,
+                                            member.render_icon_with_presence(
+                                                icon_size,
                                                 theme,
                                                 structure,
-                                                icon_size,
-                                                avatar_cache,
                                                 theme.solid_bg.into(),
                                             ),
                                             member.render_name(structure.font_size)
@@ -225,13 +175,13 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                                             radius: structure.inner_border_radius.into(),
                                         },
                                         ..Default::default()
-                                    }),
-                                    // .on_press_maybe(
-                                    //     bounds.map(|bounds| MemberListMessage::MemberPressed {
-                                    //         member: member.into(),
-                                    //         bounds,
-                                    //     }),
-                                    // ),
+                                    })
+                                    .on_press_maybe(
+                                        bounds.map(|bounds| MemberListMessage::MemberPressed {
+                                            member: member.clone(),
+                                            bounds,
+                                        }),
+                                    ),
                                     move |bounds| MemberListMessage::Bounds {
                                         user_id: id.clone(),
                                         bounds,

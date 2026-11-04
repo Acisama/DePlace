@@ -41,8 +41,9 @@ pub trait FormattedBodyView {
         theme: Theme,
         structure: Structure,
         is_local_echo: bool,
-        membership_map: &IndexMap<OwnedUserId, RoomMember>,
+        profile_store: &ProfileStore,
         is_edited: bool,
+        room_id: &RoomId,
     ) -> Element<'static, TimelineItemMessage>;
 }
 
@@ -52,8 +53,9 @@ impl FormattedBodyView for FormattedBody {
         theme: Theme,
         structure: Structure,
         is_local_echo: bool,
-        membership_map: &IndexMap<OwnedUserId, RoomMember>,
+        profile_store: &ProfileStore,
         is_edited: bool,
+        room_id: &RoomId,
     ) -> Element<'static, TimelineItemMessage> {
         render_blocks(
             &self.blocks,
@@ -61,20 +63,23 @@ impl FormattedBodyView for FormattedBody {
             structure,
             is_local_echo,
             true,
-            membership_map,
+            profile_store,
             is_edited,
+            room_id,
         )
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_blocks(
     blocks: &[Block],
     theme: Theme,
     structure: Structure,
     is_local_echo: bool,
     is_first: bool,
-    membership_map: &IndexMap<OwnedUserId, RoomMember>,
+    profile_store: &ProfileStore,
     is_edited: bool,
+    room_id: &RoomId,
 ) -> Element<'static, TimelineItemMessage> {
     let last_index = blocks.len().checked_sub(1);
     let ends_in_paragraph = matches!(blocks.last(), Some(Block::Paragraph(_)));
@@ -89,8 +94,9 @@ fn render_blocks(
                 structure,
                 is_local_echo,
                 i == 0 && is_first,
-                membership_map,
+                profile_store,
                 is_edited && Some(i) == last_index,
+                room_id,
             )
         })
         .chain((is_edited && !ends_in_paragraph).then(|| {
@@ -106,14 +112,16 @@ fn render_blocks(
         .boxed()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_block(
     block: &Block,
     theme: Theme,
     structure: Structure,
     is_local_echo: bool,
     is_first: bool,
-    membership_map: &IndexMap<OwnedUserId, RoomMember>,
+    profile_store: &ProfileStore,
     is_edited: bool,
+    room_id: &RoomId,
 ) -> Element<'static, TimelineItemMessage> {
     let text_size = structure.chat.text_size;
 
@@ -125,8 +133,9 @@ fn render_block(
             theme,
             structure,
             is_local_echo,
-            membership_map,
+            profile_store,
             is_edited,
+            room_id,
         ),
         Block::Heading { level, content } => {
             let factor = heading_scale(*level);
@@ -143,8 +152,9 @@ fn render_block(
                 theme,
                 structure,
                 is_local_echo,
-                membership_map,
+                profile_store,
                 false,
+                room_id,
             ))
             .padding(padding)
             .boxed()
@@ -155,8 +165,9 @@ fn render_block(
             structure,
             is_local_echo,
             false,
-            membership_map,
+            profile_store,
             false,
+            room_id,
         ))
         .padding(structure.small_gap)
         .style(move |_| ContainerStyle {
@@ -181,7 +192,8 @@ fn render_block(
             theme,
             structure,
             is_local_echo,
-            membership_map,
+            profile_store,
+            room_id,
         ),
         Block::CodeBlock { code, .. } => w::container(
             themed_scrollable(
@@ -220,6 +232,7 @@ fn heading_scale(level: u8) -> f32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_list(
     ordered: bool,
     start: Option<i64>,
@@ -227,7 +240,8 @@ fn render_list(
     theme: Theme,
     structure: Structure,
     is_local_echo: bool,
-    membership_map: &IndexMap<OwnedUserId, RoomMember>,
+    profile_store: &ProfileStore,
+    room_id: &RoomId,
 ) -> Element<'static, TimelineItemMessage> {
     let text_size = structure.chat.text_size;
     let start = start.unwrap_or(1);
@@ -253,8 +267,9 @@ fn render_list(
                 structure,
                 is_local_echo,
                 false,
-                membership_map,
+                profile_store,
                 false,
+                room_id,
             )
         ]
         .spacing(structure.small_gap / 2.0)
@@ -273,8 +288,9 @@ fn render_inline(
     theme: Theme,
     structure: Structure,
     is_local_echo: bool,
-    membership_map: &IndexMap<OwnedUserId, RoomMember>,
+    profile_store: &ProfileStore,
     is_edited: bool,
+    room_id: &RoomId,
 ) -> Element<'static, TimelineItemMessage> {
     let default_color = if is_local_echo {
         theme.text.dim
@@ -291,7 +307,8 @@ fn render_inline(
                 default_color,
                 theme,
                 structure,
-                membership_map,
+                profile_store,
+                room_id,
             )
         })
         .collect();
@@ -319,13 +336,20 @@ fn render_inline_spans(
     default_color: DePlaceColor,
     theme: Theme,
     structure: Structure,
-    membership_map: &IndexMap<OwnedUserId, RoomMember>,
+    profile_store: &ProfileStore,
+    room_id: &RoomId,
 ) -> Vec<Span<'static, TimelineItemMessage>> {
     let run = match inline {
         Inline::LineBreak => return vec![w::span("\n".to_string())],
         Inline::Text(run) => run,
         Inline::Mention(mention) => {
-            return vec![render_mention(theme, structure, mention, membership_map)];
+            return vec![render_mention(
+                theme,
+                structure,
+                mention,
+                profile_store,
+                room_id,
+            )];
         }
     };
 
@@ -375,7 +399,8 @@ fn render_mention(
     theme: Theme,
     structure: Structure,
     mention: &Mention,
-    membership_map: &IndexMap<OwnedUserId, RoomMember>,
+    profile_store: &ProfileStore,
+    room_id: &RoomId,
 ) -> Span<'static, TimelineItemMessage> {
     let (text, color) = match mention {
         Mention::Event {
@@ -391,13 +416,10 @@ fn render_mention(
             user_id,
             display_name,
         } => {
-            let member = membership_map.get(user_id);
+            let member = profile_store.get_member(room_id, user_id);
 
-            let name = member
-                .map(|m| m.get_name())
-                .or(display_name.clone())
-                .unwrap_or(user_id.to_string());
-            let color = member.map(|m| m.color()).unwrap_or(user_id.as_str().into());
+            let name = display_name.clone().unwrap_or_else(|| member.displayname());
+            let color = member.name_color();
 
             (format!("@{name}"), color)
         }

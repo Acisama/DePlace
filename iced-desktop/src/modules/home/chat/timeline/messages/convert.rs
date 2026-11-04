@@ -27,6 +27,7 @@ pub trait ToTimelineItem {
     fn convert(
         self,
         state: &AppState,
+        profile_store: Arc<ProfileStore>,
         room_id: OwnedRoomId,
         pinned_event_ids: &BTreeSet<OwnedEventId>,
         own_user_id: &OwnedUserId,
@@ -37,6 +38,7 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
     fn convert(
         self,
         state: &AppState,
+        profile_store: Arc<ProfileStore>,
         room_id: OwnedRoomId,
         pinned_event_ids: &BTreeSet<OwnedEventId>,
         own_user_id: &OwnedUserId,
@@ -46,6 +48,7 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
             kind: TimelineItemKind::from_ui(
                 self.kind(),
                 state,
+                profile_store,
                 pinned_event_ids,
                 &room_id,
                 own_user_id,
@@ -59,6 +62,7 @@ impl TimelineItemKind {
     fn from_ui(
         value: &UiTimelineItemKind,
         state: &AppState,
+        profile_store: Arc<ProfileStore>,
         pinned_event_ids: &BTreeSet<OwnedEventId>,
         room_id: &OwnedRoomId,
         own_user_id: &OwnedUserId,
@@ -78,7 +82,7 @@ impl TimelineItemKind {
                     .timestamp()
                     .to_system_time()
                     .unwrap_or_else(SystemTime::now);
-                let sender = state.get_member(event.sender(), room_id);
+                let sender = profile_store.get_member(room_id, event.sender());
                 let event_id = event.event_id().map(|id| id.to_owned());
 
                 // With a normal closure, there would be move problems
@@ -100,9 +104,6 @@ impl TimelineItemKind {
                                 timezone: state.settings().timezone.watch(),
                                 hour_format: state.settings().hour_format.watch(),
                                 date_format: state.settings().date_format.watch(),
-
-                                avatar_cache: state.avatar_cache().clone(),
-                                avatar_states_for_hash: BTreeSet::new(),
                             }),
                         }
                     };
@@ -247,9 +248,6 @@ impl TimelineItemKind {
                             is_editable: event.is_editable(),
                             can_be_replied_to: event.can_be_replied_to(),
                             message: Arc::new(MessageEvent {
-                                state: state.clone(),
-                                membership_map: state.membership_map(),
-
                                 timestamp,
 
                                 timezone: settings.timezone.watch(),
@@ -260,16 +258,21 @@ impl TimelineItemKind {
 
                                 is_replying_to: false,
 
-                                reactions: convert_reactions(&m.reactions, own_user_id),
+                                reactions: convert_reactions(
+                                    &m.reactions,
+                                    own_user_id,
+                                    &profile_store,
+                                    room_id,
+                                ),
 
                                 in_reply_to: Arc::new(
                                     m.in_reply_to
                                         .as_ref()
-                                        .map(|e| get_reply_details(e, state, room_id))
+                                        .map(|e| get_reply_details(e, &profile_store, room_id))
                                         .unwrap_or_default(),
                                 ),
+                                profile_store,
 
-                                // reactions: Arc::new(m.reactions.iter().map()),
                                 is_pinned: event_id
                                     .as_ref()
                                     .is_some_and(|id| pinned_event_ids.contains(id)),
@@ -287,9 +290,6 @@ impl TimelineItemKind {
 
                                 content,
                                 copyable_text,
-
-                                avatar_cache: state.avatar_cache().clone(),
-                                avatar_states_for_hash: BTreeSet::new(),
                             }),
                             is_hovered: false,
                             previous_is_event: false,
@@ -303,19 +303,21 @@ impl TimelineItemKind {
 
 fn convert_reactions(
     reactions: &ReactionsByKeyBySender,
-    own_user_id: &OwnedUserId,
+    own_user_id: &UserId,
+    profile_store: &ProfileStore,
+    room_id: &RoomId,
 ) -> Option<ReactionInfoMap> {
     if reactions.is_empty() {
         return None;
     }
 
-    let mut reactions: IndexMap<String, (bool, Vec<OwnedUserId>, Option<SystemTime>)> = reactions
+    let mut reactions: IndexMap<String, (bool, Vec<Member>, Option<SystemTime>)> = reactions
         .iter()
         .map(|(reaction, reactors)| {
             let mut oldest_time = None;
             let mut contains_own = false;
 
-            let mut reactors: IndexMap<OwnedUserId, SystemTime> = reactors
+            let mut reactors: IndexMap<Member, SystemTime> = reactors
                 .iter()
                 .map(|(id, info)| {
                     let timestamp = info.timestamp.to_system_time();
@@ -327,7 +329,10 @@ fn convert_reactions(
                         contains_own = true;
                     }
 
-                    (id.clone(), timestamp.unwrap_or(SystemTime::now()))
+                    (
+                        profile_store.get_member(room_id, id),
+                        timestamp.unwrap_or(SystemTime::now()),
+                    )
                 })
                 .collect();
 
@@ -337,7 +342,7 @@ fn convert_reactions(
                 reaction.clone(),
                 (
                     contains_own,
-                    reactors.into_iter().map(|(id, _)| id).collect(),
+                    reactors.into_iter().map(|(m, _)| m).collect(),
                     oldest_time,
                 ),
             )
@@ -509,7 +514,7 @@ impl From<&Box<VideoInfo>> for VisualInfo {
 
 fn get_reply_details(
     event: &InReplyToDetails,
-    state: &AppState,
+    profile_store: &ProfileStore,
     room_id: &OwnedRoomId,
 ) -> Vec<ReplyToDetails> {
     let mut replies = Vec::new();
@@ -519,7 +524,7 @@ fn get_reply_details(
 
     loop {
         let ConvertTimelineReplyResult(next_opt, converted) =
-            convert_timeline_reply(&current_event, state, current_id, room_id);
+            convert_timeline_reply(&current_event, profile_store, current_id, room_id);
 
         replies.push(converted);
 
@@ -541,7 +546,7 @@ struct ConvertTimelineReplyResult(
 
 fn convert_timeline_reply(
     event: &TimelineDetails<Box<EmbeddedEvent>>,
-    state: &AppState,
+    profile_store: &ProfileStore,
     event_id: OwnedEventId,
     room_id: &OwnedRoomId,
 ) -> ConvertTimelineReplyResult {
@@ -641,7 +646,7 @@ fn convert_timeline_reply(
         ReplyToDetails {
             event_id,
             event: TimelineDetails::Ready(ReplyEvent {
-                sender: state.get_member(&embedded.sender, room_id),
+                sender: profile_store.get_member(room_id, &embedded.sender),
                 content,
             }),
         },

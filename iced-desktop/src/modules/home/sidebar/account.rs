@@ -1,13 +1,11 @@
-use deplace_core::state::{PresenceMap, UserDevice};
+use deplace_core::state::UserDevice;
 use iced::Alignment;
 use macros::{iced_cache, iced_icon};
-use std::collections::BTreeSet;
 
 use crate::{common::*, components::help_mode::SidebarHelpKey};
 
 #[derive(Debug, Clone)]
 pub enum AccountMessage {
-    NeedsAvatar(OwnedMxcUri),
     OpenSettings,
     HelpHover(Option<HelpKey>),
 }
@@ -18,49 +16,35 @@ impl HelpOverMessage for AccountMessage {
     }
 }
 
-impl NeedsAvatarExt for AccountMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        Self::NeedsAvatar(uri)
-    }
-}
-
 pub enum AccountAction {
-    NeedsMedia(NeedsMedia),
     OpenSettings,
     HelpHover(Option<HelpKey>),
 }
 
 #[iced_cache(Clone, Debug)]
 pub struct AccountView {
-    state: AppState,
+    profile_store: Arc<ProfileStore>,
 
     own_display_name: Receiver<Option<String>>,
-    own_avatar_url: Receiver<Option<OwnedMxcUri>>,
+    own_avatar: Receiver<Avatar>,
     own_device: Arc<UserDevice>,
-
-    presence_map: Receiver<PresenceMap>,
-    avatar_cache: AvatarCache,
 }
 
 impl ExtraHash for AccountView {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.own_display_name.borrow().hash(state);
-        self.own_avatar_url.borrow().hash(state);
+        self.own_avatar.borrow().hash(state);
     }
 }
 
 impl AccountView {
     pub fn new(state: &AppState) -> Self {
         Self {
-            state: state.clone(),
+            profile_store: state.profile_store(),
 
             own_display_name: state.own_display_name(),
-            own_avatar_url: state.own_avatar_url(),
+            own_avatar: state.own_avatar(),
             own_device: state.own_device(),
-
-            avatar_cache: state.avatar_cache().clone(),
-            avatar_states_for_hash: BTreeSet::new(),
-            presence_map: state.presence_map(),
         }
     }
 }
@@ -68,10 +52,6 @@ impl AccountView {
 impl IcedWidget<AccountMessage, AccountAction> for AccountView {
     fn update(&mut self, message: AccountMessage) -> Option<AccountAction> {
         match message {
-            AccountMessage::NeedsAvatar(uri) => {
-                self.avatar_states_for_hash.insert(uri.clone());
-                Some(AccountAction::NeedsMedia(NeedsMedia::avatar(uri)))
-            }
             AccountMessage::OpenSettings => Some(AccountAction::OpenSettings),
             AccountMessage::HelpHover(key) => Some(AccountAction::HelpHover(key)),
         }
@@ -92,27 +72,19 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
             .borrow()
             .clone()
             .unwrap_or(user_id.to_string());
-        let avatar_url = self.own_avatar_url.borrow().clone();
 
         let initial = display_name.chars().next().unwrap_or('?');
 
         let color = DePlaceColor::from(user_id.as_str()).into();
 
         let fallback = move || text_icon(initial, button_size, button_size * 0.5, color);
-
-        let presence = self
-            .presence_map
-            .borrow()
-            .get(&user_id)
-            .map(|p| p.presence.clone())
-            .unwrap_or(PresenceState::Offline);
+        let presence = self.profile_store.get_presence(&user_id);
 
         let avatar = render_avatar(
-            avatar_url,
             button_size,
             button_size * 0.5,
             fallback,
-            &self.avatar_cache,
+            self.own_avatar.borrow().clone(),
         );
 
         let content = floating_tile(
@@ -122,7 +94,7 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
                 w::row![
                     render_presence_badge(
                         avatar,
-                        &presence,
+                        presence,
                         theme,
                         structure,
                         theme.solid_bg.into(),

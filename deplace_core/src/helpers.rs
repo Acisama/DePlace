@@ -13,24 +13,6 @@ use ruma::{
     presence::PresenceState,
 };
 
-use crate::{ProfileLike, rooms::DePlaceRoom};
-
-pub trait RoomPlaceholderExt {
-    fn get_input_placeholder(&self) -> String;
-}
-
-impl RoomPlaceholderExt for DePlaceRoom {
-    fn get_input_placeholder(&self) -> String {
-        if self.is_dm()
-            && let Some(name) = self.display_name()
-        {
-            format!("@{}", name)
-        } else {
-            format!("#{}", self.get_name())
-        }
-    }
-}
-
 pub trait MatrixClientExt {
     fn get_file_content(
         &self,

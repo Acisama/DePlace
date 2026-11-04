@@ -1,5 +1,4 @@
 use std::{
-    collections::{BTreeSet, HashMap},
     env::temp_dir,
     fmt::Debug,
     hash::Hash,
@@ -9,28 +8,30 @@ use std::{
 
 use anyhow::Result;
 use futures::{Stream, stream};
-use indexmap::IndexMap;
 use matrix_sdk::{
     Client,
-    room::RoomMember,
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
 };
 use media_fetcher::MediaProcessor;
-use ruma::{OwnedMxcUri, RoomId, UserId, events::presence::PresenceEventContent};
-use tokio::sync::watch::{self, Receiver, Ref, Sender};
+use ruma::{OwnedMxcUri, RoomId};
+use tokio::sync::watch::{self, Receiver, Sender};
 
 use crate::{
-    APP_NAME, ProfileLike,
+    APP_NAME,
     keybinds::Keybinds,
-    matrix_api::account_data::{
-        BreadcrumbsContent, ServerOrderContent, get_account_data, set_account_data,
+    matrix_api::{
+        account_data::{BreadcrumbsContent, DePlaceAccountData, ServerOrderContent},
+        sync::spawn_initial_load,
     },
-    member::{Member, ProfileStore},
+    member::ProfileStore,
     notifications::NotificationManager,
-    rooms::{DePlaceRoom, RoomWatcherHashingConfig, RoomWatchers, SpaceHierarchy},
+    room::{DePlaceRoom, store::RoomStore},
     settings::Settings,
     window_title,
 };
+
+#[cfg(feature = "iced")]
+use crate::Avatar;
 
 #[derive(Debug, Clone)]
 pub struct ImportantPaths {
@@ -95,9 +96,6 @@ pub struct UserDevice {
     pub user_id: OwnedUserId,
     pub device_id: OwnedDeviceId,
 }
-
-pub type MembershipMap = HashMap<OwnedRoomId, IndexMap<OwnedUserId, RoomMember>>;
-pub type PresenceMap = HashMap<OwnedUserId, PresenceEventContent>;
 
 pub mod cache;
 pub mod media_fetcher;
@@ -179,9 +177,18 @@ pub enum ActiveServerId {
     Server(OwnedRoomId),
 }
 
+impl From<Option<OwnedRoomId>> for ActiveServerId {
+    fn from(room_id: Option<OwnedRoomId>) -> Self {
+        match room_id {
+            Some(id) => ActiveServerId::Server(id),
+            None => ActiveServerId::Dms,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
-    inner: Arc<AppStateInner>,
+    pub(crate) inner: Arc<AppStateInner>,
 }
 
 impl Debug for AppState {
@@ -190,19 +197,22 @@ impl Debug for AppState {
     }
 }
 
-struct AppStateInner {
+pub(crate) struct AppStateInner {
     pub client: Client,
     pub own_device: Arc<UserDevice>,
     pub settings: Settings,
 
-    media_processor: MediaProcessor,
-    profile_store: ProfileStore,
+    pub(crate) media_processor: MediaProcessor,
 
-    own_display_name: Sender<Option<String>>,
-    own_avatar_url: Sender<Option<OwnedMxcUri>>,
+    pub(crate) profile_store: Arc<ProfileStore>,
+    pub(crate) room_store: Arc<RoomStore>,
+
+    pub(crate) own_display_name: Sender<Option<String>>,
+    pub(crate) own_avatar_url: Sender<Option<Arc<OwnedMxcUri>>>,
+    #[cfg(feature = "iced")]
+    pub(crate) own_avatar_handle: Sender<Avatar>,
 
     keybinds: Sender<Keybinds>,
-    room_watchers: RoomWatchers,
 
     window_title: Sender<String>,
     window_focused: Mutex<bool>,
@@ -210,23 +220,16 @@ struct AppStateInner {
 
     notification_manager: NotificationManager,
 
-    pub membership_version: Sender<u64>,
-    pub presence_version: Sender<u64>,
     sync_tick: Sender<u64>,
 
     pub active_room: Sender<Option<DePlaceRoom>>,
     pub active_server: Sender<ActiveServer>,
-    presence_map: Sender<PresenceMap>,
-    membership_map: Sender<MembershipMap>,
 
     server_order: Sender<Vec<OwnedRoomId>>,
 
     /// Last accessed servers and rooms, since the data is only
     /// needed as snapshots, it is held in a mutex
     breadcrumbs: Mutex<BreadcrumbsContent>,
-
-    #[cfg(feature = "iced_desktop")]
-    avatar_cache: cache::AvatarCache,
 
     #[cfg(feature = "iced_desktop")]
     thumbnail_cache: cache::ThumbnailCache,
@@ -251,13 +254,15 @@ impl AppState {
             .set_media_fetcher(Arc::new(media_processor.clone()))
             .await;
 
-        let breadcrumbs_content = get_account_data::<BreadcrumbsContent>(&client).await;
-        let last_server_order = get_account_data(&client).await;
+        let breadcrumbs_content = BreadcrumbsContent::fetch(&client).await;
+        let last_server_order = ServerOrderContent::fetch(&client).await;
+
+        let profile_store = Arc::new(ProfileStore::new(&client));
+        let room_store =
+            Arc::new(RoomStore::new(&client, profile_store.clone(), last_server_order).await);
 
         let own_device = Arc::new(user_device);
 
-        let room_watchers =
-            RoomWatchers::new(client.clone(), last_server_order, own_device.clone()).await?;
         let breadcrumbs = Mutex::new(breadcrumbs_content);
 
         let (last_room_id, dms_last) = {
@@ -277,30 +282,20 @@ impl AppState {
 
         let active_server = if !dms_last
             && let Some(room_id) = &last_room_id
-            && let Some(server) = room_watchers.get_server_of(room_id)
+            && let Some(server) = room_store.get_server_of(room_id)
         {
             ActiveServer::Server(server)
         } else {
             ActiveServer::Dms
         };
 
-        let active_room = if let Some(room) = last_room_id.and_then(|id| client.get_room(&id)) {
-            Some(DePlaceRoom::from_room(room, &own_device).await)
-        } else {
-            None
-        };
+        let active_room = last_room_id.and_then(|id| room_store.get_room(&id));
 
         let (active_room, _) = watch::channel(active_room);
         let (active_server, _) = watch::channel(active_server);
 
-        let (membership_map, _) = watch::channel(MembershipMap::default());
-        let (presence_map, _) = watch::channel(PresenceMap::default());
-
-        let server_order_data = get_account_data::<ServerOrderContent>(&client).await;
+        let server_order_data = ServerOrderContent::fetch(&client).await;
         let (server_order, _) = watch::channel(server_order_data.servers);
-
-        let (membership_version, _) = watch::channel(0);
-        let (presence_version, _) = watch::channel(0);
         let (sync_tick, _) = watch::channel(0);
 
         let (window_title, _) = watch::channel(window_title(
@@ -313,11 +308,10 @@ impl AppState {
         let (own_display_name, _) = watch::channel(None);
         let (own_avatar_url, _) = watch::channel(None);
 
+        spawn_initial_load(profile_store.clone(), client.clone());
+
         Ok(Self {
             inner: Arc::new(AppStateInner {
-                #[cfg(feature = "iced_desktop")]
-                avatar_cache: cache::AvatarCache::new(client.clone()),
-
                 #[cfg(feature = "iced_desktop")]
                 thumbnail_cache: cache::ThumbnailCache::new(client.clone()),
 
@@ -328,9 +322,8 @@ impl AppState {
                 image_cache: cache::ImageCache::new(client.clone()),
 
                 media_processor,
-                profile_store: ProfileStore::new(&client),
-
-                room_watchers,
+                profile_store,
+                room_store,
 
                 window_title,
                 window_focused: Mutex::new(false),
@@ -338,6 +331,8 @@ impl AppState {
 
                 own_display_name,
                 own_avatar_url,
+                #[cfg(feature = "iced")]
+                own_avatar_handle: Sender::default(),
 
                 notification_manager: NotificationManager::default(),
 
@@ -346,25 +341,15 @@ impl AppState {
                 settings,
                 keybinds,
 
-                membership_version,
-                presence_version,
                 sync_tick,
 
                 active_room,
                 active_server,
 
-                membership_map,
-                presence_map,
-
                 server_order,
                 breadcrumbs,
             }),
         })
-    }
-
-    #[cfg(feature = "iced_desktop")]
-    pub fn avatar_cache(&self) -> &cache::AvatarCache {
-        &self.inner.avatar_cache
     }
 
     #[cfg(feature = "iced_desktop")]
@@ -382,22 +367,28 @@ impl AppState {
         &self.inner.image_cache
     }
 
-    fn inner_room_watchers(&self) -> &RoomWatchers {
-        &self.inner.room_watchers
+    pub fn profile_store_ref(&self) -> &ProfileStore {
+        &self.inner.profile_store
     }
 
-    pub fn room_watchers(&self, config: RoomWatcherHashingConfig) -> RoomWatchers {
-        let mut watchers = self.inner.room_watchers.clone();
-        watchers.hash_config = config;
-        watchers
+    pub fn room_store_ref(&self) -> &RoomStore {
+        &self.inner.room_store
     }
 
-    pub fn get_member(&self, user_id: &UserId, room_id: &RoomId) -> Member {
-        self.inner.profile_store.get_member(user_id, room_id)
+    pub fn profile_store(&self) -> Arc<ProfileStore> {
+        self.inner.profile_store.clone()
+    }
+
+    pub fn room_store(&self) -> Arc<RoomStore> {
+        self.inner.room_store.clone()
     }
 
     pub fn member_update_receiver(&self) -> Receiver<()> {
         self.inner.profile_store.changed.subscribe()
+    }
+
+    pub fn room_update_receiver(&self) -> Receiver<()> {
+        self.inner.room_store.changed.subscribe()
     }
 
     pub fn own_display_name(&self) -> Receiver<Option<String>> {
@@ -408,32 +399,12 @@ impl AppState {
         self.inner.own_display_name.send_replace(name);
     }
 
-    pub fn own_avatar_url(&self) -> Receiver<Option<OwnedMxcUri>> {
+    pub fn own_avatar_url(&self) -> Receiver<Option<Arc<OwnedMxcUri>>> {
         self.inner.own_avatar_url.subscribe()
     }
 
-    pub fn set_own_avatar_url(&self, url: Option<OwnedMxcUri>) {
-        self.inner.own_avatar_url.send_replace(url);
-    }
-
-    pub fn get_children(&self, parent: &RoomId) -> Arc<Vec<OwnedRoomId>> {
-        self.hierarchy().get_children(parent)
-    }
-
-    pub fn get_all_children(&self, parent: &RoomId) -> Arc<BTreeSet<OwnedRoomId>> {
-        self.hierarchy().get_all_children(parent)
-    }
-
-    pub fn hierarchy(&self) -> Ref<'_, SpaceHierarchy> {
-        self.inner.room_watchers.hierarchy.borrow()
-    }
-
-    pub fn servers(&self) -> Arc<Vec<OwnedRoomId>> {
-        self.hierarchy().servers.clone()
-    }
-
-    pub fn get_room(&self, room_id: &RoomId) -> Option<DePlaceRoom> {
-        self.inner_room_watchers().all_rooms().get(room_id)
+    pub fn own_avatar(&self) -> Receiver<Avatar> {
+        self.inner.own_avatar_handle.subscribe()
     }
 
     pub fn keybinds(&self) -> Receiver<Keybinds> {
@@ -472,14 +443,6 @@ impl AppState {
 
     pub fn window_title(&self) -> Receiver<String> {
         self.inner.window_title.subscribe()
-    }
-
-    pub fn membership_version(&self) -> Ref<'_, u64> {
-        self.inner.membership_version.borrow()
-    }
-
-    pub fn presence_version(&self) -> Ref<'_, u64> {
-        self.inner.presence_version.borrow()
     }
 
     /// Subscribes to a tick that fires on every processed sync response,
@@ -526,14 +489,6 @@ impl AppState {
         self.inner.active_server.subscribe()
     }
 
-    pub fn membership_map(&self) -> watch::Receiver<MembershipMap> {
-        self.inner.membership_map.subscribe()
-    }
-
-    pub fn presence_map(&self) -> watch::Receiver<PresenceMap> {
-        self.inner.presence_map.subscribe()
-    }
-
     pub fn server_order(&self) -> watch::Receiver<Vec<OwnedRoomId>> {
         self.inner.server_order.subscribe()
     }
@@ -548,40 +503,8 @@ impl AppState {
     }
 
     // Mutators
-
-    pub(crate) fn set_membership_map(&self, membership_map: MembershipMap) {
-        self.inner.membership_version.send_modify(|v| *v += 1);
-        self.inner.membership_map.send_if_modified(|cur| {
-            *cur = membership_map;
-            true
-        });
-    }
-
-    pub(crate) fn add_membership(&self, room_id: OwnedRoomId, member: RoomMember) {
-        self.inner.membership_version.send_modify(|v| *v += 1);
-        self.inner.membership_map.send_if_modified(|cur| {
-            let entry = cur.entry(room_id).or_default();
-            entry.insert(member.user_id().to_owned(), member);
-            entry.sort_by_cached_key(|_, m| {
-                (
-                    m.profile_name().map(|n| n.to_lowercase()),
-                    m.user_id().to_owned(),
-                )
-            });
-            true
-        });
-    }
-
     pub(crate) fn bump_sync_tick(&self) {
         self.inner.sync_tick.send_modify(|v| *v = v.wrapping_add(1));
-    }
-
-    pub(crate) fn add_presences(&self, presences: PresenceMap) {
-        self.inner.presence_version.send_modify(|v| *v += 1);
-        self.inner.presence_map.send_if_modified(|cur| {
-            cur.extend(presences);
-            true
-        });
     }
 
     /// Mutates the breadcrumbs in-place using a closure. This function is private since
@@ -631,13 +554,13 @@ impl AppState {
                     .last_space_ids
                     .get(&id)
                     .cloned()
-                    .and_then(|id| self.inner.room_watchers.get_room(&id))
-                    .or_else(|| self.inner.room_watchers.get_first_child_of(&id)),
+                    .and_then(|id| self.inner.room_store.get_room(&id))
+                    .or_else(|| self.inner.room_store.get_first_child_of(&id)),
                 ActiveServerId::Dms => breadcrumbs
                     .last_dm_id
                     .clone()
-                    .and_then(|id| self.inner.room_watchers.get_room(&id))
-                    .or_else(|| self.inner.room_watchers.dm_rooms().iter().next().cloned()),
+                    .and_then(|id| self.inner.room_store.get_room(&id))
+                    .or_else(|| self.inner.room_store.dm_rooms().iter().next().cloned()),
             };
 
             if change_room {
@@ -672,10 +595,7 @@ impl AppState {
         {
             let room_id = room.room_id().to_owned();
 
-            let active_server_id = self.hierarchy().get_server_of(&room_id);
-
-            let active_server: ActiveServer =
-                active_server_id.and_then(|id| self.get_room(&id)).into();
+            let active_server: ActiveServer = self.inner.room_store.get_server_of(&room_id).into();
 
             self.recalculate_title();
 
@@ -705,7 +625,7 @@ impl AppState {
             let client = self.client();
             let breadcrumbs = self.breadcrumbs();
 
-            set_account_data(&client, breadcrumbs).await;
+            breadcrumbs.set(&client).await;
         }
 
         new_server

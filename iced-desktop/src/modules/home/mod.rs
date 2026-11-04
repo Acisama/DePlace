@@ -33,9 +33,12 @@ pub const REPLY_ICON: &str = icons::arrow_bend_up_left::BOLD;
 pub const PIN_ICON: &str = icons::push_pin::BOLD;
 pub const UNPIN_ICON: &str = icons::push_pin_slash::BOLD;
 pub const REDACT_ICON: &str = icons::trash::BOLD;
-pub const SPEAKER_ICON: &str = icons::speaker_high::FILL;
 pub const DISCONNECT: &str = phosphor_svgs::icon::phone_disconnect::REGULAR;
 pub const CONNECT: &str = phosphor_svgs::icon::phone::REGULAR;
+
+pub const SPEAKER_ICON: &str = icons::speaker_high::FILL;
+pub const SPACE_ICON: &str = icons::house_simple::BOLD;
+pub const DEFAULT_ROOM_ICON: &str = icons::hash::BOLD;
 
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
@@ -186,6 +189,14 @@ impl Home {
             },
         ));
 
+        let room_update_task = Task::stream(iced::futures::stream::unfold(
+            state.room_update_receiver(),
+            |mut rx| async move {
+                rx.changed().await.ok()?;
+                Some((HomeMessage::SyncTick, rx))
+            },
+        ));
+
         (
             home,
             Task::batch([
@@ -195,6 +206,7 @@ impl Home {
                 sync_tick_task,
                 media_progress_tick_task,
                 member_update_task,
+                room_update_task,
             ]),
         )
     }
@@ -276,19 +288,6 @@ impl Home {
         let state = self.state.clone();
         Some(HomeAction::LoadMediaTask(Task::future(async move {
             match needs_media {
-                NeedsMedia::Avatar { uri } => {
-                    let res = state.avatar_cache().load_content(&uri).await;
-                    match res.status {
-                        CacheResultStatus::CacheHit => {}
-                        CacheResultStatus::Success => {
-                            tracing::trace!("Loading of avatar {uri} finished successfully");
-                        }
-                        CacheResultStatus::Failure(e) => {
-                            tracing::error!("Loading of avatar {uri} failed: {e}");
-                        }
-                    }
-                    res.loaded
-                }
                 NeedsMedia::Thumbnail { source, key } => {
                     let res = state
                         .thumbnail_cache()
@@ -460,7 +459,6 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
     fn update(&mut self, message: HomeMessage) -> Option<HomeAction> {
         match message {
             HomeMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
-                SidebarAction::NeedsMedia(needs_media) => self.load_media_task(needs_media),
                 SidebarAction::ChangeRoom(room) => self.set_active_room_task(room),
                 SidebarAction::ChangeServer(server) => self.set_active_server_task(server),
                 SidebarAction::Run(task) => Some(HomeAction::Run(task)),

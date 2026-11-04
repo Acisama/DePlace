@@ -1,9 +1,7 @@
-use std::collections::{BTreeSet, HashSet};
-
 use deplace_core::{
-    matrix_api::account_data::set_account_data,
-    rooms::NotificationCounts,
-    state::{ActiveServer, ActiveServerId, PresenceMap},
+    matrix_api::account_data::DePlaceAccountData,
+    room::notifications::NotificationCounts,
+    state::{ActiveServer, ActiveServerId},
 };
 use iced::{Alignment, widget::svg};
 use macros::iced_cache;
@@ -20,17 +18,10 @@ use crate::{
 pub enum ServerColumnMessage {
     ChangeActiveServer(ActiveServer),
     ChangeToDm(DePlaceRoom),
-    NeedsAvatar(OwnedMxcUri),
     ServerHovered(ActiveServerId),
     ServerHoverEnded(ActiveServerId),
     ServerDragged(DragEvent),
     HelpHover(Option<HelpKey>),
-}
-
-impl NeedsAvatarExt for ServerColumnMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        ServerColumnMessage::NeedsAvatar(uri)
-    }
 }
 
 impl HelpOverMessage for ServerColumnMessage {
@@ -42,7 +33,6 @@ impl HelpOverMessage for ServerColumnMessage {
 pub enum ServerColumnAction {
     SetActiveServer(ActiveServer),
     SetActiveDm(DePlaceRoom),
-    NeedsMedia(NeedsMedia),
     Run(Task<()>),
     HelpHover(Option<HelpKey>),
 }
@@ -51,42 +41,41 @@ pub enum ServerColumnAction {
 pub struct ServerColumn {
     state: AppState,
 
-    room_watchers: RoomWatchers,
+    room_store: Arc<RoomStore>,
 
     #[hash]
     hovered_server: Option<ActiveServerId>,
 
     active_room: Receiver<Option<DePlaceRoom>>,
     active_server: Receiver<ActiveServer>,
+}
 
-    avatar_cache: AvatarCache,
-    presence_map: Receiver<PresenceMap>,
-    membership_map: Receiver<MembershipMap>,
+impl ExtraHash for ServerColumn {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for room in self.room_store.dm_rooms().iter() {
+            room.hash_selective(state, false, true, false);
+        }
+
+        for server_id in self.room_store.servers().iter() {
+            if let Some(room) = self.room_store.get_room(server_id) {
+                room.hash_all(state);
+            }
+            for child in self.room_store.get_all_children(server_id) {
+                child.hash_selective(state, false, true, true);
+            }
+        }
+    }
 }
 
 impl ServerColumn {
     pub fn new(state: &AppState) -> Self {
         Self {
-            room_watchers: state
-                .room_watchers(
-                    hashing::hash_dms_default()
-                        .hash_servers_default()
-                        .hash_all_rooms(hashing::hash_option_room(
-                            hashing::hash_notifications().hash_call_state(true),
-                        )),
-                )
-                .clone(),
+            room_store: state.room_store(),
 
             hovered_server: None,
             active_server: state.active_server(),
 
-            avatar_cache: state.avatar_cache().clone(),
-            avatar_states_for_hash: BTreeSet::new(),
-
             active_room: state.active_room(),
-
-            presence_map: state.presence_map(),
-            membership_map: state.membership_map(),
             state: state.clone(),
         }
     }
@@ -110,20 +99,16 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                 }
                 None
             }
-            ServerColumnMessage::NeedsAvatar(uri) => {
-                self.avatar_states_for_hash.insert(uri.clone());
-                Some(ServerColumnAction::NeedsMedia(NeedsMedia::avatar(uri)))
-            }
             ServerColumnMessage::ServerDragged(drag) => {
                 if let DragEvent::Dropped {
                     index,
                     target_index,
                 } = drag
                 {
-                    let new_order = self.room_watchers.reorder_servers(index, target_index);
+                    let new_order = self.room_store.reorder_servers(index, target_index);
                     let client = self.state.client();
                     Some(ServerColumnAction::Run(Task::future(async move {
-                        set_account_data(&client, new_order).await
+                        new_order.set(&client).await
                     })))
                 } else {
                     None
@@ -137,7 +122,6 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         let structure = structure();
 
         let hovered_server = self.hovered_server.clone();
-        let avatar_cache = &self.avatar_cache;
 
         let active_server = self.active_server.borrow().clone();
 
@@ -172,15 +156,17 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         );
 
         let dm_notification_pills: Vec<Element<'static, ServerColumnMessage>> = self
-            .room_watchers
+            .room_store
             .dm_rooms()
             .iter()
             .filter_map(|room| {
                 let id = room.room_id().to_owned();
 
-                let notifications = room.notification_counts();
+                let live = room.live();
 
-                let has_call = room.has_call_participants();
+                let notifications = live.notification_counts();
+
+                let has_call = live.call_participants_count() > 0;
 
                 let num =
                     if notifications.highlight_count > 0 || notifications.notification_count > 0 {
@@ -202,7 +188,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         HelpKey::Sidebar(SidebarHelpKey::DmsWithNotifications),
                         "Direct messages with unread notifications or ongoing calls",
                         w::mouse_area(
-                            w::button(room.render_icon(icon_size, avatar_cache))
+                            w::button(room.render_icon(icon_size))
                                 .padding(0.0)
                                 .style(move |_, _| ButtonStyle {
                                     ..Default::default()
@@ -221,7 +207,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     theme.solid_bg,
                 );
 
-                let own_user_in_call = room.own_user_is_in_call();
+                let own_user_in_call = live.own_user_is_in_call();
                 if has_call {
                     badge = badge.tr(CornerContent::Icon {
                         svg_content: SPEAKER_ICON,
@@ -268,26 +254,25 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             column = column.push_element(w::column(dm_notification_pills).spacing(structure.gap));
         }
 
-        let presence_map = self.presence_map.borrow();
-        let membership_map = self.membership_map.borrow();
-
-        let servers = sweeten::widget::column(self.room_watchers.servers().iter().enumerate().map(
-            |(index, room)| {
-                render_server_icon(
-                    room,
-                    index,
-                    theme,
-                    structure,
-                    &self.room_watchers,
-                    &self.avatar_cache,
-                    &active_server,
-                    &self.hovered_server,
-                    &help_view,
-                    &presence_map,
-                    &membership_map,
-                )
-            },
-        ))
+        let servers = sweeten::widget::column(
+            self.room_store
+                .servers()
+                .iter()
+                .filter_map(|id| self.room_store.get_room(id))
+                .enumerate()
+                .map(|(index, room)| {
+                    render_server_icon(
+                        &room,
+                        index,
+                        theme,
+                        structure,
+                        &self.room_store,
+                        &active_server,
+                        &self.hovered_server,
+                        &help_view,
+                    )
+                }),
+        )
         .on_drag(ServerColumnMessage::ServerDragged)
         .spacing(structure.gap);
 
@@ -336,54 +321,41 @@ fn render_server_icon(
     index: usize,
     theme: Theme,
     structure: Structure,
-    room_watchers: &RoomWatchers,
-    avatar_cache: &AvatarCache,
+    room_store: &RoomStore,
     active_server: &ActiveServer,
     hovered_server: &Option<ActiveServerId>,
     help_view: &HelpView<ServerColumnMessage>,
-    presence_map: &PresenceMap,
-    membership_map: &MembershipMap,
 ) -> Element<'static, ServerColumnMessage> {
     let id = room.room_id().to_owned();
-    let children = room_watchers.get_all_children(&id);
+    let children = room_store.get_all_children(&id);
 
     let mut call_members = Vec::new();
 
-    let mut online_members = 0;
-    let mut offline_members = 0;
+    let members = room.members();
 
-    let mut user_ids = HashSet::new();
+    let online_members = members.online_len();
+    let offline_members = members.offline_len();
+
+    let mut has_call = false;
+    let mut own_user_in_call = false;
+
+    let mut counts = NotificationCounts::default();
 
     for child in &children {
-        if let Some(map) = membership_map.get(child.room_id()) {
-            for id in map.keys() {
-                user_ids.insert(id.clone());
-            }
-        }
+        let live = child.live();
+        counts += live.notification_counts();
 
-        if child.has_call_participants() {
-            call_members.push(child.call_participants());
-        }
-    }
-
-    for id in user_ids {
-        if let Some(presence) = presence_map.get(&id)
-            && presence.presence != PresenceState::Offline
-        {
-            online_members += 1;
-        } else {
-            offline_members += 1;
+        if child.has_active_call() {
+            has_call |= true;
+            own_user_in_call |= live.own_user_is_in_call();
+            call_members.push(live.call_participants());
         }
     }
 
-    let has_call = children.iter().any(|r| r.has_call_participants());
-    let own_user_in_call = children.iter().any(|r| r.own_user_is_in_call());
-
-    let counts: NotificationCounts = children.iter().map(|r| r.notification_counts()).sum();
     let icon_size = structure.server_column.icon_size;
 
     let mut tooltip_content = vec![
-        weighted_text(room.get_name(), iced::font::Weight::Bold)
+        weighted_text(room.displayname(), iced::font::Weight::Bold)
             .size(structure.font_size)
             .boxed(),
     ];
@@ -391,11 +363,7 @@ fn render_server_icon(
     for members in call_members {
         tooltip_content.push(
             w::row![phosphor_icon(SPEAKER_ICON, structure.font_size).color(theme.text.dim.into())]
-                .extend(
-                    members
-                        .iter()
-                        .map(|m| m.render_icon(structure.font_size, avatar_cache)),
-                )
+                .extend(members.iter().map(|m| m.render_icon(structure.font_size)))
                 .boxed(),
         );
     }
@@ -410,7 +378,7 @@ fn render_server_icon(
     ));
 
     let content = w::mouse_area(themed_tooltip_content(
-        room.render_icon(icon_size, avatar_cache),
+        room.render_icon(icon_size),
         w::Column::with_children(tooltip_content),
         structure,
         theme,

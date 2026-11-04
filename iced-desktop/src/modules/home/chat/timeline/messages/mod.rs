@@ -89,12 +89,6 @@ impl OpenProfileOverlayExt for TimelineItemMessage {
     }
 }
 
-impl NeedsAvatarExt for TimelineItemMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        TimelineItemMessage::NeedsMedia(NeedsMedia::Avatar { uri })
-    }
-}
-
 impl HelpOverMessage for TimelineItemMessage {
     fn help_over(help: Option<HelpKey>) -> Self {
         TimelineItemMessage::HelpHover(help)
@@ -345,15 +339,6 @@ impl TimelineItem {
         }
     }
 
-    fn avatar_hashes(&mut self) -> Option<&mut BTreeSet<OwnedMxcUri>> {
-        if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
-            let event = Arc::make_mut(event);
-            Some(&mut event.avatar_states_for_hash)
-        } else {
-            None
-        }
-    }
-
     fn thumbnail_hashes(&mut self) -> Option<&mut BTreeSet<(String, u64, u64)>> {
         if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
             let event = Arc::make_mut(event);
@@ -484,9 +469,6 @@ impl TimelineItem {
             }
             TimelineItemMessage::NeedsMedia(media) => {
                 match &media {
-                    NeedsMedia::Avatar { uri } if let Some(hashes) = self.avatar_hashes() => {
-                        hashes.insert(uri.clone())
-                    }
                     NeedsMedia::Thumbnail { key, .. }
                         if let Some(hashes) = self.thumbnail_hashes() =>
                     {
@@ -732,12 +714,11 @@ impl Hash for TimelineItemKind {
     }
 }
 
-pub type ReactionInfoMap = Arc<IndexMap<String, (bool, Vec<OwnedUserId>)>>;
+pub type ReactionInfoMap = Arc<IndexMap<String, (bool, Vec<Member>)>>;
 
 #[iced_cache(Debug, Clone)]
 struct MessageEvent {
-    state: AppState,
-    membership_map: Receiver<MembershipMap>,
+    profile_store: Arc<ProfileStore>,
 
     timestamp: SystemTime,
 
@@ -758,8 +739,6 @@ struct MessageEvent {
 
     #[hash]
     is_replying_to: bool,
-
-    avatar_cache: AvatarCache,
 
     is_highlighted: bool,
     contains_only_emojis: bool,
@@ -1058,13 +1037,12 @@ struct SystemEvent {
     timestamp: SystemTime,
 
     _event_id: Option<OwnedEventId>,
+    #[hash]
     sender: Member,
 
     timezone: Receiver<Tz>,
     hour_format: Receiver<HourFormat>,
     date_format: Receiver<DateFormat>,
-
-    avatar_cache: AvatarCache,
 
     content: Arc<SystemMessage>,
 }

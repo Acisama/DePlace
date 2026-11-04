@@ -32,7 +32,6 @@ pub enum SidebarMessage {
 }
 
 pub enum SidebarAction {
-    NeedsMedia(NeedsMedia),
     Perform(Task<SidebarMessage>),
     ShowProfile { member: Member, bounds: Rectangle },
     HelpHover(Option<HelpKey>),
@@ -77,7 +76,7 @@ impl ExtraHash for Sidebar {
 }
 
 impl Sidebar {
-    pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
+    pub fn new(room: &DePlaceRoom) -> Self {
         let mut visual_state = EnumSet::new();
 
         if !room.is_dm() {
@@ -100,7 +99,7 @@ impl Sidebar {
 
             member_profile_card: ProfileCard::new(None),
             dm_profile_card: ProfileCard::new(None),
-            member_list: MemberList::new(state, room),
+            member_list: MemberList::new(room),
         }
     }
 
@@ -182,7 +181,6 @@ fn handle_profile_card_message(
     message: ProfileCardMessage,
 ) -> Option<SidebarAction> {
     match profile_card.update(message)? {
-        ProfileCardAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
         ProfileCardAction::Perform(task) => Some(SidebarAction::Perform(
             task.map(SidebarMessage::MemberProfileCard),
         )),
@@ -194,7 +192,6 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         match message {
             SidebarMessage::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             SidebarMessage::MemberList(message) => match self.member_list.update(message)? {
-                MemberListAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
                 MemberListAction::ShowProfile { member, bounds } => {
                     Some(SidebarAction::ShowProfile { member, bounds })
                 }

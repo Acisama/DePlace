@@ -1,30 +1,45 @@
-use std::pin::pin;
-use std::time::Duration;
+use std::collections::HashSet;
+use std::{pin::pin, sync::Arc};
 
 use futures_util::StreamExt;
-use matrix_sdk::{Client, config::SyncSettings, ruma::presence::PresenceState, sync::SyncResponse};
+use indexmap::IndexSet;
+use matrix_sdk::{
+    Client, config::SyncSettings, deserialized_responses::SyncOrStrippedState,
+    ruma::presence::PresenceState, sync::SyncResponse,
+};
+use matrix_sdk_base::RoomInfoNotableUpdateReasons;
+use ruma::events::call::member::CallMemberEventContent;
 
+use crate::member::ProfileStore;
+use crate::member::user_data::handle_presence_update;
+use crate::room::live::CallMember;
+use crate::thumbnail_format;
 use crate::{
-    matrix_api::{
-        members::run_membership_map_update,
-        presence::{get_presences, handle_presences},
-        save_session,
-    },
+    matrix_api::{hierarchy::run_space_hierarchy_update, save_session},
     notifications::on_message,
     state::AppState,
 };
 
-pub fn spawn_room_sync(client: &Client, state: &AppState) {
+#[cfg(feature = "iced")]
+use crate::Avatar;
+#[cfg(feature = "iced")]
+use iced::advanced::image::Handle as ImageHandle;
+
+use super::members::handle_member_event;
+
+pub fn spawn_sync_runners(client: &Client, state: &AppState) {
     if let Err(e) = client.event_cache().subscribe() {
         tracing::error!("Failed to subscribe to event cache: {e}");
     }
 
     tokio::spawn(run_sync_stream(client.clone(), state.clone()));
     tokio::spawn(run_keystore_save_stream(client.clone()));
-    tokio::spawn(run_membership_map_update(client.clone(), state.clone()));
-    tokio::spawn(get_presences(client.clone(), state.clone()));
+    spawn_room_sync(client.clone(), state.clone());
+    run_space_hierarchy_update(client);
 
     client.add_event_handler_context(state.clone());
+    client.add_event_handler(handle_member_event);
+    client.add_event_handler(handle_presence_update);
 }
 
 async fn run_keystore_save_stream(client: Client) {
@@ -40,7 +55,7 @@ async fn run_sync_stream(client: Client, state: AppState) {
     let sync_settings = SyncSettings::default()
         .ignore_timeout_on_first_sync(true)
         .set_presence(PresenceState::Online)
-        .timeout(Duration::from_secs(30));
+        .timeout(std::time::Duration::from_secs(30));
 
     let sync_stream = client.sync_stream(sync_settings).await;
     let mut sync_stream = pin!(sync_stream);
@@ -62,7 +77,7 @@ async fn run_sync_stream(client: Client, state: AppState) {
 }
 
 async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &AppState) {
-    let result = match result {
+    let _result = match result {
         Ok(result) => result,
         Err(e) => {
             tracing::error!("Sync loop returned an error: {e:?}");
@@ -81,168 +96,179 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
 
     match account.get_avatar_url().await {
         Ok(url) => {
-            state.set_own_avatar_url(url.clone());
-
-            #[cfg(feature = "iced_desktop")]
-            if let Some(url) = url {
-                use crate::state::cache::CacheLoadingExt;
-
-                let state = state.clone();
-                tokio::spawn(async move {
-                    state.avatar_cache().load_content(&url).await;
-                });
-            }
+            state.inner.own_avatar_url.send_replace(url.map(Arc::new));
         }
         Err(e) => {
             tracing::error!("Failed to get own avatar url: {}", e);
         }
     }
 
-    handle_presences(&result.presence, state);
+    #[cfg(feature = "iced")]
+    match account.get_avatar(thumbnail_format()).await {
+        Ok(Some(bytes)) if let Some(url) = state.inner.own_avatar_url.borrow().clone() => {
+            state.inner.own_avatar_handle.send_replace(Avatar::Ok {
+                image: ImageHandle::from_bytes(bytes),
+                avatar_url: url,
+            });
+        }
+        Ok(None | _) => {
+            state.inner.own_avatar_handle.send_replace(Avatar::NoAvatar);
+        }
+        Err(e) => {
+            tracing::error!("Failed to get own avatar: {}", e);
+            state
+                .inner
+                .own_avatar_handle
+                .send_replace(Avatar::Error(Arc::new(e.to_string())));
+        }
+    }
 
     state.bump_sync_tick();
 }
 
-// pub struct ClasifiedRooms {
-//     pub dm_rooms: DmRoomMap,
-//     pub single_rooms: RoomMap,
-//     pub server_rooms: RoomMap,
+fn spawn_room_sync(client: Client, state: AppState) {
+    let mut receiver = client.room_info_notable_update_receiver();
 
-//     pub parent_to_children: ParentToChildrenOrderStr,
-//     pub parent_to_all_children: ParentToChildren,
+    tokio::spawn(async move {
+        let profile_store = state.profile_store_ref();
 
-//     pub child_to_parents: ChildToParents,
-// }
+        loop {
+            let update = match receiver.recv().await {
+                Ok(update) => update,
+                Err(e) => {
+                    tracing::error!("Failed to receive room update: {e:?}");
+                    break;
+                }
+            };
 
-// pub async fn reclassify_rooms(client: &Client) -> ClasifiedRooms {
-//     let mut dm_rooms = IndexMap::new();
-//     let mut server_rooms = HashMap::new();
-//     let mut single_rooms = HashMap::new();
+            let room_id = update.room_id;
 
-//     let mut parent_to_children: ParentToChildrenOrderStr = HashMap::new();
-//     let mut parent_to_all_children: ParentToChildren = HashMap::new();
+            let Some((dp_room, created)) =
+                state.room_store_ref().get_room_with_if_created(&room_id)
+            else {
+                continue;
+            };
 
-//     let mut child_to_parents: ChildToParents = HashMap::new();
+            // Room was just created by the lookup above, which already loads
+            // it fresh - nothing to sync yet.
+            if created {
+                continue;
+            }
 
-//     let rooms = client.rooms();
-//     for room in rooms {
-//         let parents = match room.parent_spaces().await {
-//             Ok(parents) => parents,
-//             Err(e) => {
-//                 tracing::error!(
-//                     "Failed to get parent spaces for room {}: {e}",
-//                     room.room_id()
-//                 );
-//                 continue;
-//             }
-//         };
+            let Some(room) = client.get_room(&room_id) else {
+                continue;
+            };
 
-//         let parents_res = parents.collect::<Vec<_>>().await;
+            let display_name = room.cached_display_name().map(|n| n.to_string());
+            let avatar_url = room.avatar_url();
 
-//         let parents: Vec<Room> = parents_res
-//             .iter()
-//             .filter_map(|res| {
-//                 if let Ok(ParentSpace::Reciprocal(room)) = res {
-//                     Some(room.clone())
-//                 } else {
-//                     None
-//                 }
-//             })
-//             .collect();
+            let displayname_changed =
+                dp_room.info.data.load().display_name.as_ref() != display_name.as_ref();
+            let avatar_url_changed =
+                dp_room.info.data.load().avatar_url.as_ref() != avatar_url.as_ref();
 
-//         child_to_parents.insert(room.room_id().to_owned(), parents.clone());
+            if displayname_changed || avatar_url_changed {
+                dp_room.update_info(|info| {
+                    if displayname_changed {
+                        info.display_name = display_name.clone();
+                        info.calculate_strings();
+                    }
+                    if avatar_url_changed {
+                        info.avatar_url = avatar_url.clone();
+                    }
+                });
+            }
 
-//         let room_id = room.room_id();
+            if room.is_dm()
+                && update
+                    .reasons
+                    .intersects(RoomInfoNotableUpdateReasons::RECENCY_STAMP)
+            {
+                state.room_store_ref().recompute_dms();
+            }
 
-//         for parent in parents {
-//             let order = parent
-//                 .get_state_event_static_for_key::<SpaceChildEventContent, _>(room_id)
-//                 .await
-//                 .map_err(|e| {
-//                     tracing::error!("Failed to get state event for key {}: {e}", room_id);
-//                     e
-//                 })
-//                 .ok()
-//                 .flatten()
-//                 .and_then(|raw| {
-//                     raw.deserialize()
-//                         .map_err(|e| tracing::error!("Failed to deserialize state event: {e}"))
-//                         .ok()
-//                 })
-//                 .and_then(|v| v.as_sync().cloned())
-//                 .and_then(|v| v.as_original().cloned())
-//                 .and_then(|v| v.content.order.clone())
-//                 .map(|o| o.to_string());
+            if !update.reasons.intersects(
+                RoomInfoNotableUpdateReasons::LATEST_EVENT
+                    | RoomInfoNotableUpdateReasons::RECENCY_STAMP
+                    | RoomInfoNotableUpdateReasons::READ_RECEIPT
+                    | RoomInfoNotableUpdateReasons::UNREAD_MARKER,
+            ) {
+                continue;
+            }
 
-//             let entry = parent_to_children
-//                 .entry(parent.room_id().to_owned())
-//                 .or_default();
-//             entry.insert(room_id.to_owned(), (room.clone(), order));
-//         }
-//     }
+            let notifications = room.unread_notification_counts().into();
+            let mut call_participants = IndexSet::new();
 
-//     for room in client.rooms() {
-//         let room_id = room.room_id().to_owned();
+            if room.has_active_room_call() {
+                let events = match room
+                    .get_state_events_static::<CallMemberEventContent>()
+                    .await
+                {
+                    Ok(events) => events,
+                    Err(e) => {
+                        tracing::error!("Failed to get call member events: {e}");
+                        Vec::new()
+                    }
+                };
 
-//         let is_dm = match room.compute_is_dm().await {
-//             Ok(is_dm) => is_dm,
-//             Err(e) => {
-//                 tracing::error!("Failed to compute is_dm for room {}: {e}", room_id);
-//                 false
-//             }
-//         };
+                for raw in events {
+                    let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
+                        continue;
+                    };
+                    let matrix_sdk::ruma::events::SyncStateEvent::Original(ev) = ev else {
+                        continue;
+                    };
+                    let member = profile_store.get_member(&room_id, ev.state_key.user_id());
 
-//         if is_dm {
-//             dm_rooms.insert(room.room_id().to_owned(), room.clone());
-//             continue;
-//         }
+                    for membership in ev.content.active_memberships(None) {
+                        call_participants.insert(CallMember::new(&membership, member.clone()));
+                    }
+                }
+            }
 
-//         let has_children = !parent_to_children
-//             .get(&room_id)
-//             .cloned()
-//             .unwrap_or_default()
-//             .is_empty();
-//         let has_parents = !child_to_parents
-//             .get(&room_id)
-//             .cloned()
-//             .unwrap_or_default()
-//             .is_empty();
+            call_participants.sort_by_cached_key(|p| {
+                (
+                    p.member.raw_display_name_lowercase().unwrap_or_default(),
+                    p.member.user_id.clone(),
+                )
+            });
 
-//         if has_children && !has_parents {
-//             server_rooms.insert(room_id, room.clone());
-//             continue;
-//         }
+            dp_room.update_live_if_modified(|live| {
+                live.notification_counts = notifications;
+                live.call_participants = call_participants.clone();
+            });
+        }
+    });
+}
 
-//         single_rooms.insert(room_id, room.clone());
-//     }
+pub(crate) fn spawn_initial_load(profile_store: Arc<ProfileStore>, client: Client) {
+    tokio::spawn(async move {
+        let mut user_ids = HashSet::new();
 
-//     for (parent_id, children) in &parent_to_children {
-//         for (child_id, (child, _)) in children {
-//             parent_to_all_children
-//                 .entry(parent_id.clone())
-//                 .or_default()
-//                 .insert(child_id.clone(), child.clone());
-//         }
-//     }
+        for room in client.rooms() {
+            user_ids.extend(profile_store.load_room_members(&room).await);
+        }
 
-//     let latest_events = client.latest_events().await;
+        let user_ids: Vec<_> = user_ids.into_iter().collect();
 
-//     for id in dm_rooms.keys() {
-//         if let Err(e) = latest_events.listen_to_room(id).await {
-//             tracing::error!("Failed to listen to room {}: {e}", id);
-//         }
-//     }
-
-//     dm_rooms.sort_by_key(|_, r| Reverse(r.latest_event_timestamp()));
-
-//     ClasifiedRooms {
-//         dm_rooms,
-//         server_rooms,
-//         single_rooms,
-
-//         parent_to_children,
-//         parent_to_all_children,
-
-//         child_to_parents,
-//     }
-// }
+        if let Ok(presences) = client
+            .state_store()
+            .get_presence_events(&user_ids)
+            .await
+            .map_err(|e| tracing::error!("Failed to get initial event states: {e}"))
+        {
+            for (id, content) in presences.iter().filter_map(|raw_ev| {
+                let ev = match raw_ev.deserialize() {
+                    Ok(ev) => ev,
+                    Err(_) => return None,
+                };
+                Some((ev.sender.clone(), ev.content.clone()))
+            }) {
+                let (_, cell) = profile_store.user_cell(&id);
+                cell.change(|data| {
+                    data.update_from_content(content.clone());
+                });
+            }
+        }
+    });
+}

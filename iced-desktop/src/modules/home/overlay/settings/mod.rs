@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use crate::{common::*, components::phosphor_icon};
 use components::{
     AppearanceSection, AppearanceSectionAction, AppearanceSectionMessage, AudioSection,
@@ -30,18 +28,10 @@ pub enum SettingsMessage {
     Audio(AudioSectionMessage),
     Chats(ChatsSectionMessage),
     Updates(UpdatesSectionMessage),
-    NeedsAvatar(OwnedMxcUri),
-}
-
-impl NeedsAvatarExt for SettingsMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        Self::NeedsAvatar(uri)
-    }
 }
 
 pub enum SettingsAction {
     Run(Task<()>),
-    NeedsMedia(NeedsMedia),
 }
 
 #[iced_cache(Clone)]
@@ -61,16 +51,14 @@ pub struct SettingsView {
     active_section: SettingsSection,
 
     own_display_name: Receiver<Option<String>>,
-    own_avatar_url: Receiver<Option<OwnedMxcUri>>,
+    own_avatar: Receiver<Avatar>,
     own_device: Arc<UserDevice>,
-
-    avatar_cache: AvatarCache,
 }
 
 impl ExtraHash for SettingsView {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.own_display_name.borrow().hash(state);
-        self.own_avatar_url.borrow().hash(state);
+        self.own_avatar.borrow().hash(state);
     }
 }
 
@@ -87,11 +75,8 @@ impl SettingsView {
             active_section: SettingsSection::default(),
 
             own_display_name: state.own_display_name(),
-            own_avatar_url: state.own_avatar_url(),
+            own_avatar: state.own_avatar(),
             own_device: state.own_device(),
-
-            avatar_cache: state.avatar_cache().clone(),
-            avatar_states_for_hash: BTreeSet::new(),
         }
     }
 }
@@ -99,10 +84,6 @@ impl SettingsView {
 impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
     fn update(&mut self, message: SettingsMessage) -> Option<SettingsAction> {
         match message {
-            SettingsMessage::NeedsAvatar(uri) => {
-                self.avatar_states_for_hash.insert(uri.clone());
-                Some(SettingsAction::NeedsMedia(NeedsMedia::avatar(uri)))
-            }
             SettingsMessage::ChangeSection(section) => {
                 self.active_section = section;
                 None
@@ -155,10 +136,9 @@ impl IcedWidget<SettingsMessage, SettingsAction> for SettingsView {
                                     theme,
                                     structure,
                                     self.active_section,
-                                    self.own_avatar_url.borrow().clone(),
+                                    self.own_avatar.borrow().clone(),
                                     self.own_display_name.borrow().clone(),
                                     &self.own_device.user_id,
-                                    &self.avatar_cache
                                 ),
                                 w::container("")
                                     .width(Length::Fill)
@@ -309,10 +289,9 @@ fn render_profile_section(
     theme: Theme,
     structure: Structure,
     active_section: SettingsSection,
-    avatar_url: Option<OwnedMxcUri>,
+    avatar: Avatar,
     display_name: Option<String>,
     user_id: &OwnedUserId,
-    avatar_cache: &AvatarCache,
 ) -> Element<'static, SettingsMessage> {
     let is_selected = active_section == SettingsSection::Profile;
     let color = DePlaceColor::from(user_id.as_ref()).to_iced();
@@ -334,11 +313,10 @@ fn render_profile_section(
     w::button(
         w::row![
             render_avatar(
-                avatar_url,
                 structure.server_column.icon_size,
                 structure.server_column.icon_size / 2.0,
                 fallback,
-                avatar_cache
+                avatar
             ),
             w::column![
                 render_name(

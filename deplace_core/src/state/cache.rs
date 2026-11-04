@@ -2,7 +2,6 @@ use std::{hash::Hash, sync::Arc};
 
 use dashmap::DashMap;
 use matrix_sdk::Client;
-use ruma::OwnedMxcUri;
 use ruma::events::room::MediaSource;
 
 #[derive(Default, Debug)]
@@ -105,9 +104,6 @@ pub enum NeedsMedia {
         source: MediaSource,
         key: (String, u64, u64),
     },
-    Avatar {
-        uri: OwnedMxcUri,
-    },
     Video {
         source: MediaSource,
     },
@@ -117,10 +113,6 @@ pub enum NeedsMedia {
 }
 
 impl NeedsMedia {
-    pub fn avatar(uri: OwnedMxcUri) -> Self {
-        Self::Avatar { uri }
-    }
-
     pub fn thumbnail(source: MediaSource, key: (String, u64, u64)) -> Self {
         Self::Thumbnail { source, key }
     }
@@ -133,21 +125,20 @@ impl NeedsMedia {
 #[derive(Clone, Debug)]
 pub enum MediaLoaded {
     Thumbnail { key: (String, u64, u64) },
-    Avatar { uri: OwnedMxcUri },
     Video { key: String },
     Image { key: String },
 }
 
-#[cfg(feature = "iced_desktop")]
-pub use iced_caches::{AvatarCache, ImageCache, ThumbnailCache, VideoCache};
+#[cfg(feature = "iced")]
+pub use iced_caches::{ImageCache, ThumbnailCache, VideoCache};
 
-#[cfg(feature = "iced_desktop")]
+#[cfg(feature = "iced")]
 mod iced_caches {
     use std::{io::Cursor, sync::Arc};
 
     use iced_video_player::Video;
     use matrix_sdk::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
-    use ruma::{OwnedMxcUri, UInt, events::room::MediaSource, uint};
+    use ruma::{UInt, events::room::MediaSource};
 
     use iced::widget::image::Handle as ImageHandle;
 
@@ -155,46 +146,6 @@ mod iced_caches {
         CacheLoadingExt, CacheLoadingResult, CacheLoadingWithKeyExt, CacheResultStatus, MediaCache,
         MediaLoaded, MediaState,
     };
-
-    pub type AvatarCache = MediaCache<OwnedMxcUri, ImageHandle>;
-
-    impl CacheLoadingExt<OwnedMxcUri> for AvatarCache {
-        /// Loads an avatar with the given URI and returns MediaLoaded and a boolean indicating whether it was successfully loaded.
-        async fn load_content(&self, uri: &OwnedMxcUri) -> CacheLoadingResult {
-            let media_res = MediaLoaded::Avatar { uri: uri.clone() };
-
-            if self.cache.get(uri).is_some() {
-                return CacheLoadingResult {
-                    loaded: media_res,
-                    status: CacheResultStatus::CacheHit,
-                };
-            }
-
-            self.cache.insert(uri.clone(), MediaState::Loading);
-
-            let request = MediaRequestParameters {
-                source: MediaSource::Plain(uri.clone()),
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(100), uint!(100))),
-            };
-
-            let mut status = CacheResultStatus::Success;
-            let res = match self.client.media().get_media_content(&request, true).await {
-                Ok(bytes) => MediaState::loaded(ImageHandle::from_bytes(bytes)),
-                Err(e) => {
-                    tracing::error!("Failed to fetch media: {e}");
-                    status = CacheResultStatus::Failure(e.to_string());
-                    MediaState::Failed
-                }
-            };
-
-            self.cache.insert(uri.clone(), res);
-
-            CacheLoadingResult {
-                loaded: media_res,
-                status,
-            }
-        }
-    }
 
     pub type ThumbnailCache = MediaCache<(String, u64, u64), ImageHandle>;
 

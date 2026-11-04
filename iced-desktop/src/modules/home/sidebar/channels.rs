@@ -1,17 +1,16 @@
 use std::collections::BTreeSet;
 
-use deplace_core::{
-    rooms::CallMember,
-    settings::NameDecoration,
-    state::{ActiveServer, PresenceMap},
-};
+use deplace_core::{room::live::CallMember, settings::NameDecoration, state::ActiveServer};
 use iced::{Alignment, border::Radius};
 use macros::{iced_cache, iced_icon};
 
 use crate::{
     common::*,
     components::{
-        PushElement, help_mode::SidebarHelpKey, link::link, profile::OpenProfileOverlayExt,
+        PushElement,
+        help_mode::SidebarHelpKey,
+        link::link,
+        profile::{OpenProfileOverlayExt, RoomRenderExt},
     },
 };
 
@@ -20,7 +19,6 @@ use super::render_mention_badge;
 #[derive(Debug, Clone)]
 pub enum ChannelsMessage {
     None,
-    NeedsAvatar(OwnedMxcUri),
     SetActiveRoom(DePlaceRoom),
     ToggleCategory(OwnedRoomId),
     RoomHovered(OwnedRoomId),
@@ -33,23 +31,17 @@ pub enum ChannelsMessage {
     },
     CallParticipantHovered {
         room_id: OwnedRoomId,
-        participant: Arc<CallMember>,
+        participant: CallMember,
     },
     CallParticipantUnhovered {
         room_id: OwnedRoomId,
-        participant: Arc<CallMember>,
+        participant: CallMember,
     },
 }
 
 impl OpenProfileOverlayExt for ChannelsMessage {
     fn open_profile(member: Member, bounds: Rectangle) -> Self {
         Self::ShowProfile { member, bounds }
-    }
-}
-
-impl NeedsAvatarExt for ChannelsMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        ChannelsMessage::NeedsAvatar(uri)
     }
 }
 
@@ -61,7 +53,6 @@ impl HelpOverMessage for ChannelsMessage {
 
 pub enum ChannelsAction {
     SetActiveRoom(DePlaceRoom),
-    NeedsMedia(NeedsMedia),
     HelpHover(Option<HelpKey>),
     OpenQuickselect,
     ShowProfile { member: Member, bounds: Rectangle },
@@ -69,10 +60,7 @@ pub enum ChannelsAction {
 
 #[iced_cache(Clone)]
 pub struct ServerChannels {
-    state: AppState,
-    avatar_cache: AvatarCache,
-
-    room_watchers: RoomWatchers,
+    room_store: Arc<RoomStore>,
 
     #[hash]
     collapsed_categories: BTreeSet<OwnedRoomId>,
@@ -81,11 +69,9 @@ pub struct ServerChannels {
     hovered_room_id: Option<OwnedRoomId>,
 
     #[hash]
-    hovered_call_participant: Option<(OwnedRoomId, Arc<CallMember>)>,
+    hovered_call_participant: Option<(OwnedRoomId, CallMember)>,
 
     name_decoration: Receiver<NameDecoration>,
-
-    presence_map: Receiver<PresenceMap>,
 
     active_room: Receiver<Option<DePlaceRoom>>,
     active_server: Receiver<ActiveServer>,
@@ -94,22 +80,26 @@ pub struct ServerChannels {
 impl ExtraHash for ServerChannels {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name_decoration.borrow().hash(state);
+
+        for room in self.room_store.dm_rooms().iter() {
+            room.hash_selective(state, true, true, false);
+        }
+
+        if let Some(server) = self.active_server.borrow().as_server() {
+            for room in self.room_store.get_all_children(server.room_id()) {
+                room.hash_selective(state, false, true, false);
+            }
+        }
     }
 }
 
 impl ServerChannels {
     pub fn new(state: &AppState) -> Self {
         Self {
-            avatar_cache: state.avatar_cache().clone(),
-            room_watchers: state
-                .room_watchers(hashing::hash_all_rooms(hashing::hash_option_room(
-                    hashing::hash_visible().hash_call_state(true),
-                )))
-                .clone(),
+            room_store: state.room_store(),
 
             collapsed_categories: BTreeSet::new(),
 
-            presence_map: state.presence_map(),
             hovered_room_id: None,
             hovered_call_participant: None,
 
@@ -117,10 +107,6 @@ impl ServerChannels {
 
             active_room: state.active_room(),
             active_server: state.active_server(),
-
-            avatar_states_for_hash: BTreeSet::new(),
-
-            state: state.clone(),
         }
     }
 }
@@ -139,10 +125,6 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                     self.hovered_room_id = None;
                 }
                 None
-            }
-            ChannelsMessage::NeedsAvatar(uri) => {
-                self.avatar_states_for_hash.insert(uri.clone());
-                Some(ChannelsAction::NeedsMedia(NeedsMedia::avatar(uri)))
             }
             ChannelsMessage::None => None,
             ChannelsMessage::SetActiveRoom(room) => Some(ChannelsAction::SetActiveRoom(room)),
@@ -191,17 +173,16 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         let hovered_call_participant = self.hovered_call_participant.clone();
 
         let channels: Arc<Vec<_>> = match &active_server {
-            ActiveServer::Dms => self.room_watchers.dm_rooms(),
+            ActiveServer::Dms => self.room_store.dm_rooms(),
             ActiveServer::Server(server) => Arc::new(
-                self.room_watchers
+                self.room_store
                     .get_children(server.room_id())
                     .unwrap_or_default(),
             ),
         };
 
-        let presence_map = &self.presence_map.borrow();
+        let room_store = &self.room_store;
         let name_decoration = *self.name_decoration.borrow();
-
         let help_view = HelpView::new(theme);
 
         let (whole_key, name_key) = if active_server.is_dms() {
@@ -224,9 +205,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                 &hovered_room_id,
                 &hovered_call_participant,
                 r,
-                &self.avatar_cache,
-                presence_map,
-                &self.room_watchers,
+                room_store,
                 &self.collapsed_categories,
                 name_decoration,
                 if r.is_dm() {
@@ -242,7 +221,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         .height(Fill)
         .padding(structure.small_gap);
 
-        let active_server_name = active_server.get_name();
+        let active_server_name = active_server.displayname();
 
         let content = floating_tile(
             theme,
@@ -339,11 +318,9 @@ fn render_channel(
     structure: Structure,
     active_room_id: &Option<OwnedRoomId>,
     hovered_room_id: &Option<OwnedRoomId>,
-    hovered_call_participant: &Option<(OwnedRoomId, Arc<CallMember>)>,
+    hovered_call_participant: &Option<(OwnedRoomId, CallMember)>,
     room: &DePlaceRoom,
-    avatar_cache: &AvatarCache,
-    presence_map: &PresenceMap,
-    room_watchers: &RoomWatchers,
+    room_store: &RoomStore,
     collapsed_categories: &BTreeSet<OwnedRoomId>,
     name_decoration: NameDecoration,
     icon_size: f32,
@@ -358,7 +335,9 @@ fn render_channel(
         .as_ref()
         .is_some_and(|id| id == room.room_id());
 
-    let notifications = room.notification_counts();
+    let live = room.live();
+
+    let notifications = live.notification_counts();
     let has_notifications = notifications.has_notifications();
 
     let text_color = if is_hovered || is_active || has_notifications {
@@ -373,7 +352,7 @@ fn render_channel(
         theme.solid_bg.into()
     };
 
-    let is_space = room.is_space();
+    let is_space = room.room_type().is_space();
 
     let name = room.render_name_decorated(structure.font_size, name_decoration, text_color);
 
@@ -398,15 +377,7 @@ fn render_channel(
                                     iced_icon!(caret_right, bold, icon_size).into()
                                 }
                             } else {
-                                context_room_icon(
-                                    room,
-                                    icon_size,
-                                    theme,
-                                    structure,
-                                    presence_map,
-                                    avatar_cache,
-                                    bg,
-                                )
+                                room.render_simple_icon(icon_size, theme, structure, bg)
                             },
                             name,
                         ]
@@ -501,7 +472,7 @@ fn render_channel(
 
     let mut column = w::column![w::Stack::with_children(items)].spacing(structure.divider_width);
 
-    if is_space && let Some(children) = room_watchers.get_children(room.room_id()) {
+    if is_space && let Some(children) = room_store.get_children(room.room_id()) {
         let item_height = icon_size + 1.5 * structure.small_gap;
         if expanded {
             let length = children.len();
@@ -520,9 +491,7 @@ fn render_channel(
                                 hovered_room_id,
                                 hovered_call_participant,
                                 room,
-                                avatar_cache,
-                                presence_map,
-                                room_watchers,
+                                room_store,
                                 collapsed_categories,
                                 name_decoration,
                                 icon_size,
@@ -565,9 +534,7 @@ fn render_channel(
                             hovered_room_id,
                             hovered_call_participant,
                             active,
-                            avatar_cache,
-                            presence_map,
-                            room_watchers,
+                            room_store,
                             collapsed_categories,
                             name_decoration,
                             icon_size,
@@ -598,10 +565,10 @@ fn render_channel(
     } else {
         if !room.is_dm() {
             column
-                .extend(room.call_participants().iter().map(|p| {
+                .extend(live.call_participants().into_iter().map(|p| {
                     let is_hovered = hovered_call_participant
                         .as_ref()
-                        .is_some_and(|(r, u)| r == room.room_id() && u == p);
+                        .is_some_and(|(r, u)| r == room.room_id() && u == &p);
 
                     render_call_participant(
                         p,
@@ -610,7 +577,6 @@ fn render_channel(
                         theme,
                         structure,
                         icon_size,
-                        avatar_cache,
                     )
                 }))
                 .boxed()
@@ -621,60 +587,52 @@ fn render_channel(
 }
 
 fn render_call_participant(
-    member: &Arc<CallMember>,
+    member: CallMember,
     room_id: &RoomId,
     is_hovered: bool,
     theme: Theme,
     structure: Structure,
     icon_size: f32,
-    avatar_cache: &AvatarCache,
 ) -> Element<'static, ChannelsMessage> {
     let room_id = room_id.to_owned();
     let hover_room_id = room_id.clone();
 
-    let user_id = member.member.user_id().to_owned();
-
-    w::row![
-        w::container("").width(structure.small_gap + structure.font_size),
-        // link(
-        //     w::mouse_area(
-        //         w::container(
-        //             w::row![
-        //                 member.render_icon(icon_size, avatar_cache),
-        //                 member.render_name(structure.font_size)
-        //             ]
-        //             .spacing(structure.small_gap)
-        //             .align_y(Alignment::Center)
-        //             .width(Fill),
-        //         )
-        //         .padding(
-        //             padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap),
-        //         )
-        //         .style(move |_| ContainerStyle {
-        //             background: is_hovered.then_some(theme.solid_hover_bg.into()),
-        //             border: Border {
-        //                 color: if is_hovered {
-        //                     theme.border.into()
-        //                 } else {
-        //                     Color::TRANSPARENT
-        //                 },
-        //                 width: structure.border_thickness,
-        //                 radius: structure.inner_border_radius.into(),
-        //             },
-        //             ..Default::default()
-        //         }),
-        //     )
-        //     .on_enter(ChannelsMessage::CallParticipantHovered {
-        //         room_id: hover_room_id.clone(),
-        //         participant: member.clone(),
-        //     })
-        //     .on_exit(ChannelsMessage::CallParticipantUnhovered {
-        //         room_id: hover_room_id,
-        //         participant: member.clone(),
-        //     }),
-        //     Color::TRANSPARENT,
-        //     move |bounds| ChannelsMessage::open_profile(room_id.clone(), user_id.clone(), bounds),
-        // )
-    ]
+    w::row![link(
+        w::mouse_area(
+            w::container(
+                w::row![
+                    member.render_icon(icon_size),
+                    member.render_name(structure.font_size)
+                ]
+                .spacing(structure.small_gap)
+                .align_y(Alignment::Center)
+                .width(Fill),
+            )
+            .padding(padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap),)
+            .style(move |_| ContainerStyle {
+                background: is_hovered.then_some(theme.solid_hover_bg.into()),
+                border: Border {
+                    color: if is_hovered {
+                        theme.border.into()
+                    } else {
+                        Color::TRANSPARENT
+                    },
+                    width: structure.border_thickness,
+                    radius: structure.inner_border_radius.into(),
+                },
+                ..Default::default()
+            }),
+        )
+        .on_enter(ChannelsMessage::CallParticipantHovered {
+            room_id: hover_room_id.clone(),
+            participant: member.clone(),
+        })
+        .on_exit(ChannelsMessage::CallParticipantUnhovered {
+            room_id: hover_room_id,
+            participant: member.clone(),
+        }),
+        Color::TRANSPARENT,
+        move |bounds| ChannelsMessage::open_profile(member.member.clone(), bounds),
+    )]
     .boxed()
 }

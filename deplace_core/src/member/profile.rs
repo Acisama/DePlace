@@ -1,105 +1,82 @@
-#[cfg(feature = "iced")]
 use std::sync::Arc;
 
-use matrix_sdk::{
-    Client,
-    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
-    room::RoomMember,
-};
+use matrix_sdk::room::RoomMember;
 use ruma::{
-    OwnedMxcUri, UserId,
+    OwnedMxcUri, OwnedUserId,
     events::room::{
-        MediaSource,
         member::MembershipState,
         power_levels::UserPowerLevel::{self},
     },
-    uint,
 };
 
 #[cfg(feature = "iced")]
-use iced::widget::image::Handle as ImageHandle;
-
-use super::Shared;
+use crate::Avatar;
 
 #[derive(Clone, Debug)]
 pub struct ProfileData {
-    pub(super) avatar_url: Option<OwnedMxcUri>,
+    pub(crate) user_id: Arc<OwnedUserId>,
+    pub(crate) avatar_url: Option<OwnedMxcUri>,
 
-    pub(super) display_name: Option<String>,
-    pub(super) display_string: String,
-    pub(super) initial: char,
+    pub(crate) displayname: Option<String>,
+    pub(crate) display_string: String,
+    pub(crate) initial: char,
 
-    pub(super) membership: MembershipState,
-    pub(super) power_level: UserPowerLevel,
+    pub(crate) membership: MembershipState,
+    pub(crate) power_level: UserPowerLevel,
     #[cfg(feature = "iced")]
-    pub(super) avatar_handle: Option<Result<ImageHandle, Arc<String>>>,
+    pub(crate) avatar_handle: Avatar,
 }
 
 impl ProfileData {
-    pub fn new(user_id: &UserId) -> Self {
+    pub fn new(user_id: Arc<OwnedUserId>) -> Self {
         Self {
+            display_string: user_id.to_string(),
+            user_id,
             avatar_url: None,
 
-            display_name: None,
-            display_string: user_id.to_string(),
+            displayname: None,
             initial: '?',
 
             membership: MembershipState::Join,
             power_level: UserPowerLevel::Infinite,
             #[cfg(feature = "iced")]
-            avatar_handle: None,
+            avatar_handle: Avatar::NoAvatar,
         }
     }
 }
 
 impl From<&RoomMember> for ProfileData {
     fn from(m: &RoomMember) -> Self {
-        let display_name = m.display_name().map(|n| n.to_owned());
-        let display_string = display_name
-            .clone()
-            .unwrap_or_else(|| m.user_id().to_string());
-        let initial = display_string.chars().next().unwrap_or('?');
-
-        Self {
-            avatar_url: m.avatar_url().map(|u| u.to_owned()),
-
-            display_string,
-            display_name,
-            initial,
-
+        let mut member = Self {
+            user_id: Arc::new(m.user_id().to_owned()),
             membership: m.membership().clone(),
             power_level: m.power_level(),
+            avatar_url: m.avatar_url().map(|u| u.to_owned()),
+
+            displayname: m.display_name().map(|n| n.to_owned()),
+            display_string: String::new(),
+            initial: '?',
+
             #[cfg(feature = "iced")]
-            avatar_handle: None,
-        }
+            avatar_handle: Avatar::NoAvatar,
+        };
+
+        member.calculate_strings();
+        member
     }
 }
 
 impl ProfileData {
-    pub fn avatar_url(&self) -> Option<&OwnedMxcUri> {
+    pub(crate) fn avatar_url(&self) -> Option<&OwnedMxcUri> {
         self.avatar_url.as_ref()
     }
 
-    pub fn set_avatar_handle(&mut self, handle: Option<Result<ImageHandle, Arc<String>>>) {
-        self.avatar_handle = handle;
-    }
-}
-
-pub async fn load_avatar(client: &Client, cell: &Shared<ProfileData>, url: OwnedMxcUri) {
-    let request = MediaRequestParameters {
-        source: MediaSource::Plain(url.clone()),
-        format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(100), uint!(100))),
-    };
-    let handle = client
-        .media()
-        .get_media_content(&request, true)
-        .await
-        .map(ImageHandle::from_bytes)
-        .map_err(|e| Arc::new(e.to_string()));
-
-    cell.modify(|d| {
-        if d.avatar_url() == Some(&url) {
-            d.avatar_handle = Some(handle.clone());
+    pub(crate) fn calculate_strings(&mut self) {
+        if let Some(name) = &self.displayname {
+            self.display_string = name.to_owned();
+        } else {
+            self.display_string = self.user_id.to_string();
         }
-    });
+        self.initial = self.display_string.chars().next().unwrap_or('?');
+    }
 }

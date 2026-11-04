@@ -1,11 +1,6 @@
-use std::collections::BTreeSet;
-
 use deplace_core::{
     settings::NameDecoration,
-    state::{
-        PresenceMap,
-        media_fetcher::{MediaProcessor, ProgressCompleteness},
-    },
+    state::media_fetcher::{MediaProcessor, ProgressCompleteness},
 };
 use enumset::EnumSet;
 use iced::Alignment;
@@ -24,7 +19,6 @@ pub enum HeaderMessage {
     TogglePins,
     ToggleSearch,
     ToggleList,
-    NeedsAvatar(OwnedMxcUri),
     LeaveCall,
     JoinCall,
     HelpHover(Option<HelpKey>),
@@ -37,14 +31,7 @@ impl HelpOverMessage for HeaderMessage {
     }
 }
 
-impl NeedsAvatarExt for HeaderMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        HeaderMessage::NeedsAvatar(uri)
-    }
-}
-
 pub enum HeaderAction {
-    NeedsMedia(NeedsMedia),
     TogglePins,
     ToggleSearch,
     ToggleList,
@@ -56,18 +43,12 @@ pub enum HeaderAction {
 
 #[iced_cache(Clone)]
 pub struct Header {
-    state: AppState,
-    avatar_cache: AvatarCache,
-
     #[hash]
     sidebar_state: EnumSet<SidebarState>,
 
-    room_watchers: RoomWatchers,
-    room_id: OwnedRoomId,
+    room: DePlaceRoom,
 
     name_decoration: Receiver<NameDecoration>,
-
-    presence_map: Receiver<PresenceMap>,
 
     media_processor: MediaProcessor,
 }
@@ -78,30 +59,20 @@ impl ExtraHash for Header {
 
         self.media_processor.current_download().hash(state);
         self.media_processor.current_compression().hash(state);
+
+        self.room.hash_selective(state, true, true, true);
     }
 }
 
 impl Header {
     pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
-        let id = room.room_id().to_owned();
         Self {
-            avatar_cache: state.avatar_cache().clone(),
-            presence_map: state.presence_map().clone(),
-
             sidebar_state: EnumSet::new(),
 
             name_decoration: state.settings().name_decoration.watch(),
 
-            room_watchers: state
-                .room_watchers(hashing::hash_room(
-                    id.clone(),
-                    hashing::hash_visible().hash_call_state(true),
-                ))
-                .clone(),
-            room_id: id.clone(),
-            state: state.clone(),
+            room: room.clone(),
 
-            avatar_states_for_hash: BTreeSet::new(),
             media_processor: state.media_processor(),
         }
     }
@@ -112,10 +83,6 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
         match msg {
             HeaderMessage::OpenHelpMenu => Some(HeaderAction::OpenHelpMenu),
             HeaderMessage::HelpHover(help) => Some(HeaderAction::HelpHover(help)),
-            HeaderMessage::NeedsAvatar(uri) => {
-                self.avatar_states_for_hash.insert(uri.clone());
-                Some(HeaderAction::NeedsMedia(NeedsMedia::avatar(uri)))
-            }
             HeaderMessage::TogglePins => {
                 if self.sidebar_state.contains(SidebarState::Pins) {
                     self.sidebar_state.remove(SidebarState::Pins);
@@ -146,10 +113,6 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
     }
 
     fn view(&self) -> Element<'static, HeaderMessage> {
-        let Some(room) = self.room_watchers.get_room(&self.room_id) else {
-            return EMPTY_WIDGET.boxed();
-        };
-
         let theme = theme();
         let structure = structure();
 
@@ -174,7 +137,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             )
         };
 
-        let is_in_call = room.own_user_is_in_call();
+        let is_in_call = self.room.live().own_user_is_in_call();
 
         let download = self.media_processor.current_download();
         let compression = self.media_processor.current_compression();
@@ -188,20 +151,17 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     w::container(help_view.call(
                         HelpKey::Header(HeaderHelpKey::HeaderIcon),
                         "The icon of the active room, shows other user's icon in dms",
-                        context_room_icon(
-                            &room,
-                            if room.is_dm() {
+                        self.room.render_simple_icon(
+                            if self.room.is_dm() {
                                 button_size
                             } else {
                                 icon_size
                             },
                             theme,
                             structure,
-                            &self.presence_map.borrow(),
-                            &self.avatar_cache,
-                            theme.solid_bg.into()
+                            theme.solid_bg.into(),
                         )
-                    ).radius(if room.is_dm() { button_size * 0.5 } else {icon_size * 0.25 }))
+                    ).radius(if self.room.is_dm() { button_size * 0.5 } else {icon_size * 0.25 }))
                     .style(move |_| ContainerStyle {
                         text_color: Some(theme.text.normal.into()),
                         ..Default::default()
@@ -209,14 +169,14 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     help_view.call(
                         HelpKey::Header(HeaderHelpKey::HeaderName),
                         "The name of the active room, shows the other user's display name in dms",
-                        room.render_name_decorated(
+                        self.room.render_name_decorated(
                             structure.font_size,
                             *self.name_decoration.borrow(),
                             theme.text.dim.into()
                         ),
                     ),
                 ].align_y(Alignment::Center)
-                    .padding(if room.is_dm() {
+                    .padding(if self.room.is_dm() {
                         0.0
                     } else {
                         structure.header.inner_icon_padding()
@@ -293,20 +253,20 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                             theme.text.dim.into(),
                             theme.colors.green.into(),
                             if self.sidebar_state.contains(SidebarState::MemberList) {
-                                if room.is_dm() {
+                                if self.room.is_dm() {
                                     phosphor_svgs::icon::user_circle::FILL
                                 } else {
                                     phosphor_svgs::icon::user_list::FILL
                                 }
                             } else {
-                                if room.is_dm() {
+                                if self.room.is_dm() {
                                     phosphor_svgs::icon::user_circle::REGULAR
                                 } else {
                                     phosphor_svgs::icon::user_list::REGULAR
                                 }
                             },
                             HeaderMessage::ToggleList,
-                            if room.is_dm() {
+                            if self.room.is_dm() {
                                 "Toggle User Profile"
                             } else {
                                 "Toggle Member List"

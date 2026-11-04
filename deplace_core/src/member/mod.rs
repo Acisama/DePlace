@@ -1,84 +1,31 @@
-use arc_swap::ArcSwap;
+use crate::{Shared, colors::DePlaceColor};
+use chrono::Duration;
 use profile::ProfileData;
 use std::{
     hash::{Hash, Hasher},
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
 };
 use synth::SonicSignature;
-use user_data::UserData;
+use user_data::{Presence, UserData};
 
-use ruma::{OwnedRoomId, OwnedUserId, RoomId, UserId, presence::PresenceState};
+#[cfg(feature = "iced")]
+use crate::Avatar;
+use ruma::{OwnedRoomId, OwnedUserId, RoomId, UserId};
 
 pub mod profile;
+pub mod room;
 pub mod store;
 pub mod synth;
 pub mod user_data;
 
 pub use store::ProfileStore;
 
-pub struct Shared<T> {
-    data: ArcSwap<T>,
-    version: AtomicU64,
-}
-
-impl<T: std::fmt::Debug> std::fmt::Debug for Shared<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.data.load().fmt(f)
-    }
-}
-
-impl<T: Clone> Shared<T> {
-    pub fn get(&self) -> Arc<T> {
-        self.data.load_full()
-    }
-
-    pub fn get_ref(&self) -> impl std::ops::Deref<Target = Arc<T>> {
-        self.data.load()
-    }
-
-    pub fn set(&self, v: T) {
-        self.data.store(Arc::new(v));
-        self.version.fetch_add(1, Ordering::Release);
-    }
-
-    pub fn modify(&self, f: impl Fn(&mut T)) {
-        self.data.rcu(|cur| {
-            let mut v = T::clone(cur);
-            f(&mut v);
-            v
-        });
-        self.version.fetch_add(1, Ordering::Release);
-    }
-
-    pub fn version(&self) -> u64 {
-        self.version.load(Ordering::Acquire)
-    }
-
-    pub fn new(v: T) -> Self {
-        Self {
-            data: ArcSwap::from_pointee(v),
-            version: AtomicU64::new(0),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Member {
-    user_id: OwnedUserId,
-    room_id: OwnedRoomId,
-    room: Arc<Shared<ProfileData>>,
-    user: Arc<Shared<UserData>>,
-}
-
-impl Hash for Member {
-    fn hash<H: Hasher>(&self, h: &mut H) {
-        self.user_id.hash(h);
-        self.room.version().hash(h);
-        self.user.version().hash(h);
-    }
+    pub(crate) user_id: Arc<OwnedUserId>,
+    pub(crate) room_id: Arc<OwnedRoomId>,
+    pub(crate) room_data: Arc<Shared<ProfileData>>,
+    pub(crate) user_data: Arc<Shared<UserData>>,
 }
 
 impl PartialEq for Member {
@@ -87,35 +34,80 @@ impl PartialEq for Member {
     }
 }
 
-#[cfg(feature = "iced")]
-use iced::advanced::image::Handle as ImageHandle;
+impl Eq for Member {}
 
-use crate::colors::DePlaceColor;
+impl Hash for Member {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.user_id.hash(state);
+        self.room_id.hash(state);
+    }
+}
 
 impl Member {
-    pub fn display_name(&self) -> String {
-        self.room.get_ref().display_string.clone()
+    pub fn hash_selective<H: Hasher>(
+        &self,
+        state: &mut H,
+        presence: bool,
+        custom_data: bool,
+        hash_name: bool,
+        hash_avatar: bool,
+    ) {
+        self.user_id.hash(state);
+        self.room_id.hash(state);
+
+        if presence {
+            self.user_data.data.load().presence.hash(state);
+        }
+        if custom_data {
+            self.user_data.data.load().custom_data.hash(state);
+        }
+        if hash_name {
+            self.room_data.data.load().display_string.hash(state);
+        }
+        if hash_avatar {
+            self.room_data.data.load().avatar_url.hash(state);
+        }
     }
 
-    pub fn initial(&self) -> char {
-        self.room.get_ref().initial
+    pub fn hash_all<H: Hasher>(&self, state: &mut H) {
+        self.hash_selective(state, true, true, true, true);
+    }
+
+    pub(crate) fn update_room_profile(&self, f: impl Fn(&mut ProfileData)) {
+        self.room_data.change(f);
+    }
+
+    pub(crate) fn raw_display_name_lowercase(&self) -> Option<String> {
+        self.room_data
+            .read()
+            .displayname
+            .clone()
+            .map(|s| s.to_lowercase())
+    }
+
+    pub fn get_displayname(&self) -> String {
+        self.room_data.read().display_string.clone()
+    }
+
+    pub fn get_initial(&self) -> char {
+        self.room_data.read().initial
     }
 
     #[cfg(feature = "iced")]
-    pub fn image_handle(&self) -> Option<Result<ImageHandle, Arc<String>>> {
-        self.room.get_ref().avatar_handle.clone()
+    pub fn avatar_handle(&self) -> Avatar {
+        self.room_data.read().avatar_handle.clone()
     }
 
     pub fn name_color(&self) -> DePlaceColor {
-        self.user.get_ref().custom_data.name_color
+        self.user_data.read().custom_data.name_color
     }
 
     pub fn banner_color(&self) -> DePlaceColor {
-        self.user.get_ref().custom_data.banner_color
+        self.user_data.read().custom_data.banner_color
     }
 
     pub fn sonic_signature(&self) -> SonicSignature {
-        self.user.get_ref().custom_data.sonic_signature.clone()
+        self.user_data.read().custom_data.sonic_signature.clone()
     }
 
     pub fn user_id(&self) -> &UserId {
@@ -126,7 +118,19 @@ impl Member {
         &self.room_id
     }
 
-    pub fn presence(&self) -> PresenceState {
-        self.user.get_ref().presence.clone()
+    pub fn presence(&self) -> Presence {
+        self.user_data.read().presence
+    }
+
+    pub fn status(&self) -> Option<String> {
+        self.user_data.read().status.clone()
+    }
+
+    pub fn is_active(&self) -> Option<bool> {
+        self.user_data.read().is_active
+    }
+
+    pub fn last_active_ago(&self) -> Option<Duration> {
+        self.user_data.read().last_active_ago
     }
 }

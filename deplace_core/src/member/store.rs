@@ -1,22 +1,29 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use dashmap::DashMap;
-use indexmap::{IndexMap, map::Entry};
-use matrix_sdk::Client;
-use ruma::{OwnedRoomId, OwnedUserId, RoomId, UserId};
+use matrix_sdk::{Client, Room, RoomMemberships, room::RoomMember};
+use ruma::{OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use tokio::sync::watch;
 
+use crate::Shared;
+
 use super::{
-    Member, Shared,
-    profile::{ProfileData, load_avatar},
-    user_data::UserData,
+    Member,
+    profile::ProfileData,
+    room::RoomMembers,
+    user_data::{CustomData, Presence, UserData},
 };
 
-pub type RoomMemberMap = DashMap<OwnedRoomId, IndexMap<OwnedUserId, Arc<Shared<ProfileData>>>>;
-pub type UserMap = DashMap<OwnedUserId, Arc<Shared<UserData>>>;
+#[cfg(feature = "iced")]
+use crate::Avatar;
 
+pub type RoomMemberMap = DashMap<OwnedRoomId, Arc<RoomMembers>>;
+pub type UserMap = DashMap<OwnedUserId, (Arc<OwnedUserId>, Arc<Shared<UserData>>)>;
+
+#[derive(Debug)]
 pub struct ProfileStore {
     client: Client,
+    handle: tokio::runtime::Handle,
     room_map: RoomMemberMap,
     user_map: UserMap,
     pub(crate) changed: watch::Sender<()>,
@@ -26,41 +33,64 @@ impl ProfileStore {
     pub fn new(client: &Client) -> Self {
         Self {
             client: client.clone(),
+            handle: tokio::runtime::Handle::current(),
             room_map: RoomMemberMap::default(),
             user_map: UserMap::default(),
+
             changed: watch::channel(()).0,
         }
     }
 
-    fn user_cell(&self, user_id: &UserId) -> Arc<Shared<UserData>> {
-        if let Some(cell) = self.user_map.get(user_id) {
-            return cell.clone();
+    pub(crate) fn user_cell(&self, user_id: &UserId) -> (Arc<OwnedUserId>, Arc<Shared<UserData>>) {
+        if let Some(stuff) = self.user_map.get(user_id) {
+            return stuff.clone();
         }
 
-        self.user_map
+        let mut created = false;
+        let stuff = self
+            .user_map
             .entry(user_id.to_owned())
-            .or_insert_with(|| Arc::new(Shared::new(UserData::new(user_id))))
-            .clone()
+            .or_insert_with(|| {
+                created = true;
+                (
+                    Arc::new(user_id.to_owned()),
+                    Arc::new(Shared::new(UserData::new(user_id))),
+                )
+            })
+            .clone();
+
+        if created {
+            self.spawn_custom_data_load(user_id.to_owned(), stuff.1.clone());
+        }
+
+        stuff
     }
 
-    fn room_cell(&self, room_id: &RoomId, user_id: &UserId) -> (Arc<Shared<ProfileData>>, bool) {
-        {
-            if let Some(room) = self.room_map.get(room_id)
-                && let Some(cell) = room.get(user_id)
-            {
-                return (cell.clone(), false);
-            }
-        } // read guard must be dropped here, otherwise entry() deadlocks
+    pub fn get_presence(&self, user_id: &UserId) -> Presence {
+        let (_, user_data) = self.user_cell(user_id);
+        user_data.read().presence
+    }
 
-        let mut room = self.room_map.entry(room_id.to_owned()).or_default();
-        match room.entry(user_id.to_owned()) {
-            Entry::Occupied(e) => (e.get().clone(), false), // someone else was faster
-            Entry::Vacant(e) => {
-                let cell = Arc::new(Shared::new(ProfileData::new(user_id)));
-                e.insert(cell.clone());
-                (cell, true)
-            }
-        }
+    fn spawn_custom_data_load(&self, user_id: OwnedUserId, user_data: Arc<Shared<UserData>>) {
+        let client = self.client.clone();
+        let changed = self.changed.clone();
+
+        self.handle.spawn(async move {
+            let custom_data = CustomData::load(&client, &user_id).await;
+            user_data.change(|ud| ud.custom_data = custom_data.clone());
+            changed.send_modify(|_| ());
+        });
+    }
+
+    pub(crate) fn update_room_profile(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+        f: impl Fn(&mut ProfileData),
+    ) {
+        let room_members = self.get_members(room_id);
+        let member = self.get_member(room_id, user_id);
+        room_members.update_member(&member, f);
     }
 
     fn spawn_member_load(
@@ -72,7 +102,7 @@ impl ProfileStore {
         let client = self.client.clone();
         let changed = self.changed.clone();
 
-        tokio::spawn(async move {
+        self.handle.spawn(async move {
             let Some(room) = client.get_room(&room_id) else {
                 return;
             };
@@ -87,26 +117,97 @@ impl ProfileStore {
             cell.set(data);
             changed.send_modify(|_| ());
 
-            if let Some(url) = url {
-                load_avatar(&client, &cell, url).await;
-                changed.send_modify(|_| ());
-            }
+            #[cfg(feature = "iced")]
+            let avatar = Avatar::load_avatar(&client, url).await;
+
+            cell.change(|d| d.avatar_handle = avatar.clone());
+            changed.send_modify(|_| ());
         });
     }
 
-    pub fn get_member(&self, user_id: &UserId, room_id: &RoomId) -> Member {
-        let user = self.user_cell(user_id);
-        let (room, created) = self.room_cell(room_id, user_id);
+    #[cfg(feature = "iced")]
+    fn spawn_avatar_load(&self, cell: Arc<Shared<ProfileData>>, url: Option<OwnedMxcUri>) {
+        let client = self.client.clone();
+        let changed = self.changed.clone();
+
+        self.handle.spawn(async move {
+            let avatar = Avatar::load_avatar(&client, url).await;
+            cell.change(|d| d.avatar_handle = avatar.clone());
+            changed.send_modify(|_| ());
+        });
+    }
+
+    pub fn get_member(&self, room_id: &RoomId, user_id: &UserId) -> Member {
+        let room_members = self.get_members(room_id);
+
+        if let Some(member) = room_members.get(user_id) {
+            return member.clone();
+        }
+
+        let (user_id_arc, user_data) = self.user_cell(user_id);
+        let (member, created) = room_members.get_or_create(user_id_arc, user_data);
 
         if created {
-            self.spawn_member_load(room_id.to_owned(), user_id.to_owned(), room.clone());
+            self.spawn_member_load(
+                room_id.to_owned(),
+                user_id.to_owned(),
+                member.room_data.clone(),
+            );
         }
 
-        Member {
-            user_id: user_id.to_owned(),
-            room_id: room_id.to_owned(),
-            room,
-            user,
+        member
+    }
+
+    pub fn get_members(&self, room_id: &RoomId) -> Arc<RoomMembers> {
+        self.room_map
+            .entry(room_id.to_owned())
+            .or_insert_with(|| Arc::new(RoomMembers::new(room_id.to_owned())))
+            .clone()
+    }
+
+    pub async fn load_room_members(&self, room: &Room) -> HashSet<OwnedUserId> {
+        let members = room
+            .members(RoomMemberships::ACTIVE)
+            .await
+            .unwrap_or_default();
+
+        self.insert_new_room_members(room.room_id(), members)
+    }
+
+    pub(crate) fn insert_new_room_members(
+        &self,
+        room_id: &RoomId,
+        members: Vec<RoomMember>,
+    ) -> HashSet<OwnedUserId> {
+        let room_members = self.get_members(room_id);
+
+        let mut new_members = Vec::new();
+        let mut user_ids = HashSet::new();
+
+        for member in &members {
+            let user_id = member.user_id();
+            user_ids.insert(user_id.to_owned());
+
+            let (_, user_data) = self.user_cell(user_id);
+            let profile_data = ProfileData::from(member);
+            let url = profile_data.avatar_url().cloned();
+            let room_data = Arc::new(Shared::new(profile_data));
+
+            #[cfg(feature = "iced")]
+            self.spawn_avatar_load(room_data.clone(), url);
+
+            let member = Member {
+                user_id: Arc::new(user_id.to_owned()),
+                room_id: Arc::new(room_id.to_owned()),
+                room_data,
+                user_data,
+            };
+
+            new_members.push(member);
         }
+
+        room_members.extend(new_members);
+
+        user_ids
     }
 }

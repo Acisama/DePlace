@@ -101,8 +101,6 @@ pub struct ChatTimeline {
     state: AppState,
     timeline: Option<Arc<Timeline>>,
 
-    _membership_map: Receiver<MembershipMap>,
-
     // TODO: Add logic to update this
     power_levels: Arc<RoomPowerLevels>,
     user_can_send: bool,
@@ -129,7 +127,6 @@ pub struct ChatTimeline {
     #[hash]
     previous_pinned_event_ids: BTreeSet<OwnedEventId>,
 
-    avatar_cache: AvatarCache,
     thumbnail_cache: ThumbnailCache,
     video_cache: VideoCache,
 
@@ -208,8 +205,6 @@ impl ChatTimeline {
             state: state.clone(),
             timeline: None,
 
-            _membership_map: state.membership_map(),
-
             system_messages_to_show: settings.system_messages_to_show.watch(),
             timezone: settings.timezone.watch(),
             hour_format: settings.hour_format.watch(),
@@ -233,11 +228,9 @@ impl ChatTimeline {
 
             previous_pinned_event_ids: initial_pinned_event_ids,
 
-            avatar_cache: state.avatar_cache().clone(),
             thumbnail_cache: state.thumbnail_cache().clone(),
             video_cache: state.video_cache().clone(),
 
-            avatar_states_for_hash: BTreeSet::new(),
             thumbnail_states_for_hash: BTreeSet::new(),
             video_states_for_hash: BTreeSet::new(),
 
@@ -318,7 +311,6 @@ impl ChatTimeline {
     /// re-examination when the media is actually loaded.
     pub fn touch_media(&mut self, media: &MediaLoaded) {
         let relevant = match media {
-            MediaLoaded::Avatar { uri } => self.avatar_states_for_hash.contains(uri),
             MediaLoaded::Thumbnail { key } => self.thumbnail_states_for_hash.contains(key),
             MediaLoaded::Video { key } => self.video_states_for_hash.contains(key),
             // Messages don't contain images, only thumbnails
@@ -706,9 +698,6 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     }
                     TimelineItemAction::NeedsMedia(needs_media) => {
                         match &needs_media {
-                            NeedsMedia::Avatar { uri } => {
-                                self.avatar_states_for_hash.insert(uri.clone());
-                            }
                             NeedsMedia::Thumbnail { key, .. } => {
                                 self.thumbnail_states_for_hash.insert(key.clone());
                             }

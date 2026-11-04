@@ -10,9 +10,9 @@ pub use crate::components::{
     on_appear, pan,
     pie_progress::pie_progress,
     profile::{
-        MaybeRenderIcon, NeedsAvatarExt, ProfileRenderExt, context_room_icon, loading_icon,
-        render_avatar, render_loading_name, render_name, render_presence, render_presence_badge,
-        render_unknown_name, text_icon, unknown_icon,
+        MemberRenderExt, ProfileRenderExt, RoomRenderExt, loading_icon, render_avatar,
+        render_loading_name, render_name, render_presence_badge, render_unknown_name, text_icon,
+        unknown_icon,
     },
     text_input, themed_scrollable,
     tile_background::floating_tile,
@@ -20,18 +20,18 @@ pub use crate::components::{
     weighted_text,
 };
 pub use deplace_core::{
-    ProfileLike,
+    Avatar, ProfileLike,
     colors::DePlaceColor,
     get_change,
     helpers::{DisplayString, EventChange, get_current_and_prev},
-    member::Member,
-    rooms::{DePlaceRoom, RoomWatchers, hashing},
+    member::{Member, store::ProfileStore},
+    room::{DePlaceRoom, store::RoomStore},
     settings::Settings,
     state::{
-        AppState, MembershipMap,
+        AppState,
         cache::{
-            AvatarCache, CacheLoadingExt, CacheLoadingWithKeyExt, ImageCache, MediaLoaded,
-            MediaState, NeedsMedia, ThumbnailCache, VideoCache,
+            CacheLoadingExt, CacheLoadingWithKeyExt, ImageCache, MediaLoaded, MediaState,
+            NeedsMedia, ThumbnailCache, VideoCache,
         },
         roles::ExtraHash,
     },
@@ -60,8 +60,7 @@ pub use iced::{
 };
 pub use indexmap::IndexMap;
 pub use matrix_sdk::{
-    Client, Room,
-    room::RoomMember,
+    Client,
     ruma::{
         MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId,
         presence::PresenceState,

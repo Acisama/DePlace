@@ -33,12 +33,6 @@ impl HelpOverMessage for MediaOverlayMessage {
     }
 }
 
-impl NeedsAvatarExt for MediaOverlayMessage {
-    fn needs_avatar(uri: OwnedMxcUri) -> Self {
-        Self::NeedsMedia(NeedsMedia::avatar(uri))
-    }
-}
-
 pub enum MediaOverlayAction {
     NeedsMedia(NeedsMedia),
     Close,
@@ -50,11 +44,10 @@ pub struct MediaOverlay {
     #[hash]
     media: OverlayMediaType,
 
-    avatar_cache: AvatarCache,
     image_cache: ImageCache,
     video_cache: VideoCache,
 
-    sender: RoomMember,
+    sender: Member,
     timestamp: SystemTime,
 
     #[hash]
@@ -83,18 +76,16 @@ impl MediaOverlay {
     pub fn new(
         state: &AppState,
         media: OverlayMediaType,
-        sender: RoomMember,
+        sender: Member,
         timestamp: SystemTime,
         event_id: OwnedEventId,
     ) -> Self {
         Self {
             media,
 
-            avatar_cache: state.avatar_cache().clone(),
             image_cache: state.image_cache().clone(),
             video_cache: state.video_cache().clone(),
 
-            avatar_states_for_hash: Default::default(),
             image_states_for_hash: Default::default(),
             video_states_for_hash: Default::default(),
 
@@ -118,7 +109,6 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
             MediaOverlayMessage::Close => Some(MediaOverlayAction::Close),
             MediaOverlayMessage::NeedsMedia(media) => {
                 match &media {
-                    NeedsMedia::Avatar { uri } => self.avatar_states_for_hash.insert(uri.clone()),
                     NeedsMedia::Image { source } => {
                         self.image_states_for_hash.insert(source.unique_key())
                     }
@@ -151,8 +141,7 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
                 w::row![
                     w::container(
                         w::row![
-                            self.sender
-                                .render_icon(header.button_size, &self.avatar_cache),
+                            self.sender.render_icon(header.button_size),
                             w::column![
                                 self.sender.render_name(structure.font_size),
                                 w::text(format_message_long_date(

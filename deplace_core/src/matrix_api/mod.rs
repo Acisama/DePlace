@@ -12,17 +12,20 @@ use sha2::{Digest, Sha256};
 
 pub mod account_data;
 pub mod attachments;
+mod hierarchy;
 mod matrixrtc;
 mod members;
 pub mod messages;
-pub mod presence;
 pub mod sync;
+
+#[cfg(feature = "iced")]
+pub mod avatar;
 
 use crate::{
     DEVICE_DISPLAY_NAME,
     keybinds::Keybinds,
     keyring::{self, StoredSession, get_or_create_store_key},
-    matrix_api::sync::spawn_room_sync,
+    matrix_api::sync::spawn_sync_runners,
     settings::Settings,
     state::{AppState, ImportantPaths, UserDevice},
 };
@@ -212,7 +215,7 @@ where
             return LoginResult::Error(e.to_string());
         }
     };
-    spawn_room_sync(&client, &state);
+    spawn_sync_runners(&client, &state);
 
     LoginResult::Success(state)
 }

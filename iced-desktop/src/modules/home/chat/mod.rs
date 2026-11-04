@@ -95,7 +95,7 @@ pub struct Chat {
 
 impl Chat {
     pub fn new(state: &AppState, room: DePlaceRoom) -> (Self, Task<(OwnedRoomId, ChatMessage)>) {
-        let sdk_room = room.sdk_room().clone();
+        let sdk_room = room.room.clone();
         let builder = TimelineBuilder::new(&sdk_room)
             .with_date_divider_mode(DateDividerMode::Daily)
             .with_focus(TimelineFocus::Live {
@@ -114,8 +114,7 @@ impl Chat {
 
         let state_clone = state.clone();
 
-        let initial_pinned_event_ids: BTreeSet<OwnedEventId> = room
-            .sdk_room()
+        let initial_pinned_event_ids: BTreeSet<OwnedEventId> = sdk_room
             .pinned_event_ids()
             .unwrap_or_default()
             .into_iter()
@@ -125,6 +124,7 @@ impl Chat {
 
         let room_id_clone = room_id.clone();
         let own_user_id = state.own_id();
+        let profile_store = state.profile_store();
 
         let stream = stream::once(async move {
             tracing::debug!("Building timeline for room {}", room_id_clone);
@@ -191,6 +191,7 @@ impl Chat {
                             m.unique_id().0.clone(),
                             Arc::new(m.convert(
                                 &state_clone,
+                                profile_store.clone(),
                                 room_id_clone.clone(),
                                 &pinned_ids_clone,
                                 &own_user_id,
@@ -208,6 +209,7 @@ impl Chat {
                             m.unique_id().0.clone(),
                             Arc::new(m.convert(
                                 &state_clone,
+                                profile_store.clone(),
                                 room_id_clone.clone(),
                                 &pinned_ids_clone,
                                 &own_user_id,
@@ -221,6 +223,8 @@ impl Chat {
             let state_clone_clone = state_clone.clone();
             let pinned_ids_clone_clone = pinned_ids_clone.clone();
             let pinned_own_user_id = own_user_id.clone();
+            let profile_store_clone = profile_store.clone();
+            let pinned_profile_store_clone = profile_store.clone();
             stream::once(future::ready(ChatMessage::TimelinesLoaded {
                 timeline,
                 pinned_timeline,
@@ -238,6 +242,7 @@ impl Chat {
                                     item.unique_id().0.clone(),
                                     Arc::new(item.convert(
                                         &state_clone,
+                                        profile_store_clone.clone(),
                                         room_id_clone.clone(),
                                         &pinned_ids_clone,
                                         &own_user_id,
@@ -259,6 +264,7 @@ impl Chat {
                                         item.unique_id().0.clone(),
                                         Arc::new(item.convert(
                                             &state_clone_clone,
+                                            pinned_profile_store_clone.clone(),
                                             room_id_clone_clone.clone(),
                                             &pinned_ids_clone_clone,
                                             &pinned_own_user_id,
@@ -285,7 +291,7 @@ impl Chat {
                 header: Header::new(state, &room),
                 timeline: ChatTimeline::new(state, &room, initial_pinned_event_ids),
                 input: ChatInput::new(state, &room),
-                sidebar: Sidebar::new(state, &room),
+                sidebar: Sidebar::new(&room),
 
                 room_id: room.room_id().to_owned(),
             },
@@ -370,7 +376,6 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 }
             }
             ChatMessage::Header(msg) => match self.header.update(msg)? {
-                HeaderAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
                 HeaderAction::OpenHelpMenu => Some(ChatAction::OpenHelpMenu),
                 HeaderAction::TogglePins => {
                     self.sidebar.toggle_pins();
@@ -389,7 +394,6 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 HeaderAction::HelpHover(help) => Some(ChatAction::HelpHover(help)),
             },
             ChatMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
-                SidebarAction::NeedsMedia(media) => Some(ChatAction::NeedsMedia(media)),
                 SidebarAction::Perform(task) => {
                     Some(ChatAction::Perform(task.map(ChatMessage::Sidebar)))
                 }

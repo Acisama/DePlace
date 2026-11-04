@@ -1,15 +1,19 @@
 #![recursion_limit = "256"]
+
 use colors::DePlaceColor;
+use room::live::CallMember;
+use ruma::uint;
+
 use matrix_sdk::{
-    Client, Room, SessionMeta, SessionTokens, authentication::matrix::MatrixSession,
-    room::RoomMember,
+    Client, Room, SessionMeta, SessionTokens,
+    authentication::matrix::MatrixSession,
+    media::{MediaFormat, MediaThumbnailSettings},
 };
-use ruma::{OwnedMxcUri, RoomId, UserId, room_id, user_id};
 use state::{ActiveServer, ImportantPaths};
 
 use crate::{
     keyring::init_keyring,
-    matrix_api::{matrix_client_builder, sync::spawn_room_sync},
+    matrix_api::{matrix_client_builder, sync::spawn_sync_runners},
     state::{AppState, UserDevice},
 };
 use const_format::formatcp;
@@ -24,15 +28,20 @@ pub mod matrix_api;
 pub mod member;
 pub mod notifications;
 pub mod rich_text;
-pub mod rooms;
+pub mod room;
 pub mod search;
 pub mod settings;
+mod shared;
 pub mod state;
+pub use shared::Shared;
 
 pub mod structure;
 pub mod theme;
 
-pub use rooms::{DePlaceRoom, RoomWatcherHashingConfig, RoomWatchers};
+#[cfg(feature = "iced")]
+pub use crate::matrix_api::avatar::Avatar;
+pub use member::Member;
+pub use room::DePlaceRoom;
 
 pub const APP_HUMAN_NAME: &str = "DePlace";
 pub const APP_NAME: &str = "deplace";
@@ -133,7 +142,7 @@ pub async fn try_restore(paths: ImportantPaths) -> RestoreResult {
             return RestoreResult::NeedsLogin(client);
         }
     };
-    spawn_room_sync(&client, &state);
+    spawn_sync_runners(&client, &state);
 
     tracing::info!("Restored session for user_id: {user_id}, device_id: {device_id}");
     RestoreResult::Success(Box::new(state))
@@ -147,156 +156,121 @@ pub fn get_room_name_fallback(room: &Room, fallback: &str) -> String {
 
 /// Used for anything which has a name, static id and avatar
 pub trait ProfileLike {
-    type Id<'a>: AsRef<str>
-    where
-        Self: 'a;
-
     fn icon_border_radius_ratio(&self) -> f32;
-    fn profile_name(&self) -> Option<String>;
-    fn get_avatar(&self) -> Option<OwnedMxcUri>;
-    fn profile_id(&self) -> Self::Id<'_>;
+    fn displayname(&self) -> String;
+    #[cfg(feature = "iced")]
+    fn avatar_handle(&self) -> Avatar;
+    fn initial(&self) -> char;
+    fn color(&self) -> DePlaceColor;
+}
 
-    fn get_name(&self) -> String {
-        self.profile_name()
-            .unwrap_or(self.profile_id().as_ref().to_string())
+impl ProfileLike for Member {
+    fn icon_border_radius_ratio(&self) -> f32 {
+        0.5
     }
 
     fn color(&self) -> DePlaceColor {
-        self.profile_id().as_ref().into()
+        self.name_color()
+    }
+
+    #[cfg(feature = "iced")]
+    fn avatar_handle(&self) -> Avatar {
+        self.avatar_handle()
     }
 
     fn initial(&self) -> char {
-        self.get_name().chars().next().unwrap_or('?')
+        self.get_initial()
+    }
+
+    fn displayname(&self) -> String {
+        self.get_displayname()
     }
 }
 
-impl ProfileLike for RoomMember {
-    type Id<'a>
-        = &'a UserId
-    where
-        Self: 'a;
-
-    fn icon_border_radius_ratio(&self) -> f32 {
-        0.5
-    }
-
-    fn profile_name(&self) -> Option<String> {
-        Some(self.name().to_string())
-    }
-
-    fn get_avatar(&self) -> Option<OwnedMxcUri> {
-        self.avatar_url().map(|u| u.to_owned())
-    }
-
-    fn profile_id(&self) -> &UserId {
-        self.user_id()
-    }
-}
-
-impl ProfileLike for Option<RoomMember> {
-    type Id<'a>
-        = &'a UserId
-    where
-        Self: 'a;
-
-    fn icon_border_radius_ratio(&self) -> f32 {
-        0.5
-    }
-
-    fn profile_name(&self) -> Option<String> {
-        self.as_ref().and_then(|m| m.profile_name())
-    }
-
-    fn get_avatar(&self) -> Option<OwnedMxcUri> {
-        self.as_ref().and_then(|m| m.get_avatar())
-    }
-
-    fn profile_id(&self) -> Self::Id<'_> {
-        self.as_ref()
-            .map(|m| m.profile_id())
-            .unwrap_or(user_id!("@unknown:matrix.org"))
-    }
-}
-
-impl ProfileLike for Room {
-    type Id<'a>
-        = &'a RoomId
-    where
-        Self: 'a;
-
+impl ProfileLike for DePlaceRoom {
     fn icon_border_radius_ratio(&self) -> f32 {
         0.25
     }
 
-    fn profile_name(&self) -> Option<String> {
-        self.cached_display_name().map(|n| n.to_string())
+    fn color(&self) -> DePlaceColor {
+        self.info.read().color
     }
 
-    fn get_avatar(&self) -> Option<OwnedMxcUri> {
-        self.avatar_url()
+    fn initial(&self) -> char {
+        self.info.read().initial
     }
 
-    fn profile_id(&self) -> Self::Id<'_> {
-        self.room_id()
-    }
-}
-
-impl ProfileLike for Option<Room> {
-    type Id<'a>
-        = &'a RoomId
-    where
-        Self: 'a;
-
-    fn icon_border_radius_ratio(&self) -> f32 {
-        0.25
+    fn displayname(&self) -> String {
+        self.info.read().display_string.clone()
     }
 
-    fn profile_name(&self) -> Option<String> {
-        self.as_ref().and_then(|r| r.profile_name())
-    }
-
-    fn get_avatar(&self) -> Option<OwnedMxcUri> {
-        self.as_ref().and_then(|r| r.get_avatar())
-    }
-
-    fn profile_id(&self) -> Self::Id<'_> {
-        self.as_ref()
-            .map(|r| r.profile_id())
-            .unwrap_or(room_id!("!unknown:matrix.org"))
+    #[cfg(feature = "iced")]
+    fn avatar_handle(&self) -> Avatar {
+        self.info.read().avatar_handle.clone()
     }
 }
 
 impl ProfileLike for ActiveServer {
-    type Id<'a>
-        = &'a RoomId
-    where
-        Self: 'a;
-
     fn icon_border_radius_ratio(&self) -> f32 {
         0.25
     }
 
-    fn profile_name(&self) -> Option<String> {
+    fn displayname(&self) -> String {
         match self {
-            ActiveServer::Dms => Some("Direct Messages".into()),
-            ActiveServer::Server(room) => room.profile_name(),
+            ActiveServer::Dms => "Direct Messages".into(),
+            ActiveServer::Server(room) => room.displayname(),
         }
     }
 
-    fn get_avatar(&self) -> Option<OwnedMxcUri> {
-        self.as_server().and_then(|s| s.avatar_url())
+    fn initial(&self) -> char {
+        match self {
+            ActiveServer::Dms => 'D',
+            ActiveServer::Server(room) => room.initial(),
+        }
     }
 
-    fn profile_id(&self) -> Self::Id<'_> {
-        self.as_server()
-            .map(|s| s.room_id())
-            .unwrap_or(room_id!("!unknown:matrix.org"))
+    #[cfg(feature = "iced")]
+    fn avatar_handle(&self) -> Avatar {
+        match self {
+            ActiveServer::Dms => Avatar::NoAvatar,
+            ActiveServer::Server(room) => room.avatar_handle(),
+        }
+    }
+
+    fn color(&self) -> DePlaceColor {
+        match self {
+            ActiveServer::Dms => DePlaceColor::from_hsla(0.0, 0.0, 0.0, 1.0),
+            ActiveServer::Server(room) => room.color(),
+        }
+    }
+}
+
+impl ProfileLike for CallMember {
+    fn icon_border_radius_ratio(&self) -> f32 {
+        self.member.icon_border_radius_ratio()
+    }
+
+    fn displayname(&self) -> String {
+        self.member.displayname()
+    }
+
+    #[cfg(feature = "iced")]
+    fn avatar_handle(&self) -> Avatar {
+        self.member.avatar_handle()
+    }
+
+    fn color(&self) -> DePlaceColor {
+        self.member.color()
+    }
+
+    fn initial(&self) -> char {
+        self.member.initial()
     }
 }
 
 pub fn window_title(room: Option<DePlaceRoom>, server: ActiveServer) -> String {
-    let room_name = room.as_ref().map(|r| r.get_name());
-    let server_name = server.as_server().map(|s| s.get_name());
+    let room_name = room.as_ref().map(|r| r.displayname());
+    let server_name = server.as_server().map(|s| s.displayname());
 
     match (room_name, server_name) {
         (Some(room_name), Some(server_name)) => format!("#{} | {}", room_name, server_name),
@@ -304,4 +278,12 @@ pub fn window_title(room: Option<DePlaceRoom>, server: ActiveServer) -> String {
         (None, Some(server_name)) => format!("{} - {APP_HUMAN_NAME}", server_name),
         (None, None) => APP_HUMAN_NAME.to_string(),
     }
+}
+
+pub fn thumbnail_settings() -> MediaThumbnailSettings {
+    MediaThumbnailSettings::new(uint!(100), uint!(100))
+}
+
+pub fn thumbnail_format() -> MediaFormat {
+    MediaFormat::Thumbnail(thumbnail_settings())
 }

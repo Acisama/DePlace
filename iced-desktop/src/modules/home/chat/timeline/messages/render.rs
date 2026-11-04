@@ -34,13 +34,8 @@ use crate::{
     EMOJI_FONT, MONO_FONT,
     common::*,
     components::{
-        MediaType, PushElement,
-        help_mode::MessageHelpKey,
-        link::link,
-        phosphor_icon,
-        profile::{ProfileRenderExt2, render_row_of_icons},
-        render_media_failed_to_load,
-        track_bounds::track_bounds,
+        MediaType, PushElement, help_mode::MessageHelpKey, link::link, phosphor_icon,
+        profile::render_row_of_icons, render_media_failed_to_load, track_bounds::track_bounds,
     },
     modules::home::overlay::{MediaOverlayParams, OverlayMediaType},
 };
@@ -110,17 +105,13 @@ impl MessageEvent {
 
         let show_header = as_dummy || !self.connects_previous;
 
-        let default = IndexMap::new();
-        let borrow = &self.membership_map.borrow();
-        let membership_map = borrow.get(&room_id).unwrap_or(&default);
-
         let (text_content, other_content) = self.content.view(
             theme,
             structure,
             self.is_local_echo(),
             self.contains_only_emojis,
-            membership_map,
-            self.sender.user_id(),
+            &self.profile_store,
+            &self.sender,
             &room_id,
             &self.event_id,
             self.timestamp,
@@ -137,9 +128,10 @@ impl MessageEvent {
                     index,
                 },
                 "The text content of the message",
-                text_content,
+                w::container(text_content).width(Fill),
             ));
         }
+
         if let Some(other_content) = other_content {
             column = column.push(help_view.call(
                 HelpKey::Message {
@@ -147,7 +139,7 @@ impl MessageEvent {
                     index,
                 },
                 "The other content of the message",
-                other_content,
+                w::container(other_content).width(Fill),
             ));
         }
 
@@ -310,25 +302,11 @@ impl MessageEvent {
                     (theme.solid_bg.into(), theme.border.into())
                 };
 
-                let mut members = Vec::new();
-                let mut names = Vec::new();
-
-                for user_id in reactors {
-                    let member = membership_map.get(user_id);
-                    members.push(member);
-                    names.push(member.map(|m| m.get_name()).unwrap_or(user_id.to_string()));
-                }
+                let names: Vec<String> = reactors.iter().map(|m| m.displayname()).collect();
 
                 let avatar_size = structure.chat.small_icon_size;
 
-                let stack = render_row_of_icons(
-                    &members,
-                    bg_color,
-                    avatar_size,
-                    theme,
-                    structure,
-                    &self.avatar_cache,
-                );
+                let stack = render_row_of_icons(reactors, bg_color, avatar_size, structure);
 
                 help_view
                     .call(
@@ -501,8 +479,8 @@ impl MessageContent {
         structure: Structure,
         is_local_echo: bool,
         contains_only_emojis: bool,
-        membership_map: &IndexMap<OwnedUserId, RoomMember>,
-        sender_id: &UserId,
+        profile_store: &ProfileStore,
+        sender: &Member,
         room_id: &OwnedRoomId,
         event_id: &Option<OwnedEventId>,
         timestamp: SystemTime,
@@ -544,9 +522,16 @@ impl MessageContent {
         };
 
         let render_body = |formatted_body: &Option<FormattedBody>| {
-            formatted_body
-                .as_ref()
-                .map(|f| f.view(theme, structure, is_local_echo, membership_map, is_edited))
+            formatted_body.as_ref().map(|f| {
+                f.view(
+                    theme,
+                    structure,
+                    is_local_echo,
+                    profile_store,
+                    is_edited,
+                    room_id,
+                )
+            })
         };
 
         match &self {
@@ -646,8 +631,7 @@ impl MessageContent {
                     TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
                         media: OverlayMediaType::Image(Arc::new(image.clone())),
                         source: image.source.clone(),
-                        sender_id: sender_id.to_owned(),
-                        room_id: room_id.clone(),
+                        sender: sender.clone(),
                         event_id: event_id.clone(),
                         timestamp,
                     })
@@ -751,8 +735,7 @@ impl MessageContent {
                     TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
                         media: OverlayMediaType::Video(Arc::new(video.clone())),
                         source: video.source.clone(),
-                        sender_id: sender_id.to_owned(),
-                        room_id: room_id.clone(),
+                        sender: sender.clone(),
                         event_id: event_id.clone(),
                         timestamp,
                     })

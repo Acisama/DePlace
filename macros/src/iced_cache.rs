@@ -34,9 +34,6 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
     let mut item_fields = Vec::new();
     let mut hashings = Vec::new();
 
-    let mut hashed_presence_version = false;
-    let mut hashed_room_watchers = false;
-
     for field in &fields.named {
         let field_name = field.ident.as_ref().unwrap().clone();
         let field_ty = field.ty.clone();
@@ -93,27 +90,6 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
             ));
             hashings.push(quote! {
                 self.active_server.borrow().hash(state);
-            });
-        }
-
-        if field_name.to_string().as_str() == "avatar_cache"
-            || type_string(&field.ty).as_str() == "AvatarCache"
-        {
-            assertions.push(assert_role(
-                &struct_name,
-                &field_name,
-                &field_ty,
-                quote! { ::deplace_core::state::roles::IsAvatarCache },
-            ));
-            item_fields.push(quote! {
-                avatar_states_for_hash: std::collections::BTreeSet<OwnedMxcUri>,
-            });
-            hashings.push(quote! {
-                for uri in &self.avatar_states_for_hash {
-                    if let Some(res) = self.avatar_cache.get(uri) {
-                        res.hash(state)
-                    }
-                }
             });
         }
 
@@ -180,52 +156,6 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
                         .unwrap_or_default()
                         .hash(state);
                 }
-            });
-        }
-
-        if field_name.to_string().as_str() == "membership_map"
-            || type_string(&field.ty).as_str() == "Receiver<MembershipMap>"
-        {
-            assertions.push(assert_role(
-                &struct_name,
-                &field_name,
-                &field_ty,
-                quote! { ::deplace_core::state::roles::IsMembershipMap },
-            ));
-            hashings.push(quote! {
-                self.state.membership_version().hash(state);
-            });
-        }
-
-        if !hashed_presence_version
-            && (field_name.to_string().as_str() == "presence_map"
-                || type_string(&field.ty).as_str() == "Receiver<PresenceMap>")
-        {
-            hashed_presence_version = true;
-            assertions.push(assert_role(
-                &struct_name,
-                &field_name,
-                &field_ty,
-                quote! { ::deplace_core::state::roles::IsPresenceMap },
-            ));
-            hashings.push(quote! {
-                self.state.presence_version().hash(state);
-            });
-        }
-
-        if !hashed_room_watchers
-            && (field_name.to_string().as_str() == "room_watchers"
-                || type_string(&field.ty).as_str() == "RoomWatchers")
-        {
-            hashed_room_watchers = true;
-            assertions.push(assert_role(
-                &struct_name,
-                &field_name,
-                &field_ty,
-                quote! { ::deplace_core::state::roles::IsRoomWatchers },
-            ));
-            hashings.push(quote! {
-                self.room_watchers.hash(state);
             });
         }
     }

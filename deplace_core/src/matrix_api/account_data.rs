@@ -6,6 +6,29 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use matrix_sdk::ruma::events::macros::EventContent;
 
+use crate::{colors::DePlaceColor, member::synth::SonicSignature};
+
+#[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]
+#[ruma_event(type = "com.deplace.sonic_signature", kind = GlobalAccountData)]
+pub struct SonicSignatureDataContent {
+    #[serde(default)]
+    pub signature: Option<SonicSignature>,
+}
+
+#[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]
+#[ruma_event(type = "com.deplace.name_color", kind = GlobalAccountData)]
+pub struct NameColorContent {
+    #[serde(default)]
+    pub color: Option<DePlaceColor>,
+}
+
+#[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]
+#[ruma_event(type = "com.deplace.banner_color", kind = GlobalAccountData)]
+pub struct BannerColorContent {
+    #[serde(default)]
+    pub color: Option<DePlaceColor>,
+}
+
 #[derive(Debug, Serialize, Clone, Default, Deserialize, EventContent)]
 #[ruma_event(type = "com.deplace.breadcrumbs", kind = GlobalAccountData)]
 pub struct BreadcrumbsContent {
@@ -40,47 +63,59 @@ pub struct ServerOrderContent {
     pub servers: Vec<OwnedRoomId>,
 }
 
-pub async fn get_account_data<
+pub trait DePlaceAccountData
+where
+    Self: StaticEventContent<IsPrefix = ruma::events::False>
+        + GlobalAccountDataEventContent
+        + Default
+        + DeserializeOwned
+        + Clone,
+{
+    fn fetch(client: &Client) -> impl Future<Output = Self>;
+    fn set(&self, client: &Client) -> impl Future<Output = ()>;
+}
+
+impl<T> DePlaceAccountData for T
+where
     T: StaticEventContent<IsPrefix = ruma::events::False>
         + GlobalAccountDataEventContent
         + Default
-        + DeserializeOwned,
->(
-    client: &Client,
-) -> T {
-    tracing::debug!("Getting account data of type \"{}\"", T::TYPE);
-    let res = client
-        .account()
-        .account_data::<T>()
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get account data for {}: {}", T::TYPE, e);
-            e
-        })
-        .ok()
-        .flatten();
+        + DeserializeOwned
+        + Clone,
+{
+    async fn fetch(client: &Client) -> Self {
+        tracing::debug!("Getting account data of type \"{}\"", T::TYPE);
 
-    if let Some(raw) = res {
-        raw.deserialize()
+        let res = client
+            .account()
+            .account_data::<T>()
+            .await
             .map_err(|e| {
-                tracing::error!("Failed to deserialize {}: {}", T::TYPE, e);
+                tracing::error!("Failed to get account data for {}: {}", T::TYPE, e);
                 e
             })
-            .unwrap_or_default()
-    } else {
-        T::default()
-    }
-}
+            .ok()
+            .flatten();
 
-pub async fn set_account_data<T: StaticEventContent + GlobalAccountDataEventContent + Serialize>(
-    client: &Client,
-    data: T,
-) {
-    tracing::debug!("Setting acccount data of type \"{}\"", T::TYPE);
-    client
-        .account()
-        .set_account_data(data)
-        .await
-        .map_err(|e| tracing::error!("Failed to set account data: {}", e))
-        .ok();
+        if let Some(raw) = res {
+            raw.deserialize()
+                .map_err(|e| {
+                    tracing::error!("Failed to deserialize {}: {}", T::TYPE, e);
+                    e
+                })
+                .unwrap_or_default()
+        } else {
+            T::default()
+        }
+    }
+
+    async fn set(&self, client: &Client) {
+        tracing::debug!("Setting acccount data of type \"{}\"", T::TYPE);
+        client
+            .account()
+            .set_account_data(self.clone())
+            .await
+            .map_err(|e| tracing::error!("Failed to set account data: {}", e))
+            .ok();
+    }
 }

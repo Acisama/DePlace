@@ -26,7 +26,6 @@ impl HelpOverMessage for SidebarMessage {
 }
 
 pub enum SidebarAction {
-    NeedsMedia(NeedsMedia),
     ChangeRoom(Option<DePlaceRoom>),
     ChangeServer(ActiveServer),
     Run(Task<()>),
@@ -61,7 +60,6 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
         match message {
             SidebarMessage::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             SidebarMessage::ServerColumn(msg) => match self.server_column.update(msg)? {
-                ServerColumnAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
                 ServerColumnAction::SetActiveServer(server) => {
                     Some(SidebarAction::ChangeServer(server))
                 }
@@ -72,7 +70,6 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 ServerColumnAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             },
             SidebarMessage::Channels(msg) => match self.channels.update(msg)? {
-                ChannelsAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
                 ChannelsAction::SetActiveRoom(room) => Some(SidebarAction::ChangeRoom(Some(room))),
                 ChannelsAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
                 ChannelsAction::OpenQuickselect => Some(SidebarAction::OpenQuickselect),
@@ -81,7 +78,6 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 }
             },
             SidebarMessage::Account(msg) => match self.account.update(msg)? {
-                AccountAction::NeedsMedia(media) => Some(SidebarAction::NeedsMedia(media)),
                 AccountAction::OpenSettings => Some(SidebarAction::OpenSettings),
                 AccountAction::HelpHover(help) => Some(SidebarAction::HelpHover(help)),
             },
