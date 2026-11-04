@@ -146,4 +146,12 @@ impl RoomMembers {
         }
         self.rebuild_list();
     }
+
+    /// Re-sorts and re-partitions the member lists from the currently cached data,
+    /// without re-fetching anything. Meant to be run once after a bulk background
+    /// load finishes, to settle any room whose list missed a rebuild because its
+    /// members (or their presence) arrived out of order with other rooms' loads.
+    pub(crate) fn recalculate(&self) {
+        self.rebuild_list();
+    }
 }

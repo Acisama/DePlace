@@ -165,6 +165,16 @@ impl ProfileStore {
             .clone()
     }
 
+    /// Re-sorts/re-partitions every room's cached member list from already-loaded
+    /// data. Meant to be called once after a bulk background member load finishes,
+    /// to settle any room that missed a rebuild due to loads interleaving across
+    /// rooms (e.g. a presence update landing between two other rooms' loads).
+    pub fn recalculate_all_rooms(&self) {
+        for room_members in self.room_map.iter() {
+            room_members.value().recalculate();
+        }
+    }
+
     pub async fn load_room_members(&self, room: &Room) -> HashSet<OwnedUserId> {
         let members = room
             .members(RoomMemberships::ACTIVE)

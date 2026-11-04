@@ -43,6 +43,9 @@ pub struct MemberList {
     hovered_member: Option<OwnedUserId>,
 
     member_bounds: HashMap<OwnedUserId, Rectangle>,
+
+    #[hash]
+    room_id: OwnedRoomId,
 }
 
 impl MemberList {
@@ -53,6 +56,7 @@ impl MemberList {
             hovered_member: None,
 
             member_bounds: HashMap::new(),
+            room_id: room.room_id().to_owned(),
         }
     }
 }

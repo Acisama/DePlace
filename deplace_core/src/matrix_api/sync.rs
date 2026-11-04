@@ -304,5 +304,7 @@ pub(crate) fn spawn_initial_load(
                 });
             }
         }
+
+        profile_store.recalculate_all_rooms();
     });
 }
