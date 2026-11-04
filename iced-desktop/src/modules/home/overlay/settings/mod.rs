@@ -324,9 +324,7 @@ fn render_profile_section(
                     structure.font_size,
                     color
                 ),
-                w::text("Edit Profiles")
-                    .size(structure.small_font_size)
-                    .color(theme.text.dim),
+                w::text("Edit Profiles").size(structure.small_font_size),
             ]
             .spacing(structure.small_gap / 2.0)
         ]

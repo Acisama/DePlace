@@ -1,6 +1,6 @@
 use iced::Alignment;
 use macros::iced_cache;
-use matrix_sdk_ui::Timeline;
+use matrix_sdk_ui::{Timeline, timeline::TimelineEventItemId};
 
 use crate::{
     common::*,
@@ -12,10 +12,13 @@ use super::ModifyItem;
 
 #[derive(Clone, Debug)]
 pub enum MessageMessage {
-    SetReplyingTo,
+    SetReplyingTo(OwnedEventId),
     Delete,
-    Pin(bool),
-    Edit,
+    Pin {
+        event_id: OwnedEventId,
+        is_pinned: bool,
+    },
+    Edit(OwnedEventId),
 }
 
 #[derive(Clone, Debug)]
@@ -24,7 +27,7 @@ pub enum ContextMenuMessage {
         timeline: Arc<Timeline>,
         event: Arc<MessageEvent>,
         room_id: OwnedRoomId,
-        event_id: OwnedEventId,
+        identifier: TimelineEventItemId,
         item_id: String,
         message: MessageMessage,
     },
@@ -59,14 +62,14 @@ pub enum ContextMenuKind {
         timeline: Arc<Timeline>,
         event: Arc<MessageEvent>,
         room_id: OwnedRoomId,
-        event_id: OwnedEventId,
+        identifier: TimelineEventItemId,
         item_id: String,
 
         is_pinned: bool,
 
-        can_edit: bool,
-        can_reply: bool,
-        can_pin: bool,
+        can_edit: Option<OwnedEventId>,
+        can_reply: Option<OwnedEventId>,
+        can_pin: Option<OwnedEventId>,
         can_redact: bool,
     },
 }
@@ -83,12 +86,15 @@ impl PartialEq for ContextMenuKind {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
-                ContextMenuKind::Message { event_id, .. },
                 ContextMenuKind::Message {
-                    event_id: event_id2,
+                    identifier: identifier1,
                     ..
                 },
-            ) => event_id == event_id2,
+                ContextMenuKind::Message {
+                    identifier: identifier2,
+                    ..
+                },
+            ) => identifier1 == identifier2,
         }
     }
 }
@@ -99,24 +105,27 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
             ContextMenuMessage::Message {
                 timeline,
                 event,
-                event_id,
+                identifier,
                 room_id,
                 item_id,
                 message,
             } => match message {
-                MessageMessage::SetReplyingTo => Some(ContextMenuAction::SetReplyingTo {
+                MessageMessage::SetReplyingTo(event_id) => Some(ContextMenuAction::SetReplyingTo {
                     item_id,
                     room_id,
                     event_id,
                 }),
                 MessageMessage::Delete => Some(ContextMenuAction::OpenModifyItem(
-                    ModifyItem::delete(timeline, event_id, event),
+                    ModifyItem::delete(timeline, identifier, event),
                 )),
-                MessageMessage::Pin(is_pinned) => Some(ContextMenuAction::OpenModifyItem(
-                    ModifyItem::pin(timeline, event_id, event, is_pinned),
-                )),
+                MessageMessage::Pin {
+                    event_id,
+                    is_pinned,
+                } => Some(ContextMenuAction::OpenModifyItem(ModifyItem::pin(
+                    timeline, identifier, event_id, event, is_pinned,
+                ))),
                 // TODO
-                MessageMessage::Edit => None,
+                MessageMessage::Edit(_) => None,
             },
         }
     }
@@ -136,7 +145,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     timeline,
                     event,
                     room_id,
-                    event_id,
+                    identifier,
                     item_id,
 
                     is_pinned,
@@ -151,12 +160,12 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     timeline.clone(),
                     event.clone(),
                     room_id.clone(),
-                    event_id.clone(),
+                    identifier.clone(),
                     item_id.clone(),
                     *is_pinned,
-                    *can_edit,
-                    *can_reply,
-                    *can_pin,
+                    can_edit.clone(),
+                    can_reply.clone(),
+                    can_pin.clone(),
                     *can_redact,
                 ),
             };
@@ -193,12 +202,12 @@ fn render_message_context_menu(
     timeline: Arc<Timeline>,
     event: Arc<MessageEvent>,
     room_id: OwnedRoomId,
-    event_id: OwnedEventId,
+    identifier: TimelineEventItemId,
     item_id: String,
     is_pinned: bool,
-    can_edit: bool,
-    can_reply: bool,
-    can_pin: bool,
+    can_edit: Option<OwnedEventId>,
+    can_reply: Option<OwnedEventId>,
+    can_pin: Option<OwnedEventId>,
     can_redact: bool,
 ) -> Element<'static, ContextMenuMessage> {
     let mut buttons = Vec::new();
@@ -207,12 +216,12 @@ fn render_message_context_menu(
         timeline: timeline.clone(),
         event: event.clone(),
         room_id: room_id.clone(),
-        event_id: event_id.clone(),
+        identifier: identifier.clone(),
         item_id: item_id.clone(),
         message,
     };
 
-    if can_edit {
+    if let Some(event_id) = can_edit {
         buttons.push(render_context_menu_button(
             structure,
             theme.text.dim,
@@ -220,11 +229,11 @@ fn render_message_context_menu(
             theme.solid_hover_bg,
             EDIT_ICON,
             "Edit this message",
-            message(MessageMessage::Edit),
+            message(MessageMessage::Edit(event_id)),
         ));
     }
 
-    if can_reply {
+    if let Some(event_id) = can_reply {
         buttons.push(render_context_menu_button(
             structure,
             theme.text.dim,
@@ -232,11 +241,11 @@ fn render_message_context_menu(
             theme.solid_hover_bg,
             REPLY_ICON,
             "Reply to this message",
-            message(MessageMessage::SetReplyingTo),
+            message(MessageMessage::SetReplyingTo(event_id)),
         ));
     }
 
-    if can_pin {
+    if let Some(event_id) = can_pin {
         buttons.push(render_context_menu_button(
             structure,
             theme.colors.pins,
@@ -248,7 +257,10 @@ fn render_message_context_menu(
             } else {
                 "Pin this message"
             },
-            message(MessageMessage::Pin(is_pinned)),
+            message(MessageMessage::Pin {
+                event_id,
+                is_pinned,
+            }),
         ));
     }
 

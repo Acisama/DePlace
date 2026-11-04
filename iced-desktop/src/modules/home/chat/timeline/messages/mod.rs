@@ -36,7 +36,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{
     EventSendState, MemberProfileChange, RoomMembershipChange, TimelineDetails,
-    TimelineEventShieldState,
+    TimelineEventItemId, TimelineEventShieldState,
 };
 
 mod convert;
@@ -68,7 +68,7 @@ pub enum TimelineItemMessage {
         event_id: OwnedEventId,
         is_pinned: bool,
     },
-    OpenDeleteMenu(OwnedEventId),
+    OpenDeleteMenu(TimelineEventItemId),
     Mention(Mention),
     LinkClick(String),
     OpenMediaOverlay(MediaOverlayParams),
@@ -113,7 +113,7 @@ pub enum TimelineItemAction {
         event_id: OwnedEventId,
         is_pinned: bool,
     },
-    OpenDeleteMenu(OwnedEventId),
+    OpenDeleteMenu(TimelineEventItemId),
     Mention(Mention),
     LinkClick(String),
     OpenMediaOverlay(MediaOverlayParams),
@@ -149,6 +149,14 @@ impl Debug for TimelineItem {
 }
 
 impl TimelineItem {
+    pub fn identifier(&self) -> Option<TimelineEventItemId> {
+        let TimelineItemKind::Message { message: event, .. } = &self.kind else {
+            return None;
+        };
+
+        Some(event.identifier.clone())
+    }
+
     pub fn event_id(&self) -> Option<OwnedEventId> {
         let TimelineItemKind::Message { message: event, .. } = &self.kind else {
             return None;
@@ -723,6 +731,8 @@ struct MessageEvent {
     timestamp: SystemTime,
 
     event_id: Option<OwnedEventId>,
+    identifier: TimelineEventItemId,
+
     #[hash]
     sender: Member,
 

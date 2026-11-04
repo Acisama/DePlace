@@ -84,6 +84,7 @@ impl TimelineItemKind {
                     .unwrap_or_else(SystemTime::now);
                 let sender = profile_store.get_member(room_id, event.sender());
                 let event_id = event.event_id().map(|id| id.to_owned());
+                let identifier = event.identifier();
 
                 // With a normal closure, there would be move problems
                 macro_rules! system {
@@ -249,6 +250,7 @@ impl TimelineItemKind {
                             can_be_replied_to: event.can_be_replied_to(),
                             message: Arc::new(MessageEvent {
                                 timestamp,
+                                identifier,
 
                                 timezone: settings.timezone.watch(),
                                 hour_format: settings.hour_format.watch(),

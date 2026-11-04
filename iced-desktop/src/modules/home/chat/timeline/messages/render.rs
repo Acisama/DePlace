@@ -167,10 +167,21 @@ impl MessageEvent {
         let (icon, name) = if show_header {
             {
                 let size = structure.chat.icon_size;
-
-                let name_row =
-                    move |name_view: Element<'static, TimelineItemMessage>,
-                          help_view: &HelpView<TimelineItemMessage>| {
+                (
+                    Some(
+                        help_view
+                            .call(
+                                HelpKey::Message {
+                                    key: MessageHelpKey::Icon,
+                                    index,
+                                },
+                                "The icon of the user who sent this message",
+                                self.sender.render_icon(size),
+                            )
+                            .radius(size / 2.0)
+                            .into(),
+                    ),
+                    Some(
                         w::row![
                             help_view.call(
                                 HelpKey::Message {
@@ -178,7 +189,7 @@ impl MessageEvent {
                                     index,
                                 },
                                 "The name of the user who sent this message",
-                                name_view
+                                self.sender.render_name_with_overlay(text_size)
                             ),
                             help_view.call(
                                 HelpKey::Message {
@@ -200,28 +211,8 @@ impl MessageEvent {
                         ]
                         .spacing(structure.small_gap)
                         .padding(padding::bottom(structure.small_gap / 2.0))
-                        .align_y(Alignment::End)
-                    };
-
-                let icon = move |content,
-                                 help_view: &HelpView<TimelineItemMessage>|
-                      -> Element<'static, TimelineItemMessage> {
-                    help_view
-                        .call(
-                            HelpKey::Message {
-                                key: MessageHelpKey::Icon,
-                                index,
-                            },
-                            "The icon of the user who sent this message",
-                            content,
-                        )
-                        .radius(size / 2.0)
-                        .into()
-                };
-
-                (
-                    Some(icon(self.sender.render_icon(size), &help_view)),
-                    Some(name_row(self.sender.render_name(text_size), &help_view)),
+                        .align_y(Alignment::End),
+                    ),
                 )
             }
         } else {

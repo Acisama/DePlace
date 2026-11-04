@@ -3,7 +3,7 @@ use iced::{
     widget::text::IntoFragment,
 };
 use macros::iced_cache;
-use matrix_sdk_ui::Timeline;
+use matrix_sdk_ui::{Timeline, timeline::TimelineEventItemId};
 
 use crate::{common::*, modules::home::chat::MessageEvent};
 
@@ -11,8 +11,8 @@ use crate::{common::*, modules::home::chat::MessageEvent};
 pub enum ModifyItemMessage {
     None,
     Delete { reason: Option<String> },
-    Pin,
-    Unpin,
+    Pin(OwnedEventId),
+    Unpin(OwnedEventId),
     Close,
     KeyboardEvent(keyboard::Event),
 }
@@ -23,11 +23,11 @@ pub enum ModifyItemAction {
     Close,
 }
 
-#[derive(Clone, Copy, Hash, Debug, PartialEq)]
+#[derive(Clone, Hash, Debug, PartialEq)]
 enum ModifyItemKind {
-    Delete,
-    Pin,
-    Unpin,
+    Delete(TimelineEventItemId),
+    Pin(OwnedEventId),
+    Unpin(OwnedEventId),
 }
 
 #[iced_cache(Clone, Debug)]
@@ -36,45 +36,46 @@ pub struct ModifyItem {
     event: Arc<MessageEvent>,
 
     #[hash]
-    event_id: OwnedEventId,
+    identifier: TimelineEventItemId,
     #[hash]
     kind: ModifyItemKind,
 }
 
 impl PartialEq for ModifyItem {
     fn eq(&self, other: &Self) -> bool {
-        self.event_id == other.event_id && self.kind == other.kind
+        self.identifier == other.identifier && self.kind == other.kind
     }
 }
 
 impl ModifyItem {
     pub fn delete(
         timeline: Arc<Timeline>,
-        event_id: OwnedEventId,
+        identifier: TimelineEventItemId,
         event: Arc<MessageEvent>,
     ) -> Self {
         Self {
             timeline,
-            event_id,
+            identifier: identifier.clone(),
             event,
-            kind: ModifyItemKind::Delete,
+            kind: ModifyItemKind::Delete(identifier),
         }
     }
 
     pub fn pin(
         timeline: Arc<Timeline>,
+        identifier: TimelineEventItemId,
         event_id: OwnedEventId,
         event: Arc<MessageEvent>,
         is_pinned: bool,
     ) -> Self {
         Self {
             timeline,
-            event_id,
+            identifier,
             event,
             kind: if is_pinned {
-                ModifyItemKind::Unpin
+                ModifyItemKind::Unpin(event_id)
             } else {
-                ModifyItemKind::Pin
+                ModifyItemKind::Pin(event_id)
             },
         }
     }
@@ -87,31 +88,23 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
             ModifyItemMessage::Close => Some(ModifyItemAction::Close),
             ModifyItemMessage::Delete { reason } => {
                 let timeline = self.timeline.clone();
-                let event_id = self.event_id.clone();
+                let identifier = self.identifier.clone();
                 Some(ModifyItemAction::Run(Task::future(async move {
-                    if let Err(e) = timeline
-                        .redact(
-                            &matrix_sdk_ui::timeline::TimelineEventItemId::EventId(event_id),
-                            reason.as_deref(),
-                        )
-                        .await
-                    {
+                    if let Err(e) = timeline.redact(&identifier, reason.as_deref()).await {
                         tracing::error!("Failed to redact event: {}", e);
                     }
                 })))
             }
-            ModifyItemMessage::Pin => {
+            ModifyItemMessage::Pin(event_id) => {
                 let room = self.timeline.room().clone();
-                let event_id = self.event_id.clone();
                 Some(ModifyItemAction::Run(Task::future(async move {
                     if let Err(e) = room.pin_event(&event_id).await {
                         tracing::error!("Failed to pin event: {}", e);
                     }
                 })))
             }
-            ModifyItemMessage::Unpin => {
+            ModifyItemMessage::Unpin(event_id) => {
                 let room = self.timeline.room().clone();
-                let event_id = self.event_id.clone();
                 Some(ModifyItemAction::Run(Task::future(async move {
                     if let Err(e) = room.unpin_event(&event_id).await {
                         tracing::error!("Failed to unpin event: {}", e);
@@ -121,20 +114,20 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
             ModifyItemMessage::KeyboardEvent(event) => {
                 if let iced::keyboard::Event::KeyPressed { key, .. } = event {
                     if key == Named(keyboard::key::Named::Enter) {
-                        match self.kind {
-                            ModifyItemKind::Delete => {
+                        match &self.kind {
+                            ModifyItemKind::Delete(_) => {
                                 return Some(ModifyItemAction::Perform(Task::done(
                                     ModifyItemMessage::Delete { reason: None },
                                 )));
                             }
-                            ModifyItemKind::Pin => {
+                            ModifyItemKind::Pin(event_id) => {
                                 return Some(ModifyItemAction::Perform(Task::done(
-                                    ModifyItemMessage::Pin,
+                                    ModifyItemMessage::Pin(event_id.clone()),
                                 )));
                             }
-                            ModifyItemKind::Unpin => {
+                            ModifyItemKind::Unpin(event_id) => {
                                 return Some(ModifyItemAction::Perform(Task::done(
-                                    ModifyItemMessage::Unpin,
+                                    ModifyItemMessage::Unpin(event_id.clone()),
                                 )));
                             }
                         }
@@ -172,7 +165,7 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
         );
 
         let (heading, subheading, buttons) = match &self.kind {
-            ModifyItemKind::Delete => (
+            ModifyItemKind::Delete(_) => (
                 "Redact Message",
                 "Are you sure you want to redact this message?",
                 [
@@ -189,7 +182,7 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
                     ),
                 ],
             ),
-            ModifyItemKind::Pin => (
+            ModifyItemKind::Pin(event_id) => (
                 "Pin Message",
                 "Are you sure you want to pin this message?",
                 [
@@ -197,7 +190,7 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
                     render_dialogue_button(
                         structure,
                         "Put a pin in it",
-                        ModifyItemMessage::Pin,
+                        ModifyItemMessage::Pin(event_id.clone()),
                         Some(theme.pins_blended()),
                         theme.colors.pins,
                         theme.colors.pins,
@@ -206,7 +199,7 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
                     ),
                 ],
             ),
-            ModifyItemKind::Unpin => (
+            ModifyItemKind::Unpin(event_id) => (
                 "Unpin Message",
                 "Are you sure you want to unpin this message?",
                 [
@@ -214,7 +207,7 @@ impl IcedWidget<ModifyItemMessage, ModifyItemAction> for ModifyItem {
                     render_dialogue_button(
                         structure,
                         "Remove the pin",
-                        ModifyItemMessage::Unpin,
+                        ModifyItemMessage::Unpin(event_id.clone()),
                         Some(theme.pins_blended()),
                         theme.colors.pins,
                         theme.colors.pins,

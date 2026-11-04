@@ -270,6 +270,7 @@ impl RoomSendingExt for Timeline {
             attachment.mime_type,
             config,
         )
+        .use_send_queue()
         .await?;
 
         Ok(())
