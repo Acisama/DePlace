@@ -11,7 +11,10 @@ use anyhow::Result;
 use futures::{Stream, stream};
 use matrix_sdk::{
     Client,
-    ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
+    ruma::{
+        OwnedDeviceId, OwnedRoomId, OwnedUserId,
+        api::client::receipt::create_receipt::v3::ReceiptType, events::receipt::ReceiptThread,
+    },
 };
 use media_fetcher::MediaProcessor;
 use ruma::{OwnedMxcUri, RoomId};
@@ -28,7 +31,7 @@ use crate::{
     },
     member::ProfileStore,
     notifications::NotificationManager,
-    room::{DePlaceRoom, store::RoomStore},
+    room::{DePlaceRoom, notifications::NotificationCounts, store::RoomStore},
     settings::Settings,
     window_title,
 };
@@ -636,6 +639,22 @@ impl AppState {
             && room_changed
         {
             let room_id = room.room_id().to_owned();
+
+            room.update_live_if_modified(|live| {
+                live.notification_counts = NotificationCounts::default();
+            });
+
+            if let Some(event_id) = room.room.latest_event().event_id() {
+                let sdk_room = room.room.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = sdk_room
+                        .send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id)
+                        .await
+                    {
+                        tracing::warn!("Failed to send read receipt: {e}");
+                    }
+                });
+            }
 
             let active_server: ActiveServer = self.inner.room_store.get_server_of(&room_id).into();
 
