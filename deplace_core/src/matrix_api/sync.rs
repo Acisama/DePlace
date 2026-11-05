@@ -27,6 +27,7 @@ use crate::{Avatar, big_thumbnail_format};
 #[cfg(feature = "iced")]
 use iced::advanced::image::Handle as ImageHandle;
 
+use super::matrixrtc::{handle_call_member_change, handle_to_device_messages};
 use super::members::handle_member_event;
 
 pub fn spawn_sync_runners(client: &Client, state: &AppState, own_device: Arc<UserDevice>) {
@@ -42,6 +43,7 @@ pub fn spawn_sync_runners(client: &Client, state: &AppState, own_device: Arc<Use
     client.add_event_handler_context(state.clone());
     client.add_event_handler(handle_member_event);
     client.add_event_handler(handle_presence_update);
+    client.add_event_handler(handle_call_member_change);
 }
 
 async fn run_keystore_save_stream(client: Client) {
@@ -79,13 +81,16 @@ async fn run_sync_stream(client: Client, state: AppState) {
 }
 
 async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &AppState) {
-    let _result = match result {
+    let result = match result {
         Ok(result) => result,
         Err(e) => {
             tracing::error!("Sync loop returned an error: {e:?}");
             return;
         }
     };
+
+    // Call encryption keys arrive as decrypted to-device events
+    handle_to_device_messages(result.to_device, state.livekit_room_manager()).await;
 
     let account = state.client().account();
 

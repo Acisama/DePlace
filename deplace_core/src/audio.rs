@@ -12,9 +12,16 @@
 //! - [`Audio::frame_player`] for
 //!   call audio from LiveKit. Hand the [`FramePlayer`]
 //!   every [`AudioFrame`]
+//!
+//! And one way to listen:
+//!
+//! - [`AudioThread::microphone`] for recording
+//!   whatever the default microphone hears, frame by frame in a [`Microphone`]
+//!
+//! We'll get soundboard things too just you wait
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     io::{BufReader, Cursor},
     path::{Path, PathBuf},
     sync::{
@@ -25,6 +32,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use livekit::webrtc::prelude::AudioFrame;
 use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use tokio::sync::oneshot;
@@ -46,6 +54,10 @@ pub struct Audio {
     /// dropping it would silence everything.
     _output: Box<OutputStream>,
     handle: OutputStreamHandle,
+    /// Microphone capture streams, one per open [`Microphone`].
+    mics: HashMap<u64, cpal::Stream>,
+    /// Id the next created [`Microphone`] gets.
+    next_mic_id: u64,
 }
 
 impl Audio {
@@ -57,6 +69,8 @@ impl Audio {
         Ok(Self {
             _output: Box::new(output),
             handle,
+            mics: HashMap::new(),
+            next_mic_id: 0,
         })
     }
 
@@ -94,6 +108,37 @@ impl Audio {
         });
 
         Ok(FramePlayer { sink, samples })
+    }
+
+    /// Starts recording the default microphone, drop the handle to stop it.
+    fn microphone(&mut self, cmd_tx: &std::sync::mpsc::Sender<Command>) -> Result<Microphone> {
+        let host = cpal::default_host();
+        let device = host
+            .default_input_device()
+            .context("There is no default microphone")?;
+
+        let config = device
+            .default_input_config()
+            .context("Could not read the microphone's format")?;
+
+        let samples = Arc::new(MicSamples::default());
+        let stream = build_mic_stream(&device, &config, Arc::clone(&samples))?;
+        stream.play().context("Could not start the microphone")?;
+
+        let id = self.next_mic_id;
+        self.next_mic_id += 1;
+        self.mics.insert(id, stream);
+
+        Ok(Microphone {
+            id,
+            samples,
+            cmd_tx: cmd_tx.clone(),
+        })
+    }
+
+    /// Stops the capture stream belonging to a dropped [`Microphone`].
+    fn stop_microphone(&mut self, id: u64) {
+        self.mics.remove(&id);
     }
 }
 
@@ -158,6 +203,12 @@ enum Command {
         data: Vec<u8>,
         reply: oneshot::Sender<Result<Sound>>,
     },
+    Microphone {
+        reply: oneshot::Sender<Result<Microphone>>,
+    },
+    StopMicrophone {
+        id: u64,
+    },
 }
 
 impl AudioThread {
@@ -168,11 +219,13 @@ impl AudioThread {
         // Just used to find out whether the connection worked, the thread
         // answers actual requests through the oneshots in the commands.
         let (init_tx, init_rx) = std::sync::mpsc::channel();
+        // Cloned into every Microphone so it can announce its own death.
+        let stop_tx = cmd_tx.clone();
 
         std::thread::Builder::new()
             .name("deplace-audio".into())
             .spawn(move || {
-                let audio = match Audio::new() {
+                let mut audio = match Audio::new() {
                     Ok(audio) => audio,
                     Err(e) => {
                         // Tell start() it did not work and die quietly.
@@ -197,6 +250,12 @@ impl AudioThread {
                         }
                         Command::PlayData { data, reply } => {
                             drop(reply.send(audio.play_data(data)));
+                        }
+                        Command::Microphone { reply } => {
+                            drop(reply.send(audio.microphone(&stop_tx)));
+                        }
+                        Command::StopMicrophone { id } => {
+                            audio.stop_microphone(id);
                         }
                     }
                 }
@@ -257,6 +316,167 @@ impl AudioThread {
             .await
             .context("The audio thread died mid-request")?
     }
+
+    /// Starts recording the default microphone, drop the handle to stop it.
+    pub async fn microphone(&self) -> Result<Microphone> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+
+        self.cmd_tx
+            .send(Command::Microphone { reply: reply_tx })
+            .context("The audio thread is gone")?;
+
+        reply_rx
+            .await
+            .context("The audio thread died mid-request")?
+    }
+}
+
+/// The microphone of the machine
+pub struct Microphone {
+    /// Which stream this handle belongs to.
+    id: u64,
+    samples: Arc<MicSamples>,
+    /// To tell the audio thread this handle is gone.
+    cmd_tx: std::sync::mpsc::Sender<Command>,
+}
+
+impl Drop for Microphone {
+    /// Stops the recording when the last handle goes away.
+    fn drop(&mut self) {
+        drop(self.cmd_tx.send(Command::StopMicrophone { id: self.id }));
+    }
+}
+
+impl Microphone {
+    /// Takes everything recorded since the last call, empty if nothing is new.
+    pub fn pop(&self) -> Vec<f32> {
+        let mut queue = self
+            .samples
+            .queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        queue.drain(..).collect()
+    }
+
+    /// Throws away everything recorded but not yet read.
+    pub fn clear(&self) {
+        self.samples
+            .queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+    }
+
+    /// Stops buffering new audio until [`Microphone::set_muted`] is called with false.
+    pub fn set_muted(&self, muted: bool) {
+        self.samples.muted.store(muted, Ordering::Relaxed);
+        if muted {
+            self.clear();
+        }
+    }
+
+    /// Whether audio is currently being ignored instead of buffered.
+    pub fn is_muted(&self) -> bool {
+        self.samples.muted.load(Ordering::Relaxed)
+    }
+
+    /// How often incoming sound had to be thrown away because it was not read fast enough.
+    pub fn overflows(&self) -> u64 {
+        self.samples.overflows.load(Ordering::Relaxed)
+    }
+}
+
+/// The buffer the microphone thread fills and [`Microphone`] reads from.
+#[derive(Default)]
+struct MicSamples {
+    queue: Mutex<VecDeque<f32>>,
+    /// True while recording is paused and incoming sound is thrown away.
+    muted: AtomicBool,
+    overflows: AtomicU64,
+}
+
+/// Builds the cpal capture stream that fills a [`MicSamples`] with whatever the device says.
+fn build_mic_stream(
+    device: &cpal::Device,
+    config: &cpal::SupportedStreamConfig,
+    samples: Arc<MicSamples>,
+) -> Result<cpal::Stream> {
+    let channels = config.channels().max(1) as usize;
+    let sample_rate = config.sample_rate().0;
+    let error = move |error| event!(Level::WARN, "The microphone misbehaved: {error}");
+
+    // One closure per sample format, all ending up in the same mono f32 queue.
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config.config(),
+            move |data: &[f32], _| push_mic_chunk(data, channels, sample_rate, &samples),
+            error,
+            None,
+        ),
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config.config(),
+            move |data: &[i16], _| {
+                let chunk: Vec<f32> = data
+                    .iter()
+                    .map(|&sample| f32::from(sample) / f32::from(i16::MAX))
+                    .collect();
+                push_mic_chunk(&chunk, channels, sample_rate, &samples);
+            },
+            error,
+            None,
+        ),
+        cpal::SampleFormat::U16 => device.build_input_stream(
+            &config.config(),
+            move |data: &[u16], _| {
+                let chunk: Vec<f32> = data
+                    .iter()
+                    .map(|&sample| (f32::from(sample) - 32768.0) / 32768.0)
+                    .collect();
+                push_mic_chunk(&chunk, channels, sample_rate, &samples);
+            },
+            error,
+            None,
+        ),
+        other => {
+            return Err(anyhow!(
+                "The microphone speaks an unsupported format: {other:?}"
+            ));
+        }
+    }
+    .context("Could not open the microphone")?;
+
+    Ok(stream)
+}
+
+/// Mixes one captured chunk down to mono 48 kHz and buffers it in a [`MicSamples`].
+fn push_mic_chunk(chunk: &[f32], channels: usize, sample_rate: u32, samples: &Arc<MicSamples>) {
+    if samples.muted.load(Ordering::Relaxed) || chunk.is_empty() {
+        return;
+    }
+
+    let mono: Vec<f32> = chunk
+        .chunks(channels)
+        .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
+        .collect();
+
+    let converted = resample(&mono, sample_rate);
+
+    let mut queue = samples
+        .queue
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // Drop the oldest samples if too much piles up, so a microphone nobody
+    // reads from cannot eat all the memory.
+    if queue.len() + converted.len() > MAX_BUFFERED_SAMPLES {
+        let excess = (queue.len() + converted.len()).saturating_sub(MAX_BUFFERED_SAMPLES);
+        let to_drop = excess.min(queue.len());
+        queue.drain(..to_drop);
+        samples.overflows.fetch_add(1, Ordering::Relaxed);
+    }
+
+    queue.extend(converted);
 }
 
 /// A player for live audio like one participant in a LiveKite call.
@@ -407,17 +627,18 @@ fn resample(samples: &[f32], from_rate: u32) -> Vec<f32> {
         return samples.to_vec();
     }
 
-    let out_len = (samples.len() as f32 * (OUTPUT_SAMPLE_RATE / from_rate) as f32) as usize;
-    let step = (OUTPUT_SAMPLE_RATE / from_rate) as f32;
+    let ratio = f64::from(OUTPUT_SAMPLE_RATE) / f64::from(from_rate);
+    let out_len = (samples.len() as f64 * ratio) as usize;
+    let step = f64::from(from_rate) / f64::from(OUTPUT_SAMPLE_RATE);
 
     (0..out_len)
         .map(|out_index| {
             // Mix the position between two neighboring samples to guess the
             // value at the new rate from the old ones.
-            let position = out_index as f32 * step;
-            let left = position.floor() as usize;
+            let position = out_index as f64 * step;
+            let left = (position.floor() as usize).min(samples.len() - 1);
             let right = (left + 1).min(samples.len() - 1);
-            let blend = position.fract();
+            let blend = position.fract() as f32;
 
             samples[left] * (1.0 - blend) + samples[right] * blend
         })

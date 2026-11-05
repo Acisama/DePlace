@@ -23,6 +23,7 @@ use tokio::sync::watch::{self, Receiver, Sender};
 use crate::{
     APP_NAME,
     audio::AudioThread,
+    call::CallRegistry,
     keybinds::Keybinds,
     matrix_api::{
         account_data::{BreadcrumbsContent, DePlaceAccountData, ServerOrderContent},
@@ -235,6 +236,9 @@ pub(crate) struct AppStateInner {
 
     /// All MatrixRTC calls the app is currently in, keyed by room id.
     livekit_room_manager: LiveKitRoomManager,
+    /// The frontend-facing handles of those calls: state to read,
+    /// commands to send.
+    call_registry: CallRegistry,
 
     sync_tick: Sender<u64>,
 
@@ -368,6 +372,7 @@ impl AppState {
                 audio,
 
                 livekit_room_manager,
+                call_registry: CallRegistry::new(),
 
                 client,
                 own_device,
@@ -458,6 +463,12 @@ impl AppState {
     /// All MatrixRTC calls the app is currently in, keyed by room id
     pub fn livekit_room_manager(&self) -> LiveKitRoomManager {
         self.inner.livekit_room_manager.clone()
+    }
+
+    /// All ongoing calls: state to render, commands to send, plus the
+    /// wake channel that fires when a call joins or leaves.
+    pub fn call_registry(&self) -> CallRegistry {
+        self.inner.call_registry.clone()
     }
 
     pub fn important_paths(&self) -> &ImportantPaths {

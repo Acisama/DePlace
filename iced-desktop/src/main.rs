@@ -153,6 +153,10 @@ fn load_tray_icon() -> Result<tray_icon::Icon, iced::Error> {
 }
 
 fn main() -> iced::Result {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Could not install the rustls crypto provider");
+
     let paths = match ImportantPaths::new() {
         Ok(p) => p,
         Err(e) => {

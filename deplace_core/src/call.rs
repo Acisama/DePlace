@@ -1,0 +1,651 @@
+//! Signaling between the call thread and the frontend.
+//!
+//! [`DePlaceCall`] is the handle handed to the frontend when a call is
+//! joined. Communication follows the split the rest of the app uses:
+//!
+//! - Rendering state lives in a [`Shared<CallState>`]:
+//!   Widgets read it and hash it for lazy widget invalidation
+//!   Its wake channel (`state_watch`) tells the
+//!   message loop when it changed; it never carries data itself.
+//! - Happenings and commands live in [`CallEvent`] and the methods on
+//!   [`DePlaceCall`]: They are
+//!   delivered in order through a broadcast channel.
+//!
+//! The call thread folds its LiveKit events into the state on its own
+//! task (see `matrix_api::matrixrtc`); the frontend task only ever reads
+//! state and sends commands.
+
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use std::time::SystemTime;
+
+use indexmap::IndexMap;
+use livekit::RoomEvent;
+use livekit::prelude::{
+    ConnectionState, Participant, ParticipantIdentity, RemoteTrackPublication, TrackSource,
+};
+use livekit::track::LocalAudioTrack;
+use matrix_sdk::Client;
+use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId};
+use tokio::sync::{broadcast, watch};
+
+use crate::Shared;
+use crate::matrix_api::matrixrtc::{LiveKitRoomManager, leave_matrixrtc_call};
+
+/// A call participant, identified by their Matrix identity.
+///
+/// MatrixRTC LiveKit identities are `"{user_id}:{device_id}"`, anything
+/// that doesn't parse as one keeps the
+/// raw identity.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum CallParticipantId {
+    Member {
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
+    },
+    Other {
+        identity: Arc<str>,
+    },
+}
+
+impl CallParticipantId {
+    pub(crate) fn from_identity(identity: &ParticipantIdentity) -> Self {
+        identity
+            .as_str()
+            .rsplit_once(':')
+            .and_then(|(user_id, device_id)| {
+                let user_id = ruma::UserId::parse(user_id).ok()?.to_owned();
+                // Device ids aren't validated (any string is legal), so
+                // there's no parse just a conversion.
+                let device_id: OwnedDeviceId = device_id.into();
+                Some(CallParticipantId::Member { user_id, device_id })
+            })
+            .unwrap_or(CallParticipantId::Other {
+                identity: identity.as_str().into(),
+            })
+    }
+}
+
+/// State of any other call participant
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct CallParticipant {
+    pub speaking: bool,
+    pub muted: bool,
+    pub encryption: CallEncryptionState,
+}
+
+/// The E2EE state of a call participant, as reported by LiveKit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CallEncryptionState {
+    #[default]
+    Unknown,
+    Ok,
+    MissingKey,
+    EncryptionFailed,
+    DecryptionFailed,
+    InternalError,
+}
+
+impl From<livekit::webrtc::native::frame_cryptor::EncryptionState> for CallEncryptionState {
+    fn from(state: livekit::webrtc::native::frame_cryptor::EncryptionState) -> Self {
+        use livekit::webrtc::native::frame_cryptor::EncryptionState;
+
+        match state {
+            EncryptionState::New => Self::Unknown,
+            EncryptionState::Ok | EncryptionState::KeyRatcheted => Self::Ok,
+            EncryptionState::MissingKey => Self::MissingKey,
+            EncryptionState::EncryptionFailed => Self::EncryptionFailed,
+            EncryptionState::DecryptionFailed => Self::DecryptionFailed,
+            EncryptionState::InternalError => Self::InternalError,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CallConnectionState {
+    #[default]
+    Connecting,
+    Connected,
+    Reconnecting,
+    Ended,
+}
+
+/// A snapshot of everything a call UI renders, folded by the call thread
+#[derive(Clone, Debug, PartialEq)]
+pub struct CallState {
+    pub connection: CallConnectionState,
+    pub started_at: SystemTime,
+    pub own_muted: bool,
+    pub own_speaking: bool,
+    pub participants: IndexMap<CallParticipantId, CallParticipant>,
+}
+
+impl Default for CallState {
+    fn default() -> Self {
+        Self {
+            connection: CallConnectionState::Connecting,
+            started_at: SystemTime::now(),
+            own_muted: false,
+            own_speaking: false,
+            participants: IndexMap::new(),
+        }
+    }
+}
+
+impl Hash for CallState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.connection.hash(state);
+        self.started_at.hash(state);
+        self.own_muted.hash(state);
+        self.own_speaking.hash(state);
+
+        for (id, participant) in &self.participants {
+            id.hash(state);
+            participant.hash(state);
+        }
+    }
+}
+
+impl CallState {
+    pub fn participant(&self, id: &CallParticipantId) -> Option<&CallParticipant> {
+        self.participants.get(id)
+    }
+
+    pub fn participant_count(&self) -> usize {
+        self.participants.len()
+    }
+}
+
+/// Live audio volume of everyone in the call, measured from the
+/// audio actually received
+///
+/// Updates arrive at audio-frame cadence, so this never touches the
+/// hashed [`CallState`] or its wake channel: level meters poll this per
+/// frame during `RedrawRequested` instead of riding the message loop so
+/// they can decide themselves how often they update the displayed
+/// volume of a call participant
+#[derive(Clone, Debug, Default)]
+pub struct CallVolumes {
+    /// How loud our own microphone is
+    pub own: f32,
+    /// Loudness of each remote participant, `0.0` to `1.0`. Entries
+    /// exist for everyone we subscribe to, disappearing on unsubscribe.
+    pub participants: IndexMap<CallParticipantId, f32>,
+}
+
+/// Volume at which someone counts as speaking.
+pub const SPEAKING_ON_VOLUME: f32 = 0.01;
+pub const SPEAKING_OFF_VOLUME: f32 = 0.003;
+
+/// Call events,  broadcast to whoever subscribed. Rendering
+/// should always read
+/// [`CallState`] instead, which can't be missed.
+#[derive(Clone, Debug)]
+pub enum CallEvent {
+    /// Our own connection was accepted by the SFU.
+    Connected,
+    ParticipantJoined {
+        participant: CallParticipantId,
+    },
+    ParticipantLeft {
+        participant: CallParticipantId,
+    },
+    EncryptionStateChanged {
+        participant: CallParticipantId,
+        state: CallEncryptionState,
+    },
+    /// The call is over: [`CallEndReason::Left`] after
+    /// `DePlaceCall::leave`, [`CallEndReason::Disconnected`] when the
+    /// connection dropped on its own.
+    Ended {
+        reason: CallEndReason,
+    },
+    CommandFailed {
+        command: CallCommand,
+        error: Arc<str>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CallEndReason {
+    Left,
+    Disconnected,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// Interactions with the call from the UI
+///
+/// Will be expanded
+pub enum CallCommand {
+    Leave,
+    MuteMicrophone,
+    UnmuteMicrophone,
+}
+
+/// The frontend-facing handle of one ongoing call.
+///
+/// Clones share the same call; it stays valid until the call ends, after
+/// which `state.connection` is [`CallConnectionState::Ended`].
+pub struct DePlaceCall {
+    room_id: OwnedRoomId,
+    client: Client,
+    manager: LiveKitRoomManager,
+
+    /// Rendered truth, folded by the call thread.
+    state: Shared<CallState>,
+    /// Live volume of everyone, measured from received audio. Updated at
+    /// frame cadence without waking the message loop
+    volumes: Shared<CallVolumes>,
+    /// Bumped when `state` actually changed, the wake-up signal for the
+    /// frontend's message loop. Carries no data
+    state_wake: watch::Sender<u64>,
+    /// One-shot call happenings
+    events: broadcast::Sender<CallEvent>,
+    /// The published microphone track, to mute and unmute at will.
+    microphone: Shared<Option<LocalAudioTrack>>,
+}
+
+impl std::fmt::Debug for DePlaceCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DePlaceCall")
+            .field("room_id", &self.room_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for DePlaceCall {
+    fn eq(&self, other: &Self) -> bool {
+        self.room_id == other.room_id
+    }
+}
+
+impl Eq for DePlaceCall {}
+
+impl Hash for DePlaceCall {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.room_id.hash(state);
+    }
+}
+
+impl DePlaceCall {
+    pub(crate) fn new(room_id: OwnedRoomId, client: Client, manager: LiveKitRoomManager) -> Self {
+        let (state_wake, _) = watch::channel(0);
+        let (events, _) = broadcast::channel(64);
+
+        Self {
+            room_id,
+            client,
+            manager,
+            state: Shared::new(CallState::default()),
+            volumes: Shared::new(CallVolumes::default()),
+            state_wake,
+            events,
+            microphone: Shared::new(None),
+        }
+    }
+
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
+    }
+
+    /// The current rendering snapshot. Cheap and always valid.
+    pub fn state(&self) -> Arc<CallState> {
+        self.state.get()
+    }
+
+    /// The live volume of everyone in the call, measured from the audio
+    /// actually received. See [`CallVolumes`], poll this per frame, it
+    /// updates at audio frequency and does not wake the message loop.
+    pub fn volumes(&self) -> Arc<CallVolumes> {
+        self.volumes.get()
+    }
+
+    /// Wake-up signal for the frontend's message loop: fires whenever the
+    /// state actually changed.
+    pub fn state_watch(&self) -> watch::Receiver<u64> {
+        self.state_wake.subscribe()
+    }
+
+    /// Ordered one-shot call happenings, for whoever needs to react to
+    /// more than the rendered state.
+    pub fn subscribe(&self) -> broadcast::Receiver<CallEvent> {
+        self.events.subscribe()
+    }
+
+    /// Mute or unmute our own microphone, if one was published.
+    pub fn set_microphone_muted(&self, muted: bool) {
+        let command = if muted {
+            CallCommand::MuteMicrophone
+        } else {
+            CallCommand::UnmuteMicrophone
+        };
+
+        let microphone = self.microphone.get();
+        let Some(microphone) = microphone.as_ref() else {
+            let error: Arc<str> = "no microphone was published".into();
+            tracing::warn!(
+                "Can't {} the call in {}: {}",
+                if muted { "mute" } else { "unmute" },
+                self.room_id,
+                error
+            );
+            self.emit(CallEvent::CommandFailed { command, error });
+            return;
+        };
+
+        if muted {
+            microphone.mute();
+        } else {
+            microphone.unmute();
+        }
+
+        // The SFU usually echoes the change back as an event; folding it
+        // here directly also covers the case where it doesn't.
+        self.change_state(|state| state.own_muted = muted);
+    }
+
+    /// The mute state of our own microphone.
+    pub fn is_microphone_muted(&self) -> bool {
+        self.state.get().own_muted
+    }
+
+    /// Leave the call. Disconnects from the SFU, removes our MatrixRTC
+    /// call member state, and ends up emitting
+    /// `CallEvent::Ended { Left }` from the call thread.
+    pub async fn leave(&self) {
+        if let Err(e) = leave_matrixrtc_call(
+            self.client.clone(),
+            self.manager.clone(),
+            self.room_id.to_string(),
+        )
+        .await
+        {
+            tracing::error!("Failed to leave the call in {}: {e:#}", self.room_id);
+            self.emit(CallEvent::CommandFailed {
+                command: CallCommand::Leave,
+                error: e.to_string().into(),
+            });
+        }
+    }
+
+    // the following should only be used by the  Call thread
+
+    /// Reports how loud a remote participant currently is, measured from
+    /// the audio we receive from them. Called at frame cadence by the
+    /// track pump
+    pub(crate) fn set_participant_volume(&self, id: &CallParticipantId, volume: f32) {
+        self.volumes.change(|volumes| {
+            volumes.participants.insert(id.clone(), volume);
+        });
+
+        self.change_state(|state| {
+            if let Some(participant) = state.participants.get_mut(id) {
+                participant.speaking = speaking_from(participant.speaking, volume);
+            }
+        });
+    }
+
+    /// Reports how loud our own microphone currently is, the mic pump
+    /// already gates this to `0.0` while muted.
+    pub(crate) fn set_own_volume(&self, volume: f32) {
+        self.volumes.change(|volumes| volumes.own = volume);
+
+        self.change_state(|state| {
+            state.own_speaking = speaking_from(state.own_speaking, volume);
+        });
+    }
+
+    /// Forgets a remote participant's volume, if their track went away or
+    /// they left.
+    pub(crate) fn clear_participant_volume(&self, id: &CallParticipantId) {
+        self.volumes.change(|volumes| {
+            volumes.participants.shift_remove(id);
+        });
+
+        self.change_state(|state| {
+            if let Some(participant) = state.participants.get_mut(id) {
+                participant.speaking = false;
+            }
+        });
+    }
+
+    /// Registers the published microphone track so commands can find it.
+    pub(crate) fn set_microphone(&self, track: LocalAudioTrack) {
+        self.microphone.set(Some(track));
+    }
+
+    /// Applies a change to the call state, waking the frontend only when
+    /// the state actually changed. The closure
+    /// may be retried by the underlying compare-and-swap.
+    pub(crate) fn change_state(&self, change: impl Fn(&mut CallState)) {
+        let before = self.state.version();
+        self.state.change_if_modified(change);
+
+        if self.state.version() != before {
+            self.state_wake
+                .send_modify(|tick| *tick = tick.wrapping_add(1));
+        }
+    }
+
+    pub(crate) fn emit(&self, event: CallEvent) {
+        if self.events.send(event).is_err() {
+            tracing::trace!("Dropping a call event with no subscriber subscribed");
+        }
+    }
+
+    /// Folds one LiveKit room event into the call state, emitting the
+    /// one-shot happenings alongside.
+    pub(crate) fn handle_room_event(&self, event: &RoomEvent) {
+        match event {
+            RoomEvent::Connected {
+                participants_with_tracks,
+            } => {
+                self.change_state(|state| {
+                    for (participant, publications) in participants_with_tracks {
+                        let id = CallParticipantId::from_identity(&participant.identity());
+                        state
+                            .participants
+                            .insert(id, participant_from_publications(publications));
+                    }
+                    state.connection = CallConnectionState::Connected;
+                });
+                self.emit(CallEvent::Connected);
+            }
+            RoomEvent::ParticipantConnected(participant) => {
+                let id = CallParticipantId::from_identity(&participant.identity());
+                // A brand-new participant can't be heard yet.
+                self.change_state(|state| {
+                    state
+                        .participants
+                        .entry(id.clone())
+                        .or_insert(CallParticipant {
+                            speaking: false,
+                            muted: true,
+                            encryption: CallEncryptionState::Unknown,
+                        });
+                });
+                self.emit(CallEvent::ParticipantJoined { participant: id });
+            }
+            RoomEvent::ParticipantDisconnected(participant) => {
+                let id = CallParticipantId::from_identity(&participant.identity());
+                self.change_state(|state| {
+                    state.participants.shift_remove(&id);
+                });
+                self.clear_participant_volume(&id);
+                self.emit(CallEvent::ParticipantLeft { participant: id });
+            }
+            // ActiveSpeakersChanged is deliberately *not* handled: the
+            // active-speaker indication is unreliable. Speaking and
+            // loudness are measured ourselves from the received audio
+            // (see `set_participant_volume` and[`CallVolumes`]).
+            RoomEvent::TrackMuted {
+                participant,
+                publication,
+            } if publication.source() == TrackSource::Microphone => match participant {
+                Participant::Remote(remote) => {
+                    let id = CallParticipantId::from_identity(&remote.identity());
+                    self.change_state(|state| {
+                        if let Some(participant) = state.participants.get_mut(&id) {
+                            participant.muted = true;
+                        }
+                    });
+                }
+                Participant::Local(_) => {
+                    self.change_state(|state| state.own_muted = true);
+                }
+            },
+            RoomEvent::TrackUnmuted {
+                participant,
+                publication,
+            } if publication.source() == TrackSource::Microphone => match participant {
+                Participant::Remote(remote) => {
+                    let id = CallParticipantId::from_identity(&remote.identity());
+                    self.change_state(|state| {
+                        if let Some(participant) = state.participants.get_mut(&id) {
+                            participant.muted = false;
+                        }
+                    });
+                }
+                Participant::Local(_) => {
+                    self.change_state(|state| state.own_muted = false);
+                }
+            },
+            RoomEvent::TrackPublished {
+                participant,
+                publication,
+            } if publication.source() == TrackSource::Microphone => {
+                let id = CallParticipantId::from_identity(&participant.identity());
+                self.change_state(|state| {
+                    if let Some(participant) = state.participants.get_mut(&id) {
+                        participant.muted = publication.is_muted();
+                    }
+                });
+            }
+            RoomEvent::TrackUnpublished {
+                participant,
+                publication,
+            } if publication.source() == TrackSource::Microphone => {
+                let id = CallParticipantId::from_identity(&participant.identity());
+                self.change_state(|state| {
+                    if let Some(participant) = state.participants.get_mut(&id) {
+                        participant.muted = true;
+                    }
+                });
+            }
+            RoomEvent::E2eeStateChanged {
+                participant,
+                state: encryption,
+            } => {
+                let encryption = CallEncryptionState::from(*encryption);
+                let id = CallParticipantId::from_identity(&participant.identity());
+                self.change_state(|state| {
+                    if let Some(participant) = state.participants.get_mut(&id) {
+                        participant.encryption = encryption;
+                    }
+                });
+                self.emit(CallEvent::EncryptionStateChanged {
+                    participant: id,
+                    state: encryption,
+                });
+            }
+            RoomEvent::ConnectionStateChanged(connection) => {
+                let connection = match connection {
+                    ConnectionState::Connected => CallConnectionState::Connected,
+                    ConnectionState::Reconnecting => CallConnectionState::Reconnecting,
+                    ConnectionState::Disconnected => CallConnectionState::Ended,
+                };
+                self.change_state(|state| state.connection = connection);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// For the speaking flag: flips on above [`SPEAKING_ON_VOLUME`],
+/// stays on until the volume drops below [`SPEAKING_OFF_VOLUME`].
+fn speaking_from(currently_speaking: bool, volume: f32) -> bool {
+    if currently_speaking {
+        volume >= SPEAKING_OFF_VOLUME
+    } else {
+        volume >= SPEAKING_ON_VOLUME
+    }
+}
+
+/// What a joined participant's microphone looks like based on the
+/// publications they arrived with, no microphone at all counts as muted.
+fn participant_from_publications(publications: &[RemoteTrackPublication]) -> CallParticipant {
+    let mut microphones = publications
+        .iter()
+        .filter(|publication| publication.source() == TrackSource::Microphone);
+
+    CallParticipant {
+        speaking: false,
+        muted: microphones.next().is_none_or(|p| p.is_muted()),
+        encryption: CallEncryptionState::Unknown,
+    }
+}
+
+/// All ongoing calls, keyed by room. Shared so views can read and hash
+/// it, with a wake channel that fires on joins and leaves, everything
+/// within a call arrives through the call's own channels instead.
+#[derive(Clone)]
+pub struct CallRegistry {
+    calls: Arc<Shared<IndexMap<OwnedRoomId, Arc<DePlaceCall>>>>,
+    watch: watch::Sender<u64>,
+}
+
+impl std::fmt::Debug for CallRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_set().entries(self.calls.get().keys()).finish()
+    }
+}
+
+impl Default for CallRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CallRegistry {
+    pub fn new() -> Self {
+        let (watch, _) = watch::channel(0);
+
+        Self {
+            calls: Arc::new(Shared::new(IndexMap::new())),
+            watch,
+        }
+    }
+
+    /// The ongoing call in a room, if there is one.
+    pub fn get(&self, room_id: &RoomId) -> Option<Arc<DePlaceCall>> {
+        self.calls.get().get(room_id).cloned()
+    }
+
+    /// A snapshot of all ongoing calls, keyed by room.
+    pub fn all(&self) -> Arc<IndexMap<OwnedRoomId, Arc<DePlaceCall>>> {
+        self.calls.get()
+    }
+
+    /// Wake-up signal for the frontend's message loop: fires when a call
+    /// was joined or left.
+    pub fn watch(&self) -> watch::Receiver<u64> {
+        self.watch.subscribe()
+    }
+
+    pub(crate) fn insert(&self, call: Arc<DePlaceCall>) {
+        let room_id = call.room_id().to_owned();
+        self.calls.change_if_modified(|calls| {
+            calls.insert(room_id.clone(), call.clone());
+        });
+        self.watch.send_modify(|tick| *tick = tick.wrapping_add(1));
+    }
+
+    pub(crate) fn remove(&self, room_id: &RoomId) {
+        if self.calls.get().contains_key(room_id) {
+            self.calls.change_if_modified(|calls| {
+                calls.shift_remove(room_id);
+            });
+            self.watch.send_modify(|tick| *tick = tick.wrapping_add(1));
+        }
+    }
+}

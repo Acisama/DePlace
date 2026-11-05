@@ -59,6 +59,8 @@ pub enum HomeMessage {
         finished: bool,
     },
     SettingsChanged,
+    /// Notify of updated call state
+    CallTick,
     SyncTick,
     MediaProgressTick,
     HelpToggle,
@@ -198,6 +200,17 @@ impl Home {
             },
         ));
 
+        // Fires when a call is joined or left (per-call changes arrive
+        // through each call's own state channel on top of this)
+        let call_registry = state.call_registry();
+        let call_watch_task = Task::stream(iced::futures::stream::unfold(
+            call_registry.watch(),
+            |mut rx| async move {
+                rx.changed().await.ok()?;
+                Some((HomeMessage::CallTick, rx))
+            },
+        ));
+
         (
             home,
             Task::batch([
@@ -208,6 +221,7 @@ impl Home {
                 media_progress_tick_task,
                 member_update_task,
                 room_update_task,
+                call_watch_task,
             ]),
         )
     }
@@ -458,10 +472,13 @@ fn join_call(state: &AppState, room_id: &RoomId) -> Option<HomeAction> {
         state.client(),
         room_id.to_string(),
         state.livekit_room_manager(),
+        state.call_registry(),
         audio,
     );
 
     Some(HomeAction::Run(Task::future(async move {
+        // The returned handle is already registered in the call registry,
+        // from where the frontend can reach it via `call_registry.get`.
         if let Err(e) = join.await {
             tracing::error!("Could not join the call: {e:#}");
         }
@@ -470,15 +487,30 @@ fn join_call(state: &AppState, room_id: &RoomId) -> Option<HomeAction> {
 
 /// Leaves the MatrixRTC call in a room, if there is one
 fn leave_call(state: &AppState, room_id: &RoomId) -> Option<HomeAction> {
-    let leave = deplace_core::matrix_api::matrixrtc::leave_matrixrtc_call(
-        state.client(),
-        state.livekit_room_manager(),
-        room_id.to_string(),
-    );
+    let call = state.call_registry().get(room_id);
+
+    if call.is_none() {
+        // No live call is known, but the room can still list us as in the
+        // call,  a leftover from a crashed session or a join that failed
+        // halfway. Withdrawing the membership still lets the user leave.
+        tracing::warn!("No live call known in {room_id}, withdrawing the call membership anyway");
+    }
+
+    let client = state.client();
+    let livekit_room_manager = state.livekit_room_manager();
+    let room_id = room_id.to_owned();
 
     Some(HomeAction::Run(Task::future(async move {
-        if let Err(e) = leave.await {
-            tracing::error!("Could not leave the call: {e:#}");
+        if let Some(call) = call {
+            call.leave().await;
+        } else if let Err(e) = deplace_core::matrix_api::matrixrtc::leave_matrixrtc_call(
+            client,
+            livekit_room_manager,
+            room_id.to_string(),
+        )
+        .await
+        {
+            tracing::error!("Could not withdraw the call membership in {room_id}: {e:#}");
         }
     })))
 }
@@ -597,6 +629,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 None
             }
             HomeMessage::SyncTick => None,
+            HomeMessage::CallTick => None,
             HomeMessage::MediaProgressTick => None,
             HomeMessage::HelpToggle => {
                 self.help.active = true;

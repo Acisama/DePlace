@@ -9,7 +9,7 @@ use livekit::e2ee::EncryptionType;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::prelude::TrackSid;
 use livekit::track::{RemoteAudioTrack, RemoteTrack};
-use matrix_sdk::deserialized_responses::ProcessedToDeviceEvent;
+use matrix_sdk::deserialized_responses::{ProcessedToDeviceEvent, SyncOrStrippedState};
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::api::client::rtc::RtcTransport;
 use serde::{Deserialize, Serialize};
@@ -21,12 +21,20 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use crate::audio::AudioThread;
+use crate::audio::{AudioThread, Microphone};
+use crate::call::{
+    CallConnectionState, CallEndReason, CallEvent, CallParticipantId, CallRegistry, DePlaceCall,
+};
+use crate::state::AppState;
 // use cpal::traits::{DeviceTrait, HostTrait};
-// use futures::StreamExt;
-// use livekit::track::{LocalAudioTrack, LocalTrack, RemoteAudioTrack, RemoteTrack};
+use livekit::options::TrackPublishOptions;
+use livekit::prelude::TrackSource;
+use livekit::track::{LocalAudioTrack, LocalTrack};
+use livekit::webrtc::audio_source::native::NativeAudioSource;
+use livekit::webrtc::audio_source::{AudioSourceOptions, RtcAudioSource};
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::native::frame_cryptor::EncryptionState;
+use livekit::webrtc::prelude::AudioFrame;
 use livekit::{E2eeOptions, RoomEvent};
 use matrix_sdk::ruma::MilliSecondsSinceUnixEpoch;
 use matrix_sdk::ruma::events::call::member::{
@@ -36,7 +44,8 @@ use matrix_sdk::ruma::events::call::member::{
 use matrix_sdk::ruma::events::relation::Reference;
 use matrix_sdk::ruma::events::rtc::notification::RtcNotificationEventContent;
 use matrix_sdk::ruma::events::{
-    AnyStateEventContent, AnyToDeviceEventContent, Mentions, OriginalSyncStateEvent, StateEventType,
+    AnyStateEventContent, AnyToDeviceEventContent, Mentions, OriginalSyncStateEvent,
+    StateEventType, SyncStateEvent,
 };
 use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::{Client, ruma::RoomId};
@@ -52,11 +61,39 @@ type PendingUpdates = HashMap<String, Vec<(String, EncryptionKeysEventContent)>>
 static PENDING_KEY_UPDATES: LazyLock<Mutex<PendingUpdates>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// loudness of one received audio frame, normalized to `0.0..=1.0`.
+fn frame_volume(frame: &AudioFrame) -> f32 {
+    if frame.data.is_empty() {
+        return 0.0;
+    }
+
+    let sum: f64 = frame
+        .data
+        .iter()
+        .map(|sample| {
+            let sample = f64::from(*sample) / f64::from(i16::MAX);
+            sample * sample
+        })
+        .sum();
+
+    (sum / frame.data.len() as f64).sqrt() as f32
+}
+
+// Volume smoothing: rises instantly with the received audio, falls gently
+// so meters don't flicker, and decays while no frames arrive at all
+const VOLUME_RELEASE: f32 = 0.85;
+const VOLUME_SILENCE_DECAY: f32 = 0.7;
+
 /// Forwards everything one remote call track says to the speakers. The
 /// task stops when the call is left or the track
 /// goes away, whichever happens first.
+///
+/// While pumping, it measures how loud the participant is from the audio
+/// actually received and reports that to the call
 fn spawn_remote_audio_pump(
     track: RemoteAudioTrack,
+    call: Arc<DePlaceCall>,
+    participant: CallParticipantId,
     cancellationtoken: CancellationToken,
     audio: AudioThread,
 ) -> tokio::task::JoinHandle<()> {
@@ -80,17 +117,37 @@ fn spawn_remote_audio_pump(
 
         let mut stream = NativeAudioStream::new(track.rtc_track(), 48_000, 2);
 
+        // Smoothed loudness of this participant
+        let mut level = 0.0_f32;
+
         loop {
             tokio::select! {
+                biased;
+
                 _ = cancellationtoken.cancelled() => break,
 
                 frame = stream.next() => match frame {
-                    Some(frame) => player.push(&frame),
+                    Some(frame) => {
+                        level = frame_volume(&frame).max(level * VOLUME_RELEASE);
+                        call.set_participant_volume(&participant, level);
+                        player.push(&frame);
+                    }
                     // Track is done, nothing will ever come again
                     None => break,
-                }
+                },
+
+                // No frame arrived: decay towards silence, so the meter
+                // also falls when the SFU just stops sending frames
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                    if level > 0.0 {
+                        level *= VOLUME_SILENCE_DECAY;
+                        call.set_participant_volume(&participant, level);
+                    }
+                },
             }
         }
+
+        call.clear_participant_volume(&participant);
 
         event!(
             Level::DEBUG,
@@ -101,6 +158,75 @@ fn spawn_remote_audio_pump(
 }
 
 use livekit::Room as LiveKitRoom;
+
+/// Forwards everything the microphone hears into a LiveKit audio source until cancelled.
+///
+/// While pumping, it also reports how loud our own microphone is (gated
+/// to zero while muted) to the call
+fn spawn_microphone_pump(
+    microphone: Microphone,
+    source: NativeAudioSource,
+    call: Arc<DePlaceCall>,
+    cancellationtoken: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    event!(Level::DEBUG, "Starting to send microphone audio");
+
+    tokio::spawn(async move {
+        /// Samples per frame: 10 ms of 48 kHz mono.
+        const FRAME_SAMPLES: usize = 480;
+
+        let mut leftover: Vec<f32> = Vec::new();
+
+        loop {
+            leftover.extend(microphone.pop());
+
+            while leftover.len() >= FRAME_SAMPLES {
+                let frame_volume = if call.is_microphone_muted() {
+                    0.0
+                } else {
+                    let sum: f64 = leftover[..FRAME_SAMPLES]
+                        .iter()
+                        .map(|sample| {
+                            let sample = f64::from(*sample);
+                            sample * sample
+                        })
+                        .sum();
+                    (sum / FRAME_SAMPLES as f64).sqrt() as f32
+                };
+                call.set_own_volume(frame_volume);
+
+                let data: Vec<i16> = leftover[..FRAME_SAMPLES]
+                    .iter()
+                    .map(|&sample| (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16)
+                    .collect();
+                leftover.drain(..FRAME_SAMPLES);
+
+                let frame = AudioFrame {
+                    data: std::borrow::Cow::Owned(data),
+                    sample_rate: 48_000,
+                    num_channels: 1,
+                    samples_per_channel: FRAME_SAMPLES as u32,
+                };
+
+                if let Err(e) = source.capture_frame(&frame).await {
+                    event!(
+                        Level::WARN,
+                        "Could not hand a microphone frame to LiveKit: {e:?}"
+                    );
+                }
+            }
+
+            tokio::select! {
+                _ = cancellationtoken.cancelled() => break,
+
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+        }
+
+        microphone.clear();
+        event!(Level::DEBUG, "Stopped sending microphone audio");
+    })
+}
 
 pub type LiveKitRoomManager = Arc<Mutex<HashMap<String, LiveKitRoomData>>>;
 
@@ -123,8 +249,9 @@ pub async fn join_matrixrtc_call(
     matrix_client: Client,
     room_id: String,
     livekit_room_manager: LiveKitRoomManager,
+    call_registry: CallRegistry,
     audio: AudioThread,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Arc<crate::call::DePlaceCall>> {
     event!(Level::INFO, "Started joining call");
 
     let device_id = matrix_client
@@ -191,8 +318,6 @@ pub async fn join_matrixrtc_call(
 
     event!(Level::INFO, "Successfully acquired LiveKit token");
 
-    let mut e2ee_options = None;
-
     let parsed_room_id = RoomId::parse(&room_id).context("Invalid Room ID format")?;
 
     let room = matrix_client
@@ -200,6 +325,7 @@ pub async fn join_matrixrtc_call(
         .context("Room not found or not joined")?;
 
     let canonical_room_id = room.room_id().to_string();
+    let canonical_room = room.room_id().to_owned();
 
     let call_content = CallMemberEventContent::new(
         Application::Call(CallApplicationContent::new(
@@ -240,6 +366,61 @@ pub async fn join_matrixrtc_call(
         "Signaled to matrix room that we joined the call"
     );
 
+    let call = match finish_joining_call(
+        room,
+        &matrix_client,
+        response.event_id,
+        canonical_room_id,
+        room_id,
+        service_url.to_string(),
+        jwt.to_string(),
+        audio,
+        livekit_room_manager,
+        call_registry,
+    )
+    .await
+    {
+        Ok(call) => call,
+        Err(e) => {
+            // The membership state event is already out: take it back, or
+            // the user appears stuck in a call they cannot leave.
+            if let Err(withdraw_error) =
+                withdraw_call_membership(&matrix_client, &canonical_room).await
+            {
+                event!(
+                    Level::ERROR,
+                    "Could not withdraw the call membership after failed join: {withdraw_error:#}"
+                );
+            }
+
+            return Err(e);
+        }
+    };
+
+    Ok(call)
+}
+
+/// Completes a joined call: rings the room, connects to the SFU, publishes
+/// the microphone and spawns the event loop driving the call handle.
+///
+/// Runs after our MatrixRTC membership is already flagged in the room,
+/// the caller is responsible for taking that membership back when joining
+/// fails from here on.
+#[allow(clippy::too_many_arguments)]
+async fn finish_joining_call(
+    room: matrix_sdk::Room,
+    matrix_client: &Client,
+    joined_event_id: matrix_sdk::ruma::OwnedEventId,
+    canonical_room_id: String,
+    room_id: String,
+    service_url: String,
+    jwt: String,
+    audio: AudioThread,
+    livekit_room_manager: LiveKitRoomManager,
+    call_registry: CallRegistry,
+) -> anyhow::Result<Arc<crate::call::DePlaceCall>> {
+    let mut e2ee_options: Option<E2eeOptions> = None;
+
     let mut notification_event = RtcNotificationEventContent::new(
         MilliSecondsSinceUnixEpoch::now(),
         Duration::from_mins(1),
@@ -248,7 +429,7 @@ pub async fn join_matrixrtc_call(
     notification_event.mentions = Some(Mentions::with_room_mention());
     notification_event.call_intent =
         Some(matrix_sdk::ruma::events::rtc::notification::CallIntent::Audio);
-    notification_event.relates_to = Some(Reference::new(response.event_id));
+    notification_event.relates_to = Some(Reference::new(joined_event_id));
 
     room.send(notification_event).await?;
 
@@ -275,8 +456,16 @@ pub async fn join_matrixrtc_call(
     event!(Level::INFO, "Connecting to LiveKit room");
     let call_id = Uuid::new_v4();
     let (livekit_room, mut event_receiver) =
-        livekit::Room::connect(service_url, jwt, room_options).await?;
+        livekit::Room::connect(&service_url, &jwt, room_options).await?;
     event!(Level::INFO, "Connected to LiveKit room: {:?}", livekit_room);
+
+    // The call handle: the call thread folds its LiveKit events into its
+    // state, the frontend reads that state and sends commands to it
+    let call = Arc::new(DePlaceCall::new(
+        room.room_id().to_owned(),
+        matrix_client.clone(),
+        livekit_room_manager.clone(),
+    ));
 
     // set and send out encryption key after joining but before publishing a track
     if room.encryption_state().is_encrypted() {
@@ -302,17 +491,67 @@ pub async fn join_matrixrtc_call(
             Level::DEBUG,
             "Trying to send encryption key to call participants"
         );
-        // send_encryption_keys(
-        //     matrix_client.clone(),
-        //     &canonical_room_id,
-        //     &local_call_key,
-        //     0,
-        //     call_id,
-        // )
-        // .await?;
+        send_encryption_keys(
+            matrix_client.clone(),
+            &canonical_room_id,
+            &local_call_key,
+            0,
+            call_id,
+        )
+        .await?;
     }
 
     livekit_room.e2ee_manager().set_enabled(true);
+
+    // publish the microphone track so the other participants can hear us
+    match audio.microphone().await {
+        Ok(microphone) => {
+            let source = NativeAudioSource::new(
+                AudioSourceOptions {
+                    echo_cancellation: true,
+                    noise_suppression: true,
+                    auto_gain_control: true,
+                },
+                48_000,
+                1,
+                1_000,
+            );
+
+            let microphone_track = LocalAudioTrack::create_audio_track(
+                "microphone",
+                RtcAudioSource::Native(source.clone()),
+            );
+
+            let participant = livekit_room.local_participant();
+            let publish = participant.publish_track(
+                LocalTrack::Audio(microphone_track.clone()),
+                TrackPublishOptions {
+                    source: TrackSource::Microphone,
+                    ..Default::default()
+                },
+            );
+
+            match publish.await {
+                Ok(_) => {
+                    event!(Level::INFO, "Published the microphone track");
+                    call.set_microphone(microphone_track);
+                    spawn_microphone_pump(
+                        microphone,
+                        source,
+                        call.clone(),
+                        cancellationtoken.clone(),
+                    );
+                }
+                Err(e) => {
+                    // The call continues without a microphone if publishing fails
+                    event!(Level::WARN, "Could not publish the microphone track: {e}");
+                }
+            }
+        }
+        Err(e) => {
+            event!(Level::WARN, "Joining the call without a microphone: {e:#}");
+        }
+    }
 
     let cancellationtoken_clone = cancellationtoken.clone();
     let call_data = LiveKitRoomData {
@@ -326,136 +565,46 @@ pub async fn join_matrixrtc_call(
 
     // Store using canonical room ID
     room_manager_guard.insert(canonical_room_id.clone(), call_data);
+    drop(room_manager_guard);
 
-    // drain encryption keys received before room was set up
+    // Drain encryption keys received before fully joining the call
     event!(
         Level::DEBUG,
         "Draining encryption keys that arrived before fully joining call"
     );
-    let mut pending_map = PENDING_KEY_UPDATES.lock().await;
-    let pending_updates = pending_map
-        .remove(&canonical_room_id)
-        .or_else(|| pending_map.remove(&room_id));
+    let pending_updates = {
+        let mut pending_map = PENDING_KEY_UPDATES.lock().await;
+        pending_map
+            .remove(&canonical_room_id)
+            .or_else(|| pending_map.remove(&room_id))
+    };
 
-    if let Some(pending_updates) = pending_updates
-        && let Some(call_data) = room_manager_guard.get(&canonical_room_id)
-    {
-        let livekit_room = &call_data.livekit_room;
-        let e2ee_manager = livekit_room.e2ee_manager();
-
-        if let Some(key_provider) = e2ee_manager.key_provider() {
-            for (sender, update_event) in pending_updates {
-                let livekit_id = format!("{}:{}", sender, update_event.member.claimed_device_id);
-
-                match general_purpose::STANDARD.decode(&update_event.keys.key) {
-                    Ok(decoded_key) => {
-                        let key_index = update_event.keys.index;
-                        key_provider.set_key(
-                            &From::from(livekit_id.clone()),
-                            key_index,
-                            decoded_key,
-                        );
-                        event!(
-                            Level::INFO,
-                            "Set updated LiveKit decryption key for {} with index {} in KeyProvider.",
-                            livekit_id,
-                            key_index
-                        );
-
-                        e2ee_manager
-                            .frame_cryptors()
-                            .iter()
-                            .filter(|((id, _), _)| id == &From::from(livekit_id.clone()))
-                            .for_each(|((id, _), frame_cryptor)| {
-                                frame_cryptor.set_key_index(key_index);
-                                event!(Level::DEBUG, "Updated FrameCryptor key index for {id}");
-                            });
-                    }
-                    Err(e) => {
-                        event!(
-                            Level::WARN,
-                            "Failed to decode base64 key for participant {livekit_id}: {e}"
-                        );
-                    }
-                }
-            }
-        } else {
-            event!(
-                Level::INFO,
-                "No key provider found when draining pending key updates.",
-            );
+    if let Some(pending_updates) = pending_updates {
+        for (sender, content) in pending_updates {
+            apply_remote_key(&sender, &content, &livekit_room_manager).await;
         }
     }
 
-    drop(pending_map);
-    drop(room_manager_guard);
-
-    // audio setup
-    // log::debug!("Setting up audio");
-    // if let Some(device) = audio_manager.host.default_output_device() {
-    //     if let Err(e) = audio_manager.try_setup_output_stream_for_device(&device) {
-    //         warn!("Could not set up output stream: {:?}", e);
-    //     } else {
-    //         debug!("Set up cpal output stream");
-    //     }
-    // } else {
-    //     warn!("No default output device found");
-    // }
-
-    // if let Some(device) = audio_manager.host.default_input_device() {
-    //     if let Err(e) = audio_manager.try_setup_input_stream_for_device(&device) {
-    //         warn!("Could not set up input stream: {:?}", e);
-    //     } else {
-    //         debug!("Set up cpal input stream");
-    //     }
-    // } else {
-    //     warn!("No default input device found");
-    // }
-
-    // let microphone_track = setup_mic_track(&audio_manager);
-
-    // // publish microphone track
-    // if let Ok(track) = microphone_track {
-    //     let mut manager = livekit_room_manager.lock().await;
-    //     let call_data = manager.get_mut(&canonical_room_id).unwrap();
-    //     call_data
-    //         .livekit_room
-    //         .local_participant()
-    //         .publish_track(
-    //             LocalTrack::Audio(track),
-    //             livekit::options::TrackPublishOptions {
-    //                 source: livekit::track::TrackSource::Microphone,
-    //                 ..Default::default()
-    //             },
-    //         )
-    //         .await
-    //         .map_err(|e| format!("Failed to publish mic: {}", e))?;
-    //     debug!("Published microphone track");
-    // } else {
-    //     warn!(
-    //         "Could not set up microphone track: {}",
-    //         microphone_track.unwrap_err()
-    //     )
-    // }
-
-    // let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-
-    // // spawn main audio mixer mixing together the various audio tracks
-    // if let Some(producer) = audio_manager.output_producer.lock().unwrap().take() {
-    //     log::debug!("Spawning audio mixer");
-    //     spawn_audio_mixer(producer, receiver, cancellationtoken.clone());
-    // } else {
-    //     log::error!("output_producer is None, mixer not spawned, remote audio will be silent");
-    // }
+    // The call is live: hand the frontend its handle
+    call_registry.insert(call.clone());
 
     // handle events
     let room_id_clone = canonical_room_id.clone();
     let cancellationtoken_clone = cancellationtoken.clone();
     let audio_clone = audio.clone();
+    let call_loop = call.clone();
+    let call_registry_loop = call_registry.clone();
     tokio::spawn(async move {
         // One pump per remote audio track, so tracks can go away again
-        // without their audio playing forever
-        let mut audio_pumps: HashMap<TrackSid, tokio::task::JoinHandle<()>> = HashMap::new();
+        // without their audio playing forever, remembered together
+        // with whose voice it carries, so the measured volume clears
+        // when it goes
+        let mut audio_pumps: HashMap<TrackSid, (CallParticipantId, tokio::task::JoinHandle<()>)> =
+            HashMap::new();
+
+        // How the call ended, left on purpose counts as Left, anything
+        // else (channel closed, SFU disconnect) as Disconnected.
+        let mut end_reason = CallEndReason::Disconnected;
 
         loop {
             tokio::select! {
@@ -467,18 +616,14 @@ pub async fn join_matrixrtc_call(
                 maybe_ev = event_receiver.recv() => {
                     match maybe_ev {
                         Some(ev) => {
-                            if let RoomEvent::E2eeStateChanged { participant, state } = ev {
-                                // if let Some(encryption_state) = match state {
-                                    // EncryptionState::Ok => {Some(call::EncryptionState::Ok)}
-                                    // EncryptionState::MissingKey => {Some(call::EncryptionState::MissingKey)}
-                                    // EncryptionState::EncryptionFailed => {Some(call::EncryptionState::EncryptionFailed)}
-                                    // EncryptionState::DecryptionFailed => {Some(call::EncryptionState::DecryptionFailed)}
-                                    // _ => None
+                            // Fold every event into the call state so the
+                            // frontend sees speaking, mute, join, leave
+                            // and encryption changes
+                            call_loop.handle_room_event(&ev);
 
-                                // } {
-                                // let _ = channel.send(CallEvent::EncryptionStateChanged {participant: participant.identity().as_str().into(), state: encryption_state}).log_as_warn();
-                                // };
-                                event!(Level::DEBUG, "Encryption state changed for {participant:?}, new state: {state:?}");
+                            if let RoomEvent::Disconnected { .. } = ev {
+                                event!(Level::INFO, "Disconnected from the LiveKit room");
+                                break;
                             } else if let RoomEvent::TrackSubscribed {
                                 track: RemoteTrack::Audio(audio_track),
                                 participant,
@@ -486,12 +631,16 @@ pub async fn join_matrixrtc_call(
                             } = &ev
                             {
                                 event!(Level::DEBUG, "Subscribed to new audio track: {:?} from {:?}", audio_track, participant);
+                                let participant_id =
+                                    CallParticipantId::from_identity(&participant.identity());
                                 let pump = spawn_remote_audio_pump(
                                     audio_track.clone(),
+                                    call_loop.clone(),
+                                    participant_id.clone(),
                                     cancellationtoken_clone.clone(),
                                     audio_clone.clone(),
                                 );
-                                audio_pumps.insert(audio_track.sid(), pump);
+                                audio_pumps.insert(audio_track.sid(), (participant_id, pump));
                             }
                             else if let RoomEvent::TrackUnsubscribed {
                                 track: RemoteTrack::Audio(audio_track),
@@ -499,7 +648,10 @@ pub async fn join_matrixrtc_call(
                             } = &ev
                             {
                                 event!(Level::DEBUG, "Unsubscribed from audio track: {:?}", audio_track);
-                                if let Some(pump) = audio_pumps.remove(&audio_track.sid()) {
+                                if let Some((participant, pump)) =
+                                    audio_pumps.remove(&audio_track.sid())
+                                {
+                                    call_loop.clear_participant_volume(&participant);
                                     pump.abort();
                                 }
                             }
@@ -512,8 +664,21 @@ pub async fn join_matrixrtc_call(
                 }
             }
         }
+
+        // Whatever is still playing stops with the call, taking its
+        // measured volume with it
+        for (_, (participant, pump)) in audio_pumps {
+            call_loop.clear_participant_volume(&participant);
+            pump.abort();
+        }
+
+        // Signal the end of the call and retire the frontend's handle
+        call_loop.change_state(|state| state.connection = CallConnectionState::Ended);
+        call_loop.emit(CallEvent::Ended { reason: end_reason });
+        call_registry_loop.remove(call_loop.room_id());
     });
-    Ok(())
+
+    Ok(call)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -554,6 +719,347 @@ impl Default for CallSessionInfo {
     }
 }
 
+/// Applies one call encryption key received from another participant to
+/// the LiveKit room: into the key provider and the sender's frame cryptors,
+/// so their audio can be decrypted.
+///
+/// When we are not in that room's call (yet), the key is parked in
+/// [`PENDING_KEY_UPDATES`] until joining drains it.
+async fn apply_remote_key(
+    sender: &str,
+    content: &EncryptionKeysEventContent,
+    livekit_room_manager: &LiveKitRoomManager,
+) {
+    let livekit_id = format!("{}:{}", sender, content.member.claimed_device_id);
+
+    {
+        let guard = livekit_room_manager.lock().await;
+
+        if let Some(call_data) = guard.get(&content.room_id) {
+            let e2ee_manager = call_data.livekit_room.e2ee_manager();
+
+            let Some(key_provider) = e2ee_manager.key_provider() else {
+                event!(
+                    Level::WARN,
+                    "No key provider found while applying a call key from {livekit_id}"
+                );
+                return;
+            };
+
+            match general_purpose::STANDARD.decode(&content.keys.key) {
+                Ok(decoded_key) => {
+                    let key_index = content.keys.index;
+                    key_provider.set_key(&From::from(livekit_id.clone()), key_index, decoded_key);
+                    event!(
+                        Level::INFO,
+                        "Set updated LiveKit decryption key for {} with index {} in KeyProvider.",
+                        livekit_id,
+                        key_index
+                    );
+
+                    e2ee_manager
+                        .frame_cryptors()
+                        .iter()
+                        .filter(|((id, _), _)| id == &From::from(livekit_id.clone()))
+                        .for_each(|((id, _), frame_cryptor)| {
+                            frame_cryptor.set_key_index(key_index);
+                            event!(Level::DEBUG, "Updated FrameCryptor key index for {id}");
+                        });
+                }
+                Err(e) => {
+                    event!(
+                        Level::WARN,
+                        "Failed to decode base64 key for participant {livekit_id}: {e}"
+                    );
+                }
+            }
+
+            return;
+        }
+    }
+
+    event!(
+        Level::INFO,
+        "Received a call encryption key from {livekit_id} but there is no call in {} yet; parking it",
+        content.room_id
+    );
+    PENDING_KEY_UPDATES
+        .lock()
+        .await
+        .entry(content.room_id.clone())
+        .or_default()
+        .push((sender.to_string(), content.clone()));
+}
+
+/// Sends one of our call encryption keys to every other device in the call
+/// via per-device encrypted to-device events, the way Element does and god intended
+async fn send_encryption_keys(
+    client: Client,
+    room_id: &str,
+    key: &str,
+    index: i32,
+    call_id: Uuid,
+) -> anyhow::Result<()> {
+    event!(
+        Level::DEBUG,
+        "Distributing call encryption key to the other participants"
+    );
+
+    let room = client
+        .get_room(&RoomId::parse(room_id)?)
+        .context("Room not found or not joined")?;
+
+    let own_user = client
+        .user_id()
+        .context("Call key sharing without a user id")?;
+    let own_device = client
+        .device_id()
+        .context("Call key sharing without a device id")?;
+
+    let state_events = room
+        .get_state_events_static::<CallMemberEventContent>()
+        .await?;
+
+    let mut recipients = Vec::new();
+
+    for raw in state_events {
+        let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
+            continue;
+        };
+        let SyncStateEvent::Original(ev) = ev else {
+            continue;
+        };
+
+        for membership in ev.content.active_memberships(Some(ev.origin_server_ts)) {
+            let user = ev.state_key.user_id();
+            let device_id = membership.device_id();
+
+            if user == own_user && device_id == own_device {
+                continue;
+            }
+
+            match client.encryption().get_device(user, device_id).await {
+                Ok(Some(device)) => recipients.push(device),
+                Ok(None) => event!(
+                    Level::INFO,
+                    "{device_id} of {user} is in the call but unknown to us, skipping it in call key distribution"
+                ),
+                Err(e) => event!(
+                    Level::WARN,
+                    "Could not look up {device_id} of {user} for call key distribution: {e}"
+                ),
+            }
+        }
+    }
+
+    if recipients.is_empty() {
+        event!(
+            Level::INFO,
+            "No other call participants to send an encryption key to"
+        );
+        return Ok(());
+    }
+
+    let payload = EncryptionKeysEventContent {
+        room_id: room.room_id().to_string(),
+        member: CallMemberInfo {
+            claimed_device_id: own_device.to_string(),
+            id: call_id.to_string(),
+        },
+        keys: EncryptionKeysInfo {
+            index,
+            key: key.to_string(),
+        },
+        session: CallSessionInfo::default(),
+        sent_ts: MilliSecondsSinceUnixEpoch::now(),
+    };
+
+    let raw_payload: Raw<AnyToDeviceEventContent> =
+        serde_json::from_str(&serde_json::to_string(&payload)?)?;
+
+    let recipient_count = recipients.len();
+    let failures = client
+        .encryption()
+        .encrypt_and_send_raw_to_device(
+            recipients.iter().collect(),
+            "io.element.call.encryption_keys",
+            raw_payload,
+            Default::default(),
+        )
+        .await?;
+
+    if failures.is_empty() {
+        event!(
+            Level::INFO,
+            "Finished distributing the call encryption key to {recipient_count} device(s)"
+        );
+    } else {
+        event!(
+            Level::WARN,
+            "Could not send the call encryption key to {} of {recipient_count} device(s)",
+            failures.len()
+        );
+    }
+
+    Ok(())
+}
+
+/// Applies the call encryption keys from a sync batch's to-device events.
+///
+/// The keys arrive as per-device encrypted `io.element.call.encryption_keys`
+/// events
+pub async fn handle_to_device_messages(
+    events: Vec<ProcessedToDeviceEvent>,
+    livekit_room_manager: LiveKitRoomManager,
+) {
+    for event in events {
+        let ProcessedToDeviceEvent::Decrypted { raw, .. } = event else {
+            continue;
+        };
+
+        let event_type = raw
+            .get_field::<String>("type")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+        if event_type != "io.element.call.encryption_keys" {
+            continue;
+        }
+
+        let Some(sender) = raw.get_field::<String>("sender").ok().flatten() else {
+            event!(
+                Level::WARN,
+                "Received a call key event without a sender, ignoring it"
+            );
+            continue;
+        };
+
+        let Some(content) = raw
+            .deserialize_as::<serde_json::Value>()
+            .ok()
+            .and_then(|value| value.get("content").cloned())
+            .and_then(|content| serde_json::from_value::<EncryptionKeysEventContent>(content).ok())
+        else {
+            event!(
+                Level::WARN,
+                "Received an undecodable call encryption key event"
+            );
+            continue;
+        };
+
+        apply_remote_key(&sender, &content, &livekit_room_manager).await;
+    }
+}
+
+/// Rolls our call encryption key and distributes the new one whenever the
+/// call's members change and we are in the call of an encrypted room.
+///
+/// Late joiners have missed the key we sent when joining, so this is the
+/// only way they ever get to hear us.
+pub async fn handle_call_member_change(
+    _ev: OriginalSyncStateEvent<CallMemberEventContent>,
+    room: matrix_sdk::Room,
+    state: Ctx<AppState>,
+) {
+    if !room.encryption_state().is_encrypted() {
+        return;
+    }
+
+    let livekit_room_manager = state.livekit_room_manager();
+
+    let (client, key, key_index, call_id) = {
+        let mut guard = livekit_room_manager.lock().await;
+
+        let Some(call_data) = guard.get_mut(room.room_id().as_str()) else {
+            // We are not in the call, nothing to roll
+            return;
+        };
+
+        let mut raw_key = [0u8; 16];
+        if let Err(e) = getrandom::fill(&mut raw_key) {
+            event!(Level::ERROR, "Could not roll the call encryption key: {e}");
+            return;
+        }
+        let key = general_purpose::STANDARD.encode(raw_key);
+
+        call_data.key_index += 1;
+        let key_index = call_data.key_index;
+
+        let Some(key_provider) = call_data.livekit_room.e2ee_manager().key_provider() else {
+            event!(
+                Level::ERROR,
+                "Encrypted call room without a key provider, could not roll the key"
+            );
+            return;
+        };
+        let local_identity = call_data.livekit_room.local_participant().identity();
+        key_provider.set_key(&local_identity, key_index, raw_key.into());
+
+        let e2ee_manager = call_data.livekit_room.e2ee_manager();
+        let all_cryptors = e2ee_manager.frame_cryptors();
+        let local_cryptors: Vec<_> = all_cryptors
+            .iter()
+            .filter(|((id, _), _)| id == &local_identity)
+            .collect();
+        if local_cryptors.is_empty() {
+            event!(
+                Level::WARN,
+                "No frame cryptors found for the local participant while rolling the call key"
+            );
+        } else {
+            local_cryptors
+                .iter()
+                .for_each(|((_, track), frame_cryptor)| {
+                    frame_cryptor.set_key_index(key_index);
+                    event!(
+                        Level::DEBUG,
+                        "Updated local FrameCryptor key index for track {track}"
+                    );
+                });
+        }
+
+        event!(
+            Level::INFO,
+            "Rolled our call encryption key, now at index {key_index}"
+        );
+
+        (state.client(), key, key_index, call_data.call_id)
+    };
+
+    if let Err(e) =
+        send_encryption_keys(client, room.room_id().as_str(), &key, key_index, call_id).await
+    {
+        event!(
+            Level::ERROR,
+            "Could not distribute the rolled call encryption key: {e:#}"
+        );
+    }
+}
+
+/// Withdraws our device's MatrixRTC membership in a room, removing us
+/// from the call participants other clients see there.
+async fn withdraw_call_membership(matrix_client: &Client, room_id: &RoomId) -> anyhow::Result<()> {
+    let room = matrix_client
+        .get_room(room_id)
+        .context("Room not found or not joined")?;
+
+    let call_content = CallMemberEventContent::new_empty(None);
+
+    let _response = room
+        .send_state_event_for_key(
+            &CallMemberStateKey::new(
+                matrix_client.user_id().context("No UserId")?.into(),
+                Some(matrix_client.device_id().context("No DeviceId")?.into()),
+                true,
+            ),
+            call_content,
+        )
+        .await?;
+
+    Ok(())
+}
+
 pub async fn leave_matrixrtc_call(
     matrix_client: Client,
     livekit_room_manager: LiveKitRoomManager,
@@ -571,27 +1077,17 @@ pub async fn leave_matrixrtc_call(
         room_data.close_event_stream().await;
         room_data.livekit_room.close().await?;
     } else {
-        return Err(anyhow!("Not in a call in this room"));
+        // No connected call on this device. Our MatrixRTC membership may
+        // still be flagged in the room, a leftover of a call that ended
+        // without cleanup or a failed join,  and withdrawing it is the
+        // only way the user can stop appearing in the call.
+        event!(
+            Level::WARN,
+            "No connected call in {room_id} to close, withdrawing the membership anyway"
+        );
     }
 
-    let room = matrix_client
-        .get_room(&parsed_room_id)
-        .context("Room not found or not joined")?;
-
-    let call_content = CallMemberEventContent::new_empty(None);
-
-    let _response = room
-        .send_state_event_for_key(
-            &CallMemberStateKey::new(
-                matrix_client.user_id().context("No UserId")?.into(),
-                Some(matrix_client.device_id().context("No DeviceId")?.into()),
-                true,
-            ),
-            call_content,
-        )
-        .await?;
-
-    Ok(())
+    withdraw_call_membership(&matrix_client, &parsed_room_id).await
 }
 
 pub async fn cleanup_ghost_calls(client: &matrix_sdk::Client) {

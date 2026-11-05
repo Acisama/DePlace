@@ -41,6 +41,7 @@ nucleo.workspace = true
 open.workspace = true
 phosphor-svgs.workspace = true
 rfd.workspace = true
+rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sweeten.workspace = true

@@ -12,6 +12,7 @@ bytes.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 const_format.workspace = true
+cpal.workspace = true
 csscolorparser.workspace = true
 dashmap.workspace = true
 dirs.workspace = true
