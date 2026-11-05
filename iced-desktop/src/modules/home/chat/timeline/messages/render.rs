@@ -11,6 +11,7 @@ use deplace_core::{
 use iced::{
     Alignment, Background,
     Length::{self, Shrink},
+    Radians,
     gradient::Linear,
     never,
     widget::{
@@ -74,9 +75,14 @@ pub fn render_event(
             background: is_hovered.then_some(theme.backdrop.scale_alpha(0.5).into()),
             ..Default::default()
         })
-        .padding(structure.border_thickness);
+        .padding(structure.border_thickness)
+        .boxed();
 
-    let content_element = track_bounds(inner_container, TimelineItemMessage::MessageEventBounds);
+    let content_element: Element<'static, TimelineItemMessage> = if is_hovered {
+        track_bounds(inner_container, TimelineItemMessage::MessageEventBounds).into()
+    } else {
+        inner_container
+    };
 
     w::container(
         sweeten::widget::mouse_area(content_element)
@@ -1424,8 +1430,54 @@ impl ReplyContent {
     }
 }
 
-// fn render_member_name(
-//     member: RoomMember,
-//     message_id: String,
-// ) -> iced::Element<'static, TimelineItemMessage> {
-// }
+pub fn render_timeline_start(
+    theme: Theme,
+    structure: Structure,
+    room: &DePlaceRoom,
+) -> iced::Element<'static, TimelineItemMessage> {
+    let icon_size = structure.chat.icon_size * 2.0;
+    let (icon, name, text) = if let Some(member) = room.other_dm_member() {
+        let name = member.displayname();
+        (
+            member.render_icon(icon_size),
+            name.clone(),
+            format!("This is the start of your chat with {name}"),
+        )
+    } else {
+        let name = room.displayname();
+        (
+            room.render_icon(icon_size),
+            name.clone(),
+            format!("This is the start of the #{name} room"),
+        )
+    };
+
+    w::stack![
+        w::container(EMPTY_WIDGET)
+            .height(icon_size * 7.0)
+            .width(Fill)
+            .style(move |_| ContainerStyle {
+                background: Some(Background::Gradient(iced::Gradient::Linear(
+                    Linear::new(Radians::PI)
+                        .add_stop(0.0, theme.solid_bg.into())
+                        .add_stop(0.9, Color::TRANSPARENT)
+                ))),
+                ..Default::default()
+            }),
+        w::column![
+            Space::new().height(Fill),
+            w::column![
+                icon,
+                weighted_text(name, Weight::ExtraBold)
+                    .size(structure.chat.text_size * 2.0)
+                    .color(theme.text.normal)
+            ]
+            .spacing(structure.small_gap),
+            w::text(text)
+                .size(structure.chat.text_size)
+                .color(theme.text.normal)
+        ]
+        .spacing(structure.gap)
+    ]
+    .boxed()
+}

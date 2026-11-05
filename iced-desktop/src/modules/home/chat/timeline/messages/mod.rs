@@ -44,7 +44,7 @@ mod formatted_body;
 mod render;
 
 pub use convert::ToTimelineItem;
-use render::render_event;
+use render::{render_event, render_timeline_start};
 
 /// The message an item in the timeline can receive
 #[derive(Debug, Clone)]
@@ -507,13 +507,8 @@ impl TimelineItem {
         is_focused: bool,
         help_state: HelpState<HelpKey>,
         index: usize,
+        room: &DePlaceRoom,
     ) -> iced::Element<'static, TimelineItemMessage> {
-        let fallback = || {
-            w::text(format!("{:?}", self))
-                .color(theme.colors.error)
-                .size(structure.chat.text_size)
-                .boxed()
-        };
         let render_error_message = |text: String| {
             w::text(text)
                 .color(theme.colors.error)
@@ -573,7 +568,7 @@ impl TimelineItem {
             )
             .padding(padding::vertical(structure.small_gap))
             .boxed(),
-            TimelineItemKind::TimelineStart => fallback(),
+            TimelineItemKind::TimelineStart => render_timeline_start(theme, structure, room),
             TimelineItemKind::System {
                 is_hovered,
                 event,

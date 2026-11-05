@@ -1106,6 +1106,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         let focused_id = Rc::new(self.focused_message_id.clone());
 
         let help_state = help_state();
+        let room = self.room.clone();
 
         let mut stack = w::stack![
             w::container(track_scroll(
@@ -1113,9 +1114,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     w::container(fills_parent(
                         list(self.content.clone(), move |index, id, item| {
                             let is_focused = focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
+                            let room = room.clone();
                             lazy((item.clone(), is_focused), move |(item, is_focused)| {
                                 let id = id.clone();
-                                item.view(theme, structure, *is_focused, help_state, index)
+                                item.view(theme, structure, *is_focused, help_state, index, &room)
                                     .map_el(move |msg| TimelineMessage::Item {
                                         id: id.clone(),
                                         message: msg,
