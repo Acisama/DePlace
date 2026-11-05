@@ -24,6 +24,8 @@ pub enum MemberListMessage {
         member: Member,
         bounds: Rectangle,
     },
+    MemberHovered(OwnedUserId),
+    MemberUnhovered(OwnedUserId),
     HelpHover(Option<HelpKey>),
 }
 
@@ -91,6 +93,16 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                 );
                 Some(MemberListAction::ShowProfile { member, bounds })
             }
+            MemberListMessage::MemberHovered(user_id) => {
+                self.hovered_member = Some(user_id);
+                None
+            }
+            MemberListMessage::MemberUnhovered(user_id) => {
+                if self.hovered_member == Some(user_id) {
+                    self.hovered_member = None;
+                }
+                None
+            }
         }
     }
 
@@ -124,47 +136,59 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                             .extend(members.iter().map(|member| {
                                 let id = member.user_id().to_owned();
                                 let bounds = self.member_bounds.get(&id).cloned();
+                                let is_hovered = self.hovered_member.as_ref() == Some(&id);
+
+                                let bg_color = if is_hovered {
+                                    theme.solid_hover_bg.into()
+                                } else {
+                                    theme.solid_bg.into()
+                                };
 
                                 track_bounds(
-                                    w::button(
-                                        w::row![
-                                            member.render_icon_with_presence(
-                                                icon_size,
-                                                theme,
-                                                structure,
-                                                theme.solid_bg.into(),
-                                            ),
-                                            member.render_name(structure.font_size)
-                                        ]
-                                        .padding(
-                                            padding::vertical(structure.small_gap * 0.75)
-                                                .horizontal(structure.small_gap),
+                                    w::mouse_area(
+                                        w::container(
+                                            w::row![
+                                                member.render_icon_with_presence(
+                                                    icon_size, theme, structure, bg_color,
+                                                ),
+                                                member.render_name(structure.font_size)
+                                            ]
+                                            .padding(
+                                                padding::vertical(structure.small_gap * 0.75)
+                                                    .horizontal(structure.small_gap),
+                                            )
+                                            .width(Fill)
+                                            .spacing(structure.gap)
+                                            .align_y(Alignment::Center),
                                         )
-                                        .width(Fill)
-                                        .spacing(structure.gap)
-                                        .align_y(Alignment::Center),
-                                    )
-                                    .padding(0.0)
-                                    .style(move |_, status| ButtonStyle {
-                                        background: status
-                                            .active()
-                                            .then_some(theme.solid_hover_bg.into()),
-                                        border: Border {
-                                            color: if status.active() {
-                                                theme.border.into()
-                                            } else {
-                                                Color::TRANSPARENT
-                                            },
-                                            width: structure.border_thickness,
-                                            radius: structure.inner_border_radius.into(),
-                                        },
-                                        ..Default::default()
-                                    })
-                                    .on_press_maybe(
-                                        bounds.map(|bounds| MemberListMessage::MemberPressed {
-                                            member: member.clone(),
-                                            bounds,
+                                        .style(move |_| {
+                                            ContainerStyle {
+                                                background: is_hovered
+                                                    .then_some(theme.solid_hover_bg.into()),
+                                                border: Border {
+                                                    color: if is_hovered {
+                                                        theme.border.into()
+                                                    } else {
+                                                        Color::TRANSPARENT
+                                                    },
+                                                    width: structure.border_thickness,
+                                                    radius: structure.inner_border_radius.into(),
+                                                },
+                                                ..Default::default()
+                                            }
                                         }),
+                                    )
+                                    .on_enter(MemberListMessage::MemberHovered(id.clone()))
+                                    .on_exit(MemberListMessage::MemberUnhovered(id.clone()))
+                                    .on_press(
+                                        if let Some(bounds) = bounds {
+                                            MemberListMessage::MemberPressed {
+                                                member: member.clone(),
+                                                bounds,
+                                            }
+                                        } else {
+                                            MemberListMessage::None
+                                        },
                                     ),
                                     move |bounds| MemberListMessage::Bounds {
                                         user_id: id.clone(),

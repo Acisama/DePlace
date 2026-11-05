@@ -1264,7 +1264,10 @@ impl SystemMessage {
                     border: border::rounded(structure.semi_border_radius()),
                     ..Default::default()
                 })
-                .padding(structure.small_gap / 2.0),
+                .padding(
+                    padding::horizontal(structure.small_gap / 2.0)
+                        .vertical(structure.small_gap / 4.0),
+                ),
             );
         }
 
