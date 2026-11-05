@@ -178,6 +178,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                                             }
                                         }),
                                     )
+                                    .interaction(Interaction::Pointer)
                                     .on_enter(MemberListMessage::MemberHovered(id.clone()))
                                     .on_exit(MemberListMessage::MemberUnhovered(id.clone()))
                                     .on_press(

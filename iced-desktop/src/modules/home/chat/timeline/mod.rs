@@ -784,10 +784,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             }
             TimelineMessage::Diffs(diffs) => {
                 tracing::debug!(
-                    "ChatTimeline for room {} applying {} diff(s), {} messages before",
+                    "ChatTimeline for room {} applying {} diff(s)",
                     self.room_id,
                     diffs.len(),
-                    self.content.len()
                 );
 
                 for diff in diffs {

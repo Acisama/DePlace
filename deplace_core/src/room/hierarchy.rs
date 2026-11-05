@@ -241,7 +241,9 @@ impl SpaceHierarchy {
     }
 
     pub fn reorder_servers(&mut self, index: usize, target_index: usize) -> ServerOrderContent {
-        Arc::make_mut(&mut self.servers).swap(index, target_index);
+        let servers = Arc::make_mut(&mut self.servers);
+        let server = servers.remove(index);
+        servers.insert(target_index, server);
         let order = ServerOrderContent {
             servers: (*self.servers).clone(),
         };
