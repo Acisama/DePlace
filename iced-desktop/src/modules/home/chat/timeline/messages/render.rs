@@ -976,6 +976,10 @@ impl SystemEvent {
         structure: Structure,
         is_hovered: bool,
     ) -> Element<'static, TimelineItemMessage> {
+        if let Some(content) = self.content.render_special_content(theme, structure) {
+            return content;
+        }
+
         let (icon, icon_color) = self.content.icon(theme);
 
         let col_width = structure.chat_col_width();
@@ -1176,6 +1180,43 @@ impl SystemMessage {
                 .to_string(),
             ),
         }
+    }
+
+    fn render_special_content(
+        &self,
+        theme: Theme,
+        structure: Structure,
+    ) -> Option<Element<'static, TimelineItemMessage>> {
+        let SystemMessage::RtcNotification(RtcNotification {
+            call_intent,
+            declined_by,
+            call_started,
+            current_members,
+        }) = self
+        else {
+            return None;
+        };
+
+        let row = w::row![w::text("Call started")].spacing(structure.gap);
+
+        Some(
+            w::container(
+                w::container(row)
+                    .style(move |_| ContainerStyle {
+                        background: Some(theme.solid_bg.into()),
+                        text_color: Some(theme.text.normal.into()),
+                        border: Border {
+                            color: theme.border.into(),
+                            width: structure.border_thickness,
+                            radius: structure.inner_border_radius.into(),
+                        },
+                        ..Default::default()
+                    })
+                    .padding(structure.small_gap),
+            )
+            .padding(structure.small_gap / 2.0)
+            .boxed(),
+        )
     }
 }
 

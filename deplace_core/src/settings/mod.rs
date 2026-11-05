@@ -164,6 +164,7 @@ pub enum SystemMessageType {
 const DEFAULT_SYSTEM_MESSAGES: EnumSet<SystemMessageType> = enum_set!(
     SystemMessageType::MembershipChange
         | SystemMessageType::ProfileChange
+        | SystemMessageType::RtcNotification
         | SystemMessageType::RoomCreate
         | SystemMessageType::RoomEncryption
         | SystemMessageType::RoomPinnedEvents
@@ -177,7 +178,11 @@ pub const SYSTEM_MESSAGE_MODES: &[(&str, &str, EnumSet<SystemMessageType>)] = &[
     (
         "Discord",
         "Only show discord-like system messages",
-        enum_set!(SystemMessageType::MembershipChange | SystemMessageType::RoomPinnedEvents),
+        enum_set!(
+            SystemMessageType::MembershipChange
+                | SystemMessageType::RoomPinnedEvents
+                | SystemMessageType::RtcNotification
+        ),
     ),
     (
         "Default",
