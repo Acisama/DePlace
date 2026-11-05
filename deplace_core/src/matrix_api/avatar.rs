@@ -40,12 +40,16 @@ impl Avatar {
             format: thumbnail_format(),
         };
 
+        // TODO: Somehow check if the avatar is svg
         match client.media().get_media_content(&request, true).await {
             Ok(bytes) => Avatar::Ok {
                 image: ImageHandle::from_bytes(bytes),
                 avatar_url: Arc::new(url),
             },
-            Err(e) => Avatar::Error(Arc::from(e.to_string())),
+            Err(e) => {
+                tracing::warn!("Failed to load avatar: {}", e);
+                Avatar::Error(Arc::from(e.to_string()))
+            }
         }
     }
 }

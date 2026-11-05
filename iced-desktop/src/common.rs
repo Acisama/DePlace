@@ -3,7 +3,7 @@ pub use crate::components::{
     ColoredRounded, CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget,
     MapElementExt, StatusExt, UI_FONT,
     animated_button::animated_button,
-    close_button, corner_badge,
+    close_button, corner_badge, elapsed_seconds,
     help_mode::HelpKey,
     help_mode::HelpView,
     help_mode::{Caption, HelpOverMessage, HelpState, help, help_root},

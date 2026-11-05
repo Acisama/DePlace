@@ -302,6 +302,7 @@ impl Chat {
 
     fn handle_timeline_message(&mut self, message: TimelineMessage) -> Option<ChatAction> {
         match self.timeline.update(message)? {
+            TimelineAction::JoinCall => Some(ChatAction::JoinCall),
             TimelineAction::OpenMediaOverlay(params) => Some(ChatAction::OpenMediaOverlay(params)),
             TimelineAction::SetIsReplyingTo { event_id, message } => {
                 self.input.set_replies_to(message, event_id);

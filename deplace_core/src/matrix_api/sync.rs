@@ -15,7 +15,7 @@ use crate::member::ProfileStore;
 use crate::member::user_data::handle_presence_update;
 use crate::room::live::CallMember;
 use crate::state::UserDevice;
-use crate::thumbnail_format;
+use crate::{OrderKey, thumbnail_format};
 use crate::{
     matrix_api::{hierarchy::run_space_hierarchy_update, save_session},
     notifications::on_message,
@@ -244,12 +244,7 @@ async fn compute_call_participants(
         }
     }
 
-    call_participants.sort_by_cached_key(|p| {
-        (
-            p.member.raw_display_name_lowercase().unwrap_or_default(),
-            p.member.user_id.clone(),
-        )
-    });
+    call_participants.sort_by_cached_key(|p| p.member.order_key());
 
     call_participants
 }

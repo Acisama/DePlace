@@ -1,10 +1,12 @@
 use std::time::SystemTime;
 
+use chrono_tz::Tz;
 use deplace_core::{
     formatting::{
         fit_dimensions, format_bytes, format_message_long_date, format_message_short_date,
     },
     rich_text::FormattedBody,
+    settings::HourFormat,
 };
 use iced::{
     Alignment, Background,
@@ -17,6 +19,7 @@ use iced::{
     },
 };
 use iced_video_player::VideoPlayer;
+use macros::iced_icon;
 use matrix_sdk::{
     media::UniqueKey,
     ruma::{
@@ -976,7 +979,16 @@ impl SystemEvent {
         structure: Structure,
         is_hovered: bool,
     ) -> Element<'static, TimelineItemMessage> {
-        if let Some(content) = self.content.render_special_content(theme, structure) {
+        let timezone = *self.timezone.borrow();
+        let hour_format = *self.hour_format.borrow();
+
+        if let Some(content) = self.content.render_special_content(
+            self.timestamp,
+            timezone,
+            hour_format,
+            theme,
+            structure,
+        ) {
             return content;
         }
 
@@ -993,8 +1005,8 @@ impl SystemEvent {
                 content,
                 w::text(format_message_long_date(
                     self.timestamp,
-                    *self.timezone.borrow(),
-                    *self.hour_format.borrow(),
+                    timezone,
+                    hour_format,
                     *self.date_format.borrow(),
                 ))
                 .size(structure.chat.text_size)
@@ -1184,20 +1196,122 @@ impl SystemMessage {
 
     fn render_special_content(
         &self,
+        timestamp: SystemTime,
+        timezone: Tz,
+        hour_format: HourFormat,
         theme: Theme,
         structure: Structure,
     ) -> Option<Element<'static, TimelineItemMessage>> {
         let SystemMessage::RtcNotification(RtcNotification {
             call_intent,
-            declined_by,
             call_started,
-            current_members,
+            active_members: current_members,
+            declined_by_user,
+            user_is_in_call: user_joined,
         }) = self
         else {
             return None;
         };
 
-        let row = w::row![w::text("Call started")].spacing(structure.gap);
+        let text = match (call_intent, declined_by_user) {
+            (None, true) => "You declined a call",
+            (None, false) => "Call started",
+            (Some(CallIntent::Video), true) => "You declined a video call",
+            (Some(CallIntent::Video), false) => "Video call started",
+            (Some(_), true) => "You declined an audio call",
+            (Some(_), false) => "Audio call started",
+        };
+
+        let call_is_ongoing = current_members.is_some();
+
+        let icon_color = if call_is_ongoing && *user_joined {
+            theme.colors.success.into()
+        } else {
+            theme.text.dim.into()
+        };
+
+        let icon_size = structure.chat.small_icon_size;
+        let icon = if *declined_by_user && !user_joined {
+            iced_icon!(phone_x, fill, icon_size, icon_color)
+        } else {
+            iced_icon!(phone, fill, icon_size, icon_color)
+        };
+
+        let mut row = w::row![icon, w::text(text)]
+            .spacing(structure.small_gap)
+            .align_y(Alignment::Center);
+
+        if let Some(call_started) = call_started
+            && call_is_ongoing
+        {
+            row = row.push_element(
+                w::container(w::row![
+                    w::text("(").size(structure.chat.small_text_size),
+                    elapsed_seconds(*call_started)
+                        .size(structure.chat.small_text_size)
+                        .font(MONO_FONT),
+                    w::text(")").size(structure.chat.small_text_size)
+                ])
+                .style(move |_| ContainerStyle {
+                    background: Some(theme.text.dim.into()),
+                    text_color: Some(theme.solid_bg.into()),
+                    border: border::rounded(structure.semi_border_radius()),
+                    ..Default::default()
+                })
+                .padding(structure.small_gap / 2.0),
+            );
+        }
+
+        if let Some(members) = current_members {
+            row = row.push_element(
+                w::row![
+                    w::text("Currently in call: ")
+                        .size(structure.chat.small_text_size)
+                        .color(theme.text.dim),
+                    render_row_of_icons(members, theme.solid_bg.into(), icon_size, structure,)
+                ]
+                .align_y(Alignment::Center),
+            );
+        }
+
+        row = row.push_element(Space::new().width(Fill));
+
+        if call_is_ongoing && !user_joined && !declined_by_user {
+            let hover_bg_color = theme.success_blended();
+            row = row.push_element(
+                animated_button("Join call")
+                    .padding(structure.small_gap)
+                    .style(move |_, status| ButtonStyle {
+                        background: if status.active() {
+                            Some(theme.colors.success.into())
+                        } else {
+                            Some(hover_bg_color.into())
+                        },
+                        text_color: if status.active() {
+                            theme.solid_bg.into()
+                        } else {
+                            theme.colors.success.into()
+                        },
+                        border: Border {
+                            color: if status.active() {
+                                hover_bg_color.into()
+                            } else {
+                                theme.colors.success.into()
+                            },
+                            radius: structure.inner_border_radius.into(),
+                            width: structure.border_thickness,
+                        },
+                        ..Default::default()
+                    })
+                    .on_press(TimelineItemMessage::JoinCall),
+            );
+        }
+
+        row = row.push_element(
+            w::text(format_message_short_date(timestamp, timezone, hour_format))
+                .size(structure.chat.text_size)
+                .color(theme.text.dim),
+        );
 
         Some(
             w::container(
@@ -1212,9 +1326,10 @@ impl SystemMessage {
                         },
                         ..Default::default()
                     })
+                    .width(Fill)
                     .padding(structure.small_gap),
             )
-            .padding(structure.small_gap / 2.0)
+            .padding(padding::vertical(structure.small_gap / 2.0).horizontal(structure.gap * 6.0))
             .boxed(),
         )
     }

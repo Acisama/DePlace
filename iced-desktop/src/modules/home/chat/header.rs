@@ -137,7 +137,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             )
         };
 
-        let is_in_call = self.room.live().own_user_is_in_call();
+        let is_in_call = self.room.live().own_user_device_is_in_call();
 
         let download = self.media_processor.current_download();
         let compression = self.media_processor.current_compression();

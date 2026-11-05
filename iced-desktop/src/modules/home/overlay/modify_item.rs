@@ -5,7 +5,9 @@ use iced::{
 use macros::iced_cache;
 use matrix_sdk_ui::{Timeline, timeline::TimelineEventItemId};
 
-use crate::{common::*, modules::home::chat::MessageEvent};
+use crate::{
+    common::*, components::animated_button::AnimatedButton, modules::home::chat::MessageEvent,
+};
 
 #[derive(Clone, Debug)]
 pub enum ModifyItemMessage {
@@ -232,8 +234,8 @@ fn render_dialogue_button<'a, Message: Clone + 'a>(
     text_color: DePlaceColor,
     hover_text_color: DePlaceColor,
     border_color: DePlaceColor,
-) -> w::Button<'a, Message, Text<'a>> {
-    w::button(w::text(label).width(Fill).center())
+) -> AnimatedButton<Message, Text<'a>> {
+    animated_button(w::text(label).width(Fill).center())
         .style(move |_, status| ButtonStyle {
             background: if status.active() {
                 Some(hover_bg_color.into())
@@ -267,7 +269,7 @@ fn render_floating_dialogue<'a, Message: Clone + 'a, Content: DePlaceWidget<Mess
     heading: impl IntoFragment<'a>,
     subheading: impl IntoFragment<'a>,
     content: Content,
-    buttons: impl IntoIterator<Item = w::Button<'a, Message, Text<'a>>>,
+    buttons: impl IntoIterator<Item = AnimatedButton<Message, Text<'a>>>,
 ) -> Element<'a, Message> {
     floating_tile(
         theme,

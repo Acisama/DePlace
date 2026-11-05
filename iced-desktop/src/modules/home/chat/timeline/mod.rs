@@ -4,7 +4,6 @@ use std::rc::Rc;
 use chrono_tz::Tz;
 use deplace_core::PaginationDirection;
 use deplace_core::matrix_api::attachments::download_file_to_picked;
-use deplace_core::member::room::RoomMembers;
 use deplace_core::settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType};
 use enumset::EnumSet;
 use iced::Vector;
@@ -96,6 +95,7 @@ pub enum TimelineAction {
     OpenModifyItem(ModifyItem),
     OpenMediaOverlay(MediaOverlayParams),
     FocusInput,
+    JoinCall,
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
 
@@ -111,9 +111,7 @@ pub struct ChatTimeline {
     user_can_redact_own: bool,
     user_can_redact_other: bool,
 
-    /// The members of the room, used to rerender the timeline when members change
-    #[hash]
-    room_members: Arc<RoomMembers>,
+    room: DePlaceRoom,
 
     // Stuff the messages depend on
     system_messages_to_show: Receiver<EnumSet<SystemMessageType>>,
@@ -162,6 +160,8 @@ pub struct ChatTimeline {
 
 impl ExtraHash for ChatTimeline {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.room.hash_selective(state, false, true, true);
+
         if self.hovered_item_id.is_some() {
             self.scrolled_from_top.to_bits().hash(state);
             self.tile_bounds.x.to_bits().hash(state);
@@ -212,7 +212,7 @@ impl ChatTimeline {
             state: state.clone(),
             timeline: None,
 
-            room_members: room.members(),
+            room: room.clone(),
 
             system_messages_to_show: settings.system_messages_to_show.watch(),
             timezone: settings.timezone.watch(),
@@ -623,6 +623,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 };
 
                 let res = match Arc::make_mut(item).update(message)? {
+                    TimelineItemAction::JoinCall => Some(TimelineAction::JoinCall),
                     TimelineItemAction::CopyText(text) => {
                         Some(TimelineAction::Run(iced::clipboard::write(text).map(|r| {
                             if let Err(e) = r {

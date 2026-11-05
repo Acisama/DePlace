@@ -48,8 +48,8 @@ open = "5.4.4"
 phosphor-svgs = "0.3.0"
 rayon = "1.12.0"
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
-rodio = "0.20"
 rfd = "0.17.2"
+rodio = "0.20"
 ruma = { version = "0.17.0", features = ["unstable-msc4095"] }
 ruma-html = { version = "0.9.0", features = ["matrix"] }
 rust-embed = "8.12.0"
@@ -75,15 +75,7 @@ zip = "9.0.3"
 [workspace.dependencies.iced]
 git = "https://github.com/acisama/iced"
 version = "0.15.0-dev"
-features = [
-  "advanced",
-  "canvas",
-  "debug",
-  "image",
-  "svg",
-  "time-travel",
-  "tokio",
-]
+features = ["advanced", "canvas", "crisp", "debug", "image", "svg", "time-travel", "tokio"]
 
 # [patch."https://codeberg.org/aosiuejhf/iced_video_player.git"]
 # iced_video_player = { path = "/home/eriko/iced_video_player" }

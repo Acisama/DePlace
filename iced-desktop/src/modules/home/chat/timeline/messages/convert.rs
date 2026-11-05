@@ -82,7 +82,10 @@ impl TimelineItemKind {
                     .timestamp()
                     .to_system_time()
                     .unwrap_or_else(SystemTime::now);
-                let sender = profile_store.get_member(room_id, event.sender());
+
+                let get_member = |id: &UserId| profile_store.get_member(room_id, id);
+
+                let sender = get_member(event.sender());
                 let event_id = event.event_id().map(|id| id.to_owned());
                 let identifier = event.identifier();
 
@@ -226,19 +229,31 @@ impl TimelineItemKind {
                         call_intent,
                         declined_by,
                         active_call_info,
-                    } => system!(SystemMessage::RtcNotification(RtcNotification {
-                        call_intent: call_intent.clone(),
-                        declined_by: declined_by.clone(),
-                        call_started: active_call_info
-                            .as_ref()
-                            .and_then(|info| info.call_started_ts_millis)
-                            .and_then(|t| t.to_system_time()),
-                        current_members: active_call_info.as_ref().map(|info| info
-                            .active_members
-                            .iter()
-                            .cloned()
-                            .collect()),
-                    })),
+                    } => {
+                        let mut user_is_in_call = false;
+                        let active_members = active_call_info.as_ref().map(|info| {
+                            info.active_members
+                                .iter()
+                                .map(|id| {
+                                    if id == own_user_id {
+                                        user_is_in_call = true;
+                                    }
+                                    get_member(id)
+                                })
+                                .collect()
+                        });
+
+                        system!(SystemMessage::RtcNotification(RtcNotification {
+                            user_is_in_call,
+                            call_intent: call_intent.clone(),
+                            call_started: active_call_info
+                                .as_ref()
+                                .and_then(|info| info.call_started_ts_millis)
+                                .and_then(|t| t.to_system_time()),
+                            active_members,
+                            declined_by_user: declined_by.iter().any(|id| id == own_user_id),
+                        }))
+                    }
                     TimelineItemContent::MsgLike(m) => {
                         let settings = state.settings();
                         let content = MessageContent::from_ui(&m.kind, state);

@@ -3,7 +3,7 @@ use std::{hash::Hash, sync::Arc};
 use dashmap::{DashMap, mapref::entry::Entry};
 use ruma::{OwnedRoomId, OwnedUserId, UserId, events::room::member::MembershipState};
 
-use crate::Shared;
+use crate::{OrderKey, Shared};
 
 use super::{
     Member,
@@ -123,7 +123,7 @@ impl RoomMembers {
             })
             .map(|e| e.value().clone())
             .collect();
-        v.sort_by_cached_key(|m| (m.raw_display_name_lowercase(), m.user_id.clone()));
+        v.sort_by_cached_key(|m| m.order_key());
         self.active.set(v.clone());
         let (online, offline) = v
             .into_iter()

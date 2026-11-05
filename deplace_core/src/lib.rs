@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use colors::DePlaceColor;
 use room::live::CallMember;
-use ruma::uint;
+use ruma::{OwnedRoomId, OwnedUserId, uint};
 
 use matrix_sdk::{
     Client, Room, SessionMeta, SessionTokens,
@@ -168,6 +168,16 @@ pub trait ProfileLike {
     fn color(&self) -> DePlaceColor;
 }
 
+pub trait OrderKey<T> {
+    fn order_key(&self) -> (Option<String>, T);
+}
+
+impl OrderKey<Arc<OwnedUserId>> for Member {
+    fn order_key(&self) -> (Option<String>, Arc<OwnedUserId>) {
+        (self.raw_display_name_lowercase(), self.user_id.clone())
+    }
+}
+
 impl ProfileLike for Member {
     fn icon_border_radius_ratio(&self) -> f32 {
         0.5
@@ -188,6 +198,12 @@ impl ProfileLike for Member {
 
     fn displayname(&self) -> String {
         self.get_displayname()
+    }
+}
+
+impl OrderKey<Arc<OwnedRoomId>> for DePlaceRoom {
+    fn order_key(&self) -> (Option<String>, Arc<OwnedRoomId>) {
+        (self.raw_displaystring_lowercase(), self.room_id.clone())
     }
 }
 

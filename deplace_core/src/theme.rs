@@ -177,4 +177,8 @@ impl Theme {
     pub fn pins_blended(&self) -> DePlaceColor {
         self.solid_bg.blend(self.colors.pins, 0.15)
     }
+
+    pub fn success_blended(&self) -> DePlaceColor {
+        self.solid_bg.blend(self.colors.success, 0.15)
+    }
 }

@@ -65,7 +65,7 @@ impl DePlaceRoomType {
 #[derive(Debug, Clone)]
 pub struct DePlaceRoom {
     pub room: Room,
-    id: Arc<OwnedRoomId>,
+    pub(crate) room_id: Arc<OwnedRoomId>,
     room_type: DePlaceRoomType,
     pub(crate) info: Arc<Shared<RoomInfo>>,
     pub(crate) live: Arc<Shared<RoomLive>>,
@@ -79,7 +79,7 @@ impl DePlaceRoom {
         let members = profile_store.get_members(room_id);
 
         Self {
-            id: Arc::new(room_id.to_owned()),
+            room_id: Arc::new(room_id.to_owned()),
             room: room.clone(),
             room_type: DePlaceRoomType::new(room),
             info: Arc::new(Shared::new(RoomInfo::new(room))),
@@ -101,7 +101,7 @@ impl DePlaceRoom {
     }
 
     pub fn hash_selective<H: Hasher>(&self, state: &mut H, info: bool, live: bool, members: bool) {
-        self.id.hash(state);
+        self.room_id.hash(state);
 
         if members {
             self.members.hash(state);
@@ -119,7 +119,7 @@ impl DePlaceRoom {
     }
 
     pub fn room_id(&self) -> &RoomId {
-        &self.id
+        &self.room_id
     }
 
     pub fn own_user_id(&self) -> &UserId {
@@ -179,5 +179,13 @@ impl DePlaceRoom {
 
     pub fn is_dm(&self) -> bool {
         self.room_type.is_direct()
+    }
+
+    pub(crate) fn raw_displaystring_lowercase(&self) -> Option<String> {
+        self.info
+            .read()
+            .display_name
+            .clone()
+            .map(|s| s.to_lowercase())
     }
 }

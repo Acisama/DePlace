@@ -50,6 +50,7 @@ use render::render_event;
 #[derive(Debug, Clone)]
 pub enum TimelineItemMessage {
     None,
+    JoinCall,
     NeedsMedia(NeedsMedia),
     EventEnter,
     EventExit,
@@ -126,6 +127,7 @@ pub enum TimelineItemAction {
         file_name: String,
     },
     CopyText(String),
+    JoinCall,
 }
 
 /// An item in the timeline
@@ -390,6 +392,7 @@ impl TimelineItem {
 
     pub fn update(&mut self, message: TimelineItemMessage) -> Option<TimelineItemAction> {
         match message {
+            TimelineItemMessage::JoinCall => Some(TimelineItemAction::JoinCall),
             TimelineItemMessage::DownloadFile { source, file_name } => {
                 Some(TimelineItemAction::DownloadFile { source, file_name })
             }
@@ -702,8 +705,9 @@ impl Hash for TimelineItemKind {
                 is_hovered,
                 previous_is_event,
                 system_messages_to_show,
-                ..
+                event,
             } => {
+                event.hash(state);
                 is_hovered.hash(state);
                 previous_is_event.hash(state);
                 system_messages_to_show.borrow().hash(state);
@@ -1056,6 +1060,7 @@ struct SystemEvent {
     hour_format: Receiver<HourFormat>,
     date_format: Receiver<DateFormat>,
 
+    #[hash]
     content: Arc<SystemMessage>,
 }
 
@@ -1110,9 +1115,10 @@ impl SystemEvent {
 #[derive(Debug)]
 struct RtcNotification {
     call_intent: Option<CallIntent>,
-    declined_by: Vec<OwnedUserId>,
     call_started: Option<SystemTime>,
-    current_members: Option<BTreeSet<OwnedUserId>>,
+    active_members: Option<Vec<Member>>,
+    declined_by_user: bool,
+    user_is_in_call: bool,
 }
 
 #[derive(Debug)]
@@ -1143,4 +1149,21 @@ enum SystemMessage {
     RoomTopic(EventChange<String>),
     SpaceChild,
     SpaceParent,
+}
+
+impl Hash for SystemMessage {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Other message types are static
+        let SystemMessage::RtcNotification(notification) = self else {
+            return;
+        };
+
+        notification.active_members.hash(state);
+
+        if let Some(started) = notification.call_started
+            && let Ok(duration) = started.elapsed()
+        {
+            duration.hash(state);
+        }
+    }
 }
