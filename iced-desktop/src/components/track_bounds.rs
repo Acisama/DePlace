@@ -27,6 +27,7 @@ pub fn track_bounds<Message, Content: DePlaceWidget<Message>>(
 #[derive(Default)]
 struct State {
     last_bounds: Option<Rectangle>,
+    last_tick: Option<std::time::Instant>,
 }
 
 impl<Message, Content: DePlaceWidget<Message>> Meta for TrackBounds<Message, Content> {}
@@ -63,13 +64,18 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        if let Event::Window(window::Event::RedrawRequested(_)) = event {
+        if let Event::Window(window::Event::RedrawRequested(tick)) = event {
             let state: &mut State = tree.state.downcast_mut();
-            let bounds = layout.bounds(); // absolute window coordinates, same as Sensor uses
 
-            if state.last_bounds != Some(bounds) {
-                state.last_bounds = Some(bounds);
-                shell.publish((self.on_change)(bounds));
+            if state.last_tick != Some(*tick) {
+                state.last_tick = Some(*tick);
+
+                let bounds = layout.bounds(); // absolute window coordinates, same as Sensor uses
+
+                if state.last_bounds != Some(bounds) {
+                    state.last_bounds = Some(bounds);
+                    shell.publish((self.on_change)(bounds));
+                }
             }
         }
 

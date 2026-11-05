@@ -4,7 +4,7 @@ use iced::widget::image::Handle as ImageHandle;
 use matrix_sdk::{Client, media::MediaRequestParameters};
 use ruma::{OwnedMxcUri, events::room::MediaSource};
 
-use crate::thumbnail_format;
+use crate::{big_thumbnail_format, small_thumbnail_format};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Avatar {
@@ -30,14 +30,22 @@ impl Hash for Avatar {
 }
 
 impl Avatar {
-    pub(crate) async fn load_avatar(client: &Client, url: Option<OwnedMxcUri>) -> Self {
+    pub(crate) async fn load_avatar(
+        client: &Client,
+        url: Option<OwnedMxcUri>,
+        small: bool,
+    ) -> Self {
         let Some(url) = url else {
             return Avatar::NoAvatar;
         };
 
         let request = MediaRequestParameters {
             source: MediaSource::Plain(url.clone()),
-            format: thumbnail_format(),
+            format: if small {
+                small_thumbnail_format()
+            } else {
+                big_thumbnail_format()
+            },
         };
 
         // TODO: Somehow check if the avatar is svg

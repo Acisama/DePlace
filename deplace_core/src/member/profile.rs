@@ -25,6 +25,7 @@ pub struct ProfileData {
     pub(crate) power_level: UserPowerLevel,
     #[cfg(feature = "iced")]
     pub(crate) avatar_handle: Avatar,
+    pub(crate) small_avatar_handle: Avatar,
 }
 
 impl ProfileData {
@@ -41,6 +42,8 @@ impl ProfileData {
             power_level: UserPowerLevel::Infinite,
             #[cfg(feature = "iced")]
             avatar_handle: Avatar::NoAvatar,
+            #[cfg(feature = "iced")]
+            small_avatar_handle: Avatar::NoAvatar,
         }
     }
 }
@@ -59,6 +62,8 @@ impl From<&RoomMember> for ProfileData {
 
             #[cfg(feature = "iced")]
             avatar_handle: Avatar::NoAvatar,
+            #[cfg(feature = "iced")]
+            small_avatar_handle: Avatar::NoAvatar,
         };
 
         member.calculate_strings();

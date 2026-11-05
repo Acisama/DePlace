@@ -109,6 +109,9 @@ pub trait ProfileRenderExt {
     /// Renders the profile's avatar icon.
     fn render_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
 
+    /// Renders the profile's small avatar icon.
+    fn render_small_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
+
     /// Renders the profile's name in bold using the profile's color.
     fn render_name<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
 
@@ -155,6 +158,14 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
         let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
 
         render_avatar(size, rounding, fallback, self.avatar_handle())
+    }
+
+    fn render_small_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
+        let rounding = size * self.icon_border_radius_ratio();
+
+        let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
+
+        render_avatar(size, rounding, fallback, self.small_avatar_handle())
     }
 
     fn render_name<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
@@ -542,7 +553,7 @@ pub fn render_row_of_icons<'a, T: 'a, Profile: ProfileLike>(
             .padding(padding::left(index as f32 * step)),
         );
         stack = stack.push_element(
-            w::container(member.render_icon(icon_size))
+            w::container(member.render_small_icon(icon_size))
                 .width(Fill)
                 .height(Fill)
                 .align_x(Alignment::Start)

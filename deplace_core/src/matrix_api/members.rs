@@ -58,13 +58,24 @@ pub(crate) async fn handle_member_event(
     #[cfg(feature = "iced")]
     if change_avatar_url && let Some(url) = new_avatar_url.clone() {
         let cell = member.room_data.clone();
+        let cell_clone = cell.clone();
         let client = state.client();
-        tokio::spawn(async move {
-            let avatar = Avatar::load_avatar(&client, Some(url)).await;
-            cell.change(|info| {
-                info.avatar_handle = avatar.clone();
-            });
-        });
+        let client_clone = client.clone();
+        let url_clone = url.clone();
+        tokio::join![
+            async move {
+                let avatar = Avatar::load_avatar(&client, Some(url), false).await;
+                cell.change(|info| {
+                    info.avatar_handle = avatar.clone();
+                });
+            },
+            async move {
+                let avatar = Avatar::load_avatar(&client_clone, Some(url_clone), true).await;
+                cell_clone.change(|info| {
+                    info.avatar_handle = avatar.clone();
+                });
+            }
+        ];
     }
 
     state

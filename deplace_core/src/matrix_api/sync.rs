@@ -11,11 +11,11 @@ use matrix_sdk_base::RoomInfoNotableUpdateReasons;
 use ruma::RoomId;
 use ruma::events::call::member::CallMemberEventContent;
 
+use crate::OrderKey;
 use crate::member::ProfileStore;
 use crate::member::user_data::handle_presence_update;
 use crate::room::live::CallMember;
 use crate::state::UserDevice;
-use crate::{OrderKey, thumbnail_format};
 use crate::{
     matrix_api::{hierarchy::run_space_hierarchy_update, save_session},
     notifications::on_message,
@@ -23,7 +23,7 @@ use crate::{
 };
 
 #[cfg(feature = "iced")]
-use crate::Avatar;
+use crate::{Avatar, big_thumbnail_format};
 #[cfg(feature = "iced")]
 use iced::advanced::image::Handle as ImageHandle;
 
@@ -106,7 +106,7 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
     }
 
     #[cfg(feature = "iced")]
-    match account.get_avatar(thumbnail_format()).await {
+    match account.get_avatar(big_thumbnail_format()).await {
         Ok(Some(bytes)) if let Some(url) = state.inner.own_avatar_url.borrow().clone() => {
             state.inner.own_avatar_handle.send_replace(Avatar::Ok {
                 image: ImageHandle::from_bytes(bytes),

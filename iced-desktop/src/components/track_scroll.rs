@@ -66,6 +66,7 @@ pub fn track_scroll<Message, Content: DePlaceWidget<Message>>(
 #[derive(Default)]
 struct State {
     last_value: Option<f32>,
+    last_tick: Option<std::time::Instant>,
 }
 
 impl<Message, Content: DePlaceWidget<Message>> Meta for TrackScroll<Message, Content> {}
@@ -112,7 +113,13 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
             viewport,
         );
 
-        if let Event::Window(window::Event::RedrawRequested(_)) = event {
+        if let Event::Window(window::Event::RedrawRequested(tick)) = event {
+            let state: &mut State = tree.state.downcast_mut();
+            if state.last_tick == Some(*tick) {
+                return;
+            }
+            state.last_tick = Some(*tick);
+
             let mut operation = FindScrolledFromTop {
                 target: self.scrollable_id.clone(),
                 value: None,

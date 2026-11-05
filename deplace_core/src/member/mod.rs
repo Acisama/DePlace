@@ -101,6 +101,11 @@ impl Member {
         self.room_data.read().avatar_handle.clone()
     }
 
+    #[cfg(feature = "iced")]
+    pub fn small_avatar_handle(&self) -> Avatar {
+        self.room_data.read().small_avatar_handle.clone()
+    }
+
     pub fn name_color(&self) -> DePlaceColor {
         self.user_data.read().custom_data.name_color
     }

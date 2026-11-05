@@ -15,6 +15,9 @@ use super::{
     hierarchy::{ChildOrder, SpaceHierarchy},
 };
 
+#[cfg(feature = "iced")]
+use crate::Avatar;
+
 pub type RoomMap = DashMap<OwnedRoomId, DePlaceRoom>;
 
 pub struct RoomStore {
@@ -112,17 +115,28 @@ impl RoomStore {
     #[cfg(feature = "iced")]
     pub(crate) fn spawn_avatar_load(&self, dp_room: DePlaceRoom) {
         let changed = self.changed.clone();
+        let changed_clone = changed.clone();
         let client = self.client.clone();
+        let client_clone = client.clone();
+        let url = dp_room.info.data.load().avatar_url();
+        let url_clone = url.clone();
+
+        let cell = dp_room.info.clone();
+        let cell_clone = cell.clone();
 
         self.handle.spawn(async move {
-            use crate::Avatar;
-
-            let avatar = Avatar::load_avatar(&client, dp_room.info.data.load().avatar_url()).await;
-
-            dp_room.info.change(|info| {
+            let avatar = Avatar::load_avatar(&client, url, false).await;
+            cell.change(|info| {
                 info.avatar_handle = avatar.clone();
             });
             changed.send_modify(|_| ());
+        });
+        self.handle.spawn(async move {
+            let small_avatar = Avatar::load_avatar(&client_clone, url_clone, true).await;
+            cell_clone.change(|info| {
+                info.small_avatar_handle = small_avatar.clone();
+            });
+            changed_clone.send_modify(|_| ());
         });
     }
 

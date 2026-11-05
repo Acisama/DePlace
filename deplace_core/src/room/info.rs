@@ -19,6 +19,8 @@ pub struct RoomInfo {
     pub(crate) avatar_url: Option<OwnedMxcUri>,
     #[cfg(feature = "iced")]
     pub(crate) avatar_handle: Avatar,
+    #[cfg(feature = "iced")]
+    pub(crate) small_avatar_handle: Avatar,
 
     pub(crate) color: DePlaceColor,
 }
@@ -45,6 +47,9 @@ impl RoomInfo {
             avatar_url: room.avatar_url(),
             #[cfg(feature = "iced")]
             avatar_handle: Avatar::NoAvatar,
+            #[cfg(feature = "iced")]
+            small_avatar_handle: Avatar::NoAvatar,
+
             color: DePlaceColor::from(room_id.as_str()),
         };
 

@@ -164,6 +164,7 @@ pub trait ProfileLike {
     fn displayname(&self) -> String;
     #[cfg(feature = "iced")]
     fn avatar_handle(&self) -> Avatar;
+    fn small_avatar_handle(&self) -> Avatar;
     fn initial(&self) -> char;
     fn color(&self) -> DePlaceColor;
 }
@@ -190,6 +191,11 @@ impl ProfileLike for Member {
     #[cfg(feature = "iced")]
     fn avatar_handle(&self) -> Avatar {
         self.avatar_handle()
+    }
+
+    #[cfg(feature = "iced")]
+    fn small_avatar_handle(&self) -> Avatar {
+        self.small_avatar_handle()
     }
 
     fn initial(&self) -> char {
@@ -232,6 +238,11 @@ impl ProfileLike for DePlaceRoom {
     fn avatar_handle(&self) -> Avatar {
         self.info.read().avatar_handle.clone()
     }
+
+    #[cfg(feature = "iced")]
+    fn small_avatar_handle(&self) -> Avatar {
+        self.info.read().small_avatar_handle.clone()
+    }
 }
 
 impl ProfileLike for ActiveServer {
@@ -261,6 +272,14 @@ impl ProfileLike for ActiveServer {
         }
     }
 
+    #[cfg(feature = "iced")]
+    fn small_avatar_handle(&self) -> Avatar {
+        match self {
+            ActiveServer::Dms => Avatar::NoAvatar,
+            ActiveServer::Server(room) => room.small_avatar_handle(),
+        }
+    }
+
     fn color(&self) -> DePlaceColor {
         match self {
             ActiveServer::Dms => DePlaceColor::from_hsla(0.0, 0.0, 0.0, 1.0),
@@ -281,6 +300,11 @@ impl ProfileLike for CallMember {
     #[cfg(feature = "iced")]
     fn avatar_handle(&self) -> Avatar {
         self.member.avatar_handle()
+    }
+
+    #[cfg(feature = "iced")]
+    fn small_avatar_handle(&self) -> Avatar {
+        self.member.small_avatar_handle()
     }
 
     fn color(&self) -> DePlaceColor {
@@ -304,10 +328,18 @@ pub fn window_title(room: Option<DePlaceRoom>, server: ActiveServer) -> String {
     }
 }
 
-pub fn thumbnail_settings() -> MediaThumbnailSettings {
-    MediaThumbnailSettings::new(uint!(100), uint!(100))
+pub fn big_thumbnail_settings() -> MediaThumbnailSettings {
+    MediaThumbnailSettings::new(uint!(200), uint!(200))
 }
 
-pub fn thumbnail_format() -> MediaFormat {
-    MediaFormat::Thumbnail(thumbnail_settings())
+pub fn small_thumbnail_settings() -> MediaThumbnailSettings {
+    MediaThumbnailSettings::new(uint!(25), uint!(25))
+}
+
+pub fn big_thumbnail_format() -> MediaFormat {
+    MediaFormat::Thumbnail(big_thumbnail_settings())
+}
+
+pub fn small_thumbnail_format() -> MediaFormat {
+    MediaFormat::Thumbnail(small_thumbnail_settings())
 }

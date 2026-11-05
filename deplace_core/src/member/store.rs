@@ -117,11 +117,26 @@ impl ProfileStore {
             cell.set(data);
             changed.send_modify(|_| ());
 
-            #[cfg(feature = "iced")]
-            let avatar = Avatar::load_avatar(&client, url).await;
-
-            cell.change(|d| d.avatar_handle = avatar.clone());
-            changed.send_modify(|_| ());
+            if cfg!(feature = "iced") {
+                let url_clone = url.clone();
+                let changed_clone = changed.clone();
+                let client_clone = client.clone();
+                let cell_clone = cell.clone();
+                futures::future::join(
+                    async move {
+                        let avatar = Avatar::load_avatar(&client, url.clone(), false).await;
+                        cell.change(|d| d.avatar_handle = avatar.clone());
+                        changed.send_modify(|_| ());
+                    },
+                    async move {
+                        let small_avatar =
+                            Avatar::load_avatar(&client_clone, url_clone, true).await;
+                        cell_clone.change(|d| d.small_avatar_handle = small_avatar.clone());
+                        changed_clone.send_modify(|_| ());
+                    },
+                )
+                .await;
+            }
         });
     }
 
@@ -129,11 +144,19 @@ impl ProfileStore {
     fn spawn_avatar_load(&self, cell: Arc<Shared<ProfileData>>, url: Option<OwnedMxcUri>) {
         let client = self.client.clone();
         let changed = self.changed.clone();
-
+        let url_clone = url.clone();
+        let changed_clone = changed.clone();
+        let client_clone = client.clone();
+        let cell_clone = cell.clone();
         self.handle.spawn(async move {
-            let avatar = Avatar::load_avatar(&client, url).await;
+            let avatar = Avatar::load_avatar(&client, url.clone(), false).await;
             cell.change(|d| d.avatar_handle = avatar.clone());
             changed.send_modify(|_| ());
+        });
+        self.handle.spawn(async move {
+            let small_avatar = Avatar::load_avatar(&client_clone, url_clone, true).await;
+            cell_clone.change(|d| d.small_avatar_handle = small_avatar.clone());
+            changed_clone.send_modify(|_| ());
         });
     }
 
