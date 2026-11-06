@@ -28,11 +28,15 @@ use livekit::prelude::{
 };
 use livekit::track::LocalAudioTrack;
 use matrix_sdk::Room;
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId};
+use rodio::buffer::SamplesBuffer;
+use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId, UserId};
 use tokio::sync::{broadcast, watch};
 
 use crate::Shared;
+use crate::audio::AudioThread;
 use crate::matrix_api::matrixrtc::{LiveKitRoomManager, leave_matrixrtc_call};
+use crate::member::ProfileStore;
+use crate::member::synth::SignatureEvent;
 use crate::room::call::{CallMember, CallMembers};
 use crate::state::UserDevice;
 
@@ -97,7 +101,8 @@ impl VolumeCell {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone)]
 pub struct CallParticipantHandle {
     pub(crate) participant: Arc<Shared<CallParticipant>>,
     /// How loud the participant is, pushed into by the call thread
@@ -110,6 +115,17 @@ pub struct CallParticipantHandle {
     /// Whether we muted them ourselves, again set by the ui
     /// and read by the call thread and applied to frames
     pub(crate) playback_muted: Arc<AtomicBool>,
+}
+
+impl Default for CallParticipantHandle {
+    fn default() -> Self {
+        Self {
+            participant: Arc::new(Shared::new(CallParticipant::default())),
+            volume: Arc::new(VolumeCell::default()),
+            playback_volume: Arc::new(VolumeCell::with_value(1.0)),
+            playback_muted: Arc::new(AtomicBool::new(false)),
+        }
+    }
 }
 
 impl CallParticipantHandle {
@@ -236,15 +252,10 @@ impl RoomCall {
                 participant: self.own_handle.participant.clone(),
                 volume: self.own_volume.clone(),
                 playback_muted: Arc::new(AtomicBool::new(false)),
-                playback_volume: Arc::new(VolumeCell::default()),
+                playback_volume: Arc::new(VolumeCell::with_value(1.0)),
             }
         } else {
-            CallParticipantHandle {
-                participant: Arc::new(Shared::default()),
-                volume: Arc::new(VolumeCell::default()),
-                playback_muted: Arc::new(AtomicBool::new(false)),
-                playback_volume: Arc::new(VolumeCell::default()),
-            }
+            CallParticipantHandle::default()
         }
     }
 
@@ -345,7 +356,10 @@ pub enum CallCommand {
 pub struct LivekitCall {
     room: Room,
     manager: LiveKitRoomManager,
+    audio: AudioThread,
     own_device: Arc<UserDevice>,
+
+    profile_store: Arc<ProfileStore>,
 
     own_handle: CallParticipantHandle,
 
@@ -390,21 +404,42 @@ impl Hash for LivekitCall {
     }
 }
 
+/// Plays an already-rendered signature sound through some [`AudioThread`],
+/// fire-and-forget. `event` is only used for logging if playback fails.
+pub(crate) fn play_signature_samples(
+    audio: &AudioThread,
+    samples: SamplesBuffer<f32>,
+    event: SignatureEvent,
+) {
+    let audio = audio.clone();
+
+    tokio::spawn(async move {
+        match audio.play_source(samples).await {
+            Ok(sound) => sound.detach(),
+            Err(e) => tracing::warn!("Could not play {event:?} sound: {e:#}"),
+        }
+    });
+}
+
 impl LivekitCall {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         room: Room,
         manager: LiveKitRoomManager,
+        audio: AudioThread,
         call_handles: Arc<CallHandleMap>,
         own_device: Arc<UserDevice>,
         own_volume: Arc<VolumeCell>,
         state_wake: watch::Sender<()>,
         own_handle: CallParticipantHandle,
+        profile_store: Arc<ProfileStore>,
     ) -> Self {
         let (events, _) = broadcast::channel(64);
 
         Self {
             started_at: SystemTime::now(),
             room,
+            audio,
             own_device,
             own_volume,
             manager,
@@ -414,6 +449,7 @@ impl LivekitCall {
             events,
             microphone: Shared::new(None),
             call_handles,
+            profile_store,
         }
     }
 
@@ -446,15 +482,10 @@ impl LivekitCall {
                 participant: self.own_handle.participant.clone(),
                 volume: self.own_volume.clone(),
                 playback_muted: Arc::new(AtomicBool::new(false)),
-                playback_volume: Arc::new(VolumeCell::default()),
+                playback_volume: Arc::new(VolumeCell::with_value(1.0)),
             }
         } else {
-            CallParticipantHandle {
-                participant: Arc::new(Shared::default()),
-                volume: Arc::new(VolumeCell::default()),
-                playback_muted: Arc::new(AtomicBool::new(false)),
-                playback_volume: Arc::new(VolumeCell::default()),
-            }
+            CallParticipantHandle::default()
         }
     }
 
@@ -487,6 +518,39 @@ impl LivekitCall {
 
     fn wake(&self) {
         self.state_wake.send_modify(|_| ());
+    }
+
+    /// Plays an already-rendered signature sound, fire-and-forget. `event`
+    /// is only used for logging if playback fails.
+    pub(crate) fn play_samples(&self, samples: SamplesBuffer<f32>, event: SignatureEvent) {
+        play_signature_samples(&self.audio, samples, event);
+    }
+
+    /// Plays a participant's signature sound for one of the call's
+    /// happenings
+    fn play_signature_sound(&self, room_id: &RoomId, user_id: &UserId, event: SignatureEvent) {
+        let samples = self
+            .profile_store
+            .get_member(room_id, user_id)
+            .calc_synth_sound(event);
+        self.play_samples(samples, event);
+    }
+
+    /// Plays a signature sound for the local participant, if they are a member.
+    pub(crate) fn play_own_signature_sound(&self, room_id: &RoomId, event: SignatureEvent) {
+        self.play_signature_sound(room_id, &self.own_device.user_id, event);
+    }
+
+    /// Plays a signature sound for a participant, if they are a member.
+    pub(crate) fn maybe_play_signature_sound(
+        &self,
+        room_id: &RoomId,
+        id: &CallParticipantId,
+        event: SignatureEvent,
+    ) {
+        if let CallParticipantId::Member { user_id, .. } = id {
+            self.play_signature_sound(room_id, user_id, event);
+        }
     }
 
     /// Wake-up signal for the frontend's message loop: fires whenever the
@@ -608,6 +672,7 @@ impl LivekitCall {
     /// Folds one LiveKit room event into the call state, emitting the
     /// one-shot happenings alongside.
     pub(crate) fn handle_room_event(&self, event: &RoomEvent) {
+        let room_id = self.room_id();
         match event {
             RoomEvent::Connected {
                 participants_with_tracks,
@@ -639,6 +704,9 @@ impl LivekitCall {
                     }
                 });
 
+                // Joined/left sounds are driven by the `CallMembers` diff
+                // instead (see `matrix_api::sync`), so they fire in step
+                // with what the UI's participant list actually shows.
                 self.emit(CallEvent::ParticipantJoined { participant: id });
             }
             RoomEvent::ParticipantDisconnected(participant) => {
@@ -664,9 +732,11 @@ impl LivekitCall {
                 Participant::Remote(remote) => {
                     let id = CallParticipantId::from_identity(&remote.identity());
                     self.change_participant(&self.call_handle(&id), |p| p.muted = true);
+                    self.maybe_play_signature_sound(room_id, &id, SignatureEvent::Muted);
                 }
                 Participant::Local(_) => {
                     self.change_own_participant(|p| p.muted = true);
+                    self.play_own_signature_sound(room_id, SignatureEvent::Muted);
                 }
             },
             RoomEvent::TrackUnmuted {
@@ -676,9 +746,11 @@ impl LivekitCall {
                 Participant::Remote(remote) => {
                     let id = CallParticipantId::from_identity(&remote.identity());
                     self.change_participant(&self.call_handle(&id), |p| p.muted = false);
+                    self.maybe_play_signature_sound(room_id, &id, SignatureEvent::Unmuted);
                 }
                 Participant::Local(_) => {
                     self.change_own_participant(|p| p.muted = false);
+                    self.play_own_signature_sound(room_id, SignatureEvent::Unmuted);
                 }
             },
             RoomEvent::TrackPublished {
@@ -688,6 +760,15 @@ impl LivekitCall {
                 let id = CallParticipantId::from_identity(&participant.identity());
                 let muted = publication.is_muted();
                 self.change_participant(&self.call_handle(&id), |p| p.muted = muted);
+                self.maybe_play_signature_sound(
+                    room_id,
+                    &id,
+                    if muted {
+                        SignatureEvent::Muted
+                    } else {
+                        SignatureEvent::Unmuted
+                    },
+                );
             }
             RoomEvent::TrackPublished {
                 participant,
@@ -695,6 +776,7 @@ impl LivekitCall {
             } if publication.source() == TrackSource::Screenshare => {
                 let id = CallParticipantId::from_identity(&participant.identity());
                 self.change_participant(&self.call_handle(&id), |p| p.screensharing = true);
+                self.maybe_play_signature_sound(room_id, &id, SignatureEvent::StartedScreenShare);
             }
             RoomEvent::TrackUnpublished {
                 participant,
@@ -702,6 +784,7 @@ impl LivekitCall {
             } if publication.source() == TrackSource::Microphone => {
                 let id = CallParticipantId::from_identity(&participant.identity());
                 self.change_participant(&self.call_handle(&id), |p| p.muted = true);
+                self.maybe_play_signature_sound(room_id, &id, SignatureEvent::Muted);
             }
             RoomEvent::TrackUnpublished {
                 participant,
@@ -709,6 +792,7 @@ impl LivekitCall {
             } if publication.source() == TrackSource::Screenshare => {
                 let id = CallParticipantId::from_identity(&participant.identity());
                 self.change_participant(&self.call_handle(&id), |p| p.screensharing = false);
+                self.maybe_play_signature_sound(room_id, &id, SignatureEvent::StoppedScreenShare);
             }
             RoomEvent::E2eeStateChanged {
                 participant,

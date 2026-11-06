@@ -96,6 +96,16 @@ impl Audio {
         Ok(Sound { sink })
     }
 
+    /// Play any already-decoded [`Source`]
+    pub fn play_source<S>(&self, source: S) -> Result<Sound>
+    where
+        S: Source<Item = f32> + Send + 'static,
+    {
+        let sink = Sink::try_new(&self.handle).context("Could not create a sink")?;
+        sink.append(source);
+        Ok(Sound { sink })
+    }
+
     /// Creates a new player for live audio that arrives frame by frame
     /// Each player is mixed in with everything
     /// else and can be dropped to stop it.
@@ -172,6 +182,14 @@ impl Sound {
         // Dropping the sink stops playback so we just drop self
         // I'm so proud of this
     }
+
+    /// Lets the sound keep playing to the end even after this handle is
+    /// dropped, for fire-and-forget playback where nothing holds onto the
+    /// handle. Without this, dropping the handle stops the sound dead,
+    /// since that's what a dropped (non-detached) `Sink` does.
+    pub fn detach(self) {
+        self.sink.detach();
+    }
 }
 
 /// [`Audio`] but usable from async code.
@@ -201,6 +219,10 @@ enum Command {
     },
     PlayData {
         data: Vec<u8>,
+        reply: oneshot::Sender<Result<Sound>>,
+    },
+    PlaySource {
+        source: Box<dyn Source<Item = f32> + Send + Sync>,
         reply: oneshot::Sender<Result<Sound>>,
     },
     Microphone {
@@ -250,6 +272,9 @@ impl AudioThread {
                         }
                         Command::PlayData { data, reply } => {
                             drop(reply.send(audio.play_data(data)));
+                        }
+                        Command::PlaySource { source, reply } => {
+                            drop(reply.send(audio.play_source(source)));
                         }
                         Command::Microphone { reply } => {
                             drop(reply.send(audio.microphone(&stop_tx)));
@@ -308,6 +333,26 @@ impl AudioThread {
         self.cmd_tx
             .send(Command::PlayData {
                 data: data.into(),
+                reply: reply_tx,
+            })
+            .context("The audio thread is gone")?;
+
+        reply_rx
+            .await
+            .context("The audio thread died mid-request")?
+    }
+
+    /// Plays an already-decoded source, e.g. a synthesized
+    /// [`rodio::buffer::SamplesBuffer`]. Same as [`Audio::play_source`], just async
+    pub async fn play_source<S>(&self, source: S) -> Result<Sound>
+    where
+        S: Source<Item = f32> + Send + Sync + 'static,
+    {
+        let (reply_tx, reply_rx) = oneshot::channel();
+
+        self.cmd_tx
+            .send(Command::PlaySource {
+                source: Box::new(source),
                 reply: reply_tx,
             })
             .context("The audio thread is gone")?;

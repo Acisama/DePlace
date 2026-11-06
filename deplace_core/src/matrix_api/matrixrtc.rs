@@ -28,6 +28,7 @@ use crate::call::{
     CallConnectionState, CallEndReason, CallEvent, CallParticipantHandle, CallParticipantId,
     CallRegistry, LivekitCall,
 };
+use crate::member::ProfileStore;
 use crate::state::{AppState, UserDevice};
 // use cpal::traits::{DeviceTrait, HostTrait};
 use livekit::options::TrackPublishOptions;
@@ -348,6 +349,7 @@ fn log_sfu_assignment(sfu_jwt: &str) {
 
 pub async fn join_matrixrtc_call(
     room: DePlaceRoom,
+    profile_store: Arc<ProfileStore>,
     own_device: Arc<UserDevice>,
     livekit_room_manager: LiveKitRoomManager,
     call_registry: CallRegistry,
@@ -485,6 +487,7 @@ pub async fn join_matrixrtc_call(
 
     let call = match finish_joining_call(
         &room,
+        profile_store,
         own_device.clone(),
         response.event_id,
         service_url.to_string(),
@@ -523,6 +526,7 @@ pub async fn join_matrixrtc_call(
 #[allow(clippy::too_many_arguments)]
 async fn finish_joining_call(
     dp_room: &DePlaceRoom,
+    profile_store: Arc<ProfileStore>,
     own_device: Arc<UserDevice>,
     joined_event_id: matrix_sdk::ruma::OwnedEventId,
     service_url: String,
@@ -578,11 +582,13 @@ async fn finish_joining_call(
     let call = Arc::new(LivekitCall::new(
         dp_room.room.clone(),
         livekit_room_manager.clone(),
+        audio.clone(),
         dp_room.call.call_handles.clone(),
         own_device.clone(),
         dp_room.call.own_volume.clone(),
         state_wake,
         dp_room.own_handle.clone(),
+        profile_store,
     ));
 
     // set and send out encryption key after joining but before publishing a track

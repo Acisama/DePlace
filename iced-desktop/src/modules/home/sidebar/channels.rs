@@ -445,18 +445,22 @@ fn render_channel(
         notifications.highlights()
     };
 
+    let mut extra_row = w::row![Space::new().width(Fill)]
+        .height(Fill)
+        .width(Fill)
+        .spacing(structure.small_gap)
+        .align_y(Alignment::Center);
+
     if let Some(mentions) = mentions {
-        room_stack = room_stack.push_element(
-            w::row![
-                Space::new().width(Fill),
-                render_mention_badge(mentions, theme, structure),
-                Space::new().width(structure.small_gap)
-            ]
-            .height(Fill)
-            .width(Fill)
-            .align_y(Alignment::Center),
-        );
+        extra_row = extra_row.push_element(render_mention_badge(mentions, theme, structure));
     }
+
+    if let Some(start_time) = room.call_started_at() {
+        extra_row = extra_row.push_element(elapsed_time(start_time));
+    }
+
+    room_stack =
+        room_stack.push_element(extra_row.push_element(Space::new().width(structure.small_gap)));
 
     let mut items = vec![
         help_view

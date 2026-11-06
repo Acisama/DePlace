@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use rodio::buffer::SamplesBuffer;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -166,6 +167,8 @@ pub enum SignatureEvent {
     Unmuted,
     Deafened,
     Undeafened,
+    StartedScreenShare,
+    StoppedScreenShare,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,7 +222,7 @@ impl Performance {
 
 impl SignatureEvent {
     /// Every event, in the order they're worth auditioning.
-    pub const ALL: [SignatureEvent; 8] = [
+    pub const ALL: [SignatureEvent; 10] = [
         SignatureEvent::Joined,
         SignatureEvent::Left,
         SignatureEvent::Ringtone,
@@ -228,6 +231,8 @@ impl SignatureEvent {
         SignatureEvent::Unmuted,
         SignatureEvent::Deafened,
         SignatureEvent::Undeafened,
+        SignatureEvent::StartedScreenShare,
+        SignatureEvent::StoppedScreenShare,
     ];
 
     pub fn label(self) -> &'static str {
@@ -240,6 +245,8 @@ impl SignatureEvent {
             SignatureEvent::Unmuted => "Unmute",
             SignatureEvent::Deafened => "Deafen",
             SignatureEvent::Undeafened => "Undeafen",
+            SignatureEvent::StartedScreenShare => "Start Screen Share",
+            SignatureEvent::StoppedScreenShare => "Stop Screen Share",
         }
     }
 
@@ -317,6 +324,25 @@ impl SignatureEvent {
             SignatureEvent::Undeafened => Performance {
                 rising: true,
                 ..SignatureEvent::Deafened.performance()
+            },
+            SignatureEvent::StartedScreenShare => Performance {
+                notes: 4,
+                rising: true,
+                cells: &[0.0],
+                lift: 0,
+                step: 0.07,
+                hold: 0.85,
+                tail: 0.26,
+                stretch: 0.75,
+                octave_shift: 0,
+                bass: BassMode::None,
+                root_gain: 0.3,
+                gain: 0.49,
+                window: CUE_SECS,
+            },
+            SignatureEvent::StoppedScreenShare => Performance {
+                rising: false,
+                ..SignatureEvent::Left.performance()
             },
         }
     }
@@ -570,35 +596,52 @@ impl SonicSignature {
 
         out
     }
+
+    // The thing for an `<audio>` tag: `data:audio/wav;base64,...`
+    pub fn signature_audio_src(&self, event: SignatureEvent) -> String {
+        let wav = self.render_wav(event);
+        format!("data:audio/wav;base64,{}", STANDARD.encode(&wav))
+    }
+
+    pub fn render_stereo(&self, event: SignatureEvent) -> (Vec<f32>, Vec<f32>) {
+        let perf = event.performance();
+        let notes = self.schedule(event);
+        let frames = (perf.window * SAMPLE_RATE as f32).ceil() as usize;
+
+        let mut left = vec![0.0_f32; frames];
+        let mut right = vec![0.0_f32; frames];
+        for n in &notes {
+            mix_note(n, &mut left, &mut right);
+        }
+        let sounding = notes
+            .iter()
+            .map(|n| n.start + n.dur)
+            .fold(0.0_f32, f32::max);
+        normalise(&mut left, &mut right, perf.gain, sounding);
+        (left, right)
+    }
+
+    /// Render the whole schedule to a 16-bit stereo WAV byte vector. Always exactly
+    /// the event's window long — the schedule is trimmed to fit, never the reverse.
+    pub fn render_wav(&self, event: SignatureEvent) -> Vec<u8> {
+        let (left, right) = self.render_stereo(event);
+        encode_wav_stereo(&left, &right)
+    }
+
+    /// Render the whole schedule straight to a rodio [`SamplesBuffer`], ready to
+    /// hand to a [`rodio::Sink`] (and from there cpal) with no byte round-trip.
+    pub fn render_samples(&self, event: SignatureEvent) -> SamplesBuffer<f32> {
+        let (left, right) = self.render_stereo(event);
+        let mut interleaved = Vec::with_capacity(left.len() * 2);
+        for (l, r) in left.iter().zip(&right) {
+            interleaved.push(*l);
+            interleaved.push(*r);
+        }
+        SamplesBuffer::new(2, SAMPLE_RATE, interleaved)
+    }
 }
 
 const SAMPLE_RATE: u32 = 44_100;
-
-// The thing for an `<audio>` tag: `data:audio/wav;base64,...`
-pub fn signature_audio_src(sig: &SonicSignature, event: SignatureEvent) -> String {
-    let wav = render_wav(sig, event);
-    format!("data:audio/wav;base64,{}", STANDARD.encode(&wav))
-}
-
-/// Render the whole schedule to a 16-bit stereo WAV byte vector. Always exactly
-/// the event's window long — the schedule is trimmed to fit, never the reverse.
-pub fn render_wav(sig: &SonicSignature, event: SignatureEvent) -> Vec<u8> {
-    let perf = event.performance();
-    let notes = sig.schedule(event);
-    let frames = (perf.window * SAMPLE_RATE as f32).ceil() as usize;
-
-    let mut left = vec![0.0_f32; frames];
-    let mut right = vec![0.0_f32; frames];
-    for n in &notes {
-        mix_note(n, &mut left, &mut right);
-    }
-    let sounding = notes
-        .iter()
-        .map(|n| n.start + n.dur)
-        .fold(0.0_f32, f32::max);
-    normalise(&mut left, &mut right, perf.gain, sounding);
-    encode_wav_stereo(&left, &right)
-}
 
 /// How far the chorus voice's partner is detuned — about ten cents, enough to
 /// shimmer and not enough to sour.

@@ -1,9 +1,12 @@
 use std::collections::HashSet;
 use std::{pin::pin, sync::Arc};
 
+use crate::audio::AudioThread;
+use crate::call::play_signature_samples;
 use crate::member::ProfileStore;
+use crate::member::synth::SignatureEvent;
 use crate::member::user_data::handle_presence_update;
-use crate::room::call::CallMembers;
+use crate::room::call::{CallMember, CallMembers};
 use crate::state::UserDevice;
 use crate::{
     matrix_api::{hierarchy::run_space_hierarchy_update, save_session},
@@ -45,6 +48,57 @@ pub fn spawn_sync_runners(client: &Client, state: &AppState, own_device: Arc<Use
     client.add_event_handler(handle_member_event);
     client.add_event_handler(handle_presence_update);
     client.add_event_handler(handle_call_member_change);
+}
+
+/// Which members are in `new` but not `old`, and which are in `old` but
+/// not `new` — i.e. who joined and who left the call's Matrix roster.
+fn call_members_diff<'a>(
+    old: &'a CallMembers,
+    new: &'a CallMembers,
+) -> (Vec<&'a CallMember>, Vec<&'a CallMember>) {
+    let joined = new
+        .members
+        .iter()
+        .filter(|m| !old.members.iter().any(|o| o == *m))
+        .collect();
+    let left = old
+        .members
+        .iter()
+        .filter(|m| !new.members.iter().any(|n| n == *m))
+        .collect();
+    (joined, left)
+}
+
+/// Plays join/left sounds for whatever actually changed between two
+/// `CallMembers` snapshots (including our own join/leave), so they fire in
+/// step with what the UI's participant list shows rather than LiveKit's
+/// own connection events.
+///
+/// Gated on the Matrix roster itself (not on whether LiveKit has caught up
+/// yet): our own membership state event and our LiveKit connection aren't
+/// ordered relative to each other, so waiting for LiveKit to confirm we're
+/// in the call could miss our own join/leave entirely.
+fn play_call_members_diff_sounds(audio: &AudioThread, old: &CallMembers, new: &CallMembers) {
+    if !old.own_user_device_is_in_call() && !new.own_user_device_is_in_call() {
+        return;
+    }
+
+    let (joined, left) = call_members_diff(old, new);
+
+    for member in joined {
+        play_signature_samples(
+            audio,
+            member.calc_synth_sound(SignatureEvent::Joined),
+            SignatureEvent::Joined,
+        );
+    }
+    for member in left {
+        play_signature_samples(
+            audio,
+            member.calc_synth_sound(SignatureEvent::Left),
+            SignatureEvent::Left,
+        );
+    }
 }
 
 async fn run_keystore_save_stream(client: Client) {
@@ -209,9 +263,13 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
             dp_room.update_live_if_modified(|live| {
                 live.notification_counts = notifications;
             });
-            dp_room.call.members.set_if_modified(
-                CallMembers::new(&room, profile_store, &dp_room.call, &own_device).await,
-            );
+            let old_members = dp_room.call.members.get();
+            let new_members =
+                CallMembers::new(&room, profile_store, &dp_room.call, &own_device).await;
+            if let Some(audio) = state.audio() {
+                play_call_members_diff_sounds(&audio, &old_members, &new_members);
+            }
+            dp_room.call.members.set_if_modified(new_members);
         }
     });
 }

@@ -1,11 +1,12 @@
 use crate::{Shared, colors::DePlaceColor};
 use chrono::Duration;
 use profile::ProfileData;
+use rodio::buffer::SamplesBuffer;
 use std::{
     hash::{Hash, Hasher},
     sync::Arc,
 };
-use synth::SonicSignature;
+use synth::{SignatureEvent, SonicSignature};
 use user_data::{Presence, UserData};
 
 #[cfg(feature = "iced")]
@@ -140,5 +141,13 @@ impl Member {
 
     pub fn last_active_ago(&self) -> Option<Duration> {
         self.user_data.read().last_active_ago
+    }
+
+    pub fn calc_synth_sound(&self, event: SignatureEvent) -> SamplesBuffer<f32> {
+        self.user_data
+            .read()
+            .custom_data
+            .sonic_signature
+            .render_samples(event)
     }
 }

@@ -490,12 +490,14 @@ fn join_call(state: &AppState, room: DePlaceRoom) -> Option<HomeAction> {
     let manager = state.livekit_room_manager();
     let call_registry = state.call_registry();
     let calls_tick = state.calls_tick().clone();
+    let profile_store = state.profile_store();
 
     Some(HomeAction::Run(Task::future(async move {
         // The returned handle is already registered in the call registry,
         // from where the frontend can reach it via `call_registry.get`.
         if let Err(e) = deplace_core::matrix_api::matrixrtc::join_matrixrtc_call(
             room,
+            profile_store,
             device,
             manager,
             call_registry,

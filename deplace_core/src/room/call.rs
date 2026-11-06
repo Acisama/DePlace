@@ -2,6 +2,7 @@ use std::{hash::Hash, sync::Arc, time::SystemTime};
 
 use indexmap::IndexSet;
 use matrix_sdk::{Room, deserialized_responses::SyncOrStrippedState};
+use rodio::buffer::SamplesBuffer;
 use ruma::{
     OwnedDeviceId,
     events::{
@@ -13,7 +14,7 @@ use ruma::{
 use crate::{
     Member, OrderKey,
     call::{CallParticipantHandle, RoomCall, VolumeCell},
-    member::ProfileStore,
+    member::{ProfileStore, synth::SignatureEvent},
     state::UserDevice,
 };
 
@@ -157,6 +158,10 @@ impl CallMember {
     /// adjust how loud they play for us.
     pub fn handle(&self) -> &CallParticipantHandle {
         &self.handle
+    }
+
+    pub fn calc_synth_sound(&self, event: SignatureEvent) -> SamplesBuffer<f32> {
+        self.member.calc_synth_sound(event)
     }
 
     pub fn is_muted(&self) -> bool {
