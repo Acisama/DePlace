@@ -11,14 +11,15 @@ use crate::{
         help_mode::SidebarHelpKey,
         link::link,
         profile::{OpenProfileOverlayExt, RoomRenderExt},
-        volume_bar,
+        volume_bar::{self, volume_bar},
     },
 };
 
 use super::render_mention_badge;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum ChannelsMessage {
+    #[default]
     None,
     SetActiveRoom(DePlaceRoom),
     ToggleCategory(OwnedRoomId),
@@ -39,12 +40,6 @@ pub enum ChannelsMessage {
         participant: CallMember,
     },
     JoinCall(DePlaceRoom),
-}
-
-impl Default for ChannelsMessage {
-    fn default() -> Self {
-        ChannelsMessage::None
-    }
 }
 
 impl OpenProfileOverlayExt for ChannelsMessage {
@@ -578,6 +573,8 @@ fn render_channel(
             let participants = room.call().call_participants();
             let line_height = (item_height + structure.divider_width) * participants.len() as f32;
 
+            let user_in_call = room.call().own_user_device_is_in_call();
+
             column
                 .push(
                     w::container(w::stack![
@@ -593,6 +590,7 @@ fn render_channel(
                                 theme,
                                 structure,
                                 icon_size,
+                                user_in_call,
                             )
                         }))
                         .spacing(structure.divider_width)
@@ -628,26 +626,37 @@ fn render_call_participant(
     theme: Theme,
     structure: Structure,
     icon_size: f32,
+    user_in_call: bool,
 ) -> Element<'static, ChannelsMessage> {
     let room_id = room_id.to_owned();
     let hover_room_id = room_id.clone();
 
+    let mut view_row = vec![member.render_small_icon(icon_size)];
+
+    if user_in_call {
+        view_row.push(volume_bar(
+            member.volume(),
+            icon_size / 4.0,
+            icon_size,
+            volume_bar::Direction::BottomToTop,
+            Color::from_rgb8(255, 0, 0),
+            Color::from_rgb8(0, 255, 0),
+            theme.solid_bg.into(),
+            structure.smaller_border_radius,
+            theme.border.into(),
+            structure.border_thickness,
+        ));
+    }
+
+    view_row.push(member.render_name(structure.font_size));
+
     w::row![link(
         w::mouse_area(
             w::container(
-                w::row![
-                    member.render_small_icon(icon_size),
-                    volume_bar(
-                        member.volume(),
-                        400.0,
-                        icon_size,
-                        theme.colors.success.into()
-                    ),
-                    member.render_name(structure.font_size)
-                ]
-                .spacing(structure.small_gap)
-                .align_y(Alignment::Center)
-                .width(Fill),
+                w::Row::with_children(view_row)
+                    .spacing(structure.small_gap)
+                    .align_y(Alignment::Center)
+                    .width(Fill),
             )
             .padding(padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap),)
             .style(move |_| ContainerStyle {
