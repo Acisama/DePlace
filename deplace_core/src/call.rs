@@ -663,6 +663,11 @@ impl LiveKitCall {
                 state: encryption,
             } => {
                 let encryption = CallEncryptionState::from(*encryption);
+                if encryption != CallEncryptionState::Ok
+                    && encryption != CallEncryptionState::Unknown
+                {
+                    tracing::warn!("Call encryption problems with {participant:?}: {encryption:?}");
+                }
                 let id = CallParticipantId::from_identity(&participant.identity());
                 self.change_participant(&self.call_handle(&id), |p| p.encryption = encryption);
                 self.emit(CallEvent::EncryptionStateChanged {

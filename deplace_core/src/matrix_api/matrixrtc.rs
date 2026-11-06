@@ -12,7 +12,7 @@ use livekit::track::{RemoteAudioTrack, RemoteTrack};
 use matrix_sdk::Room;
 use matrix_sdk::deserialized_responses::{ProcessedToDeviceEvent, SyncOrStrippedState};
 use matrix_sdk::event_handler::Ctx;
-use matrix_sdk::ruma::api::client::rtc::RtcTransport;
+use matrix_sdk::ruma::api::client::rtc::{LiveKitRtcTransport, RtcTransport};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
@@ -265,6 +265,83 @@ impl LiveKitRoomData {
     }
 }
 
+/// Strips trailing slashes off a focus service url since every client joins
+/// through the focus as `focus_url + "/sfu/get"`, so a
+/// trailing slash in the foci we advertise turns into a double slash in
+/// theirs. This is horrible and kills other people
+fn normalize_focus_url(url: &str) -> String {
+    url.trim_end_matches('/').to_owned()
+}
+
+/// The LiveKit focus url the ongoing call in this room agreed on: the
+/// `foci_preferred` of its oldest active membership, which every
+/// `oldest_membership` client follows when joining. `None` when no call
+/// is ongoing or its memberships carry no LiveKit focus.
+///
+/// The focus decides which SFU is used for our jwt, and the SFU derives the
+/// LiveKit room from it. Joining through any other focus  lands us in a
+/// room of our own: silent to the whole call both ways, with everyone
+/// showing everyone else as waiting for media. The same foci we write
+/// into our own membership carry it on to whoever joins after us.
+async fn ongoing_call_focus(room: &Room) -> Option<String> {
+    let events = room
+        .get_state_events_static::<CallMemberEventContent>()
+        .await
+        .ok()?;
+
+    let mut oldest: Option<(MilliSecondsSinceUnixEpoch, String)> = None;
+
+    for raw in events {
+        let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
+            continue;
+        };
+        let SyncStateEvent::Original(ev) = ev else {
+            continue;
+        };
+        let CallMemberEventContent::SessionContent(session) = &ev.content else {
+            continue;
+        };
+
+        let focus_url = session.foci_preferred.iter().find_map(|focus| match focus {
+            Focus::Livekit(focus) => Some(normalize_focus_url(&focus.service_url)),
+            _ => None,
+        });
+
+        // The oldest membership decides, and its own created_ts is often
+        // unset, so the age of its state event carries that meaning here
+        if let Some(focus_url) = focus_url
+            && oldest
+                .as_ref()
+                .is_none_or(|(ts, _)| ev.origin_server_ts < *ts)
+        {
+            oldest = Some((ev.origin_server_ts, focus_url));
+        }
+    }
+
+    oldest.map(|(_, url)| url)
+}
+
+/// Logs the LiveKit identity and room the SFU assigned us in its jwt.
+///
+/// Call problems between clients almost always come down to one side
+/// ending up under a different identity or room than the others expect,
+/// and this line is the first thing to compare between them.
+fn log_sfu_assignment(sfu_jwt: &str) {
+    if let Some(claims) = sfu_jwt
+        .split('.')
+        .nth(1)
+        .and_then(|payload| general_purpose::URL_SAFE_NO_PAD.decode(payload).ok())
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    {
+        let identity = claims.get("sub").cloned().unwrap_or_default();
+        let livekit_room = claims.pointer("/video/room").cloned().unwrap_or_default();
+        event!(
+            Level::INFO,
+            "The SFU assigned us the LiveKit identity {identity} in the LiveKit room {livekit_room}"
+        );
+    }
+}
+
 pub async fn join_matrixrtc_call(
     room: DePlaceRoom,
     own_device: Arc<UserDevice>,
@@ -284,12 +361,34 @@ pub async fn join_matrixrtc_call(
     let default_livekit_focus_info = rtc_foci
         .iter()
         .find_map(|focus| match focus {
-            RtcTransport::LiveKit(info) => Some(info),
+            RtcTransport::LiveKit(info) => Some(LiveKitRtcTransport::new(normalize_focus_url(
+                &info.service_url,
+            ))),
             _ => None,
         })
         .ok_or_else(|| anyhow!("No rtc focus information found"))?;
 
-    let jwt_url = default_livekit_focus_info.service_url.clone() + "/sfu/get";
+    // The focus the call actually runs on: whatever discovery returns
+    // fresh for us, or whatever an ongoing call already agreed on.
+    let livekit_focus_info = match ongoing_call_focus(&room.room).await {
+        Some(call_focus) if call_focus != default_livekit_focus_info.service_url => {
+            event!(
+                Level::INFO,
+                "Joining the ongoing call through the focus of its oldest member ({call_focus}) instead of ours ({}), so we land in the same LiveKit room",
+                default_livekit_focus_info.service_url
+            );
+            LiveKitRtcTransport::new(call_focus)
+        }
+        _ => default_livekit_focus_info.clone(),
+    };
+
+    event!(
+        Level::INFO,
+        "Joining the call through the SFU focus {}",
+        livekit_focus_info.service_url
+    );
+
+    let jwt_url = livekit_focus_info.service_url.clone() + "/sfu/get";
 
     let openid_token = matrix_sdk::Account::request_openid_token(&matrix_client.account())
         .await
@@ -334,6 +433,7 @@ pub async fn join_matrixrtc_call(
     let jwt = response_json["jwt"].as_str().context("No jwt returned")?;
 
     event!(Level::INFO, "Successfully acquired LiveKit token");
+    log_sfu_assignment(jwt);
 
     let canonical_room_id = room_id.to_string();
     let canonical_room = room_id.to_owned();
@@ -350,7 +450,7 @@ pub async fn join_matrixrtc_call(
         matrix_sdk::ruma::events::call::member::ActiveFocus::Livekit(ActiveLivekitFocus::new()),
         vec![Focus::Livekit(LivekitFocus::new(
             canonical_room_id.clone(),
-            default_livekit_focus_info.service_url.to_string(),
+            livekit_focus_info.service_url.to_string(),
         ))],
         None,
         None,
