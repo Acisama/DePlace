@@ -207,4 +207,15 @@ impl DePlaceRoom {
     pub fn has_call(&self) -> bool {
         self.call().call_participants_count() > 0
     }
+
+    pub fn any_is_screensharing(&self) -> bool {
+        self.has_call()
+            && self
+                .call
+                .members
+                .read()
+                .members
+                .iter()
+                .any(|m| m.is_screensharing())
+    }
 }

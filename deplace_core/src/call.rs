@@ -122,7 +122,7 @@ impl Default for CallParticipant {
     fn default() -> Self {
         Self {
             speaking: false,
-            muted: true,
+            muted: false,
             screensharing: false,
             encryption: CallEncryptionState::NotConnected,
         }

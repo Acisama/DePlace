@@ -42,6 +42,8 @@ pub const DEFAULT_ROOM_ICON: &str = icons::hash::BOLD;
 pub const MIC_ICON: &str = icons::microphone::FILL;
 pub const MUTE_ICON: &str = icons::microphone_slash::FILL;
 
+pub const SCREENSHARING_ICON: &str = icons::monitor::BOLD;
+
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
     Chat {

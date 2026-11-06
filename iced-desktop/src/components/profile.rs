@@ -23,7 +23,7 @@ use iced::{
 
 use crate::{
     common::{structure, theme, themed_tooltip_content},
-    modules::home::{DEFAULT_ROOM_ICON, SPACE_ICON, SPEAKER_ICON},
+    modules::home::{DEFAULT_ROOM_ICON, SCREENSHARING_ICON, SPACE_ICON, SPEAKER_ICON},
 };
 
 use super::{
@@ -234,7 +234,14 @@ impl RoomRenderExt for DePlaceRoom {
 
         match self.room_type() {
             DePlaceRoomType::Call => {
-                let icon = phosphor_icon(SPEAKER_ICON, size);
+                let icon = phosphor_icon(
+                    if self.any_is_screensharing() {
+                        SCREENSHARING_ICON
+                    } else {
+                        SPEAKER_ICON
+                    },
+                    size,
+                );
 
                 if self.has_call() {
                     icon.color(theme.colors.success).into()
