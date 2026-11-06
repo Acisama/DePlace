@@ -37,12 +37,14 @@ pub mod tile_background;
 pub mod tooltip;
 pub mod track_bounds;
 pub mod track_scroll;
+pub mod volume_bar;
 
 pub use corner_badge::{CornerContent, corner_badge};
 pub use elapsed_seconds::elapsed_seconds;
 pub use fills_parent::fills_parent;
 pub use on_appear::on_appear;
 pub use pan::pan;
+pub use volume_bar::volume_bar;
 
 use crate::common::DePlaceWidget;
 
