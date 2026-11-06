@@ -157,6 +157,10 @@ impl CallMember {
         self.handle.participant.read().muted
     }
 
+    pub fn is_speaking(&self) -> bool {
+        !self.is_muted() && self.handle.participant.read().speaking
+    }
+
     pub fn is_screensharing(&self) -> bool {
         self.handle.participant.read().screensharing
     }

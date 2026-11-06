@@ -102,7 +102,7 @@ pub struct Structure {
     pub large_font_size: f32,
     pub gap: f32,
     pub small_gap: f32,
-    pub icon_gap: f32,
+    pub icon_gap_ratio: f32,
     pub settings: Settings,
     pub authentification: Authentification,
 }
@@ -118,7 +118,7 @@ impl Default for Structure {
         Self {
             gap,
             small_gap,
-            icon_gap: 0.175,
+            icon_gap_ratio: 0.175,
             inner_border_radius,
             outer_border_radius,
             smaller_border_radius,

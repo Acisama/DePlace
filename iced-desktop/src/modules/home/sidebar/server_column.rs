@@ -212,7 +212,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         )),
                     ),
                     0.4,
-                    structure.icon_gap,
+                    structure.icon_gap_ratio,
                     theme.solid_bg,
                 );
 

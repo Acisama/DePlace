@@ -3,7 +3,10 @@ use iced::{Alignment, Length, border::Radius};
 
 use crate::{
     common::*,
-    components::{InsetShadow, PushElement, volume_bar::Direction},
+    components::{
+        InsetShadow, PushElement, profile::render_icon_with_has_speaking_circle,
+        volume_bar::Direction,
+    },
 };
 
 use super::ChatMessage;
@@ -52,12 +55,14 @@ pub fn render_call_members(
 
             row = row.push_element(
                 w::stack![
-                    w::container(member.render_icon(icon_size))
-                        .colored_rounded(color.to_iced().scale_lightness(0.2), rounding)
-                        .width(Fill)
-                        .height(height)
-                        .align_x(Alignment::Center)
-                        .align_y(Alignment::Center),
+                    w::container(render_icon_with_has_speaking_circle(
+                        member, theme, structure, icon_size, true
+                    ))
+                    .colored_rounded(color.to_iced().scale_lightness(0.2), rounding)
+                    .width(Fill)
+                    .height(height)
+                    .align_x(Alignment::Center)
+                    .align_y(Alignment::Center),
                     Canvas::new(InsetShadow::new(rounding, color, icon_size / 8.0, 8))
                         .width(Fill)
                         .height(height),

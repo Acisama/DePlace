@@ -1,7 +1,7 @@
 use deplace_core::{
     Avatar, DePlaceRoom, ProfileLike,
     member::{Member, user_data::Presence},
-    room::DePlaceRoomType,
+    room::{DePlaceRoomType, call::CallMember},
     settings::NameDecoration,
     structure::Structure,
     theme::Theme,
@@ -395,7 +395,7 @@ pub fn render_presence_badge<'a, T: 'a>(
     };
 
     let ratio = 0.25;
-    let bg_circle_size = structure.icon_gap;
+    let bg_circle_size = structure.icon_gap_ratio;
 
     w::stack![
         icon,
@@ -436,7 +436,7 @@ pub fn render_banner_column<'a, T: CopyUserIdExt + Clone + 'a>(
     let sidebar = structure.chat.sidebar;
 
     let icon_size = sidebar.large_icon_size;
-    let icon_gap = structure.icon_gap * icon_size;
+    let icon_gap = structure.icon_gap_ratio * icon_size;
     let bg_icon_size = icon_size + icon_gap;
 
     let id = member.user_id().to_owned();
@@ -592,4 +592,34 @@ pub fn render_row_of_icons<'a, T: 'a, Profile: ProfileLike>(
         .height(outer_width)
         .center_y(outer_width)
         .boxed()
+}
+
+pub fn render_icon_with_has_speaking_circle<'a, T: 'a>(
+    member: &CallMember,
+    theme: Theme,
+    structure: Structure,
+    icon_size: f32,
+    big: bool,
+) -> Element<'a, T> {
+    let gap = structure.icon_gap_ratio * icon_size / 4.0;
+    let is_speaking = member.is_speaking();
+
+    w::container(if big {
+        member.render_icon(icon_size)
+    } else {
+        member.render_small_icon(icon_size)
+    })
+    .style(move |_| {
+        w::container::Style::default().border(Border {
+            color: if is_speaking {
+                theme.colors.success.into()
+            } else {
+                Color::TRANSPARENT
+            },
+            width: gap,
+            radius: (icon_size + gap).into(),
+        })
+    })
+    .padding(gap * 3.0)
+    .boxed()
 }

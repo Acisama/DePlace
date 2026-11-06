@@ -13,7 +13,7 @@ use crate::{
         help_mode::SidebarHelpKey,
         link::link,
         phosphor_icon,
-        profile::{OpenProfileOverlayExt, RoomRenderExt},
+        profile::{OpenProfileOverlayExt, RoomRenderExt, render_icon_with_has_speaking_circle},
         volume_bar::{self, volume_bar},
     },
     modules::home::MUTE_ICON,
@@ -635,7 +635,9 @@ fn render_call_participant(
     let room_id = room_id.to_owned();
     let hover_room_id = room_id.clone();
 
-    let mut view_row = vec![member.render_small_icon(icon_size)];
+    let mut view_row = vec![render_icon_with_has_speaking_circle(
+        &member, theme, structure, icon_size, false,
+    )];
 
     if user_in_call {
         view_row.push(volume_bar(
