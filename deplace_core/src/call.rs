@@ -113,6 +113,8 @@ impl CallParticipantHandle {
 pub struct CallParticipant {
     pub speaking: bool,
     pub muted: bool,
+    /// Whether they share their screen right now
+    pub screensharing: bool,
     pub encryption: CallEncryptionState,
 }
 
@@ -121,6 +123,7 @@ impl Default for CallParticipant {
         Self {
             speaking: false,
             muted: true,
+            screensharing: false,
             encryption: CallEncryptionState::NotConnected,
         }
     }
@@ -597,6 +600,7 @@ impl LiveKitCall {
                     *p = CallParticipant {
                         speaking: false,
                         muted: true,
+                        screensharing: false,
                         encryption: CallEncryptionState::Unknown,
                     }
                 });
@@ -651,12 +655,26 @@ impl LiveKitCall {
                 let muted = publication.is_muted();
                 self.change_participant(&self.call_handle(&id), |p| p.muted = muted);
             }
+            RoomEvent::TrackPublished {
+                participant,
+                publication,
+            } if publication.source() == TrackSource::Screenshare => {
+                let id = CallParticipantId::from_identity(&participant.identity());
+                self.change_participant(&self.call_handle(&id), |p| p.screensharing = true);
+            }
             RoomEvent::TrackUnpublished {
                 participant,
                 publication,
             } if publication.source() == TrackSource::Microphone => {
                 let id = CallParticipantId::from_identity(&participant.identity());
                 self.change_participant(&self.call_handle(&id), |p| p.muted = true);
+            }
+            RoomEvent::TrackUnpublished {
+                participant,
+                publication,
+            } if publication.source() == TrackSource::Screenshare => {
+                let id = CallParticipantId::from_identity(&participant.identity());
+                self.change_participant(&self.call_handle(&id), |p| p.screensharing = false);
             }
             RoomEvent::E2eeStateChanged {
                 participant,
@@ -708,6 +726,9 @@ fn participant_from_publications(publications: &[RemoteTrackPublication]) -> Cal
     CallParticipant {
         speaking: false,
         muted: microphones.next().is_none_or(|p| p.is_muted()),
+        screensharing: publications
+            .iter()
+            .any(|publication| publication.source() == TrackSource::Screenshare),
         encryption: CallEncryptionState::Unknown,
     }
 }
