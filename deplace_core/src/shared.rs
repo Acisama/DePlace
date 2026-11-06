@@ -13,6 +13,15 @@ pub struct Shared<T> {
     pub(crate) version: AtomicU64,
 }
 
+impl<T: Default> Default for Shared<T> {
+    fn default() -> Self {
+        Self {
+            data: ArcSwap::from_pointee(T::default()),
+            version: AtomicU64::new(0),
+        }
+    }
+}
+
 impl<T: Hash> Hash for Shared<T> {
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
         self.data.load().hash(h);

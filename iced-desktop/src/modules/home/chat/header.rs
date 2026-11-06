@@ -60,7 +60,7 @@ impl ExtraHash for Header {
         self.media_processor.current_download().hash(state);
         self.media_processor.current_compression().hash(state);
 
-        self.room.hash_selective(state, true, true, true);
+        self.room.hash_selective(state, true, false, false, true);
     }
 }
 
@@ -137,7 +137,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             )
         };
 
-        let is_in_call = self.room.live().own_user_device_is_in_call();
+        let is_in_call = self.room.call().own_user_device_is_in_call();
 
         let download = self.media_processor.current_download();
         let compression = self.media_processor.current_compression();

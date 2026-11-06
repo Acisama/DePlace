@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use deplace_core::{room::live::CallMember, settings::NameDecoration, state::ActiveServer};
+use deplace_core::{room::call::CallMember, settings::NameDecoration, state::ActiveServer};
 use iced::{Alignment, border::Radius};
 use macros::{iced_cache, iced_icon};
 
@@ -87,7 +87,7 @@ impl ExtraHash for ServerChannels {
 
         if let Some(server) = self.active_server.borrow().as_server() {
             for room in self.room_store.get_all_children(server.room_id()) {
-                room.hash_selective(state, false, true, false);
+                room.hash_selective(state, true, true, false, true);
             }
         }
     }
@@ -562,7 +562,7 @@ fn render_channel(
         if !room.is_dm() {
             let item_height = icon_size + structure.small_gap;
 
-            let participants = live.call_participants();
+            let participants = room.call().call_participants();
             let line_height = (item_height + structure.divider_width) * participants.len() as f32;
 
             column

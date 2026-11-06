@@ -1,26 +1,18 @@
 use std::collections::HashSet;
 use std::{pin::pin, sync::Arc};
 
-use futures_util::StreamExt;
-use indexmap::IndexSet;
-use matrix_sdk::{
-    Client, Room, config::SyncSettings, deserialized_responses::SyncOrStrippedState,
-    ruma::presence::PresenceState, sync::SyncResponse,
-};
-use matrix_sdk_base::RoomInfoNotableUpdateReasons;
-use ruma::RoomId;
-use ruma::events::call::member::CallMemberEventContent;
-
-use crate::OrderKey;
 use crate::member::ProfileStore;
 use crate::member::user_data::handle_presence_update;
-use crate::room::live::CallMember;
+use crate::room::call::CallMembers;
 use crate::state::UserDevice;
 use crate::{
     matrix_api::{hierarchy::run_space_hierarchy_update, save_session},
     notifications::on_message,
     state::AppState,
 };
+use futures_util::StreamExt;
+use matrix_sdk::{Client, config::SyncSettings, ruma::presence::PresenceState, sync::SyncResponse};
+use matrix_sdk_base::RoomInfoNotableUpdateReasons;
 
 #[cfg(feature = "iced")]
 use crate::{Avatar, big_thumbnail_format};
@@ -204,54 +196,15 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
             }
 
             let notifications = room.unread_notification_counts().into();
-            let call_participants = compute_call_participants(&room, &room_id, profile_store).await;
 
             dp_room.update_live_if_modified(|live| {
                 live.notification_counts = notifications;
-                live.call_participants = call_participants.clone();
-                live.calculate_own_call(&own_device);
             });
+            dp_room.call.members.set_if_modified(
+                CallMembers::new(&room, profile_store, &dp_room.call, &own_device).await,
+            );
         }
     });
-}
-
-async fn compute_call_participants(
-    room: &Room,
-    room_id: &RoomId,
-    profile_store: &ProfileStore,
-) -> IndexSet<CallMember> {
-    let mut call_participants = IndexSet::new();
-
-    if room.has_active_room_call() {
-        let events = match room
-            .get_state_events_static::<CallMemberEventContent>()
-            .await
-        {
-            Ok(events) => events,
-            Err(e) => {
-                tracing::error!("Failed to get call member events: {e}");
-                Vec::new()
-            }
-        };
-
-        for raw in events {
-            let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
-                continue;
-            };
-            let matrix_sdk::ruma::events::SyncStateEvent::Original(ev) = ev else {
-                continue;
-            };
-            let member = profile_store.get_member(room_id, ev.state_key.user_id());
-
-            for membership in ev.content.active_memberships(Some(ev.origin_server_ts)) {
-                call_participants.insert(CallMember::new(&membership, member.clone()));
-            }
-        }
-    }
-
-    call_participants.sort_by_cached_key(|p| p.member.order_key());
-
-    call_participants
 }
 
 pub(crate) fn spawn_initial_load(
@@ -274,13 +227,9 @@ pub(crate) fn spawn_initial_load(
                 continue;
             };
 
-            let call_participants =
-                compute_call_participants(&room, room.room_id(), &profile_store).await;
-
-            dp_room.update_live_if_modified(|live| {
-                live.call_participants = call_participants.clone();
-                live.calculate_own_call(&own_device);
-            });
+            dp_room.call.members.set_if_modified(
+                CallMembers::new(&room, &profile_store, &dp_room.call, &own_device).await,
+            );
         }
 
         let user_ids: Vec<_> = user_ids.into_iter().collect();

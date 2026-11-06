@@ -77,6 +77,8 @@ pub enum ChatAction {
 
 #[iced_cache(Clone)]
 pub struct Chat {
+    pub room: DePlaceRoom,
+
     #[hash]
     header: Header,
     #[hash]
@@ -271,6 +273,7 @@ impl Chat {
                 sidebar: Sidebar::new(&room),
 
                 room_id: room.room_id().to_owned(),
+                room: room.clone(),
             },
             Task::stream(stream).map(move |msg| (room_id.clone(), msg)),
         )

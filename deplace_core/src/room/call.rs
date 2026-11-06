@@ -1,0 +1,151 @@
+use std::{hash::Hash, sync::Arc, time::SystemTime};
+
+use indexmap::IndexSet;
+use matrix_sdk::{Room, deserialized_responses::SyncOrStrippedState};
+use ruma::{
+    OwnedDeviceId,
+    events::{
+        call::member::{CallMemberEventContent, MembershipData},
+        rtc::notification::CallIntent,
+    },
+};
+
+use crate::{
+    Member, OrderKey,
+    call::{CallParticipantHandle, RoomCall},
+    member::ProfileStore,
+    state::UserDevice,
+};
+
+#[derive(Clone, Debug, Default, PartialEq, Hash)]
+pub struct CallMembers {
+    pub(crate) members: Vec<CallMember>,
+    pub(crate) own_user_is_in_call: bool,
+    pub(crate) own_user_device_is_in_call: bool,
+}
+
+impl CallMembers {
+    pub(crate) async fn new(
+        room: &Room,
+        profile_store: &ProfileStore,
+        call: &RoomCall,
+        own_device: &UserDevice,
+    ) -> Self {
+        let mut call_participants = IndexSet::new();
+
+        let room_id = room.room_id();
+
+        if room.has_active_room_call() {
+            let events = match room
+                .get_state_events_static::<CallMemberEventContent>()
+                .await
+            {
+                Ok(events) => events,
+                Err(e) => {
+                    tracing::error!("Failed to get call member events: {e}");
+                    Vec::new()
+                }
+            };
+
+            for raw in events {
+                let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
+                    continue;
+                };
+                let matrix_sdk::ruma::events::SyncStateEvent::Original(ev) = ev else {
+                    continue;
+                };
+                let member = profile_store.get_member(room_id, ev.state_key.user_id());
+
+                for membership in ev.content.active_memberships(Some(ev.origin_server_ts)) {
+                    call_participants.insert(CallMember::new(&membership, member.clone(), call));
+                }
+            }
+        }
+
+        call_participants.sort_by_cached_key(|p| p.member.order_key());
+
+        let mut members = CallMembers {
+            members: call_participants.into_iter().collect(),
+            own_user_is_in_call: false,
+            own_user_device_is_in_call: false,
+        };
+        members.calculate_own_call(own_device);
+        members
+    }
+
+    pub(crate) fn calculate_own_call(&mut self, own_device: &UserDevice) {
+        self.own_user_is_in_call = false;
+        self.own_user_device_is_in_call = false;
+
+        for part in &self.members {
+            if self.own_user_device_is_in_call && self.own_user_is_in_call {
+                return;
+            }
+
+            if part.member.user_id() != own_device.user_id {
+                continue;
+            }
+
+            self.own_user_is_in_call = true;
+            if part.device_id.as_ref() == &own_device.device_id {
+                self.own_user_device_is_in_call = true;
+            }
+        }
+    }
+
+    pub fn own_user_is_in_call(&self) -> bool {
+        self.own_user_is_in_call
+    }
+
+    pub fn own_user_device_is_in_call(&self) -> bool {
+        self.own_user_device_is_in_call
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CallMember {
+    pub member: Member,
+    pub device_id: Arc<OwnedDeviceId>,
+    pub call_intent: Arc<CallIntent>,
+    pub created: Option<SystemTime>,
+
+    handle: Arc<CallParticipantHandle>,
+}
+impl Hash for CallMember {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.member.hash_selective(state, false, true, true, true);
+        self.device_id.hash(state);
+        self.handle.participant.hash(state);
+    }
+}
+
+impl PartialEq for CallMember {
+    fn eq(&self, other: &Self) -> bool {
+        self.member == other.member && self.device_id == other.device_id
+    }
+}
+
+impl Eq for CallMember {}
+
+impl CallMember {
+    pub(crate) fn new(membership: &MembershipData, member: Member, call: &RoomCall) -> Self {
+        let user_id = member.user_id().to_owned();
+        let device_id = membership.device_id().to_owned();
+
+        let handle = call.call_handle(user_id, device_id.clone());
+
+        Self {
+            member,
+            device_id: Arc::new(device_id),
+            call_intent: Arc::new(
+                membership
+                    .call_intent()
+                    .cloned()
+                    .unwrap_or(CallIntent::Audio),
+            ),
+            created: membership.created_ts().and_then(|s| s.to_system_time()),
+
+            handle,
+        }
+    }
+}

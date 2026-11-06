@@ -58,7 +58,7 @@ pub struct MemberList {
 
 impl ExtraHash for MemberList {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.room.hash_selective(state, false, true, false);
+        self.room.hash_selective(state, false, false, false, true);
     }
 }
 
@@ -205,8 +205,6 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                 );
             };
 
-        let live = self.room.live();
-
         let mut row = render_member_numbers(
             online_members.len(),
             offline_members.len(),
@@ -216,8 +214,8 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
             true,
         );
 
-        if live.has_call_participants() {
-            let length = live.call_participants().len();
+        if self.room.has_call() {
+            let length = self.room.call().call_participants_count();
 
             row = row.push_element(themed_tooltip_text(
                 help_view
@@ -227,7 +225,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                         w::row![
                             phosphor_icon(MIC_ICON, structure.semi_large_font_size() * 0.9)
                                 .color(theme.colors.offline.into()),
-                            w::text(live.call_participants_count())
+                            w::text(length)
                                 .size(structure.semi_large_font_size())
                                 .color(theme.colors.offline)
                         ]

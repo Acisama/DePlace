@@ -57,7 +57,7 @@ pub struct ServerColumn {
 impl ExtraHash for ServerColumn {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         for room in self.room_store.dm_rooms().iter() {
-            room.hash_selective(state, false, true, true);
+            room.hash_selective(state, false, true, true, true);
         }
 
         for server_id in self.room_store.servers().iter() {
@@ -65,7 +65,7 @@ impl ExtraHash for ServerColumn {
                 room.hash_all(state);
             }
             for child in self.room_store.get_all_children(server_id) {
-                child.hash_selective(state, false, true, true);
+                child.hash_selective(state, false, true, true, true);
             }
         }
     }
@@ -170,7 +170,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
 
                 let notifications = live.notification_counts();
 
-                let has_call = live.call_participants_count() > 0;
+                let has_call = room.has_call();
 
                 let num =
                     if notifications.highlight_count > 0 || notifications.notification_count > 0 {
@@ -216,7 +216,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     theme.solid_bg,
                 );
 
-                let own_user_in_call = live.own_user_is_in_call();
+                let own_user_in_call = room.call().own_user_is_in_call();
                 if has_call {
                     badge = badge.tr(CornerContent::Icon {
                         svg_content: SPEAKER_ICON,
@@ -352,10 +352,12 @@ fn render_server_icon(
         let live = child.live();
         counts += live.notification_counts();
 
-        if child.has_active_call() {
+        if child.has_call() {
+            let call = child.call();
+
             has_call |= true;
-            own_user_in_call |= live.own_user_is_in_call();
-            call_members.push(live.call_participants());
+            own_user_in_call |= call.own_user_is_in_call();
+            call_members.push(call.call_participants());
         }
 
         let members = child.members_ref();

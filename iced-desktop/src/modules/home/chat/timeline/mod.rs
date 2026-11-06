@@ -160,7 +160,7 @@ pub struct ChatTimeline {
 
 impl ExtraHash for ChatTimeline {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.room.hash_selective(state, false, true, true);
+        self.room.hash_selective(state, false, true, true, false);
 
         if self.hovered_item_id.is_some() {
             self.scrolled_from_top.to_bits().hash(state);

@@ -410,8 +410,8 @@ impl Home {
                         message,
                     }
                 }))),
-                ChatAction::JoinCall => join_call(&self.state, &chat.room_id),
-                ChatAction::LeaveCall => leave_call(&self.state, &chat.room_id),
+                ChatAction::JoinCall => join_call(&self.state, chat.room.clone()),
+                ChatAction::LeaveCall => leave_call(&self.state, &chat.room),
                 ChatAction::ShowProfile { member, bounds } => {
                     chat.clear_hover();
                     self.overlay.open_profile(member, bounds);
@@ -462,55 +462,68 @@ impl Home {
 
 /// Joins the MatrixRTC call in a room: gets a LiveKit token from the room's
 /// RTC focus, signals the join to the room and plays all call audio there
-fn join_call(state: &AppState, room_id: &RoomId) -> Option<HomeAction> {
+fn join_call(state: &AppState, room: DePlaceRoom) -> Option<HomeAction> {
     let Some(audio) = state.audio() else {
-        tracing::warn!("Not joining the call in {room_id}: no audio connection");
+        tracing::warn!(
+            "Not joining the call in {}: no audio connection",
+            room.room_id()
+        );
         return None;
     };
 
-    let join = deplace_core::matrix_api::matrixrtc::join_matrixrtc_call(
-        state.client(),
-        room_id.to_string(),
-        state.livekit_room_manager(),
-        state.call_registry(),
-        audio,
-    );
+    let device = state.own_device();
+    let manager = state.livekit_room_manager();
+    let call_registry = state.call_registry();
 
     Some(HomeAction::Run(Task::future(async move {
         // The returned handle is already registered in the call registry,
         // from where the frontend can reach it via `call_registry.get`.
-        if let Err(e) = join.await {
+        if let Err(e) = deplace_core::matrix_api::matrixrtc::join_matrixrtc_call(
+            room,
+            &device,
+            manager,
+            call_registry,
+            audio,
+        )
+        .await
+        {
             tracing::error!("Could not join the call: {e:#}");
         }
     })))
 }
 
 /// Leaves the MatrixRTC call in a room, if there is one
-fn leave_call(state: &AppState, room_id: &RoomId) -> Option<HomeAction> {
-    let call = state.call_registry().get(room_id);
+fn leave_call(state: &AppState, room: &DePlaceRoom) -> Option<HomeAction> {
+    let call = state.call_registry().get(room.room_id());
 
     if call.is_none() {
         // No live call is known, but the room can still list us as in the
         // call,  a leftover from a crashed session or a join that failed
         // halfway. Withdrawing the membership still lets the user leave.
-        tracing::warn!("No live call known in {room_id}, withdrawing the call membership anyway");
+        tracing::warn!(
+            "No live call known in {}, withdrawing the call membership anyway",
+            room.room_id()
+        );
     }
 
-    let client = state.client();
     let livekit_room_manager = state.livekit_room_manager();
-    let room_id = room_id.to_owned();
+    let own_device = state.own_device();
+    let room = room.room.clone();
 
     Some(HomeAction::Run(Task::future(async move {
         if let Some(call) = call {
-            call.leave().await;
+            call.leave(&own_device).await;
         } else if let Err(e) = deplace_core::matrix_api::matrixrtc::leave_matrixrtc_call(
-            client,
+            &room,
+            &own_device,
             livekit_room_manager,
-            room_id.to_string(),
         )
         .await
         {
-            tracing::error!("Could not withdraw the call membership in {room_id}: {e:#}");
+            tracing::error!(
+                "Could not withdraw the call membership in {}: {e:#}",
+                room.room_id()
+            );
         }
     })))
 }

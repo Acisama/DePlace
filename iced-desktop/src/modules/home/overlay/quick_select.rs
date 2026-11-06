@@ -48,7 +48,7 @@ impl ExtraHash for QuickSelect {
         self.name_decoration.borrow().hash(state);
 
         for room in self.room_store.get_all_rooms() {
-            room.hash_selective(state, true, false, false);
+            room.hash_selective(state, true, false, false, false);
         }
     }
 }

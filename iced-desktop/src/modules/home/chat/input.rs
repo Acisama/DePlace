@@ -196,7 +196,7 @@ pub struct ChatInput {
 
 impl ExtraHash for ChatInput {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.room.hash_selective(state, true, false, true);
+        self.room.hash_selective(state, true, false, false, false);
     }
 }
 

@@ -10,9 +10,11 @@ use tokio::sync::OnceCell;
 
 use crate::{
     Shared,
+    call::RoomCall,
     member::{Member, ProfileStore, room::RoomMembers},
 };
 
+pub mod call;
 pub mod hierarchy;
 pub mod info;
 pub mod live;
@@ -71,6 +73,7 @@ pub struct DePlaceRoom {
     pub(crate) live: Arc<Shared<RoomLive>>,
     pub(crate) members: Arc<RoomMembers>,
     timelines: Arc<OnceCell<RoomTimelines>>,
+    pub(crate) call: Arc<RoomCall>,
 }
 
 impl DePlaceRoom {
@@ -86,6 +89,7 @@ impl DePlaceRoom {
             live: Arc::new(Shared::new(RoomLive::new(room))),
             members,
             timelines: Arc::new(OnceCell::new()),
+            call: Arc::new(RoomCall::default()),
         }
     }
 
@@ -100,7 +104,14 @@ impl DePlaceRoom {
             .cloned()
     }
 
-    pub fn hash_selective<H: Hasher>(&self, state: &mut H, info: bool, live: bool, members: bool) {
+    pub fn hash_selective<H: Hasher>(
+        &self,
+        state: &mut H,
+        info: bool,
+        live: bool,
+        members: bool,
+        call: bool,
+    ) {
         self.room_id.hash(state);
 
         if members {
@@ -112,10 +123,13 @@ impl DePlaceRoom {
         if live {
             self.live.version().hash(state);
         }
+        if call {
+            self.call.members.read().hash(state);
+        }
     }
 
     pub fn hash_all<H: Hasher>(&self, state: &mut H) {
-        self.hash_selective(state, true, true, true);
+        self.hash_selective(state, true, true, true, true);
     }
 
     pub fn room_id(&self) -> &RoomId {
@@ -164,10 +178,6 @@ impl DePlaceRoom {
         self.room_type
     }
 
-    pub fn has_active_call(&self) -> bool {
-        !self.live.data.load().call_participants.is_empty()
-    }
-
     pub fn get_input_placeholder(&self) -> String {
         let name = self.info.data.load().display_string();
         if self.room_type.is_direct() {
@@ -187,5 +197,13 @@ impl DePlaceRoom {
             .display_name
             .clone()
             .map(|s| s.to_lowercase())
+    }
+
+    pub fn call(&self) -> &RoomCall {
+        &self.call
+    }
+
+    pub fn has_call(&self) -> bool {
+        self.call().call_participants_count() > 0
     }
 }

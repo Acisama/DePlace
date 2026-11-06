@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use colors::DePlaceColor;
-use room::live::CallMember;
+use room::call::CallMember;
 use ruma::{OwnedRoomId, OwnedUserId, uint};
 
 use matrix_sdk::{
