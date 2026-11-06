@@ -274,6 +274,7 @@ jobs:
           sudo apt-get remove -y 'libunwind-*' || true
           sudo apt-get install -y \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
+            libasound2-dev \
             pkg-config build-essential dpkg-dev
 
       - name: Install clang 21
