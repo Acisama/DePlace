@@ -26,7 +26,7 @@ use crate::DePlaceRoom;
 use crate::audio::{AudioThread, Microphone};
 use crate::call::{
     CallConnectionState, CallEndReason, CallEvent, CallParticipantHandle, CallParticipantId,
-    CallRegistry, LiveKitCall,
+    CallRegistry, LivekitCall,
 };
 use crate::state::{AppState, UserDevice};
 // use cpal::traits::{DeviceTrait, HostTrait};
@@ -54,7 +54,7 @@ use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::{Client, ruma::RoomId};
 // use ringbuf::HeapCons;
 // use ringbuf::traits::{Consumer, Observer, Producer, Split};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, watch};
 
 // use crate::{LogResultExt, TauriError};
 // use shared::api::call::{self, CallEvent};
@@ -109,7 +109,7 @@ const VOLUME_SILENCE_DECAY: f32 = 0.7;
 /// actually received and reports that to the call
 fn spawn_remote_audio_pump(
     track: RemoteAudioTrack,
-    call: Arc<LiveKitCall>,
+    call: Arc<LivekitCall>,
     participant: CallParticipantId,
     cancellationtoken: CancellationToken,
     audio: AudioThread,
@@ -186,7 +186,7 @@ use livekit::Room as LiveKitRoom;
 fn spawn_microphone_pump(
     microphone: Microphone,
     source: NativeAudioSource,
-    call: Arc<LiveKitCall>,
+    call: Arc<LivekitCall>,
     cancellationtoken: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     event!(Level::DEBUG, "Starting to send microphone audio");
@@ -348,7 +348,8 @@ pub async fn join_matrixrtc_call(
     livekit_room_manager: LiveKitRoomManager,
     call_registry: CallRegistry,
     audio: AudioThread,
-) -> anyhow::Result<Arc<crate::call::LiveKitCall>> {
+    state_wake: watch::Sender<()>,
+) -> anyhow::Result<Arc<crate::call::LivekitCall>> {
     event!(Level::INFO, "Started joining call");
 
     let matrix_client = room.room.client();
@@ -487,6 +488,7 @@ pub async fn join_matrixrtc_call(
         audio,
         livekit_room_manager,
         call_registry,
+        state_wake,
     )
     .await
     {
@@ -524,7 +526,8 @@ async fn finish_joining_call(
     audio: AudioThread,
     livekit_room_manager: LiveKitRoomManager,
     call_registry: CallRegistry,
-) -> anyhow::Result<Arc<crate::call::LiveKitCall>> {
+    state_wake: watch::Sender<()>,
+) -> anyhow::Result<Arc<crate::call::LivekitCall>> {
     let mut e2ee_options: Option<E2eeOptions> = None;
 
     let mut notification_event = RtcNotificationEventContent::new(
@@ -568,12 +571,13 @@ async fn finish_joining_call(
 
     // The call handle: the call thread folds its LiveKit events into its
     // state, the frontend reads that state and sends commands to it
-    let call = Arc::new(LiveKitCall::new(
+    let call = Arc::new(LivekitCall::new(
         dp_room.room.clone(),
         livekit_room_manager.clone(),
         dp_room.call.call_handles.clone(),
         own_device.clone(),
         dp_room.call.own_volume.clone(),
+        state_wake,
     ));
 
     // set and send out encryption key after joining but before publishing a track

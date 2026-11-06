@@ -157,7 +157,7 @@ pub struct RoomCall {
 
     /// The call we've joined in this room, if any.
     /// LiveKitCall doesn't implement `Clone`, so we use an `Arc` to share it.
-    pub(crate) active: Shared<Option<Arc<LiveKitCall>>>,
+    pub(crate) active: Shared<Option<Arc<LivekitCall>>>,
 }
 
 impl RoomCall {
@@ -319,7 +319,7 @@ pub enum CallCommand {
 ///
 /// Clones share the same call; it stays valid until the call ends, after
 /// which `state.connection` is [`CallConnectionState::Ended`].
-pub struct LiveKitCall {
+pub struct LivekitCall {
     room: Room,
     manager: LiveKitRoomManager,
     own_device: Arc<UserDevice>,
@@ -330,7 +330,7 @@ pub struct LiveKitCall {
     state: Shared<CallState>,
     /// Bumped when `state` actually changed, the wake-up signal for the
     /// frontend's message loop. Carries no data
-    state_wake: watch::Sender<u64>,
+    state_wake: watch::Sender<()>,
     /// One-shot call happenings
     events: broadcast::Sender<CallEvent>,
     /// The published microphone track, to mute and unmute at will.
@@ -339,7 +339,7 @@ pub struct LiveKitCall {
     call_handles: Arc<CallHandleMap>,
 }
 
-impl std::fmt::Debug for LiveKitCall {
+impl std::fmt::Debug for LivekitCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DePlaceCall")
             .field("room_id", &self.room.room_id())
@@ -347,33 +347,33 @@ impl std::fmt::Debug for LiveKitCall {
     }
 }
 
-impl PartialEq for LiveKitCall {
+impl PartialEq for LivekitCall {
     fn eq(&self, other: &Self) -> bool {
         self.room.room_id() == other.room.room_id()
     }
 }
 
-impl Eq for LiveKitCall {}
+impl Eq for LivekitCall {}
 
 // Deliberately hashes more than `PartialEq` compares: the hash is for
 // widget invalidation (it changes with the state), so don't use a
 // `LiveKitCall` as a `HashMap`/`HashSet` key.
-impl Hash for LiveKitCall {
+impl Hash for LivekitCall {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.room.room_id().hash(state);
         self.state.hash(state);
     }
 }
 
-impl LiveKitCall {
+impl LivekitCall {
     pub(crate) fn new(
         room: Room,
         manager: LiveKitRoomManager,
         call_handles: Arc<CallHandleMap>,
         own_device: Arc<UserDevice>,
         own_volume: Arc<VolumeCell>,
+        state_wake: watch::Sender<()>,
     ) -> Self {
-        let (state_wake, _) = watch::channel(0);
         let (events, _) = broadcast::channel(64);
 
         Self {
@@ -448,8 +448,7 @@ impl LiveKitCall {
     }
 
     fn wake(&self) {
-        self.state_wake
-            .send_modify(|tick| *tick = tick.wrapping_add(1));
+        self.state_wake.send_modify(|_| ());
     }
 
     /// The current rendering snapshot. Cheap and always valid.
@@ -459,7 +458,7 @@ impl LiveKitCall {
 
     /// Wake-up signal for the frontend's message loop: fires whenever the
     /// state actually changed.
-    pub fn state_watch(&self) -> watch::Receiver<u64> {
+    pub fn state_watch(&self) -> watch::Receiver<()> {
         self.state_wake.subscribe()
     }
 
@@ -738,7 +737,7 @@ fn participant_from_publications(publications: &[RemoteTrackPublication]) -> Cal
 /// within a call arrives through the call's own channels instead.
 #[derive(Clone)]
 pub struct CallRegistry {
-    calls: Arc<Shared<IndexMap<OwnedRoomId, Arc<LiveKitCall>>>>,
+    calls: Arc<Shared<IndexMap<OwnedRoomId, Arc<LivekitCall>>>>,
     watch: watch::Sender<u64>,
 }
 
@@ -765,7 +764,7 @@ impl CallRegistry {
     }
 
     /// The ongoing call in a room, if there is one.
-    pub fn get(&self, room_id: &RoomId) -> Option<Arc<LiveKitCall>> {
+    pub fn get(&self, room_id: &RoomId) -> Option<Arc<LivekitCall>> {
         self.calls.get().get(room_id).cloned()
     }
 
@@ -778,7 +777,7 @@ impl CallRegistry {
     }
 
     /// A snapshot of all ongoing calls, keyed by room.
-    pub fn all(&self) -> Arc<IndexMap<OwnedRoomId, Arc<LiveKitCall>>> {
+    pub fn all(&self) -> Arc<IndexMap<OwnedRoomId, Arc<LivekitCall>>> {
         self.calls.get()
     }
 
@@ -788,7 +787,7 @@ impl CallRegistry {
         self.watch.subscribe()
     }
 
-    pub(crate) fn insert(&self, call: Arc<LiveKitCall>) {
+    pub(crate) fn insert(&self, call: Arc<LivekitCall>) {
         let room_id = call.room_id().to_owned();
         self.calls.change_if_modified(|calls| {
             calls.insert(room_id.clone(), call.clone());

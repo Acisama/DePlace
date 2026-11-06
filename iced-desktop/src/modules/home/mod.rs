@@ -204,6 +204,14 @@ impl Home {
             },
         ));
 
+        let calls_tick_task = Task::stream(iced::futures::stream::unfold(
+            state.calls_tick_receiver(),
+            |mut rx| async move {
+                rx.changed().await.ok()?;
+                Some((HomeMessage::CallTick, rx))
+            },
+        ));
+
         // Fires when a call is joined or left (per-call changes arrive
         // through each call's own state channel on top of this)
         let call_registry = state.call_registry();
@@ -226,6 +234,7 @@ impl Home {
                 member_update_task,
                 room_update_task,
                 call_watch_task,
+                calls_tick_task,
             ]),
         )
     }
@@ -478,6 +487,7 @@ fn join_call(state: &AppState, room: DePlaceRoom) -> Option<HomeAction> {
     let device = state.own_device();
     let manager = state.livekit_room_manager();
     let call_registry = state.call_registry();
+    let calls_tick = state.calls_tick().clone();
 
     Some(HomeAction::Run(Task::future(async move {
         // The returned handle is already registered in the call registry,
@@ -488,6 +498,7 @@ fn join_call(state: &AppState, room: DePlaceRoom) -> Option<HomeAction> {
             manager,
             call_registry,
             audio,
+            calls_tick,
         )
         .await
         {

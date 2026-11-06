@@ -213,6 +213,7 @@ pub(crate) struct AppStateInner {
 
     pub(crate) profile_store: Arc<ProfileStore>,
     pub(crate) room_store: Arc<RoomStore>,
+    pub(crate) calls_tick: Sender<()>,
 
     pub(crate) own_display_name: Sender<Option<String>>,
     pub(crate) own_avatar_url: Sender<Option<Arc<OwnedMxcUri>>>,
@@ -273,6 +274,8 @@ impl AppState {
         client
             .set_media_fetcher(Arc::new(media_processor.clone()))
             .await;
+
+        let calls_tick = Sender::new(());
 
         let breadcrumbs_content = BreadcrumbsContent::fetch(&client).await;
         let last_server_order = ServerOrderContent::fetch(&client).await;
@@ -364,6 +367,7 @@ impl AppState {
                 media_processor,
                 profile_store,
                 room_store,
+                calls_tick,
 
                 window_title,
                 window_focused: Mutex::new(false),
@@ -400,6 +404,14 @@ impl AppState {
     #[cfg(feature = "iced_desktop")]
     pub fn thumbnail_cache(&self) -> &cache::ThumbnailCache {
         &self.inner.thumbnail_cache
+    }
+
+    pub fn calls_tick(&self) -> &Sender<()> {
+        &self.inner.calls_tick
+    }
+
+    pub fn calls_tick_receiver(&self) -> Receiver<()> {
+        self.inner.calls_tick.subscribe()
     }
 
     #[cfg(feature = "iced_desktop")]
