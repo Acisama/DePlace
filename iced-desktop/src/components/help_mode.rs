@@ -944,6 +944,10 @@ pub enum SidebarHelpKey {
     ServerName,
     Channel(usize),
 
+    MuteIcon,
+    LiveIcon,
+    SilentIcon,
+
     Account,
     SettingsButton,
     AccountIcon,

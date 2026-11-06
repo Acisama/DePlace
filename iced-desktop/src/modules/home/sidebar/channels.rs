@@ -629,6 +629,7 @@ fn render_channel(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_call_participant(
     member: CallMember,
     room_id: &RoomId,
@@ -646,26 +647,34 @@ fn render_call_participant(
     )];
 
     if user_in_call {
-        view_row.push(volume_bar(
-            if member.is_muted() {
-                Arc::new(VolumeCell::default())
-            } else {
-                member.volume()
-            },
-            icon_size / 4.0,
-            icon_size,
-            volume_bar::Direction::Top,
-            Color::from_rgb8(255, 0, 0),
-            Color::from_rgb8(0, 255, 0),
-            if member.is_muted() {
-                theme.colors.error
-            } else {
-                theme.solid_bg
-            },
-            structure.smaller_border_radius,
-            theme.border,
-            structure.border_thickness,
-        ));
+        view_row.push(
+            themed_tooltip_text(
+                volume_bar(
+                    if member.is_muted() {
+                        Arc::new(VolumeCell::default())
+                    } else {
+                        member.volume()
+                    },
+                    icon_size / 4.0,
+                    icon_size,
+                    volume_bar::Direction::Top,
+                    Color::from_rgb8(255, 0, 0),
+                    Color::from_rgb8(0, 255, 0),
+                    if member.is_muted() {
+                        theme.colors.error
+                    } else {
+                        theme.solid_bg
+                    },
+                    structure.smaller_border_radius,
+                    theme.border,
+                    structure.border_thickness,
+                ),
+                "The volume of the user",
+                structure,
+                theme,
+            )
+            .boxed(),
+        );
     }
 
     view_row.push(member.render_name(structure.font_size));
@@ -673,21 +682,33 @@ fn render_call_participant(
 
     if user_in_call && member.is_muted() {
         view_row.push(
-            phosphor_icon(MUTE_ICON, icon_size * 0.9)
-                .color(theme.colors.error)
-                .boxed(),
+            themed_tooltip_text(
+                phosphor_icon(MUTE_ICON, icon_size * 0.9)
+                    .color(theme.colors.error)
+                    .boxed(),
+                "This member is muted",
+                structure,
+                theme,
+            )
+            .boxed(),
         );
     }
 
     if user_in_call && member.is_screensharing() {
         view_row.push(
-            w::container(
-                weighted_text("LIVE", Weight::Semibold)
-                    .color(theme.solid_bg)
-                    .size(structure.font_size),
+            themed_tooltip_text(
+                w::container(
+                    weighted_text("LIVE", Weight::Semibold)
+                        .color(theme.solid_bg)
+                        .size(structure.font_size),
+                )
+                .padding(padding::horizontal(structure.small_gap / 2.0))
+                .colored_rounded(theme.colors.error, structure.semi_small_border_radius())
+                .boxed(),
+                "This member is live",
+                structure,
+                theme,
             )
-            .padding(padding::horizontal(structure.small_gap / 2.0))
-            .colored_rounded(theme.colors.error, structure.semi_small_border_radius())
             .boxed(),
         );
     }
