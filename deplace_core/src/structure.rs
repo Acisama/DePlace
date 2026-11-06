@@ -211,7 +211,11 @@ impl Structure {
         }
     }
 
-    pub fn semi_border_radius(&self) -> f32 {
+    pub fn semi_small_border_radius(&self) -> f32 {
+        (self.inner_border_radius + self.smaller_border_radius) / 2.0
+    }
+
+    pub fn semi_large_border_radius(&self) -> f32 {
         (self.inner_border_radius + self.smaller_border_radius) / 2.0
     }
 

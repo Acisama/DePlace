@@ -428,6 +428,6 @@ fn render_mention(
     w::span(text)
         .color(color)
         .padding(padding::horizontal(structure.divider_width))
-        .border(border::rounded(structure.semi_border_radius()))
+        .border(border::rounded(structure.semi_large_border_radius()))
         .background(color.set_alpha(0.15))
 }

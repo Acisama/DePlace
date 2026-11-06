@@ -443,7 +443,7 @@ impl MessageEvent {
         .style(move |_| ContainerStyle {
             background,
             border: border::rounded(if !as_dummy {
-                structure.semi_border_radius() + structure.border_thickness
+                structure.semi_large_border_radius() + structure.border_thickness
             } else {
                 0.0
             }),
@@ -1279,7 +1279,7 @@ impl SystemMessage {
                 .style(move |_| ContainerStyle {
                     background: Some(theme.text.dim.into()),
                     text_color: Some(theme.solid_bg.into()),
-                    border: border::rounded(structure.semi_border_radius()),
+                    border: border::rounded(structure.semi_large_border_radius()),
                     ..Default::default()
                 })
                 .padding(

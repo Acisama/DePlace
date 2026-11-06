@@ -518,7 +518,7 @@ pub fn close_button<'a, T: Clone + 'a>(
             } else {
                 theme.text.dim.into()
             },
-            border: border::rounded(structure.semi_border_radius()),
+            border: border::rounded(structure.semi_large_border_radius()),
             ..Default::default()
         })
         .on_press(on_press),

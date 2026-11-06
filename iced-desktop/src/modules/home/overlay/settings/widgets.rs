@@ -103,7 +103,7 @@ where
                 theme.border.into()
             },
             width: structure.border_thickness,
-            radius: structure.semi_border_radius().into(),
+            radius: structure.semi_large_border_radius().into(),
         },
     })
     .menu_style(move |_| w::overlay::menu::Style {
@@ -112,7 +112,7 @@ where
         border: Border {
             color: theme.border.into(),
             width: structure.border_thickness,
-            radius: structure.semi_border_radius().into(),
+            radius: structure.semi_large_border_radius().into(),
         },
         text_color: theme.text.dim.into(),
         // disabled_text_color: theme.text.muted.into(),
@@ -202,7 +202,7 @@ where
                             theme.border.into()
                         },
                         width: structure.border_thickness,
-                        radius: structure.semi_border_radius().into(),
+                        radius: structure.semi_large_border_radius().into(),
                     },
                     ..Default::default()
                 })

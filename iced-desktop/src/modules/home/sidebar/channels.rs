@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use deplace_core::{room::call::CallMember, settings::NameDecoration, state::ActiveServer};
+use deplace_core::{
+    call::VolumeCell, room::call::CallMember, settings::NameDecoration, state::ActiveServer,
+};
 use iced::{Alignment, border::Radius};
 use macros::{iced_cache, iced_icon};
 
@@ -637,27 +639,48 @@ fn render_call_participant(
 
     if user_in_call {
         view_row.push(volume_bar(
-            member.volume(),
+            if member.is_muted() {
+                Arc::new(VolumeCell::default())
+            } else {
+                member.volume()
+            },
             icon_size / 4.0,
             icon_size,
             volume_bar::Direction::Top,
             Color::from_rgb8(255, 0, 0),
             Color::from_rgb8(0, 255, 0),
-            theme.solid_bg.into(),
+            if member.is_muted() {
+                theme.colors.error
+            } else {
+                theme.solid_bg
+            },
             structure.smaller_border_radius,
-            theme.border.into(),
+            theme.border,
             structure.border_thickness,
         ));
     }
 
     view_row.push(member.render_name(structure.font_size));
+    view_row.push(Space::new().width(Fill).boxed());
 
     if user_in_call && member.is_muted() {
-        view_row.push(Space::new().width(Fill).boxed());
         view_row.push(
-            phosphor_icon(MUTE_ICON, icon_size * 0.8)
-                .color(theme.text.dim)
+            phosphor_icon(MUTE_ICON, icon_size * 0.9)
+                .color(theme.colors.error)
                 .boxed(),
+        );
+    }
+
+    if user_in_call && member.is_screensharing() {
+        view_row.push(
+            w::container(
+                weighted_text("LIVE", Weight::Semibold)
+                    .color(theme.solid_bg)
+                    .size(structure.font_size),
+            )
+            .padding(padding::horizontal(structure.small_gap / 2.0))
+            .colored_rounded(theme.colors.error, structure.semi_small_border_radius())
+            .boxed(),
         );
     }
 

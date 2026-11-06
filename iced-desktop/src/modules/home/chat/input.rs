@@ -498,7 +498,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                     background: status
                                         .active()
                                         .then_some(theme.solid_hover_bg.into()),
-                                    border: border::rounded(structure.semi_border_radius()),
+                                    border: border::rounded(structure.semi_large_border_radius()),
                                     ..Default::default()
                                 })
                                 .on_press(message)
@@ -508,7 +508,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             theme,
                         ),
                     )
-                    .radius(structure.semi_border_radius()),
+                    .radius(structure.semi_large_border_radius()),
             )
             .padding(structure.small_gap)
         };
@@ -532,46 +532,48 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                     .map(|(index, attachment)| {
                         let size = structure.chat.attachment_preview_size;
 
-                        let image: Element<'static, InputMessage> =
-                            match attachment.thumbnail.clone() {
-                                ThumbnailType::Image(handle) => w::image(handle)
+                        let image: Element<'static, InputMessage> = match attachment
+                            .thumbnail
+                            .clone()
+                        {
+                            ThumbnailType::Image(handle) => w::image(handle)
+                                .width(size)
+                                .height(size)
+                                .border_radius(structure.semi_large_border_radius())
+                                .boxed(),
+                            ThumbnailType::Extention(ext) => {
+                                let color = DePlaceColor::from(ext.as_str()).to_iced();
+                                w::stack![
+                                    w::container(pan(weighted_text(ext, Weight::Bold)
+                                        .size((structure.large_font_size).max(1.0))))
                                     .width(size)
                                     .height(size)
-                                    .border_radius(structure.semi_border_radius())
-                                    .boxed(),
-                                ThumbnailType::Extention(ext) => {
-                                    let color = DePlaceColor::from(ext.as_str()).to_iced();
-                                    w::stack![
-                                        w::container(pan(weighted_text(ext, Weight::Bold)
-                                            .size((structure.large_font_size).max(1.0))))
-                                        .width(size)
-                                        .height(size)
-                                        .center(size)
-                                        .style(move |_| {
-                                            w::container::Style {
-                                                background: Some(color.scale_lightness(0.2).into()),
-                                                text_color: Some(color),
-                                                border: Border {
-                                                    color,
-                                                    width: 0.0,
-                                                    radius: structure.semi_border_radius().into(),
-                                                },
-                                                ..Default::default()
-                                            }
-                                        }),
-                                        Canvas::new(InsetShadow::new(
-                                            structure.semi_border_radius(),
-                                            color,
-                                            size / 8.0,
-                                            16
-                                        ))
-                                        .width(size)
-                                        .height(size),
-                                    ]
-                                    .clip(true)
-                                    .boxed()
-                                }
-                            };
+                                    .center(size)
+                                    .style(move |_| {
+                                        w::container::Style {
+                                            background: Some(color.scale_lightness(0.2).into()),
+                                            text_color: Some(color),
+                                            border: Border {
+                                                color,
+                                                width: 0.0,
+                                                radius: structure.semi_large_border_radius().into(),
+                                            },
+                                            ..Default::default()
+                                        }
+                                    }),
+                                    Canvas::new(InsetShadow::new(
+                                        structure.semi_large_border_radius(),
+                                        color,
+                                        size / 8.0,
+                                        16
+                                    ))
+                                    .width(size)
+                                    .height(size),
+                                ]
+                                .clip(true)
+                                .boxed()
+                            }
+                        };
 
                         help_view
                             .call(
@@ -586,7 +588,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                     .width(size)
                                 ],
                             )
-                            .radius(radius(structure.semi_border_radius()).bottom(0.0))
+                            .radius(radius(structure.semi_large_border_radius()).bottom(0.0))
                             .boxed()
                     });
 

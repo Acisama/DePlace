@@ -311,7 +311,7 @@ fn render_context_menu_button(
         } else {
             text_color.into()
         },
-        border: border::rounded(structure.semi_border_radius()),
+        border: border::rounded(structure.semi_large_border_radius()),
         ..Default::default()
     })
     .on_press(message)

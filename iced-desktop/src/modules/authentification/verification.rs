@@ -142,7 +142,7 @@ impl IcedWidget<VerificationMessage, VerificationAction> for Verification {
                 }),
                 text_color: theme.solid_bg.into(),
                 border: Border {
-                    radius: structure.semi_border_radius().into(),
+                    radius: structure.semi_large_border_radius().into(),
                     ..Default::default()
                 },
                 ..Default::default()

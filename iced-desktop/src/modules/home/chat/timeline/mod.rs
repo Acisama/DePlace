@@ -1380,7 +1380,7 @@ fn render_timeline_item_buttons(
                     None
                 },
                 text_color: if status.active() { hover_color } else { color }.into(),
-                border: border::rounded(structure.semi_border_radius()),
+                border: border::rounded(structure.semi_large_border_radius()),
                 ..Default::default()
             })
     };
@@ -1446,7 +1446,7 @@ fn render_timeline_item_buttons(
                     border: Border {
                         color: theme.border.into(),
                         width: structure.border_thickness,
-                        radius: structure.semi_border_radius().into(),
+                        radius: structure.semi_large_border_radius().into(),
                     },
                     ..Default::default()
                 })
