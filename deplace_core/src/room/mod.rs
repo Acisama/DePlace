@@ -12,6 +12,7 @@ use crate::{
     Shared,
     call::RoomCall,
     member::{Member, ProfileStore, room::RoomMembers},
+    state::UserDevice,
 };
 
 pub mod call;
@@ -77,7 +78,7 @@ pub struct DePlaceRoom {
 }
 
 impl DePlaceRoom {
-    pub fn new(room: &Room, profile_store: &ProfileStore) -> Self {
+    pub fn new(room: &Room, profile_store: &ProfileStore, own_device: Arc<UserDevice>) -> Self {
         let room_id = room.room_id();
         let members = profile_store.get_members(room_id);
 
@@ -89,7 +90,7 @@ impl DePlaceRoom {
             live: Arc::new(Shared::new(RoomLive::new(room))),
             members,
             timelines: Arc::new(OnceCell::new()),
-            call: Arc::new(RoomCall::default()),
+            call: Arc::new(RoomCall::new(own_device)),
         }
     }
 

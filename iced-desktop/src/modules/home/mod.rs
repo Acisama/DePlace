@@ -480,7 +480,7 @@ fn join_call(state: &AppState, room: DePlaceRoom) -> Option<HomeAction> {
         // from where the frontend can reach it via `call_registry.get`.
         if let Err(e) = deplace_core::matrix_api::matrixrtc::join_matrixrtc_call(
             room,
-            &device,
+            device,
             manager,
             call_registry,
             audio,
@@ -512,7 +512,7 @@ fn leave_call(state: &AppState, room: &DePlaceRoom) -> Option<HomeAction> {
 
     Some(HomeAction::Run(Task::future(async move {
         if let Some(call) = call {
-            call.leave(&own_device).await;
+            call.leave().await;
         } else if let Err(e) = deplace_core::matrix_api::matrixrtc::leave_matrixrtc_call(
             &room,
             &own_device,

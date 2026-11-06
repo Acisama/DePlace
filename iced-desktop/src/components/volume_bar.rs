@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 
+use deplace_core::call::VolumeCell;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path};
 use iced::{Color, Element, Event, Point, Rectangle, Renderer, Size, Theme, Widget as _, mouse};
 
@@ -12,7 +12,7 @@ use iced::{Color, Element, Event, Point, Rectangle, Renderer, Size, Theme, Widge
 /// The fill is a horizontal bar: full and green at maximum volume,
 /// emptier and redder the quieter it gets.
 pub struct VolumeBar {
-    volume: Arc<AtomicU32>,
+    volume: Arc<VolumeCell>,
     track: Color,
 }
 
@@ -51,7 +51,7 @@ impl<Message> canvas::Program<Message> for VolumeBar {
             self.track,
         );
 
-        let volume = f32::from_bits(self.volume.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        let volume = self.volume.get().clamp(0.0, 1.0);
         let fill_width = (size.width * volume).max(radius * 2.0).min(size.width);
         let fill = Path::rounded_rectangle(
             Point::ORIGIN,
@@ -67,7 +67,7 @@ impl<Message> canvas::Program<Message> for VolumeBar {
 
 /// Helper that creates a volume bar
 pub fn volume_bar<'a, Message: 'a>(
-    volume: Arc<AtomicU32>,
+    volume: Arc<VolumeCell>,
     width: f32,
     height: f32,
     track: Color,

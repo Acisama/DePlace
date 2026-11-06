@@ -93,10 +93,19 @@ impl VolumeCell {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct CallParticipantHandle {
-    pub(crate) participant: Shared<CallParticipant>,
-    pub(crate) volume: VolumeCell,
+    pub(crate) participant: Arc<Shared<CallParticipant>>,
+    pub(crate) volume: Arc<VolumeCell>,
+}
+
+impl CallParticipantHandle {
+    fn new(volume: Arc<VolumeCell>) -> Self {
+        Self {
+            participant: Arc::new(Shared::default()),
+            volume,
+        }
+    }
 }
 
 /// State of any other call participant
@@ -132,29 +141,56 @@ pub enum CallEncryptionState {
     InternalError,
 }
 
-pub(crate) type CallHandleMap = DashMap<CallParticipantId, Arc<CallParticipantHandle>>;
+pub(crate) type CallHandleMap = DashMap<CallParticipantId, CallParticipantHandle>;
 
 /// Everything call-related on a room: always present.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct RoomCall {
     pub(crate) call_handles: Arc<CallHandleMap>,
     pub(crate) members: Shared<CallMembers>,
+    own_device: Arc<UserDevice>,
+
+    pub(crate) own_volume: Arc<VolumeCell>,
+
     /// The call we've joined in this room, if any.
     /// LiveKitCall doesn't implement `Clone`, so we use an `Arc` to share it.
     pub(crate) active: Shared<Option<Arc<LiveKitCall>>>,
 }
 
 impl RoomCall {
+    pub(crate) fn new(own_device: Arc<UserDevice>) -> Self {
+        Self {
+            call_handles: Arc::new(CallHandleMap::new()),
+            members: Shared::new(CallMembers::default()),
+            own_device,
+            own_volume: Arc::new(VolumeCell::default()),
+            active: Shared::new(None),
+        }
+    }
+
     /// Returns the call handle for the given participant ID, creating it if necessary.
     pub(crate) fn call_handle(
         &self,
         user: OwnedUserId,
         device: OwnedDeviceId,
-    ) -> Arc<CallParticipantHandle> {
+    ) -> CallParticipantHandle {
         self.call_handles
-            .entry(CallParticipantId::new(user, device))
-            .or_default()
+            .entry(CallParticipantId::new(user.clone(), device.clone()))
+            .or_insert_with(|| {
+                CallParticipantHandle::new(self.new_volume(&CallParticipantId::new(user, device)))
+            })
             .clone()
+    }
+
+    fn new_volume(&self, id: &CallParticipantId) -> Arc<VolumeCell> {
+        if let CallParticipantId::Member { user_id, device_id } = id
+            && &self.own_device.user_id == user_id
+            && &self.own_device.device_id == device_id
+        {
+            self.own_volume.clone()
+        } else {
+            Arc::new(VolumeCell::default())
+        }
     }
 
     pub fn own_user_is_in_call(&self) -> bool {
@@ -283,8 +319,9 @@ pub enum CallCommand {
 pub struct LiveKitCall {
     room: Room,
     manager: LiveKitRoomManager,
+    own_device: Arc<UserDevice>,
 
-    own_volume: VolumeCell,
+    own_volume: Arc<VolumeCell>,
 
     /// Rendered truth, folded by the call thread.
     state: Shared<CallState>,
@@ -330,13 +367,16 @@ impl LiveKitCall {
         room: Room,
         manager: LiveKitRoomManager,
         call_handles: Arc<CallHandleMap>,
+        own_device: Arc<UserDevice>,
+        own_volume: Arc<VolumeCell>,
     ) -> Self {
         let (state_wake, _) = watch::channel(0);
         let (events, _) = broadcast::channel(64);
 
         Self {
             room,
-            own_volume: VolumeCell::default(),
+            own_device,
+            own_volume,
             manager,
             state: Shared::new(CallState::default()),
             state_wake,
@@ -350,17 +390,31 @@ impl LiveKitCall {
         self.room.room_id()
     }
 
+    fn new_volume(&self, id: &CallParticipantId) -> Arc<VolumeCell> {
+        if let CallParticipantId::Member { user_id, device_id } = id
+            && &self.own_device.user_id == user_id
+            && &self.own_device.device_id == device_id
+        {
+            self.own_volume.clone()
+        } else {
+            Arc::new(VolumeCell::default())
+        }
+    }
+
     /// Returns the call handle for the given participant, creating it if
     /// necessary. The room side creates the same handles from the Matrix
     /// memberships, so the miss path has to go through `entry` to never
     /// overwrite a handle someone else just inserted.
-    pub(crate) fn call_handle(&self, id: &CallParticipantId) -> Arc<CallParticipantHandle> {
+    pub(crate) fn call_handle(&self, id: &CallParticipantId) -> CallParticipantHandle {
         // Fast path without cloning the key. The read guard is dropped
         // before `entry` takes the write lock.
         if let Some(handle) = self.call_handles.get(id) {
             return handle.clone();
         }
-        self.call_handles.entry(id.clone()).or_default().clone()
+        self.call_handles
+            .entry(id.clone())
+            .or_insert_with(|| CallParticipantHandle::new(self.new_volume(id)))
+            .clone()
     }
 
     /// Changes a participant's state, waking the frontend only when it
@@ -452,8 +506,10 @@ impl LiveKitCall {
     /// Leave the call. Disconnects from the SFU, removes our MatrixRTC
     /// call member state, and ends up emitting
     /// `CallEvent::Ended { Left }` from the call thread.
-    pub async fn leave(&self, own_device: &UserDevice) {
-        if let Err(e) = leave_matrixrtc_call(&self.room, own_device, self.manager.clone()).await {
+    pub async fn leave(&self) {
+        if let Err(e) =
+            leave_matrixrtc_call(&self.room, &self.own_device, self.manager.clone()).await
+        {
             tracing::error!("Failed to leave the call in {}: {e:#}", self.room.room_id());
             self.emit(CallEvent::CommandFailed {
                 command: CallCommand::Leave,
@@ -553,11 +609,9 @@ impl LiveKitCall {
                 // Reset, never remove: `CallMembers` may still hold the
                 // handle, and a reconnect should find the same one again.
                 // Without a handle there's nothing to reset.
-                let handle = self.call_handles.get(&id).map(|h| h.clone());
-                if let Some(handle) = handle {
-                    handle.volume.set(0.0);
-                    self.change_participant(&handle, |p| *p = CallParticipant::default());
-                }
+                let handle = self.call_handle(&id);
+                handle.volume.set(0.0);
+                self.change_participant(&handle, |p| *p = CallParticipant::default());
 
                 self.emit(CallEvent::ParticipantLeft { participant: id });
             }

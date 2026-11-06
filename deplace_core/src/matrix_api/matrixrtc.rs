@@ -25,7 +25,8 @@ use uuid::Uuid;
 use crate::DePlaceRoom;
 use crate::audio::{AudioThread, Microphone};
 use crate::call::{
-    CallConnectionState, CallEndReason, CallEvent, CallParticipantHandle, CallParticipantId, CallRegistry, LiveKitCall,
+    CallConnectionState, CallEndReason, CallEvent, CallParticipantHandle, CallParticipantId,
+    CallRegistry, LiveKitCall,
 };
 use crate::state::{AppState, UserDevice};
 // use cpal::traits::{DeviceTrait, HostTrait};
@@ -63,6 +64,20 @@ type PendingUpdates = HashMap<String, Vec<(String, EncryptionKeysEventContent)>>
 static PENDING_KEY_UPDATES: LazyLock<Mutex<PendingUpdates>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+// Perceptual loudness mapping: speech RMS almost never reaches full scale,
+// so we map dBFS between a noise floor and a realistic "loud speech" ceiling
+// instead of a linear amplitude range.
+const VOLUME_FLOOR_DB: f64 = -50.0;
+const VOLUME_CEILING_DB: f64 = -12.0;
+
+/// Maps a linear RMS amplitude (`0.0..=1.0` scale) to perceptual loudness,
+/// normalized to `0.0..=1.0`, by converting to dBFS and scaling between
+/// [`VOLUME_FLOOR_DB`] and [`VOLUME_CEILING_DB`].
+fn rms_to_volume(rms: f64) -> f32 {
+    let db = 20.0 * rms.max(1e-5).log10();
+    ((db - VOLUME_FLOOR_DB) / (VOLUME_CEILING_DB - VOLUME_FLOOR_DB)).clamp(0.0, 1.0) as f32
+}
+
 /// loudness of one received audio frame, normalized to `0.0..=1.0`.
 fn frame_volume(frame: &AudioFrame) -> f32 {
     if frame.data.is_empty() {
@@ -78,7 +93,7 @@ fn frame_volume(frame: &AudioFrame) -> f32 {
         })
         .sum();
 
-    (sum / frame.data.len() as f64).sqrt() as f32
+    rms_to_volume((sum / frame.data.len() as f64).sqrt())
 }
 
 // Volume smoothing: rises instantly with the received audio, falls gently
@@ -196,7 +211,7 @@ fn spawn_microphone_pump(
                             sample * sample
                         })
                         .sum();
-                    (sum / FRAME_SAMPLES as f64).sqrt() as f32
+                    rms_to_volume((sum / FRAME_SAMPLES as f64).sqrt())
                 };
                 call.set_own_volume(frame_volume);
 
@@ -252,7 +267,7 @@ impl LiveKitRoomData {
 
 pub async fn join_matrixrtc_call(
     room: DePlaceRoom,
-    own_device: &UserDevice,
+    own_device: Arc<UserDevice>,
     livekit_room_manager: LiveKitRoomManager,
     call_registry: CallRegistry,
     audio: AudioThread,
@@ -365,7 +380,7 @@ pub async fn join_matrixrtc_call(
 
     let call = match finish_joining_call(
         &room,
-        own_device,
+        own_device.clone(),
         response.event_id,
         service_url.to_string(),
         jwt.to_string(),
@@ -379,7 +394,7 @@ pub async fn join_matrixrtc_call(
         Err(e) => {
             // The membership state event is already out: take it back, or
             // the user appears stuck in a call they cannot leave.
-            if let Err(withdraw_error) = withdraw_call_membership(&room.room, own_device).await {
+            if let Err(withdraw_error) = withdraw_call_membership(&room.room, &own_device).await {
                 event!(
                     Level::ERROR,
                     "Could not withdraw the call membership after failed join: {withdraw_error:#}"
@@ -402,7 +417,7 @@ pub async fn join_matrixrtc_call(
 #[allow(clippy::too_many_arguments)]
 async fn finish_joining_call(
     dp_room: &DePlaceRoom,
-    own_device: &UserDevice,
+    own_device: Arc<UserDevice>,
     joined_event_id: matrix_sdk::ruma::OwnedEventId,
     service_url: String,
     jwt: String,
@@ -457,6 +472,8 @@ async fn finish_joining_call(
         dp_room.room.clone(),
         livekit_room_manager.clone(),
         dp_room.call.call_handles.clone(),
+        own_device.clone(),
+        dp_room.call.own_volume.clone(),
     ));
 
     // set and send out encryption key after joining but before publishing a track
@@ -483,7 +500,7 @@ async fn finish_joining_call(
             Level::DEBUG,
             "Trying to send encryption key to call participants"
         );
-        send_encryption_keys(room, own_device, &local_call_key, 0, call_id).await?;
+        send_encryption_keys(room, &own_device, &local_call_key, 0, call_id).await?;
     }
 
     livekit_room.e2ee_manager().set_enabled(true);
@@ -589,8 +606,10 @@ async fn finish_joining_call(
         // without their audio playing forever, remembered together
         // with whose voice it carries, so the measured volume clears
         // when it goes
-        let mut audio_pumps: HashMap<TrackSid, (Arc<CallParticipantHandle>, tokio::task::JoinHandle<()>)> =
-            HashMap::new();
+        let mut audio_pumps: HashMap<
+            TrackSid,
+            (CallParticipantHandle, tokio::task::JoinHandle<()>),
+        > = HashMap::new();
 
         // How the call ended, left on purpose counts as Left, anything
         // else (channel closed, SFU disconnect) as Disconnected.

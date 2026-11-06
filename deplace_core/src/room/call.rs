@@ -12,7 +12,7 @@ use ruma::{
 
 use crate::{
     Member, OrderKey,
-    call::{CallParticipantHandle, RoomCall},
+    call::{CallParticipantHandle, RoomCall, VolumeCell},
     member::ProfileStore,
     state::UserDevice,
 };
@@ -109,7 +109,7 @@ pub struct CallMember {
     pub call_intent: Arc<CallIntent>,
     pub created: Option<SystemTime>,
 
-    handle: Arc<CallParticipantHandle>,
+    handle: CallParticipantHandle,
 }
 impl Hash for CallMember {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -147,5 +147,9 @@ impl CallMember {
 
             handle,
         }
+    }
+
+    pub fn volume(&self) -> Arc<VolumeCell> {
+        self.handle.volume.clone()
     }
 }

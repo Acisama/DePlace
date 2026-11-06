@@ -278,8 +278,15 @@ impl AppState {
         let last_server_order = ServerOrderContent::fetch(&client).await;
 
         let profile_store = Arc::new(ProfileStore::new(&client));
-        let room_store =
-            Arc::new(RoomStore::new(&client, profile_store.clone(), last_server_order).await);
+        let room_store = Arc::new(
+            RoomStore::new(
+                &client,
+                profile_store.clone(),
+                last_server_order,
+                own_device.clone(),
+            )
+            .await,
+        );
 
         let breadcrumbs = Mutex::new(breadcrumbs_content);
 

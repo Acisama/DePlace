@@ -8,7 +8,9 @@ use ruma::{
 };
 use tokio::sync::watch;
 
-use crate::{Shared, matrix_api::account_data::ServerOrderContent, member::ProfileStore};
+use crate::{
+    Shared, matrix_api::account_data::ServerOrderContent, member::ProfileStore, state::UserDevice,
+};
 
 use super::{
     DePlaceRoom,
@@ -24,6 +26,7 @@ pub struct RoomStore {
     client: Client,
     handle: tokio::runtime::Handle,
     profile_store: Arc<ProfileStore>,
+    own_device: Arc<UserDevice>,
 
     room_map: RoomMap,
 
@@ -37,12 +40,18 @@ impl RoomStore {
         client: &Client,
         profile_store: Arc<ProfileStore>,
         last_server_order: ServerOrderContent,
+        own_device: Arc<UserDevice>,
     ) -> Self {
         let rooms = client.rooms();
 
         let room_map = rooms
             .iter()
-            .map(|r| (r.room_id().to_owned(), DePlaceRoom::new(r, &profile_store)))
+            .map(|r| {
+                (
+                    r.room_id().to_owned(),
+                    DePlaceRoom::new(r, &profile_store, own_device.clone()),
+                )
+            })
             .collect();
 
         let dm_rooms: Vec<Room> = rooms.iter().filter(|r| r.is_dm()).cloned().collect();
@@ -52,6 +61,7 @@ impl RoomStore {
             handle: tokio::runtime::Handle::current(),
             profile_store,
             room_map,
+            own_device,
             dms: Arc::new(Shared::new(Vec::new())),
             hierarchy: Arc::new(Shared::new(SpaceHierarchy::new(last_server_order))),
             changed: watch::channel(()).0,
@@ -166,7 +176,8 @@ impl RoomStore {
         let (room, created) = match self.room_map.entry(room_id.to_owned()) {
             Entry::Occupied(e) => (e.get().clone(), false),
             Entry::Vacant(e) => {
-                let room = DePlaceRoom::new(&sdk_room, &self.profile_store);
+                let room =
+                    DePlaceRoom::new(&sdk_room, &self.profile_store, self.own_device.clone());
                 e.insert(room.clone());
                 (room, true)
             }

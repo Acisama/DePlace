@@ -11,6 +11,7 @@ use crate::{
         help_mode::SidebarHelpKey,
         link::link,
         profile::{OpenProfileOverlayExt, RoomRenderExt},
+        volume_bar,
     },
 };
 
@@ -623,7 +624,13 @@ fn render_call_participant(
         w::mouse_area(
             w::container(
                 w::row![
-                    member.render_icon(icon_size),
+                    member.render_small_icon(icon_size),
+                    volume_bar(
+                        member.volume(),
+                        structure.divider_width * 3.0,
+                        icon_size,
+                        theme.colors.success.into()
+                    ),
                     member.render_name(structure.font_size)
                 ]
                 .spacing(structure.small_gap)
