@@ -10,9 +10,11 @@ use crate::{
         PushElement,
         help_mode::SidebarHelpKey,
         link::link,
+        phosphor_icon,
         profile::{OpenProfileOverlayExt, RoomRenderExt},
         volume_bar::{self, volume_bar},
     },
+    modules::home::MUTE_ICON,
 };
 
 use super::render_mention_badge;
@@ -649,6 +651,15 @@ fn render_call_participant(
     }
 
     view_row.push(member.render_name(structure.font_size));
+
+    if user_in_call && member.is_muted() {
+        view_row.push(Space::new().width(Fill).boxed());
+        view_row.push(
+            phosphor_icon(MUTE_ICON, icon_size * 0.8)
+                .color(theme.text.dim)
+                .boxed(),
+        );
+    }
 
     w::row![link(
         w::mouse_area(

@@ -40,6 +40,7 @@ pub const SPEAKER_ICON: &str = icons::speaker_high::FILL;
 pub const SPACE_ICON: &str = icons::house_simple::BOLD;
 pub const DEFAULT_ROOM_ICON: &str = icons::hash::BOLD;
 pub const MIC_ICON: &str = icons::microphone::FILL;
+pub const MUTE_ICON: &str = icons::microphone_slash::FILL;
 
 #[derive(Clone, Debug)]
 pub enum HomeMessage {

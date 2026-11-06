@@ -152,4 +152,8 @@ impl CallMember {
     pub fn volume(&self) -> Arc<VolumeCell> {
         self.handle.volume.clone()
     }
+
+    pub fn is_muted(&self) -> bool {
+        self.handle.participant.read().muted
+    }
 }

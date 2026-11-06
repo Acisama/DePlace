@@ -1249,9 +1249,9 @@ impl SystemMessage {
         };
 
         let icon_color = if call_is_ongoing && *user_joined {
-            theme.colors.success.into()
+            theme.colors.success
         } else {
-            theme.text.dim.into()
+            theme.text.dim
         };
 
         let icon_size = structure.chat.small_icon_size;
@@ -1375,7 +1375,7 @@ impl ReplyContent {
 
         if let Some(icon) = self.icon() {
             w::row![
-                phosphor_icon(icon, text_size).color(color.into()),
+                phosphor_icon(icon, text_size).color(color),
                 w::text(" ").size(text_size),
                 text_view
             ]

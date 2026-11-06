@@ -36,7 +36,7 @@ pub mod messages;
 
 const LIST_ID: iced::widget::Id = iced::widget::Id::new("list");
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum TimelineMessage {
     Item {
         id: String,
@@ -72,6 +72,35 @@ pub enum TimelineMessage {
     ScrollTo(Option<Rectangle>),
     FillsParent,
     HelpHover(Option<HelpKey>),
+}
+
+impl std::fmt::Debug for TimelineMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Item { id, message } => {
+                return f
+                    .debug_struct("Item")
+                    .field("id", id)
+                    .field("message", message)
+                    .finish();
+            }
+            Self::PinnedEventIds(..) => "PinnedEventIds",
+            Self::Loaded { .. } => "Loaded",
+            Self::Diffs(..) => "Diffs",
+            Self::None => "None",
+            Self::Scroll { .. } => "Scroll",
+            Self::ScrolledFromTop(..) => "ScrolledFromTop",
+            Self::ButtonsHovered { .. } => "ButtonsHovered",
+            Self::ChatAreaBounds(..) => "ChatAreaBounds",
+            Self::ContextMenu(..) => "ContextMenu",
+            Self::RestoreScrollPosition => "RestoreScrollPosition",
+            Self::KeyboardEvent(..) => "KeyboardEvent",
+            Self::ScrollTo(..) => "ScrollTo",
+            Self::FillsParent => "FillsParent",
+            Self::HelpHover(..) => "HelpHover",
+        };
+        write!(f, "{name}")
+    }
 }
 
 pub enum TimelineAction {

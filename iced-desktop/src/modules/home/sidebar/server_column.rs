@@ -376,7 +376,7 @@ fn render_server_icon(
     for members in call_members {
         tooltip_content.push(
             w::row![
-                phosphor_icon(SPEAKER_ICON, structure.large_font_size).color(theme.text.dim.into()),
+                phosphor_icon(SPEAKER_ICON, structure.large_font_size).color(theme.text.dim),
                 render_row_of_icons(
                     members.into_iter().collect::<Vec<_>>().as_ref(),
                     theme.solid_bg.into(),

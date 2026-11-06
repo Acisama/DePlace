@@ -237,7 +237,7 @@ impl RoomRenderExt for DePlaceRoom {
                 let icon = phosphor_icon(SPEAKER_ICON, size);
 
                 if self.has_call() {
-                    icon.color(theme.colors.success.into()).into()
+                    icon.color(theme.colors.success).into()
                 } else {
                     icon.into()
                 }

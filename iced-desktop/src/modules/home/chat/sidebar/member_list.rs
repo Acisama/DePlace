@@ -224,7 +224,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                         "How many members are in an active call in this room",
                         w::row![
                             phosphor_icon(MIC_ICON, structure.semi_large_font_size() * 0.9)
-                                .color(theme.colors.offline.into()),
+                                .color(theme.colors.offline),
                             w::text(length)
                                 .size(structure.semi_large_font_size())
                                 .color(theme.colors.offline)
