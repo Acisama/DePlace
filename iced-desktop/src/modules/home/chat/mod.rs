@@ -1,8 +1,10 @@
 use std::collections::BTreeSet;
 use std::future;
 
+use call::render_call_members;
 use deplace_core::PaginationDirection;
 use header::{Header, HeaderAction, HeaderMessage};
+use iced::Length;
 use iced::futures::{StreamExt, stream};
 use iced::widget::text_editor;
 use input::{ChatInput, InputAction, InputMessage};
@@ -15,6 +17,8 @@ use timeline::{ChatTimeline, TimelineAction};
 
 use crate::common::*;
 use crate::components::help_mode::ChatHelpKey;
+use crate::components::volume_bar::Direction;
+mod call;
 pub(super) mod empty;
 mod header;
 mod input;
@@ -410,21 +414,59 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
 
         let help_view = HelpView::new(theme);
 
+        let timeline_with_input = w::column![
+            lazy_view(self.timeline.clone(), ChatMessage::Timeline),
+            lazy_view(self.input.clone(), ChatMessage::Input)
+        ]
+        .padding(Padding {
+            top: structure.border_thickness,
+            left: structure.small_gap,
+            right: structure.small_gap,
+            bottom: structure.small_gap + structure.border_thickness,
+        })
+        .height(Fill)
+        .width(Fill);
+
         let main_content = floating_tile(
             theme,
             structure,
-            w::column![
-                lazy_view(self.timeline.clone(), ChatMessage::Timeline),
-                lazy_view(self.input.clone(), ChatMessage::Input)
-            ]
-            .padding(Padding {
-                top: structure.border_thickness,
-                left: structure.small_gap,
-                right: structure.small_gap,
-                bottom: structure.small_gap + structure.border_thickness,
-            })
-            .height(Fill)
-            .width(Fill),
+            if self.room.room_type().is_call() {
+                w::row![
+                    w::container(render_call_members(
+                        self.room.call().call_participants(),
+                        theme,
+                        structure,
+                        Direction::Right
+                    ))
+                    .width(Length::FillPortion(3))
+                    .height(Fill),
+                    w::container(timeline_with_input)
+                        .width(Length::FillPortion(1))
+                        .height(Fill)
+                ]
+                .height(Fill)
+                .width(Fill)
+                .boxed()
+            } else if self.room.has_call() {
+                w::column![
+                    w::container(render_call_members(
+                        self.room.call().call_participants(),
+                        theme,
+                        structure,
+                        Direction::Bottom
+                    ))
+                    .height(Length::FillPortion(1))
+                    .width(Fill),
+                    w::container(timeline_with_input)
+                        .height(Length::FillPortion(3))
+                        .width(Fill)
+                ]
+                .height(Fill)
+                .width(Fill)
+                .boxed()
+            } else {
+                timeline_with_input.boxed()
+            },
         )
         .height(Fill)
         .width(Fill);

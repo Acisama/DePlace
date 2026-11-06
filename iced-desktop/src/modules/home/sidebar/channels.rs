@@ -638,7 +638,7 @@ fn render_call_participant(
             member.volume(),
             icon_size / 4.0,
             icon_size,
-            volume_bar::Direction::BottomToTop,
+            volume_bar::Direction::Top,
             Color::from_rgb8(255, 0, 0),
             Color::from_rgb8(0, 255, 0),
             theme.solid_bg.into(),

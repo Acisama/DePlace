@@ -18,10 +18,10 @@ pub enum VolumeDirection {
 /// Which edge of the bar the fill grows from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
-    LeftToRight,
-    RightToLeft,
-    TopToBottom,
-    BottomToTop,
+    Right,
+    Left,
+    Bottom,
+    Top,
 }
 
 /// Per-frame state for a [`VolumeBar`]: the last sample read from the
@@ -120,13 +120,13 @@ impl<Message> canvas::Program<Message> for VolumeBar {
         let volume = state.volume();
         if volume > 0.0 {
             let (fill_origin, fill_size) = match self.direction {
-                Direction::LeftToRight => {
+                Direction::Right => {
                     let length = (bg_size.width * volume)
                         .max(bg_radius * 2.0)
                         .min(bg_size.width);
                     (bg_origin, Size::new(length, bg_size.height))
                 }
-                Direction::RightToLeft => {
+                Direction::Left => {
                     let length = (bg_size.width * volume)
                         .max(bg_radius * 2.0)
                         .min(bg_size.width);
@@ -135,13 +135,13 @@ impl<Message> canvas::Program<Message> for VolumeBar {
                         Size::new(length, bg_size.height),
                     )
                 }
-                Direction::TopToBottom => {
+                Direction::Bottom => {
                     let length = (bg_size.height * volume)
                         .max(bg_radius * 2.0)
                         .min(bg_size.height);
                     (bg_origin, Size::new(bg_size.width, length))
                 }
-                Direction::BottomToTop => {
+                Direction::Top => {
                     let length = (bg_size.height * volume)
                         .max(bg_radius * 2.0)
                         .min(bg_size.height);
@@ -158,19 +158,19 @@ impl<Message> canvas::Program<Message> for VolumeBar {
                 fill_origin.y + fill_size.height / 2.0,
             );
             let (base, tip) = match self.direction {
-                Direction::LeftToRight => (
+                Direction::Right => (
                     Point::new(fill_origin.x, center.y),
                     Point::new(fill_origin.x + fill_size.width, center.y),
                 ),
-                Direction::RightToLeft => (
+                Direction::Left => (
                     Point::new(fill_origin.x + fill_size.width, center.y),
                     Point::new(fill_origin.x, center.y),
                 ),
-                Direction::TopToBottom => (
+                Direction::Bottom => (
                     Point::new(center.x, fill_origin.y),
                     Point::new(center.x, fill_origin.y + fill_size.height),
                 ),
-                Direction::BottomToTop => (
+                Direction::Top => (
                     Point::new(center.x, fill_origin.y + fill_size.height),
                     Point::new(center.x, fill_origin.y),
                 ),

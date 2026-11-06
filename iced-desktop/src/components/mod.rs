@@ -151,10 +151,10 @@ pub struct InsetShadow {
 }
 
 impl InsetShadow {
-    pub fn new(radius: f32, color: Color, depth: f32, layers: usize) -> Self {
+    pub fn new(radius: f32, color: impl Into<Color>, depth: f32, layers: usize) -> Self {
         Self {
             radius,
-            color,
+            color: color.into(),
             depth,
             layers,
         }
@@ -465,7 +465,7 @@ pub fn render_media_failed_to_load<'a, T: Clone + 'a>(
         }),
         Canvas::new(InsetShadow::new(
             structure.inner_border_radius,
-            theme.colors.error.into(),
+            theme.colors.error,
             structure.chat.text_size / 2.0,
             8,
         ))
@@ -527,14 +527,14 @@ pub fn close_button<'a, T: Clone + 'a>(
     .boxed()
 }
 
-pub trait ColoredRounded<'a, T: Clone + 'a>
+pub trait ColoredRounded<'a, T: 'a>
 where
     Self: Sized,
 {
     fn colored_rounded(self, color: impl Into<Background>, rounded: impl Into<Radius>) -> Self;
 }
 
-impl<'a, T: Clone + 'a> ColoredRounded<'a, T> for Container<'a, T> {
+impl<'a, T: 'a> ColoredRounded<'a, T> for Container<'a, T> {
     fn colored_rounded(self, color: impl Into<Background>, rounded: impl Into<Radius>) -> Self {
         let background = color.into();
         let rounded = rounded.into();
