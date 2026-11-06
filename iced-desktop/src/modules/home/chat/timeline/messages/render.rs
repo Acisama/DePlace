@@ -1219,16 +1219,34 @@ impl SystemMessage {
             return None;
         };
 
+        let call_is_ongoing = current_members.is_some();
+
         let text = match (call_intent, declined_by_user) {
             (None, true) => "You declined a call",
-            (None, false) => "Call started",
+            (None, false) => {
+                if call_is_ongoing {
+                    "Call started"
+                } else {
+                    "Call ended"
+                }
+            }
             (Some(CallIntent::Video), true) => "You declined a video call",
-            (Some(CallIntent::Video), false) => "Video call started",
+            (Some(CallIntent::Video), false) => {
+                if call_is_ongoing {
+                    "Video call started"
+                } else {
+                    "Video call ended"
+                }
+            }
             (Some(_), true) => "You declined an audio call",
-            (Some(_), false) => "Audio call started",
+            (Some(_), false) => {
+                if call_is_ongoing {
+                    "Audio call started"
+                } else {
+                    "Audio call ended"
+                }
+            }
         };
-
-        let call_is_ongoing = current_members.is_some();
 
         let icon_color = if call_is_ongoing && *user_joined {
             theme.colors.success.into()
@@ -1253,7 +1271,7 @@ impl SystemMessage {
             row = row.push_element(
                 w::container(w::row![
                     w::text("(").size(structure.chat.small_text_size),
-                    elapsed_seconds(*call_started)
+                    elapsed_time(*call_started)
                         .size(structure.chat.small_text_size)
                         .font(MONO_FONT),
                     w::text(")").size(structure.chat.small_text_size)

@@ -41,6 +41,12 @@ pub enum ChannelsMessage {
     JoinCall(DePlaceRoom),
 }
 
+impl Default for ChannelsMessage {
+    fn default() -> Self {
+        ChannelsMessage::None
+    }
+}
+
 impl OpenProfileOverlayExt for ChannelsMessage {
     fn open_profile(member: Member, bounds: Rectangle) -> Self {
         Self::ShowProfile { member, bounds }
@@ -368,7 +374,7 @@ fn render_channel(
 
     let can_join_call = room.room_type().is_call() && !room.call().own_user_device_is_in_call();
 
-    let mut area = w::mouse_area(
+    let area = w::mouse_area(
         w::button(
             help_view
                 .call(

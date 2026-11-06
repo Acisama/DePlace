@@ -80,6 +80,38 @@ pub fn format_message_short_date(
     date.format(format_str).to_string()
 }
 
+pub fn format_elapsed_time(seconds: u64) -> String {
+    let mut seconds = seconds;
+    let mut minutes = seconds / 60;
+    seconds %= 60;
+    let hours = minutes / 60;
+    minutes %= 60;
+
+    let mut text = String::new();
+    if hours > 0 {
+        text.push_str(&format!("{}h", hours));
+    }
+    if minutes > 0 {
+        text.push_str(&format!(
+            " {}m",
+            if minutes < 10 {
+                format!("0{}", minutes)
+            } else {
+                format!("{}", minutes)
+            }
+        ));
+    }
+    text.push_str(&format!(
+        " {}s",
+        if seconds < 10 {
+            format!("0{}", seconds)
+        } else {
+            format!("{}", seconds)
+        }
+    ));
+    text.trim_start().to_string()
+}
+
 /// Fits `(w, h)` into `(max_w, max_h)` preserving aspect ratio, then grows the result back up
 /// (still preserving aspect ratio) if needed so the width is at least `min_w` - e.g. so an
 /// overlaid label has room to fit. If `max_h` doesn't allow reaching `min_w` without exceeding
