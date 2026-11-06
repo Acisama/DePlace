@@ -34,11 +34,13 @@ use tokio::sync::{broadcast, watch};
 
 use crate::Shared;
 use crate::audio::AudioThread;
+use crate::colors::DePlaceColor;
 use crate::matrix_api::matrixrtc::{LiveKitRoomManager, leave_matrixrtc_call};
 use crate::member::ProfileStore;
 use crate::member::synth::SignatureEvent;
 use crate::room::call::{CallMember, CallMembers};
 use crate::state::UserDevice;
+use crate::theme::Theme;
 
 /// A call participant, identified by their Matrix identity.
 ///
@@ -298,6 +300,35 @@ pub enum CallConnectionState {
     Connected,
     Reconnecting,
     Ended,
+}
+
+impl CallConnectionState {
+    pub fn icon(&self) -> &'static str {
+        match self {
+            CallConnectionState::Connecting => phosphor_svgs::icon::cell_signal_medium::BOLD,
+            CallConnectionState::Connected => phosphor_svgs::icon::cell_signal_full::BOLD,
+            CallConnectionState::Reconnecting => phosphor_svgs::icon::cell_signal_medium::BOLD,
+            CallConnectionState::Ended => phosphor_svgs::icon::cell_signal_x::BOLD,
+        }
+    }
+
+    pub fn color(&self, theme: Theme) -> DePlaceColor {
+        match self {
+            CallConnectionState::Connecting => theme.colors.warning,
+            CallConnectionState::Connected => theme.colors.success,
+            CallConnectionState::Reconnecting => theme.colors.warning,
+            CallConnectionState::Ended => theme.colors.error,
+        }
+    }
+
+    pub fn tooltip(&self) -> &'static str {
+        match self {
+            CallConnectionState::Connecting => "Connecting",
+            CallConnectionState::Connected => "Connected",
+            CallConnectionState::Reconnecting => "Reconnecting",
+            CallConnectionState::Ended => "Ended",
+        }
+    }
 }
 
 /// Volume at which someone counts as speaking.

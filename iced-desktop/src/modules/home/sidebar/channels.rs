@@ -382,30 +382,41 @@ fn render_channel(
 
     let can_join_call = room.room_type().is_call() && !room.call().own_user_device_is_in_call();
 
+    let mut name_row = w::row![
+        if is_space {
+            if expanded {
+                iced_icon!(caret_down, bold, icon_size).into()
+            } else {
+                iced_icon!(caret_right, bold, icon_size).into()
+            }
+        } else {
+            room.render_simple_icon(icon_size, theme, structure, bg)
+        },
+        name,
+    ];
+
+    if let Some(connection) = room.call_connection() {
+        name_row = name_row.push_element(themed_tooltip_text(
+            phosphor_icon(connection.icon(), structure.font_size).color(connection.color(theme)),
+            connection.tooltip(),
+            structure,
+            theme,
+        ));
+    }
+
     let area = w::mouse_area(
         w::button(
             help_view
                 .call(
                     HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
                     "Channel",
-                    w::row![
-                        if is_space {
-                            if expanded {
-                                iced_icon!(caret_down, bold, icon_size).into()
-                            } else {
-                                iced_icon!(caret_right, bold, icon_size).into()
-                            }
-                        } else {
-                            room.render_simple_icon(icon_size, theme, structure, bg)
-                        },
-                        name,
-                    ]
-                    .spacing(structure.gap)
-                    .width(Fill)
-                    .align_y(Alignment::Center)
-                    .padding(
-                        padding::vertical(structure.small_gap * 0.75).left(structure.small_gap),
-                    ),
+                    name_row
+                        .spacing(structure.gap)
+                        .width(Fill)
+                        .align_y(Alignment::Center)
+                        .padding(
+                            padding::vertical(structure.small_gap * 0.75).left(structure.small_gap),
+                        ),
                 )
                 .radius(structure.inner_border_radius),
         )
@@ -446,12 +457,14 @@ fn render_channel(
         notifications.highlights()
     };
 
-    let mut extra_row = w::row![Space::new().width(Fill)]
+    let mut extra_row = w::row![]
         .height(Fill)
         .width(Fill)
         .spacing(structure.small_gap)
         .align_y(Alignment::Center)
         .padding(padding::right(structure.small_gap));
+
+    extra_row = extra_row.push_element(Space::new().width(Fill));
 
     if let Some(start_time) = room.call_started_at() {
         extra_row = extra_row.push_element(

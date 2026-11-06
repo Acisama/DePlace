@@ -11,7 +11,7 @@ use tokio::sync::OnceCell;
 
 use crate::{
     Shared,
-    call::{CallParticipantHandle, RoomCall},
+    call::{CallConnectionState, CallParticipantHandle, RoomCall},
     member::{Member, ProfileStore, room::RoomMembers},
     state::UserDevice,
 };
@@ -242,5 +242,14 @@ impl DePlaceRoom {
             .as_ref()
             .as_ref()
             .map(|r| r.started_at())
+    }
+
+    pub fn call_connection(&self) -> Option<CallConnectionState> {
+        self.call
+            .active
+            .read()
+            .as_ref()
+            .as_ref()
+            .map(|r| *r.own_connection())
     }
 }
