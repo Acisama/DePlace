@@ -121,8 +121,11 @@ impl CustomData {
 }
 
 pub async fn handle_presence_update(event: PresenceEvent, state: Ctx<AppState>) {
-    let (_, cell) = state.profile_store_ref().user_cell(&event.sender);
+    let profile_store = state.profile_store_ref();
+    let (_, cell) = profile_store.user_cell(&event.sender);
     cell.change(|data| {
         data.update(event.clone());
     });
+
+    profile_store.recalculate_all_rooms();
 }
