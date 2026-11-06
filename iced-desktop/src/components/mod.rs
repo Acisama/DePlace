@@ -32,6 +32,7 @@ pub mod on_appear;
 pub mod pan;
 pub mod pie_progress;
 pub mod profile;
+pub mod right_click;
 pub mod shader;
 pub mod tile_background;
 pub mod tooltip;

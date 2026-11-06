@@ -550,6 +550,10 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
         match message {
             HomeMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
                 SidebarAction::JoinCall(room) => join_call(&self.state, room),
+                SidebarAction::ParticipantMenu(menu) => {
+                    self.overlay.open_context_menu(menu);
+                    None
+                }
                 SidebarAction::ChangeRoom(room) => self.set_active_room_task(room),
                 SidebarAction::ChangeServer(server) => self.set_active_server_task(server),
                 SidebarAction::Run(task) => Some(HomeAction::Run(task)),

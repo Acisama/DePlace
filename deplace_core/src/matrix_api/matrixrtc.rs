@@ -150,6 +150,9 @@ fn spawn_remote_audio_pump(
                     Some(frame) => {
                         level = frame_volume(&frame).max(level * VOLUME_RELEASE);
                         call.set_participant_volume(&handle, level);
+                        // How loud they play for us, whenever the user
+                        // changed it in the meantime
+                        player.set_volume(handle.output_volume());
                         player.push(&frame);
                     }
                     // Track is done, nothing will ever come again
@@ -163,6 +166,7 @@ fn spawn_remote_audio_pump(
                         level *= VOLUME_SILENCE_DECAY;
                         call.set_participant_volume(&handle, level);
                     }
+                    player.set_volume(handle.output_volume());
                 },
             }
         }

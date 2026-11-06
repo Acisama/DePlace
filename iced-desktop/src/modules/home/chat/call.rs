@@ -3,8 +3,10 @@ use iced::{Alignment, Length, border::Radius};
 
 use crate::{
     common::*,
-    components::{PushElement, volume_bar::Direction},
+    components::{PushElement, right_click::right_click, volume_bar::Direction},
 };
+
+use crate::modules::home::overlay::{ContextMenu, ContextMenuKind};
 
 use super::ChatMessage;
 
@@ -44,8 +46,9 @@ pub fn render_call_members(
         for member in chunk {
             let color = member.color();
             let is_speaking = member.is_speaking();
+            let menu_member = member.clone();
 
-            row = row.push_element(
+            row = row.push_element(right_click(
                 w::container(
                     w::container(member.render_icon(icon_size))
                         .colored_rounded(color.to_iced().scale_lightness(0.15), rounding)
@@ -66,7 +69,15 @@ pub fn render_call_members(
                     })
                 })
                 .padding(gap * 2.0),
-            );
+                move |position| {
+                    ChatMessage::ContextMenu(ContextMenu {
+                        position,
+                        kind: ContextMenuKind::Participant {
+                            member: menu_member.clone(),
+                        },
+                    })
+                },
+            ));
         }
 
         if fillers > 0 && total_length >= MAX_COLUMNS {

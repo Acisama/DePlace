@@ -14,9 +14,11 @@ use crate::{
         link::link,
         phosphor_icon,
         profile::{OpenProfileOverlayExt, RoomRenderExt, render_icon_with_has_speaking_circle},
+        right_click::right_click,
         volume_bar::{self, volume_bar},
     },
     modules::home::MUTE_ICON,
+    modules::home::overlay::{ContextMenu, ContextMenuKind},
 };
 
 use super::render_mention_badge;
@@ -43,6 +45,8 @@ pub enum ChannelsMessage {
         room_id: OwnedRoomId,
         participant: CallMember,
     },
+    /// Open the right-click menu of a call participant.
+    ParticipantMenu(ContextMenu),
     JoinCall(DePlaceRoom),
 }
 
@@ -63,6 +67,7 @@ pub enum ChannelsAction {
     HelpHover(Option<HelpKey>),
     OpenQuickselect,
     ShowProfile { member: Member, bounds: Rectangle },
+    ParticipantMenu(ContextMenu),
     JoinCall(DePlaceRoom),
 }
 
@@ -123,6 +128,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
     fn update(&mut self, msg: ChannelsMessage) -> Option<ChannelsAction> {
         match msg {
             ChannelsMessage::JoinCall(room) => Some(ChannelsAction::JoinCall(room)),
+            ChannelsMessage::ParticipantMenu(menu) => Some(ChannelsAction::ParticipantMenu(menu)),
             ChannelsMessage::OpenQuickselect => Some(ChannelsAction::OpenQuickselect),
             ChannelsMessage::HelpHover(key) => Some(ChannelsAction::HelpHover(key)),
             ChannelsMessage::RoomHovered(id) => {
@@ -686,37 +692,53 @@ fn render_call_participant(
         );
     }
 
+    // The menu adjusts their playback volume, so it opens on the same
+    // member handle the sidebar renders
+    let menu_member = member.clone();
+
     w::row![link(
-        w::mouse_area(
-            w::container(
-                w::Row::with_children(view_row)
-                    .spacing(structure.small_gap)
-                    .align_y(Alignment::Center)
-                    .width(Fill),
-            )
-            .padding(padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap),)
-            .style(move |_| ContainerStyle {
-                background: is_hovered.then_some(theme.solid_hover_bg.into()),
-                border: Border {
-                    color: if is_hovered {
-                        theme.border.into()
-                    } else {
-                        Color::TRANSPARENT
+        right_click(
+            w::mouse_area(
+                w::container(
+                    w::Row::with_children(view_row)
+                        .spacing(structure.small_gap)
+                        .align_y(Alignment::Center)
+                        .width(Fill),
+                )
+                .padding(
+                    padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap),
+                )
+                .style(move |_| ContainerStyle {
+                    background: is_hovered.then_some(theme.solid_hover_bg.into()),
+                    border: Border {
+                        color: if is_hovered {
+                            theme.border.into()
+                        } else {
+                            Color::TRANSPARENT
+                        },
+                        width: structure.border_thickness,
+                        radius: structure.inner_border_radius.into(),
                     },
-                    width: structure.border_thickness,
-                    radius: structure.inner_border_radius.into(),
-                },
-                ..Default::default()
+                    ..Default::default()
+                }),
+            )
+            .on_enter(ChannelsMessage::CallParticipantHovered {
+                room_id: hover_room_id.clone(),
+                participant: member.clone(),
+            })
+            .on_exit(ChannelsMessage::CallParticipantUnhovered {
+                room_id: hover_room_id,
+                participant: member.clone(),
             }),
-        )
-        .on_enter(ChannelsMessage::CallParticipantHovered {
-            room_id: hover_room_id.clone(),
-            participant: member.clone(),
-        })
-        .on_exit(ChannelsMessage::CallParticipantUnhovered {
-            room_id: hover_room_id,
-            participant: member.clone(),
-        }),
+            move |position| {
+                ChannelsMessage::ParticipantMenu(ContextMenu {
+                    position,
+                    kind: ContextMenuKind::Participant {
+                        member: menu_member.clone(),
+                    },
+                })
+            },
+        ),
         Color::TRANSPARENT,
         move |bounds| ChannelsMessage::open_profile(member.member.clone(), bounds),
     )]

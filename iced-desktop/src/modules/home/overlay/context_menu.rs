@@ -1,3 +1,4 @@
+use deplace_core::room::call::CallMember;
 use iced::Alignment;
 use macros::iced_cache;
 use matrix_sdk_ui::{Timeline, timeline::TimelineEventItemId};
@@ -22,6 +23,15 @@ pub enum MessageMessage {
 }
 
 #[derive(Clone, Debug)]
+pub enum ParticipantMessage {
+    /// The new playback volume slider position, in percent (0..=400)
+    Volume(f32),
+    /// Mute or unmute them; muting silences, unmuting restores normal
+    /// volume
+    Muted(bool),
+}
+
+#[derive(Clone, Debug)]
 pub enum ContextMenuMessage {
     Message {
         timeline: Arc<Timeline>,
@@ -30,6 +40,10 @@ pub enum ContextMenuMessage {
         identifier: TimelineEventItemId,
         item_id: String,
         message: MessageMessage,
+    },
+    Participant {
+        member: CallMember,
+        message: ParticipantMessage,
     },
 }
 
@@ -72,12 +86,22 @@ pub enum ContextMenuKind {
         can_pin: Option<OwnedEventId>,
         can_redact: bool,
     },
+    /// One call participant: their playback volume and mute state.
+    Participant { member: CallMember },
 }
 
 impl Hash for ContextMenuKind {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             ContextMenuKind::Message { .. } => 0.hash(state),
+            // The member handle holds the live volume and mute state,
+            // the menu reads them on every redraw instead of being
+            // invalidated by them
+            ContextMenuKind::Participant { member } => {
+                1.hash(state);
+                member.member.user_id().hash(state);
+                member.device_id.hash(state);
+            }
         }
     }
 }
@@ -95,6 +119,14 @@ impl PartialEq for ContextMenuKind {
                     ..
                 },
             ) => identifier1 == identifier2,
+            (
+                ContextMenuKind::Participant { member: member1 },
+                ContextMenuKind::Participant { member: member2 },
+            ) => {
+                member1.member.user_id() == member2.member.user_id()
+                    && member1.device_id == member2.device_id
+            }
+            _ => false,
         }
     }
 }
@@ -127,6 +159,26 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                 // TODO
                 MessageMessage::Edit(_) => None,
             },
+            ContextMenuMessage::Participant { member, message } => {
+                match message {
+                    // How loud they play for us, straight into the
+                    // handle: the audio pump picks it up on the next
+                    // frame, no message loop wake needed. Sliding to
+                    // 0% mutes them, sliding anywhere above unmutes
+                    // them again.
+                    ParticipantMessage::Volume(percent) => {
+                        let handle = member.handle();
+                        handle.set_playback_volume(percent / 100.0);
+                        handle.set_playback_muted(percent <= 0.0);
+                    }
+                    // The playback volume stays where it is: unmuting
+                    // returns to whatever they played at before muting
+                    ParticipantMessage::Muted(muted) => {
+                        member.handle().set_playback_muted(muted);
+                    }
+                }
+                None
+            }
         }
     }
 
@@ -168,6 +220,9 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     can_pin.clone(),
                     *can_redact,
                 ),
+                ContextMenuKind::Participant { member } => {
+                    render_participant_context_menu(structure, member.clone())
+                }
             };
 
             let left = position.x.min(size.width - SIZE).max(0.0);
@@ -315,4 +370,47 @@ fn render_context_menu_button(
         ..Default::default()
     })
     .on_press(message)
+}
+
+/// The menu for one call participant
+///
+///  A slider for their playback volume and a mute toggle, maybe
+/// should be a togglebox
+///
+/// Both live values live in the member's call handle, the menu reads
+/// them fresh on every redraw so slider and toggle always agree.
+fn render_participant_context_menu(
+    structure: Structure,
+    member: CallMember,
+) -> Element<'static, ContextMenuMessage> {
+    let handle = member.handle();
+    let percent = (handle.playback_volume() * 100.0).round();
+    let muted = handle.playback_muted();
+
+    let slider_member = member.clone();
+    let toggler_member = member.clone();
+
+    w::column![
+        w::text(format!("Volume: {}%", percent as u32)).size(structure.font_size),
+        w::slider(0.0..=400.0, percent, move |value| {
+            ContextMenuMessage::Participant {
+                member: slider_member.clone(),
+                message: ParticipantMessage::Volume(value),
+            }
+        })
+        .step(1.0)
+        .width(160.0),
+        w::container(w::mouse_area(
+            sweeten::widget::toggler(muted)
+                .on_toggle(move |toggled| ContextMenuMessage::Participant {
+                    member: toggler_member.clone(),
+                    message: ParticipantMessage::Muted(toggled),
+                })
+                .size(structure.settings.checkbox_height),
+        ))
+        .padding(structure.small_gap),
+    ]
+    .spacing(structure.small_gap)
+    .align_x(Alignment::Center)
+    .boxed()
 }

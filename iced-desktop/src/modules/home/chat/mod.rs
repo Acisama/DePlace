@@ -49,6 +49,8 @@ pub enum ChatMessage {
         pinned_initial: Arc<IndexMap<String, Arc<TimelineItem>>>,
         power_levels: Arc<RoomPowerLevels>,
     },
+    /// Open the right-click menu of a call participant.
+    ContextMenu(ContextMenu),
     HelpHover(Option<HelpKey>),
 }
 
@@ -360,6 +362,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     _ => None,
                 }
             }
+            ChatMessage::ContextMenu(menu) => Some(ChatAction::ContextMenu(menu)),
             ChatMessage::Header(msg) => match self.header.update(msg)? {
                 HeaderAction::OpenHelpMenu => Some(ChatAction::OpenHelpMenu),
                 HeaderAction::TogglePins => {

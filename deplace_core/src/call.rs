@@ -17,7 +17,7 @@
 
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::SystemTime;
 
 use dashmap::DashMap;
@@ -91,12 +91,25 @@ impl VolumeCell {
     pub fn get(&self) -> f32 {
         f32::from_bits(self.0.load(Ordering::Relaxed))
     }
+    /// A cell starting out at `v` instead of silence.
+    pub fn with_value(v: f32) -> Self {
+        Self(AtomicU32::new(v.to_bits()))
+    }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CallParticipantHandle {
+pub struct CallParticipantHandle {
     pub(crate) participant: Arc<Shared<CallParticipant>>,
+    /// How loud the participant is, pushed into by the call thread
+    /// and read in the ui.
     pub(crate) volume: Arc<VolumeCell>,
+    /// How loud this participant plays for us,
+    /// the audio pump reads it every frame instead, UI writes it
+    /// whenever the user changes it.
+    pub(crate) playback_volume: Arc<VolumeCell>,
+    /// Whether we muted them ourselves, again set by the ui
+    /// and read by the call thread and applied to frames
+    pub(crate) playback_muted: Arc<AtomicBool>,
 }
 
 impl CallParticipantHandle {
@@ -104,6 +117,43 @@ impl CallParticipantHandle {
         Self {
             participant: Arc::new(Shared::default()),
             volume,
+            playback_volume: Arc::new(VolumeCell::with_value(1.0)),
+            playback_muted: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// This participant's playback volume: `0.0` is silent, `1.0` is
+    /// normal, `4.0` is four times as loud as normal. Muting them doesn't
+    /// touch this, so unmuting can return to it.
+    pub fn playback_volume(&self) -> f32 {
+        self.playback_volume.get()
+    }
+
+    /// Sets how loud this participant plays for us, clamped to
+    /// `0.0..=4.0`.
+    pub fn set_playback_volume(&self, volume: f32) {
+        self.playback_volume.set(volume.clamp(0.0, 4.0));
+    }
+
+    /// Whether we muted this guy ourselves.
+    pub fn playback_muted(&self) -> bool {
+        self.playback_muted.load(Ordering::Relaxed)
+    }
+
+    /// Mute this fella or lifts our silencing again. Their
+    /// playback volume is untouched, unmuting returns to whatever they
+    /// played at before muting.
+    pub fn set_playback_muted(&self, muted: bool) {
+        self.playback_muted.store(muted, Ordering::Relaxed);
+    }
+
+    /// How loud they effectively play for us, their playback volume,
+    /// or silence while we muted them.
+    pub fn output_volume(&self) -> f32 {
+        if self.playback_muted() {
+            0.0
+        } else {
+            self.playback_volume()
         }
     }
 }

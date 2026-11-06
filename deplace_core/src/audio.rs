@@ -553,7 +553,8 @@ impl FramePlayer {
         self.samples.overflows.load(Ordering::Relaxed)
     }
 
-    /// How loud this player is: `0.0` is silent, `1.0` is normal volume
+    /// How loud this player is: `0.0` is silent, `1.0` is normal volume, anything
+    /// above boosts the volume
     pub fn set_volume(&self, volume: f32) {
         self.sink.set_volume(volume);
     }

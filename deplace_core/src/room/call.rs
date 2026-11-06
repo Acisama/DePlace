@@ -153,6 +153,12 @@ impl CallMember {
         self.handle.volume.clone()
     }
 
+    /// The call handle of this participant, for the UI to read and
+    /// adjust how loud they play for us.
+    pub fn handle(&self) -> &CallParticipantHandle {
+        &self.handle
+    }
+
     pub fn is_muted(&self) -> bool {
         self.handle.participant.read().muted
     }

@@ -4,7 +4,9 @@ use deplace_core::state::ActiveServer;
 use macros::iced_cache;
 use server_column::{ServerColumn, ServerColumnAction, ServerColumnMessage};
 
-use crate::{common::*, components::help_mode::SidebarHelpKey};
+use crate::{
+    common::*, components::help_mode::SidebarHelpKey, modules::home::overlay::ContextMenu,
+};
 
 mod account;
 mod channels;
@@ -34,6 +36,7 @@ pub enum SidebarAction {
     OpenQuickselect,
     ShowProfile { member: Member, bounds: Rectangle },
     JoinCall(DePlaceRoom),
+    ParticipantMenu(ContextMenu),
 }
 
 #[iced_cache(Clone)]
@@ -72,6 +75,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
             },
             SidebarMessage::Channels(msg) => match self.channels.update(msg)? {
                 ChannelsAction::JoinCall(room) => Some(SidebarAction::JoinCall(room)),
+                ChannelsAction::ParticipantMenu(menu) => Some(SidebarAction::ParticipantMenu(menu)),
                 ChannelsAction::SetActiveRoom(room) => Some(SidebarAction::ChangeRoom(Some(room))),
                 ChannelsAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
                 ChannelsAction::OpenQuickselect => Some(SidebarAction::OpenQuickselect),
