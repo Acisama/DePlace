@@ -98,7 +98,7 @@ impl VolumeCell {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CallParticipantHandle {
+pub struct CallParticipantHandle {
     pub(crate) participant: Arc<Shared<CallParticipant>>,
     /// How loud the participant is, pushed into by the call thread
     /// and read in the ui.
@@ -113,15 +113,6 @@ pub(crate) struct CallParticipantHandle {
 }
 
 impl CallParticipantHandle {
-    fn new(volume: Arc<VolumeCell>) -> Self {
-        Self {
-            participant: Arc::new(Shared::default()),
-            volume,
-            playback_volume: Arc::new(VolumeCell::with_value(1.0)),
-            playback_muted: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
     /// This participant's playback volume: `0.0` is silent, `1.0` is
     /// normal, `4.0` is four times as loud as normal. Muting them doesn't
     /// touch this, so unmuting can return to it.
@@ -244,11 +235,15 @@ impl RoomCall {
             CallParticipantHandle {
                 participant: self.own_handle.participant.clone(),
                 volume: self.own_volume.clone(),
+                playback_muted: Arc::new(AtomicBool::new(false)),
+                playback_volume: Arc::new(VolumeCell::default()),
             }
         } else {
             CallParticipantHandle {
                 participant: Arc::new(Shared::default()),
                 volume: Arc::new(VolumeCell::default()),
+                playback_muted: Arc::new(AtomicBool::new(false)),
+                playback_volume: Arc::new(VolumeCell::default()),
             }
         }
     }
@@ -450,11 +445,15 @@ impl LivekitCall {
             CallParticipantHandle {
                 participant: self.own_handle.participant.clone(),
                 volume: self.own_volume.clone(),
+                playback_muted: Arc::new(AtomicBool::new(false)),
+                playback_volume: Arc::new(VolumeCell::default()),
             }
         } else {
             CallParticipantHandle {
                 participant: Arc::new(Shared::default()),
                 volume: Arc::new(VolumeCell::default()),
+                playback_muted: Arc::new(AtomicBool::new(false)),
+                playback_volume: Arc::new(VolumeCell::default()),
             }
         }
     }
