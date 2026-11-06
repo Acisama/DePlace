@@ -97,8 +97,8 @@ impl VolumeCell {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CallParticipantHandle {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CallParticipantHandle {
     pub(crate) participant: Arc<Shared<CallParticipant>>,
     /// How loud the participant is, pushed into by the call thread
     /// and read in the ui.
@@ -202,6 +202,7 @@ pub struct RoomCall {
     pub(crate) call_handles: Arc<CallHandleMap>,
     pub(crate) members: Shared<CallMembers>,
     own_device: Arc<UserDevice>,
+    own_handle: CallParticipantHandle,
 
     pub(crate) own_volume: Arc<VolumeCell>,
 
@@ -211,11 +212,12 @@ pub struct RoomCall {
 }
 
 impl RoomCall {
-    pub(crate) fn new(own_device: Arc<UserDevice>) -> Self {
+    pub(crate) fn new(own_device: Arc<UserDevice>, own_handle: CallParticipantHandle) -> Self {
         Self {
             call_handles: Arc::new(CallHandleMap::new()),
             members: Shared::new(CallMembers::default()),
             own_device,
+            own_handle,
             own_volume: Arc::new(VolumeCell::default()),
             active: Shared::new(None),
         }
@@ -227,22 +229,27 @@ impl RoomCall {
         user: OwnedUserId,
         device: OwnedDeviceId,
     ) -> CallParticipantHandle {
+        let id = CallParticipantId::new(user.clone(), device.clone());
         self.call_handles
-            .entry(CallParticipantId::new(user.clone(), device.clone()))
-            .or_insert_with(|| {
-                CallParticipantHandle::new(self.new_volume(&CallParticipantId::new(user, device)))
-            })
+            .entry(id.clone())
+            .or_insert_with(|| self.new_handle(&id))
             .clone()
     }
 
-    fn new_volume(&self, id: &CallParticipantId) -> Arc<VolumeCell> {
+    pub(crate) fn new_handle(&self, id: &CallParticipantId) -> CallParticipantHandle {
         if let CallParticipantId::Member { user_id, device_id } = id
             && &self.own_device.user_id == user_id
             && &self.own_device.device_id == device_id
         {
-            self.own_volume.clone()
+            CallParticipantHandle {
+                participant: self.own_handle.participant.clone(),
+                volume: self.own_volume.clone(),
+            }
         } else {
-            Arc::new(VolumeCell::default())
+            CallParticipantHandle {
+                participant: Arc::new(Shared::default()),
+                volume: Arc::new(VolumeCell::default()),
+            }
         }
     }
 
@@ -285,35 +292,6 @@ pub enum CallConnectionState {
     Connected,
     Reconnecting,
     Ended,
-}
-
-/// A snapshot of everything a call UI renders, folded by the call thread
-#[derive(Clone, Debug, PartialEq)]
-pub struct CallState {
-    pub connection: CallConnectionState,
-    pub started_at: SystemTime,
-    pub own_muted: bool,
-    pub own_speaking: bool,
-}
-
-impl Default for CallState {
-    fn default() -> Self {
-        Self {
-            connection: CallConnectionState::Connecting,
-            started_at: SystemTime::now(),
-            own_muted: false,
-            own_speaking: false,
-        }
-    }
-}
-
-impl Hash for CallState {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.connection.hash(state);
-
-        self.own_muted.hash(state);
-        self.own_speaking.hash(state);
-    }
 }
 
 /// Volume at which someone counts as speaking.
@@ -374,10 +352,12 @@ pub struct LivekitCall {
     manager: LiveKitRoomManager,
     own_device: Arc<UserDevice>,
 
-    own_volume: Arc<VolumeCell>,
+    own_handle: CallParticipantHandle,
 
-    /// Rendered truth, folded by the call thread.
-    state: Shared<CallState>,
+    own_volume: Arc<VolumeCell>,
+    started_at: SystemTime,
+
+    own_connection: Shared<CallConnectionState>,
     /// Bumped when `state` actually changed, the wake-up signal for the
     /// frontend's message loop. Carries no data
     state_wake: watch::Sender<()>,
@@ -411,7 +391,7 @@ impl Eq for LivekitCall {}
 impl Hash for LivekitCall {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.room.room_id().hash(state);
-        self.state.hash(state);
+        self.own_connection.hash(state);
     }
 }
 
@@ -423,15 +403,18 @@ impl LivekitCall {
         own_device: Arc<UserDevice>,
         own_volume: Arc<VolumeCell>,
         state_wake: watch::Sender<()>,
+        own_handle: CallParticipantHandle,
     ) -> Self {
         let (events, _) = broadcast::channel(64);
 
         Self {
+            started_at: SystemTime::now(),
             room,
             own_device,
             own_volume,
             manager,
-            state: Shared::new(CallState::default()),
+            own_connection: Shared::new(CallConnectionState::Connecting),
+            own_handle,
             state_wake,
             events,
             microphone: Shared::new(None),
@@ -441,17 +424,6 @@ impl LivekitCall {
 
     pub fn room_id(&self) -> &RoomId {
         self.room.room_id()
-    }
-
-    fn new_volume(&self, id: &CallParticipantId) -> Arc<VolumeCell> {
-        if let CallParticipantId::Member { user_id, device_id } = id
-            && &self.own_device.user_id == user_id
-            && &self.own_device.device_id == device_id
-        {
-            self.own_volume.clone()
-        } else {
-            Arc::new(VolumeCell::default())
-        }
     }
 
     /// Returns the call handle for the given participant, creating it if
@@ -466,8 +438,25 @@ impl LivekitCall {
         }
         self.call_handles
             .entry(id.clone())
-            .or_insert_with(|| CallParticipantHandle::new(self.new_volume(id)))
+            .or_insert_with(|| self.new_handle(id))
             .clone()
+    }
+
+    pub(crate) fn new_handle(&self, id: &CallParticipantId) -> CallParticipantHandle {
+        if let CallParticipantId::Member { user_id, device_id } = id
+            && &self.own_device.user_id == user_id
+            && &self.own_device.device_id == device_id
+        {
+            CallParticipantHandle {
+                participant: self.own_handle.participant.clone(),
+                volume: self.own_volume.clone(),
+            }
+        } else {
+            CallParticipantHandle {
+                participant: Arc::new(Shared::default()),
+                volume: Arc::new(VolumeCell::default()),
+            }
+        }
     }
 
     /// Changes a participant's state, waking the frontend only when it
@@ -499,11 +488,6 @@ impl LivekitCall {
 
     fn wake(&self) {
         self.state_wake.send_modify(|_| ());
-    }
-
-    /// The current rendering snapshot. Cheap and always valid.
-    pub fn state(&self) -> Arc<CallState> {
-        self.state.get()
     }
 
     /// Wake-up signal for the frontend's message loop: fires whenever the
@@ -545,14 +529,12 @@ impl LivekitCall {
             microphone.unmute();
         }
 
-        // The SFU usually echoes the change back as an event; folding it
-        // here directly also covers the case where it doesn't.
-        self.change_state(|state| state.own_muted = muted);
+        self.change_own_participant(|p| p.muted = muted);
     }
 
     /// The mute state of our own microphone.
     pub fn is_microphone_muted(&self) -> bool {
-        self.state.get().own_muted
+        self.own_handle.participant.read().muted
     }
 
     /// Leave the call. Disconnects from the SFU, removes our MatrixRTC
@@ -585,8 +567,8 @@ impl LivekitCall {
     pub(crate) fn set_own_volume(&self, volume: f32) {
         self.own_volume.set(volume);
 
-        self.change_state(|state| {
-            state.own_speaking = speaking_from(state.own_speaking, volume);
+        self.change_own_participant(|p| {
+            p.speaking = speaking_from(p.speaking, volume);
         });
     }
 
@@ -605,13 +587,17 @@ impl LivekitCall {
     /// Applies a change to the call state, waking the frontend only when
     /// the state actually changed. The closure
     /// may be retried by the underlying compare-and-swap.
-    pub(crate) fn change_state(&self, change: impl Fn(&mut CallState)) {
-        let before = self.state.version();
-        self.state.change_if_modified(change);
+    pub(crate) fn change_own_participant(&self, change: impl Fn(&mut CallParticipant)) {
+        let before = self.own_handle.participant.version();
+        self.own_handle.participant.change_if_modified(change);
 
-        if self.state.version() != before {
+        if self.own_handle.participant.version() != before {
             self.wake();
         }
+    }
+
+    pub(crate) fn change_own_connection(&self, connection: CallConnectionState) {
+        self.own_connection.change_if_modified(|p| *p = connection);
     }
 
     pub(crate) fn emit(&self, event: CallEvent) {
@@ -633,7 +619,7 @@ impl LivekitCall {
                     let joined = participant_from_publications(publications);
                     self.change_participant(&self.call_handle(&id), |p| *p = joined.clone());
                 }
-                self.change_state(|state| state.connection = CallConnectionState::Connected);
+                self.change_own_connection(CallConnectionState::Connected);
                 self.emit(CallEvent::Connected);
             }
             RoomEvent::ParticipantConnected(participant) => {
@@ -681,7 +667,7 @@ impl LivekitCall {
                     self.change_participant(&self.call_handle(&id), |p| p.muted = true);
                 }
                 Participant::Local(_) => {
-                    self.change_state(|state| state.own_muted = true);
+                    self.change_own_participant(|p| p.muted = true);
                 }
             },
             RoomEvent::TrackUnmuted {
@@ -693,7 +679,7 @@ impl LivekitCall {
                     self.change_participant(&self.call_handle(&id), |p| p.muted = false);
                 }
                 Participant::Local(_) => {
-                    self.change_state(|state| state.own_muted = false);
+                    self.change_own_participant(|p| p.muted = false);
                 }
             },
             RoomEvent::TrackPublished {
@@ -748,10 +734,14 @@ impl LivekitCall {
                     ConnectionState::Reconnecting => CallConnectionState::Reconnecting,
                     ConnectionState::Disconnected => CallConnectionState::Ended,
                 };
-                self.change_state(|state| state.connection = connection);
+                self.change_own_connection(connection);
             }
             _ => {}
         }
+    }
+
+    pub(crate) fn started_at(&self) -> SystemTime {
+        self.started_at
     }
 }
 

@@ -582,6 +582,7 @@ async fn finish_joining_call(
         own_device.clone(),
         dp_room.call.own_volume.clone(),
         state_wake,
+        dp_room.own_handle.clone(),
     ));
 
     // set and send out encryption key after joining but before publishing a track
@@ -794,7 +795,7 @@ async fn finish_joining_call(
         call_loop.reset_participants();
 
         // Signal the end of the call and retire the frontend's handle
-        call_loop.change_state(|state| state.connection = CallConnectionState::Ended);
+        call_loop.change_own_connection(CallConnectionState::Ended);
         call_loop.emit(CallEvent::Ended { reason: end_reason });
         call_registry_loop.remove(call_loop.room_id());
         // Only clear our own call, a rejoin may already have replaced it

@@ -9,7 +9,8 @@ use ruma::{
 use tokio::sync::watch;
 
 use crate::{
-    Shared, matrix_api::account_data::ServerOrderContent, member::ProfileStore, state::UserDevice,
+    Shared, call::CallParticipantHandle, matrix_api::account_data::ServerOrderContent,
+    member::ProfileStore, state::UserDevice,
 };
 
 use super::{
@@ -27,6 +28,7 @@ pub struct RoomStore {
     handle: tokio::runtime::Handle,
     profile_store: Arc<ProfileStore>,
     own_device: Arc<UserDevice>,
+    own_handle: CallParticipantHandle,
 
     room_map: RoomMap,
 
@@ -43,13 +45,17 @@ impl RoomStore {
         own_device: Arc<UserDevice>,
     ) -> Self {
         let rooms = client.rooms();
+        let own_handle = CallParticipantHandle::default();
+        own_handle
+            .participant
+            .change(|p| p.encryption = crate::call::CallEncryptionState::Ok);
 
         let room_map = rooms
             .iter()
             .map(|r| {
                 (
                     r.room_id().to_owned(),
-                    DePlaceRoom::new(r, &profile_store, own_device.clone()),
+                    DePlaceRoom::new(r, &profile_store, own_device.clone(), own_handle.clone()),
                 )
             })
             .collect();
@@ -62,6 +68,7 @@ impl RoomStore {
             profile_store,
             room_map,
             own_device,
+            own_handle,
             dms: Arc::new(Shared::new(Vec::new())),
             hierarchy: Arc::new(Shared::new(SpaceHierarchy::new(last_server_order))),
             changed: watch::channel(()).0,
@@ -176,8 +183,12 @@ impl RoomStore {
         let (room, created) = match self.room_map.entry(room_id.to_owned()) {
             Entry::Occupied(e) => (e.get().clone(), false),
             Entry::Vacant(e) => {
-                let room =
-                    DePlaceRoom::new(&sdk_room, &self.profile_store, self.own_device.clone());
+                let room = DePlaceRoom::new(
+                    &sdk_room,
+                    &self.profile_store,
+                    self.own_device.clone(),
+                    self.own_handle.clone(),
+                );
                 e.insert(room.clone());
                 (room, true)
             }

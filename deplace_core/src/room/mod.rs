@@ -1,6 +1,7 @@
 use std::{
     hash::{Hash, Hasher},
     sync::Arc,
+    time::SystemTime,
 };
 
 use live::RoomLive;
@@ -10,7 +11,7 @@ use tokio::sync::OnceCell;
 
 use crate::{
     Shared,
-    call::RoomCall,
+    call::{CallParticipantHandle, RoomCall},
     member::{Member, ProfileStore, room::RoomMembers},
     state::UserDevice,
 };
@@ -75,10 +76,17 @@ pub struct DePlaceRoom {
     pub(crate) members: Arc<RoomMembers>,
     timelines: Arc<OnceCell<RoomTimelines>>,
     pub(crate) call: Arc<RoomCall>,
+
+    pub(crate) own_handle: CallParticipantHandle,
 }
 
 impl DePlaceRoom {
-    pub fn new(room: &Room, profile_store: &ProfileStore, own_device: Arc<UserDevice>) -> Self {
+    pub(crate) fn new(
+        room: &Room,
+        profile_store: &ProfileStore,
+        own_device: Arc<UserDevice>,
+        own_handle: CallParticipantHandle,
+    ) -> Self {
         let room_id = room.room_id();
         let members = profile_store.get_members(room_id);
 
@@ -90,7 +98,8 @@ impl DePlaceRoom {
             live: Arc::new(Shared::new(RoomLive::new(room))),
             members,
             timelines: Arc::new(OnceCell::new()),
-            call: Arc::new(RoomCall::new(own_device)),
+            call: Arc::new(RoomCall::new(own_device, own_handle.clone())),
+            own_handle,
         }
     }
 
@@ -217,5 +226,14 @@ impl DePlaceRoom {
                 .members
                 .iter()
                 .any(|m| m.is_screensharing())
+    }
+
+    pub fn call_started_at(&self) -> Option<SystemTime> {
+        self.call
+            .active
+            .read()
+            .as_ref()
+            .as_ref()
+            .map(|r| r.started_at())
     }
 }
