@@ -38,6 +38,7 @@ pub enum ChannelsMessage {
         room_id: OwnedRoomId,
         participant: CallMember,
     },
+    JoinCall(DePlaceRoom),
 }
 
 impl OpenProfileOverlayExt for ChannelsMessage {
@@ -57,6 +58,7 @@ pub enum ChannelsAction {
     HelpHover(Option<HelpKey>),
     OpenQuickselect,
     ShowProfile { member: Member, bounds: Rectangle },
+    JoinCall(DePlaceRoom),
 }
 
 #[iced_cache(Clone)]
@@ -115,6 +117,7 @@ impl ServerChannels {
 impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
     fn update(&mut self, msg: ChannelsMessage) -> Option<ChannelsAction> {
         match msg {
+            ChannelsMessage::JoinCall(room) => Some(ChannelsAction::JoinCall(room)),
             ChannelsMessage::OpenQuickselect => Some(ChannelsAction::OpenQuickselect),
             ChannelsMessage::HelpHover(key) => Some(ChannelsAction::HelpHover(key)),
             ChannelsMessage::RoomHovered(id) => {
@@ -363,63 +366,66 @@ fn render_channel(
     let expanded = !collapsed_categories.contains(room.room_id());
     let is_active = active_room_id.as_ref().is_some_and(|id| id == id_ref);
 
-    let mut room_stack = w::stack![
-        w::mouse_area(
-            w::button(
-                help_view
-                    .call(
-                        HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
-                        "Channel",
-                        w::row![
-                            if is_space {
-                                if expanded {
-                                    iced_icon!(caret_down, bold, icon_size).into()
-                                } else {
-                                    iced_icon!(caret_right, bold, icon_size).into()
-                                }
+    let can_join_call = room.room_type().is_call() && !room.call().own_user_device_is_in_call();
+
+    let mut area = w::mouse_area(
+        w::button(
+            help_view
+                .call(
+                    HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
+                    "Channel",
+                    w::row![
+                        if is_space {
+                            if expanded {
+                                iced_icon!(caret_down, bold, icon_size).into()
                             } else {
-                                room.render_simple_icon(icon_size, theme, structure, bg)
-                            },
-                            name,
-                        ]
-                        .spacing(structure.gap)
-                        .width(Fill)
-                        .align_y(Alignment::Center)
-                        .padding(
-                            padding::vertical(structure.small_gap * 0.75).left(structure.small_gap),
-                        ),
-                    )
-                    .radius(structure.inner_border_radius),
-            )
-            .on_press_maybe(if !is_active || is_space {
-                if is_space {
-                    Some(ChannelsMessage::ToggleCategory(room.room_id().to_owned()))
-                } else {
-                    Some(ChannelsMessage::SetActiveRoom(room.clone()))
-                }
-            } else {
-                None
-            })
-            .padding(0.0)
-            .style(move |_, status| ButtonStyle {
-                background: is_active.then_some(theme.solid_hover_bg.into()),
-                border: Border {
-                    color: if status.active() || is_active {
-                        theme.border.into()
-                    } else {
-                        Color::TRANSPARENT
-                    },
-                    width: structure.border_thickness,
-                    radius: structure.inner_border_radius.into(),
-                },
-                text_color,
-                ..Default::default()
-            }),
+                                iced_icon!(caret_right, bold, icon_size).into()
+                            }
+                        } else {
+                            room.render_simple_icon(icon_size, theme, structure, bg)
+                        },
+                        name,
+                    ]
+                    .spacing(structure.gap)
+                    .width(Fill)
+                    .align_y(Alignment::Center)
+                    .padding(
+                        padding::vertical(structure.small_gap * 0.75).left(structure.small_gap),
+                    ),
+                )
+                .radius(structure.inner_border_radius),
         )
-        .on_enter(ChannelsMessage::RoomHovered(id.clone()))
-        .on_exit(ChannelsMessage::RoomUnhovered(id.clone()))
-        .boxed(),
-    ];
+        .on_press_maybe(if !is_active || is_space {
+            if is_space {
+                Some(ChannelsMessage::ToggleCategory(room.room_id().to_owned()))
+            } else {
+                Some(ChannelsMessage::SetActiveRoom(room.clone()))
+            }
+        } else if can_join_call {
+            Some(ChannelsMessage::JoinCall(room.clone()))
+        } else {
+            None
+        })
+        .padding(0.0)
+        .style(move |_, status| ButtonStyle {
+            background: is_active.then_some(theme.solid_hover_bg.into()),
+            border: Border {
+                color: if status.active() || is_active {
+                    theme.border.into()
+                } else {
+                    Color::TRANSPARENT
+                },
+                width: structure.border_thickness,
+                radius: structure.inner_border_radius.into(),
+            },
+            text_color,
+            ..Default::default()
+        }),
+    )
+    .on_enter(ChannelsMessage::RoomHovered(id.clone()))
+    .on_exit(ChannelsMessage::RoomUnhovered(id.clone()));
+
+    let mut room_stack = w::stack![area.boxed()];
 
     let mentions = if room.is_dm() {
         let total = notifications.total();
@@ -627,7 +633,7 @@ fn render_call_participant(
                     member.render_small_icon(icon_size),
                     volume_bar(
                         member.volume(),
-                        structure.divider_width * 3.0,
+                        400.0,
                         icon_size,
                         theme.colors.success.into()
                     ),

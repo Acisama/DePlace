@@ -33,6 +33,7 @@ pub enum SidebarAction {
     OpenSettings,
     OpenQuickselect,
     ShowProfile { member: Member, bounds: Rectangle },
+    JoinCall(DePlaceRoom),
 }
 
 #[iced_cache(Clone)]
@@ -70,6 +71,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 ServerColumnAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
             },
             SidebarMessage::Channels(msg) => match self.channels.update(msg)? {
+                ChannelsAction::JoinCall(room) => Some(SidebarAction::JoinCall(room)),
                 ChannelsAction::SetActiveRoom(room) => Some(SidebarAction::ChangeRoom(Some(room))),
                 ChannelsAction::HelpHover(key) => Some(SidebarAction::HelpHover(key)),
                 ChannelsAction::OpenQuickselect => Some(SidebarAction::OpenQuickselect),
