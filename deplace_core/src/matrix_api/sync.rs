@@ -19,13 +19,22 @@ use crate::{Avatar, big_thumbnail_format};
 #[cfg(feature = "iced")]
 use iced::advanced::image::Handle as ImageHandle;
 
-use super::matrixrtc::{handle_call_member_change, handle_to_device_messages};
+use super::matrixrtc::{cleanup_ghost_calls, handle_call_member_change, handle_to_device_messages};
 use super::members::handle_member_event;
 
 pub fn spawn_sync_runners(client: &Client, state: &AppState, own_device: Arc<UserDevice>) {
     if let Err(e) = client.event_cache().subscribe() {
         tracing::error!("Failed to subscribe to event cache: {e}");
     }
+
+    // The last session may have died without withdrawing our call
+    // memberships, ghosting us into calls: other members keep seeing
+    // and waiting for us long after the app is gone. Whatever is left
+    // behind is cleaned up here, before it can mislead anyone else.
+    tokio::spawn({
+        let client = client.clone();
+        async move { cleanup_ghost_calls(&client).await }
+    });
 
     tokio::spawn(run_sync_stream(client.clone(), state.clone()));
     tokio::spawn(run_keystore_save_stream(client.clone()));

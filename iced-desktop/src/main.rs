@@ -61,6 +61,8 @@ pub enum AppMessage {
     FocusRequest(FocusRequest),
     WindowFocus { focused: bool },
     Tray(TrayAction),
+    /// All ongoing calls were left, the app may now exit.
+    Exit,
 }
 
 #[derive(Debug, Clone)]

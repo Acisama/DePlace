@@ -105,6 +105,20 @@ impl Root {
 
         if let AppMessage::Tray(TrayAction::Exit) = message {
             tracing::debug!("Received tray exit request.");
+            // Every ongoing call is left before the app exits, else our
+            // call memberships stay behind in the rooms and ghost us
+            // into calls we are not in anymore.
+            if let Screen::Home(home) = &self.screen {
+                let state = home.state().clone();
+                return Task::future(async move {
+                    state.call_registry().leave_all().await;
+                })
+                .map(|()| AppMessage::Exit);
+            }
+            return iced::exit();
+        }
+
+        if let AppMessage::Exit = message {
             return iced::exit();
         }
 

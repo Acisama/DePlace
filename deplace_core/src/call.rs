@@ -748,6 +748,14 @@ impl CallRegistry {
         self.calls.get().get(room_id).cloned()
     }
 
+    /// Leaves every ongoing call, e.g. when the app is about to close
+    /// so we don't ghost out
+    pub async fn leave_all(&self) {
+        for (_, call) in self.all().iter() {
+            call.leave().await;
+        }
+    }
+
     /// A snapshot of all ongoing calls, keyed by room.
     pub fn all(&self) -> Arc<IndexMap<OwnedRoomId, Arc<LiveKitCall>>> {
         self.calls.get()

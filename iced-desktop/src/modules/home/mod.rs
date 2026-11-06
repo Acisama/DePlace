@@ -128,6 +128,9 @@ impl ExtraHash for Home {
 }
 
 impl Home {
+    pub fn state(&self) -> &AppState {
+        &self.state
+    }
     pub fn new(state: AppState) -> (Self, Task<HomeMessage>) {
         let active_room = state.active_room();
         let initial_room = active_room.borrow().clone();
