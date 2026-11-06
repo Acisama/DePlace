@@ -118,71 +118,73 @@ impl<Message> canvas::Program<Message> for VolumeBar {
         frame.fill(&outline, self.bg_color);
 
         let volume = state.volume();
-        let (fill_origin, fill_size) = match self.direction {
-            Direction::LeftToRight => {
-                let length = (bg_size.width * volume)
-                    .max(bg_radius * 2.0)
-                    .min(bg_size.width);
-                (bg_origin, Size::new(length, bg_size.height))
-            }
-            Direction::RightToLeft => {
-                let length = (bg_size.width * volume)
-                    .max(bg_radius * 2.0)
-                    .min(bg_size.width);
-                (
-                    Point::new(bg_origin.x + bg_size.width - length, bg_origin.y),
-                    Size::new(length, bg_size.height),
-                )
-            }
-            Direction::TopToBottom => {
-                let length = (bg_size.height * volume)
-                    .max(bg_radius * 2.0)
-                    .min(bg_size.height);
-                (bg_origin, Size::new(bg_size.width, length))
-            }
-            Direction::BottomToTop => {
-                let length = (bg_size.height * volume)
-                    .max(bg_radius * 2.0)
-                    .min(bg_size.height);
-                (
-                    Point::new(bg_origin.x, bg_origin.y + bg_size.height - length),
-                    Size::new(bg_size.width, length),
-                )
-            }
-        };
-        let fill = Path::rounded_rectangle(fill_origin, fill_size, bg_radius.into());
+        if volume > 0.0 {
+            let (fill_origin, fill_size) = match self.direction {
+                Direction::LeftToRight => {
+                    let length = (bg_size.width * volume)
+                        .max(bg_radius * 2.0)
+                        .min(bg_size.width);
+                    (bg_origin, Size::new(length, bg_size.height))
+                }
+                Direction::RightToLeft => {
+                    let length = (bg_size.width * volume)
+                        .max(bg_radius * 2.0)
+                        .min(bg_size.width);
+                    (
+                        Point::new(bg_origin.x + bg_size.width - length, bg_origin.y),
+                        Size::new(length, bg_size.height),
+                    )
+                }
+                Direction::TopToBottom => {
+                    let length = (bg_size.height * volume)
+                        .max(bg_radius * 2.0)
+                        .min(bg_size.height);
+                    (bg_origin, Size::new(bg_size.width, length))
+                }
+                Direction::BottomToTop => {
+                    let length = (bg_size.height * volume)
+                        .max(bg_radius * 2.0)
+                        .min(bg_size.height);
+                    (
+                        Point::new(bg_origin.x, bg_origin.y + bg_size.height - length),
+                        Size::new(bg_size.width, length),
+                    )
+                }
+            };
+            let fill = Path::rounded_rectangle(fill_origin, fill_size, bg_radius.into());
 
-        let center = Point::new(
-            fill_origin.x + fill_size.width / 2.0,
-            fill_origin.y + fill_size.height / 2.0,
-        );
-        let (base, tip) = match self.direction {
-            Direction::LeftToRight => (
-                Point::new(fill_origin.x, center.y),
-                Point::new(fill_origin.x + fill_size.width, center.y),
-            ),
-            Direction::RightToLeft => (
-                Point::new(fill_origin.x + fill_size.width, center.y),
-                Point::new(fill_origin.x, center.y),
-            ),
-            Direction::TopToBottom => (
-                Point::new(center.x, fill_origin.y),
-                Point::new(center.x, fill_origin.y + fill_size.height),
-            ),
-            Direction::BottomToTop => (
-                Point::new(center.x, fill_origin.y + fill_size.height),
-                Point::new(center.x, fill_origin.y),
-            ),
-        };
+            let center = Point::new(
+                fill_origin.x + fill_size.width / 2.0,
+                fill_origin.y + fill_size.height / 2.0,
+            );
+            let (base, tip) = match self.direction {
+                Direction::LeftToRight => (
+                    Point::new(fill_origin.x, center.y),
+                    Point::new(fill_origin.x + fill_size.width, center.y),
+                ),
+                Direction::RightToLeft => (
+                    Point::new(fill_origin.x + fill_size.width, center.y),
+                    Point::new(fill_origin.x, center.y),
+                ),
+                Direction::TopToBottom => (
+                    Point::new(center.x, fill_origin.y),
+                    Point::new(center.x, fill_origin.y + fill_size.height),
+                ),
+                Direction::BottomToTop => (
+                    Point::new(center.x, fill_origin.y + fill_size.height),
+                    Point::new(center.x, fill_origin.y),
+                ),
+            };
 
-        let end_color = lerp_color(self.start_color, self.end_color, volume);
+            let end_color = lerp_color(self.start_color, self.end_color, volume);
 
-        frame.fill(
-            &fill,
-            Linear::new(base, tip)
-                .add_stop(0.0, self.start_color)
-                .add_stop(1.0, end_color),
-        );
+            frame.fill(
+                &fill,
+                Linear::new(base, tip)
+                    .add_stop(0.0, self.start_color)
+                    .add_stop(1.0, end_color),
+            );
+        }
 
         if self.border_width > 0.0 {
             frame.stroke(
