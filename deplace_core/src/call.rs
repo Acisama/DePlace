@@ -663,6 +663,10 @@ impl LivekitCall {
         self.own_connection.change_if_modified(|p| *p = connection);
     }
 
+    pub(crate) fn own_connection(&self) -> Arc<CallConnectionState> {
+        self.own_connection.get()
+    }
+
     pub(crate) fn emit(&self, event: CallEvent) {
         if self.events.send(event).is_err() {
             tracing::trace!("Dropping a call event with no subscriber subscribed");

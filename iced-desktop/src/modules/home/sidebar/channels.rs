@@ -7,6 +7,7 @@ use iced::{Alignment, border::Radius};
 use macros::{iced_cache, iced_icon};
 
 use crate::{
+    MONO_FONT,
     common::*,
     components::{
         PushElement,
@@ -17,8 +18,10 @@ use crate::{
         right_click::right_click,
         volume_bar::{self, volume_bar},
     },
-    modules::home::MUTE_ICON,
-    modules::home::overlay::{ContextMenu, ContextMenuKind},
+    modules::home::{
+        MUTE_ICON,
+        overlay::{ContextMenu, ContextMenuKind},
+    },
 };
 
 use super::render_mention_badge;
@@ -436,8 +439,6 @@ fn render_channel(
     .on_enter(ChannelsMessage::RoomHovered(id.clone()))
     .on_exit(ChannelsMessage::RoomUnhovered(id.clone()));
 
-    let mut room_stack = w::stack![area.boxed()];
-
     let mentions = if room.is_dm() {
         let total = notifications.total();
         if total > 0 { Some(total) } else { None }
@@ -449,25 +450,29 @@ fn render_channel(
         .height(Fill)
         .width(Fill)
         .spacing(structure.small_gap)
-        .align_y(Alignment::Center);
+        .align_y(Alignment::Center)
+        .padding(padding::right(structure.small_gap));
+
+    if let Some(start_time) = room.call_started_at() {
+        extra_row = extra_row.push_element(
+            elapsed_time(start_time)
+                .color(theme.colors.success)
+                .size(structure.semi_small_font_size())
+                .mode(elapsed_time::Mode::Hms)
+                .font(MONO_FONT),
+        );
+    }
 
     if let Some(mentions) = mentions {
         extra_row = extra_row.push_element(render_mention_badge(mentions, theme, structure));
     }
-
-    if let Some(start_time) = room.call_started_at() {
-        extra_row = extra_row.push_element(elapsed_time(start_time));
-    }
-
-    room_stack =
-        room_stack.push_element(extra_row.push_element(Space::new().width(structure.small_gap)));
 
     let mut items = vec![
         help_view
             .call(
                 HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
                 if room.is_dm() { "A dm" } else { "A channel" },
-                room_stack,
+                w::stack![area.boxed(), extra_row],
             )
             .radius(structure.inner_border_radius)
             .boxed(),

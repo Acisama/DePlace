@@ -112,6 +112,24 @@ pub fn format_elapsed_time(seconds: u64) -> String {
     text.trim_start().to_string()
 }
 
+/// Formats `seconds` as `H:MM:SS`, `M:SS`, or `SS`, omitting the hours and/or
+/// minutes component entirely when it's zero.
+pub fn format_elapsed_time_hms(seconds: u64) -> String {
+    let mut seconds = seconds;
+    let mut minutes = seconds / 60;
+    seconds %= 60;
+    let hours = minutes / 60;
+    minutes %= 60;
+
+    if hours > 0 {
+        format!("{}:{:02}:{:02}", hours, minutes, seconds)
+    } else if minutes > 0 {
+        format!("{}:{:02}", minutes, seconds)
+    } else {
+        format!("{}", seconds)
+    }
+}
+
 /// Fits `(w, h)` into `(max_w, max_h)` preserving aspect ratio, then grows the result back up
 /// (still preserving aspect ratio) if needed so the width is at least `min_w` - e.g. so an
 /// overlaid label has room to fit. If `max_h` doesn't allow reaching `min_w` without exceeding

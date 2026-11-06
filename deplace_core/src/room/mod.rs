@@ -135,6 +135,13 @@ impl DePlaceRoom {
         }
         if call {
             self.call.members.read().hash(state);
+            self.call
+                .active
+                .read()
+                .as_ref()
+                .as_ref()
+                .map(|l| l.own_connection())
+                .hash(state);
         }
     }
 

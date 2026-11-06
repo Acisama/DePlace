@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, SystemTime};
 
-use deplace_core::formatting::format_elapsed_time;
+use deplace_core::formatting::{format_elapsed_time, format_elapsed_time_hms};
 use iced::advanced::text::{self, Paragraph, Renderer as _, paragraph};
 use iced::advanced::widget::{
     Meta, Tree,
@@ -31,14 +31,27 @@ use iced::{
 /// *do* honor it give the widget the right amount of room.
 pub struct ElapsedTime {
     since: SystemTime,
+    mode: Mode,
     size: Option<Pixels>,
     color: Option<Color>,
     font: Option<Font>,
 }
 
+/// How the elapsed duration is rendered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// e.g. "1h 23m 45s", each unit shown only if non-zero.
+    #[default]
+    Compact,
+    /// e.g. "1:23:45", with the hours and/or minutes component omitted
+    /// entirely when zero.
+    Hms,
+}
+
 pub fn elapsed_time(since: SystemTime) -> ElapsedTime {
     ElapsedTime {
         since,
+        mode: Mode::default(),
         size: None,
         color: None,
         font: None,
@@ -46,6 +59,11 @@ pub fn elapsed_time(since: SystemTime) -> ElapsedTime {
 }
 
 impl ElapsedTime {
+    pub fn mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
+        self
+    }
+
     pub fn size(mut self, size: impl Into<Pixels>) -> Self {
         self.size = Some(size.into());
         self
@@ -63,6 +81,13 @@ impl ElapsedTime {
 
     fn elapsed(&self) -> Duration {
         self.since.elapsed().unwrap_or_default()
+    }
+
+    fn format_secs(&self, secs: u64) -> String {
+        match self.mode {
+            Mode::Compact => format_elapsed_time(secs),
+            Mode::Hms => format_elapsed_time_hms(secs),
+        }
     }
 
     fn format(&self) -> text_widget::Format {
@@ -110,7 +135,7 @@ impl<Message> Widget<Message, iced::Theme, Renderer> for ElapsedTime {
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
         let secs = self.elapsed().as_secs();
-        let content = format_elapsed_time(secs);
+        let content = self.format_secs(secs);
 
         let state = tree
             .state
@@ -143,7 +168,7 @@ impl<Message> Widget<Message, iced::Theme, Renderer> for ElapsedTime {
 
             let format = self.format();
             let bounds = layout.bounds().size();
-            let content = format_elapsed_time(secs);
+            let content = self.format_secs(secs);
 
             let _ = state.paragraph.borrow_mut().update(text::Text {
                 content: &content,
@@ -201,7 +226,7 @@ impl<Message> Widget<Message, iced::Theme, Renderer> for ElapsedTime {
         let state = tree
             .state
             .downcast_ref::<State<<Renderer as text::Renderer>::Paragraph>>();
-        if format_elapsed_time(state.last_secs.get()).len() != format_elapsed_time(secs).len() {
+        if self.format_secs(state.last_secs.get()).len() != self.format_secs(secs).len() {
             shell.invalidate_layout();
         }
 
