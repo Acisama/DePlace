@@ -133,7 +133,15 @@ impl ServerChannels {
 impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
     fn update(&mut self, msg: ChannelsMessage) -> Option<ChannelsAction> {
         match msg {
-            ChannelsMessage::JoinCall(room) => Some(ChannelsAction::JoinCall(room)),
+            ChannelsMessage::JoinCall(room) => {
+                // Only call rooms join on double click, and only when we
+                // are not in the call already
+                if room.room_type().is_call() && !room.call().own_user_device_is_in_call() {
+                    Some(ChannelsAction::JoinCall(room))
+                } else {
+                    None
+                }
+            }
             ChannelsMessage::ParticipantMenu(menu) => Some(ChannelsAction::ParticipantMenu(menu)),
             ChannelsMessage::OpenQuickselect => Some(ChannelsAction::OpenQuickselect),
             ChannelsMessage::HelpHover(key) => Some(ChannelsAction::HelpHover(key)),
@@ -387,8 +395,6 @@ fn render_channel(
     let expanded = !collapsed_categories.contains(room.room_id());
     let is_active = active_room_id.as_ref().is_some_and(|id| id == id_ref);
 
-    let can_join_call = room.room_type().is_call() && !room.call().own_user_device_is_in_call();
-
     let mut name_row = w::row![
         if is_space {
             if expanded {
@@ -427,14 +433,15 @@ fn render_channel(
                 )
                 .radius(structure.inner_border_radius),
         )
+        // A single click opens the room (clicking the already open room
+        // does nothing); joining the call is a double click on a call
+        // room, so opening a call room never joins it by accident
         .on_press_maybe(if !is_active || is_space {
             if is_space {
                 Some(ChannelsMessage::ToggleCategory(room.room_id().to_owned()))
             } else {
                 Some(ChannelsMessage::SetActiveRoom(room.clone()))
             }
-        } else if can_join_call {
-            Some(ChannelsMessage::JoinCall(room.clone()))
         } else {
             None
         })
@@ -455,7 +462,8 @@ fn render_channel(
         }),
     )
     .on_enter(ChannelsMessage::RoomHovered(id.clone()))
-    .on_exit(ChannelsMessage::RoomUnhovered(id.clone()));
+    .on_exit(ChannelsMessage::RoomUnhovered(id.clone()))
+    .on_double_click(ChannelsMessage::JoinCall(room.clone()));
 
     let mentions = if room.is_dm() {
         let total = notifications.total();

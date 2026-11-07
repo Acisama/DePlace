@@ -494,6 +494,11 @@ fn join_call(state: &AppState, room: DePlaceRoom) -> Option<HomeAction> {
     let calls_tick = state.calls_tick().clone();
     let profile_store = state.profile_store();
 
+    // Spamming the button shouldn't try to join the call multiple times
+    if room.call().join_progress().is_some() || call_registry.get(room.room_id()).is_some() {
+        return None;
+    }
+
     Some(HomeAction::Run(Task::future(async move {
         // The returned handle is already registered in the call registry,
         // from where the frontend can reach it via `call_registry.get`.
