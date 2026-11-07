@@ -3,14 +3,12 @@ use iced::{Alignment, Length, border::Radius};
 
 use crate::{
     common::*,
-    components::{PushElement, right_click::right_click, volume_bar::Direction},
+    components::{call_grid::call_grid, right_click::right_click, volume_bar::Direction},
 };
 
 use crate::modules::home::overlay::{ContextMenu, ContextMenuKind};
 
 use super::ChatMessage;
-
-const MAX_COLUMNS: usize = 3;
 
 pub fn render_call_members(
     room: DePlaceRoom,
@@ -21,51 +19,29 @@ pub fn render_call_members(
     direction: Direction,
 ) -> Element<'static, ChatMessage> {
     let icon_size = structure.chat.icon_size * 2.0;
-    let height = icon_size * 2.5;
     let rounding = icon_size / 6.0;
-
-    let mut column = w::Column::new()
-        .width(Fill)
-        .padding(icon_size / 2.0)
-        .spacing(icon_size / 2.0);
-
     let gap = structure.icon_gap_ratio * icon_size / 4.0;
+    let own_device = own_device.clone();
 
-    for chunk in members.chunks(MAX_COLUMNS) {
-        let mut members_row = w::Row::new().spacing(icon_size / 2.0);
-        let fillers = MAX_COLUMNS - chunk.len();
-
-        for member in chunk {
-            members_row = members_row.push_element(render_call_member(
-                member.clone(),
+    let grid = call_grid(
+        members,
+        |member| (*member.device_id).clone(),
+        move |member| {
+            render_call_member(
+                member,
                 room.clone(),
                 theme,
                 structure,
                 icon_size,
                 rounding,
-                height,
                 gap,
-                own_device,
-            ));
-        }
-
-        let row = if fillers > 0 {
-            w::row![
-                Space::new()
-                    .width(Length::FillPortion(fillers as u16))
-                    .height(height),
-                w::container(members_row).width(Length::FillPortion((chunk.len() * 2) as u16)),
-                Space::new()
-                    .width(Length::FillPortion(fillers as u16))
-                    .height(height),
-            ]
-            .boxed()
-        } else {
-            members_row.width(Fill).boxed()
-        };
-
-        column = column.push(row);
-    }
+                &own_device,
+            )
+        },
+    )
+    .spacing(icon_size / 2.0)
+    .padding(icon_size / 2.0)
+    .height(Fill);
 
     let style = ContainerStyle {
         background: Some(theme.solid_bg.into()),
@@ -78,10 +54,9 @@ pub fn render_call_members(
         ..Default::default()
     };
     let content = w::container(
-        w::container(themed_scrollable(column, theme, structure))
+        w::container(grid)
             .width(Fill)
             .height(Fill)
-            .align_y(Alignment::Center)
             .style(move |_| style),
     )
     .padding(structure.border_thickness)
@@ -123,7 +98,6 @@ fn render_call_member(
     structure: Structure,
     icon_size: f32,
     rounding: f32,
-    height: impl Into<Length>,
     gap: f32,
     own_device: &UserDevice,
 ) -> w::Element<'static, ChatMessage> {
@@ -135,9 +109,9 @@ fn render_call_member(
     right_click(
         w::container(w::stack![
             w::container(member.render_icon(icon_size))
-                .colored_rounded(color.scale_lightness(0.15), rounding)
-                .width(Length::FillPortion(2))
-                .height(height)
+                .colored_rounded(color.scale_lightness(0.2), rounding)
+                .width(Fill)
+                .height(Fill)
                 .align_x(Alignment::Center)
                 .align_y(Alignment::Center),
             w::container(

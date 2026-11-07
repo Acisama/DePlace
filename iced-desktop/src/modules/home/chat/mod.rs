@@ -100,6 +100,17 @@ pub struct Chat {
     pub room_id: OwnedRoomId,
 }
 
+impl ExtraHash for Chat {
+    fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // `room` itself isn't `#[hash]`ed, so without this the call grid
+        // (rendered straight from `self.room.call().call_participants()` in
+        // `view`) only picks up a join/leave once some unrelated field
+        // happens to change too, since `Chat`'s view is cached behind
+        // `lazy_view` and keyed on this hash.
+        self.room.hash_selective(state, false, false, false, true);
+    }
+}
+
 impl Chat {
     pub fn new(state: &AppState, room: DePlaceRoom) -> (Self, Task<(OwnedRoomId, ChatMessage)>) {
         let sdk_room = room.room.clone();

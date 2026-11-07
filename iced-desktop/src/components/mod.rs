@@ -23,6 +23,7 @@ use matrix_sdk::ruma::{OwnedUserId, serde::Base64};
 
 pub mod animated_button;
 pub mod animation_clock;
+pub mod call_grid;
 pub mod corner_badge;
 pub mod elapsed_time;
 pub mod equal_width;
@@ -42,6 +43,7 @@ pub mod track_bounds;
 pub mod track_scroll;
 pub mod volume_bar;
 
+pub use call_grid::call_grid;
 pub use corner_badge::{CornerContent, corner_badge};
 pub use elapsed_time::elapsed_time;
 pub use fills_parent::fills_parent;
@@ -413,7 +415,7 @@ pub fn themed_scrollable<'a, T: 'a, W>(
                 },
             }
         })
-        .smooth_scroll(false)
+        .smooth_scroll(true)
         .auto_scroll(true)
 }
 
