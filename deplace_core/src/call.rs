@@ -131,17 +131,22 @@ impl Default for CallParticipantHandle {
 }
 
 impl CallParticipantHandle {
-    /// This participant's playback volume: `0.0` is silent, `1.0` is
-    /// normal, `4.0` is four times as loud as normal. Muting them doesn't
-    /// touch this, so unmuting can return to it.
+    /// This participant's playback volume as a direct amplitude
+    /// multiplier on their samples: `0.0` is silent, `1.0` is normal,
+    /// `10.0` is ten times the amplitude. Loudness is perceived on a log
+    /// scale (roughly +10dB, a ~3.16x amplitude jump, per perceived
+    /// doubling), so the UI curves its slider percentage before it lands
+    /// here; this value itself stays a plain linear multiplier since
+    /// that's what the audio pump needs to scale samples with.
+    /// Muting them doesn't touch this, so unmuting can return to it.
     pub fn playback_volume(&self) -> f32 {
         self.playback_volume.get()
     }
 
     /// Sets how loud this participant plays for us, clamped to
-    /// `0.0..=4.0`.
+    /// `0.0..=10.0`.
     pub fn set_playback_volume(&self, volume: f32) {
-        self.playback_volume.set(volume.clamp(0.0, 4.0));
+        self.playback_volume.set(volume.clamp(0.0, 10.0));
     }
 
     /// Whether we muted this guy ourselves.

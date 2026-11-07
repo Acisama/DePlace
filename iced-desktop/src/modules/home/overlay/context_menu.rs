@@ -216,7 +216,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     // them again.
                     ParticipantMessage::Volume(percent) => {
                         let handle = member.handle();
-                        handle.set_playback_volume(percent / 100.0);
+                        handle.set_playback_volume(percent_to_amplitude(percent));
                         handle.set_playback_muted(percent <= 0.0);
                     }
                     // The playback volume stays where it is: unmuting
@@ -419,6 +419,26 @@ fn render_context_menu_button(
     .on_press(message)
 }
 
+/// Loudness is perceived on a log scale: roughly every +10dB sounds
+/// twice as loud, which in amplitude terms is a ~3.16x jump, not 2x.
+/// This is the exponent that turns the volume slider's linear percentage
+/// into an amplitude multiplier that matches that perception, so that
+/// e.g. 200% actually sounds twice as loud and 400% four times as loud,
+/// derived from `amplitude = (percent / 100).powf(log2(10) / 2)`.
+const LOUDNESS_EXPONENT: f32 = 1.660_964;
+
+/// Curves a slider percentage (0..=400) into the amplitude multiplier
+/// the audio pump should scale samples by, see [`LOUDNESS_EXPONENT`].
+fn percent_to_amplitude(percent: f32) -> f32 {
+    (percent / 100.0).powf(LOUDNESS_EXPONENT)
+}
+
+/// Inverse of [`percent_to_amplitude`], for drawing the slider at the
+/// position matching a stored amplitude multiplier.
+fn amplitude_to_percent(amplitude: f32) -> f32 {
+    100.0 * amplitude.powf(1.0 / LOUDNESS_EXPONENT)
+}
+
 /// The menu for one call participant
 ///
 ///  A slider for their playback volume and a mute toggle, maybe
@@ -436,7 +456,7 @@ fn render_participant_context_menu(
 ) -> Element<'static, ContextMenuMessage> {
     let handle = member.handle();
     let volume = handle.playback_volume();
-    let percent = (volume * 100.0).round();
+    let percent = amplitude_to_percent(volume).round();
     // Our own mute state lives in the participant's `muted` flag (driven
     // by the mic track itself), not `playback_muted`, which only tracks
     // whether *we* silence someone else's playback.
@@ -560,6 +580,7 @@ fn render_participant_context_menu(
                     Space::new().width(Fill),
                     static_checkbox(
                         muted,
+                        theme.colors.error,
                         theme,
                         structure,
                         structure.font_size * 1.1,
