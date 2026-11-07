@@ -175,4 +175,9 @@ impl CallMember {
     pub fn is_screensharing(&self) -> bool {
         self.handle.participant.read().screensharing
     }
+
+    pub fn is_own(&self, own_device: &UserDevice) -> bool {
+        self.member.user_id() == own_device.user_id
+            && self.device_id.as_ref() == &own_device.device_id
+    }
 }

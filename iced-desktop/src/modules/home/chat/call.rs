@@ -1,4 +1,4 @@
-use deplace_core::room::call::CallMember;
+use deplace_core::{room::call::CallMember, state::UserDevice};
 use iced::{Alignment, Length, border::Radius};
 
 use crate::{
@@ -14,6 +14,7 @@ const MAX_COLUMNS: usize = 3;
 
 pub fn render_call_members(
     members: Vec<CallMember>,
+    own_device: &UserDevice,
     theme: Theme,
     structure: Structure,
     direction: Direction,
@@ -37,6 +38,7 @@ pub fn render_call_members(
             let color = member.color();
             let is_speaking = member.is_speaking();
             let menu_member = member.clone();
+            let is_own = menu_member.is_own(own_device);
 
             members_row = members_row.push_element(right_click(
                 w::container(
@@ -64,6 +66,8 @@ pub fn render_call_members(
                         position,
                         kind: ContextMenuKind::Participant {
                             member: menu_member.clone(),
+                            own_device: is_own,
+                            muted_hovered: false,
                         },
                     })
                 },
@@ -99,7 +103,7 @@ pub fn render_call_members(
         ..Default::default()
     };
     let content = w::container(
-        w::container(column)
+        w::container(themed_scrollable(column, theme, structure))
             .width(Fill)
             .height(Fill)
             .align_y(Alignment::Center)

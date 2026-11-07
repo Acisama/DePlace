@@ -290,6 +290,10 @@ impl RoomStore {
             servers: (*self.hierarchy.read().servers).clone(),
         }
     }
+
+    pub fn own_device(&self) -> &UserDevice {
+        &self.own_device
+    }
 }
 
 async fn apply_parent_update(hierarchy: &Shared<SpaceHierarchy>, room: &Room) {

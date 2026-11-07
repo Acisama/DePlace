@@ -1,11 +1,13 @@
 use deplace_core::room::call::CallMember;
-use iced::Alignment;
+use iced::{Alignment, Length::Shrink};
 use macros::iced_cache;
 use matrix_sdk_ui::{Timeline, timeline::TimelineEventItemId};
 
 use crate::{
     common::*,
-    components::{equal_width::equal_width, phosphor_icon},
+    components::{
+        PushElement, equal_width::equal_width, phosphor_icon, static_checkbox::static_checkbox,
+    },
     modules::home::{EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, UNPIN_ICON, chat::MessageEvent},
 };
 
@@ -29,22 +31,13 @@ pub enum ParticipantMessage {
     /// Mute or unmute them; muting silences, unmuting restores normal
     /// volume
     Muted(bool),
+    MutedHovered(bool),
 }
 
 #[derive(Clone, Debug)]
 pub enum ContextMenuMessage {
-    Message {
-        timeline: Arc<Timeline>,
-        event: Arc<MessageEvent>,
-        room_id: OwnedRoomId,
-        identifier: TimelineEventItemId,
-        item_id: String,
-        message: MessageMessage,
-    },
-    Participant {
-        member: CallMember,
-        message: ParticipantMessage,
-    },
+    Message(MessageMessage),
+    Participant(ParticipantMessage),
 }
 
 pub enum ContextMenuAction {
@@ -87,7 +80,11 @@ pub enum ContextMenuKind {
         can_redact: bool,
     },
     /// One call participant: their playback volume and mute state.
-    Participant { member: CallMember },
+    Participant {
+        member: CallMember,
+        own_device: bool,
+        muted_hovered: bool,
+    },
 }
 
 impl Hash for ContextMenuKind {
@@ -97,10 +94,15 @@ impl Hash for ContextMenuKind {
             // The member handle holds the live volume and mute state,
             // the menu reads them on every redraw instead of being
             // invalidated by them
-            ContextMenuKind::Participant { member } => {
+            ContextMenuKind::Participant {
+                member,
+                muted_hovered,
+                ..
+            } => {
                 1.hash(state);
                 member.member.user_id().hash(state);
                 member.device_id.hash(state);
+                muted_hovered.hash(state);
             }
         }
     }
@@ -120,8 +122,12 @@ impl PartialEq for ContextMenuKind {
                 },
             ) => identifier1 == identifier2,
             (
-                ContextMenuKind::Participant { member: member1 },
-                ContextMenuKind::Participant { member: member2 },
+                ContextMenuKind::Participant {
+                    member: member1, ..
+                },
+                ContextMenuKind::Participant {
+                    member: member2, ..
+                },
             ) => {
                 member1.member.user_id() == member2.member.user_id()
                     && member1.device_id == member2.device_id
@@ -134,32 +140,53 @@ impl PartialEq for ContextMenuKind {
 impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
     fn update(&mut self, message: ContextMenuMessage) -> Option<ContextMenuAction> {
         match message {
-            ContextMenuMessage::Message {
-                timeline,
-                event,
-                identifier,
-                room_id,
-                item_id,
-                message,
-            } => match message {
-                MessageMessage::SetReplyingTo(event_id) => Some(ContextMenuAction::SetReplyingTo {
-                    item_id,
+            ContextMenuMessage::Message(message) => {
+                let ContextMenuKind::Message {
+                    timeline,
+                    event,
                     room_id,
-                    event_id,
-                }),
-                MessageMessage::Delete => Some(ContextMenuAction::OpenModifyItem(
-                    ModifyItem::delete(timeline, identifier, event),
-                )),
-                MessageMessage::Pin {
-                    event_id,
-                    is_pinned,
-                } => Some(ContextMenuAction::OpenModifyItem(ModifyItem::pin(
-                    timeline, identifier, event_id, event, is_pinned,
-                ))),
-                // TODO
-                MessageMessage::Edit(_) => None,
-            },
-            ContextMenuMessage::Participant { member, message } => {
+                    identifier,
+                    item_id,
+                    ..
+                } = &mut self.kind
+                else {
+                    return None;
+                };
+                match message {
+                    MessageMessage::SetReplyingTo(event_id) => {
+                        Some(ContextMenuAction::SetReplyingTo {
+                            item_id: item_id.clone(),
+                            room_id: room_id.clone(),
+                            event_id,
+                        })
+                    }
+                    MessageMessage::Delete => Some(ContextMenuAction::OpenModifyItem(
+                        ModifyItem::delete(timeline.clone(), identifier.clone(), event.clone()),
+                    )),
+                    MessageMessage::Pin {
+                        event_id,
+                        is_pinned,
+                    } => Some(ContextMenuAction::OpenModifyItem(ModifyItem::pin(
+                        timeline.clone(),
+                        identifier.clone(),
+                        event_id,
+                        event.clone(),
+                        is_pinned,
+                    ))),
+                    // TODO
+                    MessageMessage::Edit(_) => None,
+                }
+            }
+            ContextMenuMessage::Participant(message) => {
+                let ContextMenuKind::Participant {
+                    member,
+                    own_device,
+                    muted_hovered,
+                } = &mut self.kind
+                else {
+                    return None;
+                };
+
                 match message {
                     // How loud they play for us, straight into the
                     // handle: the audio pump picks it up on the next
@@ -174,7 +201,11 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     // The playback volume stays where it is: unmuting
                     // returns to whatever they played at before muting
                     ParticipantMessage::Muted(muted) => {
+                        if *own_device {}
                         member.handle().set_playback_muted(muted);
+                    }
+                    ParticipantMessage::MutedHovered(hovered) => {
+                        *muted_hovered = hovered;
                     }
                 }
                 None
@@ -194,35 +225,33 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
         w::responsive(move |size| {
             let content = match &kind {
                 ContextMenuKind::Message {
-                    timeline,
-                    event,
-                    room_id,
-                    identifier,
-                    item_id,
-
                     is_pinned,
 
                     can_edit,
                     can_reply,
                     can_pin,
                     can_redact,
+                    ..
                 } => render_message_context_menu(
                     theme,
                     structure,
-                    timeline.clone(),
-                    event.clone(),
-                    room_id.clone(),
-                    identifier.clone(),
-                    item_id.clone(),
                     *is_pinned,
                     can_edit.clone(),
                     can_reply.clone(),
                     can_pin.clone(),
                     *can_redact,
                 ),
-                ContextMenuKind::Participant { member } => {
-                    render_participant_context_menu(structure, member.clone())
-                }
+                ContextMenuKind::Participant {
+                    member,
+                    own_device,
+                    muted_hovered,
+                } => render_participant_context_menu(
+                    theme,
+                    structure,
+                    member.clone(),
+                    *own_device,
+                    *muted_hovered,
+                ),
             };
 
             let left = position.x.min(size.width - SIZE).max(0.0);
@@ -254,11 +283,6 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
 fn render_message_context_menu(
     theme: Theme,
     structure: Structure,
-    timeline: Arc<Timeline>,
-    event: Arc<MessageEvent>,
-    room_id: OwnedRoomId,
-    identifier: TimelineEventItemId,
-    item_id: String,
     is_pinned: bool,
     can_edit: Option<OwnedEventId>,
     can_reply: Option<OwnedEventId>,
@@ -267,14 +291,7 @@ fn render_message_context_menu(
 ) -> Element<'static, ContextMenuMessage> {
     let mut buttons = Vec::new();
 
-    let message = move |message| ContextMenuMessage::Message {
-        timeline: timeline.clone(),
-        event: event.clone(),
-        room_id: room_id.clone(),
-        identifier: identifier.clone(),
-        item_id: item_id.clone(),
-        message,
-    };
+    let message = move |message| ContextMenuMessage::Message(message);
 
     if let Some(event_id) = can_edit {
         buttons.push(render_context_menu_button(
@@ -380,37 +397,77 @@ fn render_context_menu_button(
 /// Both live values live in the member's call handle, the menu reads
 /// them fresh on every redraw so slider and toggle always agree.
 fn render_participant_context_menu(
+    theme: Theme,
     structure: Structure,
     member: CallMember,
+    own_device: bool,
+    muted_hovered: bool,
 ) -> Element<'static, ContextMenuMessage> {
     let handle = member.handle();
     let percent = (handle.playback_volume() * 100.0).round();
     let muted = handle.playback_muted();
 
-    let slider_member = member.clone();
-    let toggler_member = member.clone();
+    let message = move |message| ContextMenuMessage::Participant(message);
 
-    w::column![
-        w::text(format!("Volume: {}%", percent as u32)).size(structure.font_size),
-        w::slider(0.0..=400.0, percent, move |value| {
-            ContextMenuMessage::Participant {
-                member: slider_member.clone(),
-                message: ParticipantMessage::Volume(value),
-            }
-        })
-        .step(1.0)
-        .width(160.0),
-        w::container(w::mouse_area(
-            sweeten::widget::toggler(muted)
-                .on_toggle(move |toggled| ContextMenuMessage::Participant {
-                    member: toggler_member.clone(),
-                    message: ParticipantMessage::Muted(toggled),
-                })
-                .size(structure.settings.checkbox_height),
-        ))
+    let mut column = w::Column::new();
+
+    if !own_device {
+        column = column.push_element(
+            w::text(format!("Volume: {}%", percent as u32)).size(structure.font_size),
+        );
+        column = column.push_element(
+            w::slider(0.0..=400.0, percent, move |value| {
+                message(ParticipantMessage::Volume(value))
+            })
+            .step(1.0)
+            .width(Fill),
+        );
+    }
+
+    column = column.push_element(w::stack![
+        w::container(
+            w::text("This is it's min width")
+                .size(structure.font_size)
+                .color(Color::TRANSPARENT)
+        )
         .padding(structure.small_gap),
-    ]
-    .spacing(structure.small_gap)
-    .align_x(Alignment::Center)
-    .boxed()
+        w::mouse_area(
+            w::container(
+                w::row![
+                    w::text("Mute")
+                        .size(structure.font_size)
+                        .color(if muted_hovered {
+                            theme.text.normal
+                        } else {
+                            theme.text.dim
+                        }),
+                    Space::new().width(Fill),
+                    static_checkbox(
+                        muted,
+                        theme,
+                        structure,
+                        structure.font_size * 1.1,
+                        muted_hovered
+                    )
+                ]
+                .width(Fill)
+                .align_y(Alignment::Center)
+            )
+            .maybe_colored_rounded(
+                muted_hovered.then_some(theme.solid_hover_bg),
+                structure.semi_large_border_radius()
+            )
+            .padding(structure.small_gap)
+        )
+        .interaction(Interaction::Pointer)
+        .on_enter(message(ParticipantMessage::MutedHovered(true)))
+        .on_exit(message(ParticipantMessage::MutedHovered(false)))
+        .on_press(message(ParticipantMessage::Muted(!muted)))
+    ]);
+
+    column
+        .spacing(structure.small_gap)
+        .padding(structure.small_gap)
+        .width(Shrink)
+        .boxed()
 }

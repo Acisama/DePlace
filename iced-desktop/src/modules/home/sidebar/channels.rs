@@ -1,7 +1,10 @@
 use std::collections::BTreeSet;
 
 use deplace_core::{
-    call::VolumeCell, room::call::CallMember, settings::NameDecoration, state::ActiveServer,
+    call::VolumeCell,
+    room::call::CallMember,
+    settings::NameDecoration,
+    state::{ActiveServer, UserDevice},
 };
 use iced::{Alignment, border::Radius};
 use macros::{iced_cache, iced_icon};
@@ -215,6 +218,8 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
             )
         };
 
+        let own_device = &self.room_store.own_device();
+
         let room_list = Column::with_children(channels.iter().enumerate().map(|(i, r)| {
             render_channel(
                 theme,
@@ -233,6 +238,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                 },
                 &help_view,
                 i,
+                own_device,
             )
         }))
         .spacing(structure.divider_width)
@@ -344,6 +350,7 @@ fn render_channel(
     icon_size: f32,
     help_view: &HelpView<ChannelsMessage>,
     index: usize,
+    own_device: &UserDevice,
 ) -> Element<'static, ChannelsMessage> {
     let is_active = active_room_id
         .as_ref()
@@ -537,6 +544,7 @@ fn render_channel(
                                 icon_size,
                                 help_view,
                                 usize::MAX,
+                                own_device,
                             )
                         ]
                     }))
@@ -578,6 +586,7 @@ fn render_channel(
                             icon_size,
                             help_view,
                             usize::MAX,
+                            own_device,
                         )
                     ],
                     w::container(
@@ -623,6 +632,7 @@ fn render_channel(
                                 structure,
                                 icon_size,
                                 user_in_call,
+                                own_device,
                             )
                         }))
                         .spacing(structure.divider_width)
@@ -660,6 +670,7 @@ fn render_call_participant(
     structure: Structure,
     icon_size: f32,
     user_in_call: bool,
+    own_device: &UserDevice,
 ) -> Element<'static, ChannelsMessage> {
     let room_id = room_id.to_owned();
     let hover_room_id = room_id.clone();
@@ -738,6 +749,7 @@ fn render_call_participant(
     // The menu adjusts their playback volume, so it opens on the same
     // member handle the sidebar renders
     let menu_member = member.clone();
+    let is_own = menu_member.is_own(own_device);
 
     w::row![link(
         right_click(
@@ -777,7 +789,9 @@ fn render_call_participant(
                 ChannelsMessage::ParticipantMenu(ContextMenu {
                     position,
                     kind: ContextMenuKind::Participant {
+                        own_device: is_own,
                         member: menu_member.clone(),
+                        muted_hovered: false,
                     },
                 })
             },

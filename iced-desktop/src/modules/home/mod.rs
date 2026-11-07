@@ -44,6 +44,8 @@ pub const MUTE_ICON: &str = icons::microphone_slash::FILL;
 
 pub const SCREENSHARING_ICON: &str = icons::monitor::BOLD;
 
+pub const CHECKMARK_ICON: &str = icons::check::BOLD;
+
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
     Chat {

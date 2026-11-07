@@ -34,6 +34,7 @@ pub mod pie_progress;
 pub mod profile;
 pub mod right_click;
 pub mod shader;
+pub mod static_checkbox;
 pub mod tile_background;
 pub mod tooltip;
 pub mod track_bounds;
@@ -533,6 +534,11 @@ where
     Self: Sized,
 {
     fn colored_rounded(self, color: impl Into<Background>, rounded: impl Into<Radius>) -> Self;
+    fn maybe_colored_rounded<C: Into<Background>>(
+        self,
+        color: Option<C>,
+        rounded: impl Into<Radius>,
+    ) -> Self;
 }
 
 impl<'a, T: 'a> ColoredRounded<'a, T> for Container<'a, T> {
@@ -541,6 +547,20 @@ impl<'a, T: 'a> ColoredRounded<'a, T> for Container<'a, T> {
         let rounded = rounded.into();
         self.style(move |_| w::container::Style {
             background: Some(background),
+            border: border::rounded(rounded),
+            ..Default::default()
+        })
+    }
+
+    fn maybe_colored_rounded<C: Into<Background>>(
+        self,
+        color: Option<C>,
+        rounded: impl Into<Radius>,
+    ) -> Self {
+        let rounded = rounded.into();
+        let color = color.map(|c| c.into());
+        self.style(move |_| w::container::Style {
+            background: color,
             border: border::rounded(rounded),
             ..Default::default()
         })

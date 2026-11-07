@@ -3,6 +3,7 @@ use std::future;
 
 use call::render_call_members;
 use deplace_core::PaginationDirection;
+use deplace_core::state::UserDevice;
 use header::{Header, HeaderAction, HeaderMessage};
 use iced::Length;
 use iced::futures::{StreamExt, stream};
@@ -84,6 +85,7 @@ pub enum ChatAction {
 #[iced_cache(Clone)]
 pub struct Chat {
     pub room: DePlaceRoom,
+    own_device: Arc<UserDevice>,
 
     #[hash]
     header: Header,
@@ -277,6 +279,7 @@ impl Chat {
                 timeline: ChatTimeline::new(state, &room, initial_pinned_event_ids),
                 input: ChatInput::new(state, &room),
                 sidebar: Sidebar::new(&room),
+                own_device: state.own_device(),
 
                 room_id: room.room_id().to_owned(),
                 room: room.clone(),
@@ -437,6 +440,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 w::row![
                     w::container(render_call_members(
                         self.room.call().call_participants(),
+                        &self.own_device,
                         theme,
                         structure,
                         Direction::Right
@@ -454,6 +458,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 w::column![
                     w::container(render_call_members(
                         self.room.call().call_participants(),
+                        &self.own_device,
                         theme,
                         structure,
                         Direction::Bottom
