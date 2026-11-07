@@ -401,7 +401,7 @@ impl Home {
             match action {
                 ChatAction::ContextMenu(menu) => {
                     chat.clear_hover();
-                    self.overlay.open_context_menu(menu);
+                    self.overlay.open_context_menu(*menu);
                     None
                 }
                 ChatAction::OpenHelpMenu => {

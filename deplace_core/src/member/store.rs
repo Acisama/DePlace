@@ -221,10 +221,7 @@ impl ProfileStore {
             let user_id = member.user_id();
             user_ids.insert(user_id.to_owned());
 
-            // Already known in this room (e.g. from the DM preload in
-            // `RoomStore::new`): keep the existing cell instead of replacing
-            // it, so we don't re-spawn avatar loads for a member we already
-            // loaded or are still loading.
+            // Already known in this room
             if room_members.get(user_id).is_some() {
                 continue;
             }

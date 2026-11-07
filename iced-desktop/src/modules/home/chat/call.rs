@@ -13,6 +13,7 @@ use super::ChatMessage;
 const MAX_COLUMNS: usize = 3;
 
 pub fn render_call_members(
+    room: DePlaceRoom,
     members: Vec<CallMember>,
     own_device: &UserDevice,
     theme: Theme,
@@ -37,6 +38,7 @@ pub fn render_call_members(
         for member in chunk {
             members_row = members_row.push_element(render_call_member(
                 member.clone(),
+                room.clone(),
                 theme,
                 structure,
                 icon_size,
@@ -116,6 +118,7 @@ fn divider<'a>(
 #[allow(clippy::too_many_arguments)]
 fn render_call_member(
     member: CallMember,
+    room: DePlaceRoom,
     theme: Theme,
     structure: Structure,
     icon_size: f32,
@@ -175,7 +178,7 @@ fn render_call_member(
         move |position| {
             ChatMessage::ContextMenu(ContextMenu {
                 position,
-                kind: ContextMenuKind::call_participant(member.clone(), is_own),
+                kind: ContextMenuKind::call_participant(room.clone(), member.clone(), is_own),
             })
         },
     )

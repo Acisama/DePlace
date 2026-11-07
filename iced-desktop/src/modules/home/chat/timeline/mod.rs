@@ -120,7 +120,7 @@ pub enum TimelineAction {
         bounds: Rectangle,
     },
     HelpHover(Option<HelpKey>),
-    ContextMenu(ContextMenu),
+    ContextMenu(Box<ContextMenu>),
     OpenModifyItem(ModifyItem),
     OpenMediaOverlay(MediaOverlayParams),
     FocusInput,
@@ -626,7 +626,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                 None
             }
-            TimelineMessage::ContextMenu(menu) => Some(TimelineAction::ContextMenu(menu)),
+            TimelineMessage::ContextMenu(menu) => Some(TimelineAction::ContextMenu(Box::new(menu))),
             TimelineMessage::HelpHover(help_key) => Some(TimelineAction::HelpHover(help_key)),
             TimelineMessage::ButtonsHovered { id, hovered } => {
                 if self.hovered_item_id.as_deref() != Some(id.as_str()) {

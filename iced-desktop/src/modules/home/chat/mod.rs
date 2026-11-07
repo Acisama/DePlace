@@ -77,7 +77,7 @@ pub enum ChatAction {
     },
     HelpHover(Option<HelpKey>),
     OpenHelpMenu,
-    ContextMenu(ContextMenu),
+    ContextMenu(Box<ContextMenu>),
     OpenModifyItem(ModifyItem),
     OpenMediaOverlay(MediaOverlayParams),
 }
@@ -365,7 +365,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                     _ => None,
                 }
             }
-            ChatMessage::ContextMenu(menu) => Some(ChatAction::ContextMenu(menu)),
+            ChatMessage::ContextMenu(menu) => Some(ChatAction::ContextMenu(Box::new(menu))),
             ChatMessage::Header(msg) => match self.header.update(msg)? {
                 HeaderAction::OpenHelpMenu => Some(ChatAction::OpenHelpMenu),
                 HeaderAction::TogglePins => {
@@ -439,6 +439,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             if self.room.room_type().is_call() {
                 w::row![
                     w::container(render_call_members(
+                        self.room.clone(),
                         self.room.call().call_participants(),
                         &self.own_device,
                         theme,
@@ -457,6 +458,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             } else if self.room.has_call() {
                 w::column![
                     w::container(render_call_members(
+                        self.room.clone(),
                         self.room.call().call_participants(),
                         &self.own_device,
                         theme,

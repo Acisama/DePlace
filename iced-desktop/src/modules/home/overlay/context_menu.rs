@@ -83,6 +83,8 @@ pub enum ContextMenuKind {
     },
     /// One call participant: their playback volume and mute state.
     Participant {
+        room: DePlaceRoom,
+
         member: CallMember,
         own_device: bool,
         muted_hovered: bool,
@@ -91,8 +93,9 @@ pub enum ContextMenuKind {
 }
 
 impl ContextMenuKind {
-    pub fn call_participant(member: CallMember, own_device: bool) -> Self {
+    pub fn call_participant(room: DePlaceRoom, member: CallMember, own_device: bool) -> Self {
         Self::Participant {
+            room,
             member,
             own_device,
             muted_hovered: false,
@@ -195,6 +198,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
             }
             ContextMenuMessage::Participant(message) => {
                 let ContextMenuKind::Participant {
+                    room,
                     member,
                     own_device,
                     muted_hovered,
@@ -219,7 +223,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     // returns to whatever they played at before muting
                     ParticipantMessage::Muted(muted) => {
                         if *own_device {
-                            // TODO: Toggle own mic
+                            room.call().set_own_mic_muted(muted);
                         } else {
                             member.handle().set_playback_muted(muted);
                         }
@@ -269,6 +273,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     own_device,
                     muted_hovered,
                     volume_hovered,
+                    ..
                 } => render_participant_context_menu(
                     theme,
                     structure,
@@ -432,7 +437,14 @@ fn render_participant_context_menu(
     let handle = member.handle();
     let volume = handle.playback_volume();
     let percent = (volume * 100.0).round();
-    let muted = handle.playback_muted();
+    // Our own mute state lives in the participant's `muted` flag (driven
+    // by the mic track itself), not `playback_muted`, which only tracks
+    // whether *we* silence someone else's playback.
+    let muted = if own_device {
+        member.is_muted()
+    } else {
+        handle.playback_muted()
+    };
 
     let message = move |message| ContextMenuMessage::Participant(message);
 

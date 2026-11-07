@@ -643,8 +643,8 @@ fn render_channel(
                                 render_join_progress(p, step, theme, structure, icon_size)
                             } else {
                                 render_call_participant(
+                                    room.clone(),
                                     p,
-                                    room.room_id(),
                                     is_hovered,
                                     theme,
                                     structure,
@@ -713,8 +713,8 @@ fn render_join_progress(
 
 #[allow(clippy::too_many_arguments)]
 fn render_call_participant(
+    room: DePlaceRoom,
     member: CallMember,
-    room_id: &RoomId,
     is_hovered: bool,
     theme: Theme,
     structure: Structure,
@@ -722,7 +722,7 @@ fn render_call_participant(
     user_in_call: bool,
     own_device: &UserDevice,
 ) -> Element<'static, ChannelsMessage> {
-    let room_id = room_id.to_owned();
+    let room_id = room.room_id().to_owned();
     let hover_room_id = room_id.clone();
 
     let mut view_row = vec![render_icon_with_has_speaking_circle(
@@ -838,7 +838,11 @@ fn render_call_participant(
             move |position| {
                 ChannelsMessage::ParticipantMenu(ContextMenu {
                     position,
-                    kind: ContextMenuKind::call_participant(menu_member.clone(), is_own),
+                    kind: ContextMenuKind::call_participant(
+                        room.clone(),
+                        menu_member.clone(),
+                        is_own,
+                    ),
                 })
             },
         ),

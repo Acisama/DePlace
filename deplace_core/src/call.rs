@@ -313,6 +313,12 @@ impl RoomCall {
     pub fn call_participants_count(&self) -> usize {
         self.members.read().members.len()
     }
+
+    pub fn set_own_mic_muted(&self, muted: bool) {
+        if let Some(active) = self.active.read().as_ref() {
+            active.set_microphone_muted(muted);
+        }
+    }
 }
 
 impl From<livekit::webrtc::native::frame_cryptor::EncryptionState> for CallEncryptionState {
@@ -660,6 +666,9 @@ impl LivekitCall {
             microphone.unmute();
         }
 
+        self.own_handle
+            .participant
+            .change_if_modified(|p| p.muted = muted);
         self.change_own_participant(|p| p.muted = muted);
     }
 

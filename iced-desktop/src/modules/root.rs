@@ -47,7 +47,7 @@ impl Screen {
             Screen::Verification(verification) => {
                 verification.view().map_el(AppMessage::Verification)
             }
-            Screen::Home(home) => home.view().map_el(AppMessage::Home),
+            Screen::Home(home) => home.view().map_el(|m| AppMessage::Home(Box::new(m))),
         }
     }
 }
@@ -151,14 +151,16 @@ impl Root {
                 None
             }
             AppMessage::Home(msg) if let Screen::Home(home) = &mut self.screen => {
-                match home.update(msg)? {
+                match home.update(*msg)? {
                     HomeAction::Run(task) => Some(task.map(|_| AppMessage::DoNothing)),
-                    HomeAction::Perform(task) => Some(task.map(AppMessage::Home)),
+                    HomeAction::Perform(task) => Some(task.map(|m| AppMessage::Home(Box::new(m)))),
                     HomeAction::LoadTimeline(task) => Some(task.map(|(room_id, message)| {
-                        AppMessage::Home(HomeMessage::Chat { room_id, message })
+                        AppMessage::Home(Box::new(HomeMessage::Chat { room_id, message }))
                     })),
                     HomeAction::LoadMediaTask(task) => {
-                        Some(task.map(|media| AppMessage::Home(HomeMessage::MediaLoaded(media))))
+                        Some(task.map(|media| {
+                            AppMessage::Home(Box::new(HomeMessage::MediaLoaded(media)))
+                        }))
                     }
                     HomeAction::TimelineScroll {
                         room_id,
@@ -166,11 +168,11 @@ impl Root {
                         task,
                     } => Some(task.map(move |finished| {
                         let room_id = room_id.clone();
-                        AppMessage::Home(HomeMessage::TimelineScrollFinished {
+                        AppMessage::Home(Box::new(HomeMessage::TimelineScrollFinished {
                             room_id,
                             direction,
                             finished,
-                        })
+                        }))
                     })),
                 }
             }
@@ -212,7 +214,7 @@ impl Root {
                     VerificationAction::Success(state) => {
                         let (home, task) = Home::new(state);
                         self.screen = Screen::Home(Box::new(home));
-                        Some(task.map(AppMessage::Home))
+                        Some(task.map(|m| AppMessage::Home(Box::new(m))))
                     }
                 }
             }
@@ -239,31 +241,33 @@ impl Root {
                 RestoreResult::Success(state) => {
                     let (home, task) = Home::new(*state);
                     self.screen = Screen::Home(Box::new(home));
-                    Some(task.map(AppMessage::Home))
+                    Some(task.map(|m| AppMessage::Home(Box::new(m))))
                 }
             },
             AppMessage::KeyboardEvent(event) => {
                 if let Screen::Home(home) = &mut self.screen {
                     match home.update(HomeMessage::KeyboardEvent(event))? {
                         HomeAction::Run(task) => Some(task.map(|_| AppMessage::DoNothing)),
-                        HomeAction::Perform(task) => Some(task.map(AppMessage::Home)),
+                        HomeAction::Perform(task) => {
+                            Some(task.map(|m| AppMessage::Home(Box::new(m))))
+                        }
                         HomeAction::LoadTimeline(task) => Some(task.map(|(room_id, message)| {
-                            AppMessage::Home(HomeMessage::Chat { room_id, message })
+                            AppMessage::Home(Box::new(HomeMessage::Chat { room_id, message }))
                         })),
-                        HomeAction::LoadMediaTask(task) => Some(
-                            task.map(|media| AppMessage::Home(HomeMessage::MediaLoaded(media))),
-                        ),
+                        HomeAction::LoadMediaTask(task) => Some(task.map(|media| {
+                            AppMessage::Home(Box::new(HomeMessage::MediaLoaded(media)))
+                        })),
                         HomeAction::TimelineScroll {
                             room_id,
                             direction,
                             task,
                         } => Some(task.map(move |finished| {
                             let room_id = room_id.clone();
-                            AppMessage::Home(HomeMessage::TimelineScrollFinished {
+                            AppMessage::Home(Box::new(HomeMessage::TimelineScrollFinished {
                                 room_id,
                                 direction,
                                 finished,
-                            })
+                            }))
                         })),
                     }
                 } else {
