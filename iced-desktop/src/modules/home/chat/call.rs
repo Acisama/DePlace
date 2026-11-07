@@ -64,11 +64,7 @@ pub fn render_call_members(
                 move |position| {
                     ChatMessage::ContextMenu(ContextMenu {
                         position,
-                        kind: ContextMenuKind::Participant {
-                            member: menu_member.clone(),
-                            own_device: is_own,
-                            muted_hovered: false,
-                        },
+                        kind: ContextMenuKind::call_participant(menu_member.clone(), is_own),
                     })
                 },
             ));

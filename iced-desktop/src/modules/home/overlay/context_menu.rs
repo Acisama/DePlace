@@ -1,12 +1,13 @@
 use deplace_core::room::call::CallMember;
-use iced::{Alignment, Length::Shrink};
+use iced::{Alignment, Radians, gradient::Linear};
 use macros::iced_cache;
 use matrix_sdk_ui::{Timeline, timeline::TimelineEventItemId};
 
 use crate::{
     common::*,
     components::{
-        PushElement, equal_width::equal_width, phosphor_icon, static_checkbox::static_checkbox,
+        PushElement, color_stops, equal_width::equal_width, phosphor_icon,
+        static_checkbox::static_checkbox,
     },
     modules::home::{EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, UNPIN_ICON, chat::MessageEvent},
 };
@@ -32,6 +33,7 @@ pub enum ParticipantMessage {
     /// volume
     Muted(bool),
     MutedHovered(bool),
+    VolumeHovered(bool),
 }
 
 #[derive(Clone, Debug)]
@@ -84,7 +86,19 @@ pub enum ContextMenuKind {
         member: CallMember,
         own_device: bool,
         muted_hovered: bool,
+        volume_hovered: bool,
     },
+}
+
+impl ContextMenuKind {
+    pub fn call_participant(member: CallMember, own_device: bool) -> Self {
+        Self::Participant {
+            member,
+            own_device,
+            muted_hovered: false,
+            volume_hovered: false,
+        }
+    }
 }
 
 impl Hash for ContextMenuKind {
@@ -97,12 +111,14 @@ impl Hash for ContextMenuKind {
             ContextMenuKind::Participant {
                 member,
                 muted_hovered,
+                volume_hovered,
                 ..
             } => {
                 1.hash(state);
                 member.member.user_id().hash(state);
                 member.device_id.hash(state);
                 muted_hovered.hash(state);
+                volume_hovered.hash(state);
             }
         }
     }
@@ -182,6 +198,7 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     member,
                     own_device,
                     muted_hovered,
+                    volume_hovered,
                 } = &mut self.kind
                 else {
                     return None;
@@ -201,11 +218,17 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     // The playback volume stays where it is: unmuting
                     // returns to whatever they played at before muting
                     ParticipantMessage::Muted(muted) => {
-                        if *own_device {}
-                        member.handle().set_playback_muted(muted);
+                        if *own_device {
+                            // TODO: Toggle own mic
+                        } else {
+                            member.handle().set_playback_muted(muted);
+                        }
                     }
                     ParticipantMessage::MutedHovered(hovered) => {
                         *muted_hovered = hovered;
+                    }
+                    ParticipantMessage::VolumeHovered(hovered) => {
+                        *volume_hovered = hovered;
                     }
                 }
                 None
@@ -245,12 +268,14 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                     member,
                     own_device,
                     muted_hovered,
+                    volume_hovered,
                 } => render_participant_context_menu(
                     theme,
                     structure,
                     member.clone(),
                     *own_device,
                     *muted_hovered,
+                    *volume_hovered,
                 ),
             };
 
@@ -402,35 +427,108 @@ fn render_participant_context_menu(
     member: CallMember,
     own_device: bool,
     muted_hovered: bool,
+    volume_hovered: bool,
 ) -> Element<'static, ContextMenuMessage> {
     let handle = member.handle();
-    let percent = (handle.playback_volume() * 100.0).round();
+    let volume = handle.playback_volume();
+    let percent = (volume * 100.0).round();
     let muted = handle.playback_muted();
 
     let message = move |message| ContextMenuMessage::Participant(message);
 
     let mut column = w::Column::new();
 
+    let max_volume = 400.0;
+    let threshold = 100.0;
+
+    // TODO: Find a good way to calculate that
+    let width = 200.0;
+
+    let handle_width = structure.font_size;
+    let track_width = width - structure.small_gap * 4.0;
+    let track_x =
+        |value: f32| (track_width - handle_width) * value / max_volume + handle_width / 2.0;
+
+    let (before_bg, after_bg) = if percent <= threshold {
+        let threshold_point =
+            (track_x(threshold) - track_x(percent)) / (track_width - track_x(percent));
+        (
+            theme.accent.into(),
+            Linear::new(Radians::PI / 2.0)
+                .add_stops(color_stops([
+                    (0.0, theme.solid_hover_bg),
+                    (threshold_point - 0.001, theme.solid_hover_bg),
+                    (threshold_point, theme.error_half_blended().scale_alpha(0.5)),
+                    (1.0, theme.error_half_blended().scale_alpha(0.5)),
+                ]))
+                .into(),
+        )
+    } else {
+        let threshold_point = track_x(threshold) / track_x(percent);
+        (
+            Linear::new(Radians::PI / 2.0)
+                .add_stops(color_stops([
+                    (0.0, theme.accent),
+                    (threshold_point - 0.001, theme.accent),
+                    (threshold_point, theme.colors.error),
+                    (1.0, theme.colors.error),
+                ]))
+                .into(),
+            theme.error_half_blended().scale_alpha(0.5).into(),
+        )
+    };
+
     if !own_device {
         column = column.push_element(
-            w::text(format!("Volume: {}%", percent as u32)).size(structure.font_size),
-        );
-        column = column.push_element(
-            w::slider(0.0..=400.0, percent, move |value| {
-                message(ParticipantMessage::Volume(value))
-            })
-            .step(1.0)
-            .width(Fill),
+            w::container(
+                w::column![
+                    w::text(format!("Volume: {}%", percent as u32))
+                        .color(if volume_hovered {
+                            theme.text.normal
+                        } else {
+                            theme.text.dim
+                        })
+                        .size(structure.font_size),
+                    w::mouse_area(
+                        w::slider(0.0..=400.0, percent, move |value| {
+                            message(ParticipantMessage::Volume(value))
+                        })
+                        .step(10.0)
+                        .shift_step(1.0)
+                        .style(move |_, _| w::slider::Style {
+                            rail: w::slider::Rail {
+                                backgrounds: (before_bg, after_bg),
+                                width: structure.font_size / 2.0,
+                                border: border::rounded(structure.font_size / 4.0),
+                            },
+                            handle: w::slider::Handle {
+                                shape: w::slider::HandleShape::Circle {
+                                    radius: structure.font_size / 2.0,
+                                },
+                                background: if percent <= threshold {
+                                    theme.accent.into()
+                                } else {
+                                    theme.colors.error.into()
+                                },
+                                border_color: Color::TRANSPARENT,
+                                border_width: 0.0,
+                            },
+                        }),
+                    )
+                    .on_enter(message(ParticipantMessage::VolumeHovered(true)))
+                    .on_exit(message(ParticipantMessage::VolumeHovered(false))),
+                ]
+                .spacing(structure.small_gap),
+            )
+            .maybe_colored_rounded(
+                volume_hovered.then_some(theme.solid_hover_bg),
+                structure.semi_large_border_radius(),
+            )
+            .padding(structure.small_gap),
         );
     }
 
-    column = column.push_element(w::stack![
-        w::container(
-            w::text("This is it's min width")
-                .size(structure.font_size)
-                .color(Color::TRANSPARENT)
-        )
-        .padding(structure.small_gap),
+    column = column.push_element(
         w::mouse_area(
             w::container(
                 w::row![
@@ -451,23 +549,23 @@ fn render_participant_context_menu(
                     )
                 ]
                 .width(Fill)
-                .align_y(Alignment::Center)
+                .align_y(Alignment::Center),
             )
             .maybe_colored_rounded(
                 muted_hovered.then_some(theme.solid_hover_bg),
-                structure.semi_large_border_radius()
+                structure.semi_large_border_radius(),
             )
-            .padding(structure.small_gap)
+            .padding(structure.small_gap),
         )
         .interaction(Interaction::Pointer)
         .on_enter(message(ParticipantMessage::MutedHovered(true)))
         .on_exit(message(ParticipantMessage::MutedHovered(false)))
-        .on_press(message(ParticipantMessage::Muted(!muted)))
-    ]);
+        .on_press(message(ParticipantMessage::Muted(!muted))),
+    );
 
     column
         .spacing(structure.small_gap)
         .padding(structure.small_gap)
-        .width(Shrink)
+        .width(width)
         .boxed()
 }

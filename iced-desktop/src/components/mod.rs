@@ -10,6 +10,7 @@ use iced::{
     advanced::{Widget, layout, svg::Renderer as SvgRenderer, widget::Meta},
     border::{self, Radius},
     font::{Family, Weight},
+    gradient::ColorStop,
     widget::{
         self as w, Canvas, Column, Container, Row, Scrollable, Stack,
         canvas::{self, Frame, Path, Stroke},
@@ -593,4 +594,13 @@ impl<'a, Message: 'a, Content: DePlaceWidget<Message> + 'a> PushElement<'a, Mess
     fn push_element(self, element: Content) -> Self {
         self.push(element.boxed())
     }
+}
+
+pub fn color_stops<C: Into<Color>>(
+    colors: impl IntoIterator<Item = (f32, C)>,
+) -> impl IntoIterator<Item = ColorStop> {
+    colors.into_iter().map(|(offset, color)| ColorStop {
+        offset,
+        color: color.into(),
+    })
 }

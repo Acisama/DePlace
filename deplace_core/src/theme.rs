@@ -166,6 +166,10 @@ impl Theme {
         self.solid_bg.blend(self.colors.error, 0.1)
     }
 
+    pub fn error_half_blended(&self) -> DePlaceColor {
+        self.solid_bg.blend(self.colors.error, 0.5)
+    }
+
     pub fn warning_blended(&self) -> DePlaceColor {
         self.solid_bg.blend(self.colors.warning, 0.1)
     }

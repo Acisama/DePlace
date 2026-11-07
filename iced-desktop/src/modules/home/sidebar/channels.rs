@@ -788,11 +788,7 @@ fn render_call_participant(
             move |position| {
                 ChannelsMessage::ParticipantMenu(ContextMenu {
                     position,
-                    kind: ContextMenuKind::Participant {
-                        own_device: is_own,
-                        member: menu_member.clone(),
-                        muted_hovered: false,
-                    },
+                    kind: ContextMenuKind::call_participant(menu_member.clone(), is_own),
                 })
             },
         ),
