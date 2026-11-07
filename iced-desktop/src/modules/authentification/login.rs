@@ -143,7 +143,7 @@ impl IcedWidget<LoginMessage, LoginAction> for Login {
         let structure = structure();
 
         let username_input: iced::widget::TextInput<'static, LoginMessage> =
-            text_input("luke", &self.username, theme, structure)
+            text_input("lucia", &self.username, theme, structure)
                 .id(USERNAME_ID)
                 .width(Fill)
                 .on_input(LoginMessage::UsernameChanged)
