@@ -134,6 +134,15 @@ pub trait MemberRenderExt {
         background_color: Color,
     ) -> Element<'a, T>;
 
+    /// Renders the profile's small avatar icon with the user's presence indicator.
+    fn render_small_icon_with_presence<'a, T: 'a>(
+        &self,
+        size: f32,
+        theme: Theme,
+        structure: Structure,
+        background_color: Color,
+    ) -> Element<'a, T>;
+
     /// Render the name, but open the profile on click.
     fn render_name_with_overlay<'a, T: OpenProfileOverlayExt + 'a>(
         &self,
@@ -198,6 +207,22 @@ impl MemberRenderExt for Member {
     ) -> Element<'a, T> {
         render_presence_badge(
             self.render_icon(size),
+            self.presence(),
+            theme,
+            structure,
+            background_color,
+        )
+    }
+
+    fn render_small_icon_with_presence<'a, T: 'a>(
+        &self,
+        size: f32,
+        theme: Theme,
+        structure: Structure,
+        background_color: Color,
+    ) -> Element<'a, T> {
+        render_presence_badge(
+            self.render_small_icon(size),
             self.presence(),
             theme,
             structure,
