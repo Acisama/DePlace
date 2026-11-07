@@ -26,16 +26,28 @@ pub enum Direction {
     Top,
 }
 
+/// How much of the gap to the new raw sample to close per frame while the
+/// level is rising. Close to `1.0` so sharp, loud transients show up
+/// immediately instead of being smeared out.
+const ATTACK: f32 = 0.8;
+
+/// How much of the gap to the new raw sample to close per frame while the
+/// level is falling. Much smaller than [`ATTACK`] so the bar eases down
+/// instead of chasing every quick dip.
+const RELEASE: f32 = 0.08;
+
 /// Per-frame state for a [`VolumeBar`]: the last sample read from the
 /// [`VolumeCell`] and the direction it moved in since the previous frame.
 ///
-/// `history` holds the last few raw samples so the displayed volume can be
-/// a rolling average instead of jumping straight to each new reading.
+/// `history` holds the last few raw samples, averaged to smooth out
+/// single-frame spikes before the attack/release filter runs over the
+/// result; `volume` is that filtered value, so it rises quickly but decays
+/// slowly.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct VolumeBarState {
     volume: f32,
     direction: VolumeDirection,
-    history: [f32; 6],
+    history: [f32; 10],
 }
 
 impl VolumeBarState {
@@ -86,7 +98,14 @@ impl<Message> canvas::Program<Message> for VolumeBar {
             {
                 *state.history.last_mut().unwrap() = raw;
             }
-            let volume = state.history.iter().sum::<f32>() / state.history.len() as f32;
+            let averaged = state.history.iter().sum::<f32>() / state.history.len() as f32;
+
+            let coeff = if averaged > state.volume {
+                ATTACK
+            } else {
+                RELEASE
+            };
+            let volume = state.volume + (averaged - state.volume) * coeff;
 
             state.direction = if volume > state.volume {
                 VolumeDirection::Rising
@@ -132,7 +151,20 @@ impl<Message> canvas::Program<Message> for VolumeBar {
         frame.fill(&outline, self.bg_color);
 
         let volume = state.volume();
-        if volume > 0.0 {
+        // Below this, the fill would just render at the minimum size the
+        // `.max(bg_radius * 2.0)` clamps below enforce anyway, so hide it
+        // here instead of leaving it looking frozen at that minimum while
+        // the underlying value keeps decaying.
+        let span = match self.direction {
+            Direction::Right | Direction::Left => bg_size.width,
+            Direction::Bottom | Direction::Top => bg_size.height,
+        };
+        let min_volume = if span > 0.0 {
+            (bg_radius * 2.0) / span
+        } else {
+            0.0
+        };
+        if volume > min_volume {
             let (fill_origin, fill_size) = match self.direction {
                 Direction::Right => {
                     let length = (bg_size.width * volume)

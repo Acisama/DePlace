@@ -67,7 +67,12 @@ impl RoomInfo {
         } else {
             self.display_string = self.room_id.to_string();
         }
-        self.initial = self.display_string.chars().next().unwrap_or('?');
+        self.initial = self
+            .display_string
+            .chars()
+            .next()
+            .and_then(|c| c.to_uppercase().next())
+            .unwrap_or('?');
     }
 
     pub fn display_string(&self) -> String {

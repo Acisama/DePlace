@@ -167,7 +167,7 @@ pub trait ProfileLike {
     fn avatar_handle(&self) -> Avatar;
     #[cfg(feature = "iced")]
     fn small_avatar_handle(&self) -> Avatar;
-    fn initial(&self) -> char;
+    fn initial(&self) -> String;
     fn color(&self) -> DePlaceColor;
 }
 
@@ -200,8 +200,8 @@ impl ProfileLike for Member {
         self.small_avatar_handle()
     }
 
-    fn initial(&self) -> char {
-        self.get_initial()
+    fn initial(&self) -> String {
+        self.get_initial().to_string()
     }
 
     fn displayname(&self) -> String {
@@ -228,8 +228,8 @@ impl ProfileLike for DePlaceRoom {
         }
     }
 
-    fn initial(&self) -> char {
-        self.info.read().initial
+    fn initial(&self) -> String {
+        self.info.read().initial.to_string()
     }
 
     fn displayname(&self) -> String {
@@ -259,9 +259,9 @@ impl ProfileLike for ActiveServer {
         }
     }
 
-    fn initial(&self) -> char {
+    fn initial(&self) -> String {
         match self {
-            ActiveServer::Dms => 'D',
+            ActiveServer::Dms => "D".into(),
             ActiveServer::Server(room) => room.initial(),
         }
     }
@@ -313,8 +313,8 @@ impl ProfileLike for CallMember {
         self.member.color()
     }
 
-    fn initial(&self) -> char {
-        self.member.initial()
+    fn initial(&self) -> String {
+        self.member.initial().to_string()
     }
 }
 
