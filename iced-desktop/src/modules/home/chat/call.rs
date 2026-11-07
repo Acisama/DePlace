@@ -1,10 +1,10 @@
-use deplace_core::{room::call::CallMember, state::UserDevice};
-use iced::{Alignment, Length, border::Radius};
+use deplace_core::{call::VolumeCell, room::call::CallMember, state::UserDevice};
+use iced::{Alignment, Length, Radians, border::Radius, gradient::Linear};
 
 use crate::{
     common::*,
     components::{
-        PushElement, call_grid::call_grid, phosphor_icon, right_click::right_click,
+        PushElement, call_grid::call_grid, phosphor_icon, right_click::right_click, volume_bar,
         volume_bar::Direction,
     },
     modules::home::MUTE_ICON,
@@ -128,6 +128,14 @@ fn render_call_member(
             .color(theme.text.normal),
     );
 
+    if playback_muted {
+        name_row = name_row.push_element(
+            w::text(" (muted by you)")
+                .size(structure.font_size)
+                .color(theme.text.dim),
+        );
+    }
+
     let has_border = playback_muted || is_speaking;
 
     let border_color = if playback_muted {
@@ -138,22 +146,34 @@ fn render_call_member(
         Color::TRANSPARENT
     };
 
+    let background = Linear::new(Radians::PI / 4.0)
+        .add_stop(0.0, color.scale_lightness(0.1))
+        .add_stop(0.7, color)
+        .add_stop(1.0, color.scale_lightness(0.6));
+
     right_click(
         w::stack![
             w::container(
-                w::container(member.render_icon(icon_size))
-                    .colored_rounded(
-                        color.scale_lightness(0.2),
-                        if has_border {
-                            rounding - gap * 2.0
-                        } else {
-                            rounding
-                        }
-                    )
-                    .width(Fill)
-                    .height(Fill)
-                    .align_x(Alignment::Center)
-                    .align_y(Alignment::Center)
+                w::container(
+                    w::container(member.render_icon(icon_size))
+                        .width(icon_size + 2.0 * gap)
+                        .height(icon_size + 2.0 * gap)
+                        .colored_rounded(theme.solid_bg, icon_size + 2.0 * gap)
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center)
+                )
+                .colored_rounded(
+                    background,
+                    if has_border {
+                        rounding - gap * 2.0
+                    } else {
+                        rounding
+                    }
+                )
+                .width(Fill)
+                .height(Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
             )
             .padding(if has_border { gap * 2.5 } else { 0.0 })
             .style(move |_| ContainerStyle::default().border(Border {
@@ -179,7 +199,34 @@ fn render_call_member(
             )
             .padding(gap * 4.0)
             .height(Fill)
+            .align_y(Alignment::End),
+            w::container(volume_bar(
+                if member.is_muted() {
+                    Arc::new(VolumeCell::default())
+                } else {
+                    member.volume()
+                },
+                icon_size / 4.0,
+                icon_size * 2.0,
+                volume_bar::Direction::Top,
+                Color::from_rgb8(0, 255, 0),
+                // theme.colors.success,
+                // theme.colors.error,
+                Color::from_rgb8(255, 0, 0),
+                if member.is_muted() {
+                    theme.colors.error
+                } else {
+                    theme.solid_bg
+                },
+                structure.semi_small_border_radius(),
+                theme.border,
+                structure.border_thickness,
+            ),)
+            .padding(gap * 4.0)
+            .height(Fill)
+            .width(Fill)
             .align_y(Alignment::End)
+            .align_x(Alignment::End)
         ],
         move |position| {
             ChatMessage::ContextMenu(ContextMenu {

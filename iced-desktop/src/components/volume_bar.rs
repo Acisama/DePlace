@@ -3,7 +3,9 @@ use std::sync::Arc;
 use deplace_core::call::VolumeCell;
 use iced::widget::canvas::gradient::Linear;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
-use iced::{Color, Element, Event, Point, Rectangle, Renderer, Size, Theme, Widget as _, mouse};
+use iced::{
+    Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Widget as _, mouse,
+};
 
 /// Which way the level last moved, so callers can e.g. animate attack/decay
 /// differently.
@@ -26,10 +28,14 @@ pub enum Direction {
 
 /// Per-frame state for a [`VolumeBar`]: the last sample read from the
 /// [`VolumeCell`] and the direction it moved in since the previous frame.
+///
+/// `history` holds the last few raw samples so the displayed volume can be
+/// a rolling average instead of jumping straight to each new reading.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct VolumeBarState {
     volume: f32,
     direction: VolumeDirection,
+    history: [f32; 6],
 }
 
 impl VolumeBarState {
@@ -72,7 +78,15 @@ impl<Message> canvas::Program<Message> for VolumeBar {
         _cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>> {
         if let Event::Window(iced::window::Event::RedrawRequested(_)) = event {
-            let volume = self.volume.get().clamp(0.0, 1.0);
+            let raw = self.volume.get().clamp(0.0, 1.0);
+
+            state.history.rotate_left(1);
+
+            #[allow(clippy::unwrap_used)]
+            {
+                *state.history.last_mut().unwrap() = raw;
+            }
+            let volume = state.history.iter().sum::<f32>() / state.history.len() as f32;
 
             state.direction = if volume > state.volume {
                 VolumeDirection::Rising
@@ -213,8 +227,8 @@ fn lerp_color(start: Color, end: Color, t: f32) -> Color {
 #[allow(clippy::too_many_arguments)]
 pub fn volume_bar<'a, Message: 'a>(
     volume: Arc<VolumeCell>,
-    width: f32,
-    height: f32,
+    width: impl Into<Length>,
+    height: impl Into<Length>,
     direction: Direction,
     start_color: impl Into<Color>,
     end_color: impl Into<Color>,

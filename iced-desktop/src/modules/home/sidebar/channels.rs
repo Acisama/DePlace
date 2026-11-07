@@ -741,8 +741,10 @@ fn render_call_participant(
                     icon_size / 4.0,
                     icon_size,
                     volume_bar::Direction::Top,
-                    Color::from_rgb8(255, 0, 0),
-                    Color::from_rgb8(0, 255, 0),
+                    // Color::from_rgb8(255, 0, 0),
+                    // Color::from_rgb8(0, 255, 0),
+                    member.color(),
+                    member.color(),
                     if member.is_muted() {
                         theme.colors.error
                     } else {

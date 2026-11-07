@@ -16,7 +16,7 @@ use iced::{
     font::Weight,
     never, padding,
     widget::{
-        self as w, Canvas, Space, Stack, responsive, svg,
+        self as w, Space, Stack, responsive, svg,
         text::{IntoFragment, LineHeight},
     },
 };
@@ -27,7 +27,7 @@ use crate::{
 };
 
 use super::{
-    ColoredRounded, CopyUserIdExt, IcedColorExt, InsetShadow, PushElement, StatusExt,
+    ColoredRounded, CopyUserIdExt, IcedColorExt, PushElement, StatusExt,
     corner_badge::{notch_circle, positioned},
     link, phosphor_icon, weighted_text,
 };
@@ -48,14 +48,11 @@ pub fn text_icon<'a, T: 'a>(
                 text_color: Some(color),
                 border: Border {
                     color,
-                    width: 0.0,
+                    width: size / 12.0,
                     radius: rounding.into(),
                 },
                 ..Default::default()
             }),
-        Canvas::new(InsetShadow::new(rounding, color, size / 8.0, 8))
-            .width(size)
-            .height(size),
     ]
     .boxed()
 }
