@@ -1,24 +1,35 @@
-//! Playing any and all sounds (only here).
+//! Everything that makes noise lives here.
 //!
-//! This module is the one thing that talks to the sound device.
-//! It uses rodio, which works on Linux, Windwos and (macOS)
-//! Everything is mixed inside one mixer thingemagick.
+//! This module is the only thing that talks to the sound device, through
+//! cpal and rodio. All sounds are mixed into one output stream.
 //!
-//! There are two ways to make noise:
+//! Sounds play once via one of the play methods, call audio arrives frame
+//! by frame through a frame player and microphones are recorded through
+//! a microphone handle.
 //!
-//! - [`Audio::play_file`] / [`Audio::play_data`] for finished sounds
-//!   They start playing immediately and return a
-//!   [`Sound`] handle that stops the sound when dropped.
-//! - [`Audio::frame_player`] for
-//!   call audio from LiveKit. Hand the [`FramePlayer`]
-//!   every [`AudioFrame`]
+//! Audio may not cross threads, so it lives on its own thread and is
+//! reached through AudioThread, which forwards every request.
 //!
-//! And one way to listen:
+//! Whatever happens to the sound devices, Audio never has to be built
+//! again and the app never restarts. It works like this.
 //!
-//! - [`AudioThread::microphone`] for recording
-//!   whatever the default microphone hears, frame by frame in a [`Microphone`]
+//! Nothing is connected right away, the output device opens on the
+//! first sound and reopens on the next one whenever it was lost. On the
+//! idle polling between requests the thread watches for the system
+//! default device changing and plugs or unplugs being yanked.
 //!
-//! We'll get soundboard things too just you wait
+//! Switching devices just rebuilds the streams inside Audio. Frame
+//! players keep their sample buffers and microphones keep their handles,
+//! both simply get rewired to the new device, so live calls survive a
+//! switch with a blip instead of a dead call. Only detached one-shot
+//! sounds stop forever, everything else carries on.
+//!
+//! Devices can also be chosen, through set_output_device and
+//! set_input_device. The choice pins all future streams to that device,
+//! the connection for it is opened right away and every later sound and
+//! microphone uses it. Handing None over lets Audio follow the system
+//! default again. A chosen device that vanished falls back to the
+//! default until it returns.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -27,6 +38,7 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::RecvTimeoutError,
     },
     time::Duration,
 };
@@ -38,70 +50,304 @@ use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use tokio::sync::oneshot;
 use tracing::{Level, event};
 
-/// Livekit uses this if I remember right
+/// The sample rate LiveKit sends and the sound device wants
 const OUTPUT_SAMPLE_RATE: u32 = 48_000;
-/// Stereo ONLY!!!! >:)
+/// Everything is mixed down to two channels
 const OUTPUT_CHANNELS: u16 = 2;
-/// For 48Hz that's like 1/4th of a second or smth not like I study math
+/// How much audio may pile up before the oldest samples are dropped
 const MAX_BUFFERED_SAMPLES: usize = 12_000;
+/// How often the audio thread checks for device changes
+const POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Name of the current default output device, if there is one.
+fn default_output_name() -> Option<String> {
+    cpal::default_host()
+        .default_output_device()
+        .and_then(|device| device.name().ok())
+}
+
+/// Name of the current default input device, if there is one.
+fn default_input_name() -> Option<String> {
+    cpal::default_host()
+        .default_input_device()
+        .and_then(|device| device.name().ok())
+}
+
+/// The currently open output device, plus the handle everything plays
+/// through combined into a connection which is rebuilt whenever the device
+/// is switched or lost, so nothing
+/// else may hold on to it.
+struct OutputConn {
+    _stream: OutputStream,
+    mixer: OutputStreamHandle,
+}
 
 /// Connection to the sound device.
 ///
 /// Create one `Audio` when the app starts and keep it alive until the app
-/// closesCwhile it exists, sounds can be played. Creating it opens the
-/// default output device so I might need to do some more stuff
+/// closes. The output device is opened lazily and can be swapped
+///  at any time, so device changes never require restarting
+/// the app or recreating `Audio`.
 pub struct Audio {
-    /// dropping it would silence everything.
-    _output: Box<OutputStream>,
-    handle: OutputStreamHandle,
-    /// Microphone capture streams, one per open [`Microphone`].
-    mics: HashMap<u64, cpal::Stream>,
-    /// Id the next created [`Microphone`] gets.
+    /// The currently open output device, can be `None`, sound
+    /// requests then try to open one before failing.
+    output: Option<OutputConn>,
+    /// The output device to use, or `None` to follow the system default.
+    output_device: Option<cpal::Device>,
+    /// Name of the default output device last seen, to notice changes.
+    last_default_output: Option<String>,
+    /// Live frame players for call audio, so their sinks can be recreated
+    /// after a device switch. Their sample buffers live on, so a switch
+    /// is just a blip, not a dead call.
+    frame_players: HashMap<u64, FramePlayerSlot>,
+    /// Id the next frame player gets.
+    next_player_id: u64,
+    /// One capture stream per open microphone handle.
+    mics: HashMap<u64, MicSlot>,
+    /// The input device to use, or `None` to follow the system default.
+    input_device: Option<cpal::Device>,
+    /// Name of the default input device last seen, to notice changes.
+    last_default_input: Option<String>,
+    /// Id the next microphone gets.
     next_mic_id: u64,
 }
 
-impl Audio {
-    /// Connects to the default sound output device.
-    pub fn new() -> Result<Self> {
-        let (output, handle) = OutputStream::try_default()
-            .context("Could not open the default sound output device")?;
+/// One live frame player, as the audio thread sees it.
+struct FramePlayerSlot {
+    /// The sink pumping the samples into the current output device.
+    /// Recreated on every device switch.
+    sink: Sink,
+    /// The buffer frames from LiveKit land in. Kept across switches.
+    samples: Arc<SharedSamples>,
+}
 
-        Ok(Self {
-            _output: Box::new(output),
-            handle,
+/// One microphone capture, as the audio thread sees it.
+struct MicSlot {
+    /// The capture stream, or None while it could not be opened.
+    /// Polling keeps retrying to revive the microphone.
+    stream: Option<cpal::Stream>,
+    /// The buffer the microphone fills. Kept so the handle stays valid
+    /// across device switches and retry gaps.
+    samples: Arc<MicSamples>,
+}
+
+impl Audio {
+    /// Does not connect yet, the output device opens on first use so the
+    /// app can start with no sound device at all.
+    fn new() -> Self {
+        Self {
+            output: None,
+            output_device: None,
+            // Prime the names so the first idle poll doesn't reopen a
+            // perfectly fine device just because there was nothing to
+            // compare against yet.
+            last_default_output: default_output_name(),
+            frame_players: HashMap::new(),
+            next_player_id: 0,
             mics: HashMap::new(),
+            input_device: None,
+            last_default_input: default_input_name(),
             next_mic_id: 0,
+        }
+    }
+
+    /// Opens the output device if none is open. Every sound-making
+    /// method goes through this, so a lost device is reconnected on the
+    /// very next sound instead of killing anything.
+    fn open(&mut self) -> Result<()> {
+        if self.output.is_none() {
+            self.output = Some(self.build_output()?);
+        }
+        Ok(())
+    }
+
+    /// Opens a connection, honoring the device choice, with a fallback
+    /// to the default if the chosen one has vanished.
+    fn build_output(&self) -> Result<OutputConn> {
+        let (stream, mixer) = match &self.output_device {
+            Some(device) => OutputStream::try_from_device(device)
+                .with_context(|| {
+                    format!(
+                        "Could not open the output device {}",
+                        device.name().unwrap_or_else(|_| "unknown".into())
+                    )
+                })
+                .or_else(|first_err| {
+                    event!(
+                        Level::WARN,
+                        "The chosen output device is gone, trying the default: {first_err:#}"
+                    );
+                    OutputStream::try_default()
+                        .context("Could not open the default sound output device")
+                })?,
+            None => OutputStream::try_default()
+                .context("Could not open the default sound output device")?,
+        };
+
+        Ok(OutputConn {
+            _stream: stream,
+            mixer,
         })
     }
 
-    /// What do you think it does?
-    pub fn play_file<P: AsRef<Path>>(&self, path: P) -> Result<Sound> {
+    /// Rebuilds the output connection. Live frame players keep their
+    /// buffers and are rewired; detached one-shot sounds simply stop.
+    fn rebuild_output(&mut self) {
+        let conn = match self.build_output() {
+            Ok(conn) => conn,
+            Err(error) => {
+                event!(
+                    Level::WARN,
+                    "No output device available, will retry: {error:#}"
+                );
+                self.output = None;
+                return;
+            }
+        };
+
+        let had_old = self.output.is_some();
+        self.output = Some(conn);
+
+        if had_old {
+            event!(Level::INFO, "Switched the sound output device");
+        }
+
+        // Rewire live call players to the new device.
+        let mixer = &self.output.as_ref().expect("just set").mixer;
+        for slot in self.frame_players.values_mut() {
+            match Sink::try_new(mixer) {
+                Ok(sink) => {
+                    sink.append(FrameSource {
+                        samples: Arc::clone(&slot.samples),
+                    });
+                    slot.sink = sink;
+                }
+                Err(error) => event!(
+                    Level::ERROR,
+                    "Could not rewire a call player to the new device: {error}"
+                ),
+            }
+        }
+    }
+
+    /// Changes the output device, or back to following the default.
+    fn set_output_device(&mut self, device: Option<cpal::Device>) {
+        self.output_device = device;
+        self.rebuild_output();
+    }
+
+    /// Changes the input device, or back to following the default.
+    /// Open microphones are rebuilt but keep their buffers and handles.
+    fn set_input_device(&mut self, device: Option<cpal::Device>) {
+        self.input_device = device;
+        self.rebuild_mics();
+    }
+
+    /// Reopens every microphone capture stream, e.g. after the input
+    /// device changed. Microphone handles keep working throughout.
+    fn rebuild_mics(&mut self) {
+        for slot in self.mics.values_mut() {
+            let restored = || -> Result<cpal::Stream> {
+                let device = match &self.input_device {
+                    Some(device) => device.clone(),
+                    None => cpal::default_host()
+                        .default_input_device()
+                        .context("There is no default microphone")?,
+                };
+                let config = device
+                    .default_input_config()
+                    .context("Could not read the microphone's format")?;
+                let stream = build_mic_stream(&device, &config, Arc::clone(&slot.samples))?;
+                stream.play().context("Could not start the microphone")?;
+                Ok(stream)
+            };
+
+            match restored() {
+                Ok(stream) => slot.stream = Some(stream),
+                Err(error) => {
+                    event!(
+                        Level::WARN,
+                        "Could not open the microphone, will retry: {error:#}"
+                    );
+                    slot.stream = None;
+                }
+            }
+        }
+    }
+
+    /// Whether the default output device changed since the last check.
+    fn default_output_changed(&mut self) -> bool {
+        if self.output_device.is_some() {
+            // The user pinned a device, don't follow the default.
+            return false;
+        }
+
+        let name = default_output_name();
+
+        match (&self.last_default_output, &name) {
+            (Some(old), Some(new)) if old == new => false,
+            _ => {
+                self.last_default_output = name;
+                true
+            }
+        }
+    }
+
+    /// Whether the default input device changed since the last check.
+    fn default_input_changed(&mut self) -> bool {
+        if self.input_device.is_some() {
+            return false;
+        }
+
+        let name = default_input_name();
+
+        match (&self.last_default_input, &name) {
+            (Some(old), Some(new)) if old == new => false,
+            _ => {
+                self.last_default_input = name;
+                true
+            }
+        }
+    }
+
+    /// Plays an audio file and returns a handle to it.
+    pub fn play_file(&mut self, path: impl AsRef<Path>) -> Result<Sound> {
+        self.open()?;
         let file = std::fs::File::open(path).context("Could not open the audio file")?;
 
         let sink = self
-            .handle
+            .output
+            .as_ref()
+            .expect("just opened")
+            .mixer
             .play_once(BufReader::new(file))
             .context("Could not decode/play the audio file")?;
 
         Ok(Sound { sink })
     }
 
-    /// Play any audio data
-    pub fn play_data(&self, data: impl Into<Vec<u8>>) -> Result<Sound> {
+    /// Plays audio data that is already in memory.
+    pub fn play_data(&mut self, data: impl Into<Vec<u8>>) -> Result<Sound> {
+        self.open()?;
         let sink = self
-            .handle
+            .output
+            .as_ref()
+            .expect("just opened")
+            .mixer
             .play_once(Cursor::new(data.into()))
             .context("Could not decode/play the audio data")?;
 
         Ok(Sound { sink })
     }
 
-    /// Play any already-decoded [`Source`]
-    pub fn play_source<S>(&self, source: S) -> Result<Sound>
+    /// Plays an already-decoded rodio source.
+    pub fn play_source<S>(&mut self, source: S) -> Result<Sound>
     where
         S: Source<Item = f32> + Send + 'static,
     {
-        let sink = Sink::try_new(&self.handle).context("Could not create a sink")?;
+        self.open()?;
+        let sink = Sink::try_new(&self.output.as_ref().expect("just opened").mixer)
+            .context("Could not create a sink")?;
         sink.append(source);
         Ok(Sound { sink })
     }
@@ -109,23 +355,41 @@ impl Audio {
     /// Creates a new player for live audio that arrives frame by frame
     /// Each player is mixed in with everything
     /// else and can be dropped to stop it.
-    pub fn frame_player(&self) -> Result<FramePlayer> {
-        let sink = Sink::try_new(&self.handle).context("Could not create a frame player")?;
-
+    fn frame_player(&mut self, cmd_tx: &std::sync::mpsc::Sender<Command>) -> Result<FramePlayer> {
+        self.open()?;
         let samples = Arc::new(SharedSamples::default());
+        let sink = Sink::try_new(&self.output.as_ref().expect("just opened").mixer)
+            .context("Could not create a frame player")?;
         sink.append(FrameSource {
             samples: Arc::clone(&samples),
         });
 
-        Ok(FramePlayer { sink, samples })
+        let id = self.next_player_id;
+        self.next_player_id += 1;
+        self.frame_players.insert(
+            id,
+            FramePlayerSlot {
+                sink,
+                samples: Arc::clone(&samples),
+            },
+        );
+
+        Ok(FramePlayer {
+            id,
+            samples,
+            cmd_tx: cmd_tx.clone(),
+        })
     }
 
-    /// Starts recording the default microphone, drop the handle to stop it.
+    /// Starts recording the default or chosen microphone, drop the
+    /// handle to stop it.
     fn microphone(&mut self, cmd_tx: &std::sync::mpsc::Sender<Command>) -> Result<Microphone> {
-        let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .context("There is no default microphone")?;
+        let device = match &self.input_device {
+            Some(device) => device.clone(),
+            None => cpal::default_host()
+                .default_input_device()
+                .context("There is no default microphone")?,
+        };
 
         let config = device
             .default_input_config()
@@ -137,7 +401,13 @@ impl Audio {
 
         let id = self.next_mic_id;
         self.next_mic_id += 1;
-        self.mics.insert(id, stream);
+        self.mics.insert(
+            id,
+            MicSlot {
+                stream: Some(stream),
+                samples: Arc::clone(&samples),
+            },
+        );
 
         Ok(Microphone {
             id,
@@ -146,33 +416,42 @@ impl Audio {
         })
     }
 
-    /// Stops the capture stream belonging to a dropped [`Microphone`].
+    /// Whether live call players are waiting for a working device, so a
+    /// lost output should be retried even without new requests coming in.
+    fn frame_players_open(&self) -> bool {
+        !self.frame_players.is_empty()
+    }
+
+    /// Stops the capture of a dropped microphone handle.
     fn stop_microphone(&mut self, id: u64) {
         self.mics.remove(&id);
     }
+
+    /// Stops the frame player of a dropped handle.
+    fn stop_frame_player(&mut self, id: u64) {
+        self.frame_players.remove(&id);
+    }
 }
 
-/// A finished sound that is playing right now.
-///
-/// Returned by [`Audio::play_file`] and [`Audio::play_data`]. The sound keeps
-/// playing until the handle is dropped or it ends ig
+/// A sound that is playing right now. It keeps playing until the handle
+/// is dropped or the sound ends.
 pub struct Sound {
     sink: Sink,
 }
 
 impl Sound {
-    /// Sets how loud this sound is: `0.0` is silent, `1.0` is normal volume, anything
-    /// else just multiplies the sound by the volume blah blah blah you get it
+    /// Sets how loud this sound is. 0.0 is silent, 1.0 is normal, anything
+    /// above boosts it.
     pub fn set_volume(&self, volume: f32) {
         self.sink.set_volume(volume);
     }
 
-    /// Pauses this sound until [`Sound::play`] is called. no rush.
+    /// Pauses this sound until it is played again.
     pub fn pause(&self) {
         self.sink.pause();
     }
 
-    /// Resumes this sound after [`Sound::pause`].
+    /// Resumes a paused sound.
     pub fn play(&self) {
         self.sink.play();
     }
@@ -185,26 +464,23 @@ impl Sound {
 
     /// Lets the sound keep playing to the end even after this handle is
     /// dropped, for fire-and-forget playback where nothing holds onto the
-    /// handle. Without this, dropping the handle stops the sound dead,
-    /// since that's what a dropped (non-detached) `Sink` does.
+    /// handle. Without this, dropping the handle stops the sound dead
     pub fn detach(self) {
         self.sink.detach();
     }
 }
 
-/// [`Audio`] but usable from async code.
+/// Audio that is usable from async code.
 ///
-/// [`Audio`] is not allowed to cross threads (thanks cpal), but
-/// basically everything in this app happens in async tasks. So this puts
-/// the real `Audio` on its own little thread and passes requests to it
-/// through a channel. From the outside it just looks like the normal thing.
-/// Something something quacks like a duck something someting
+/// Audio may not cross threads, so the real one sits on its own thread
+/// and this handle forwards requests to it through a channel. From the
+/// outside it looks just like the real thing.
 ///
 /// Keep one alive as long as you want to make sounds.
 #[derive(Clone)]
 pub struct AudioThread {
-    /// The end of the channel the little audio thread listens to. As long
-    /// as this lives, the thread lives.
+    /// The end of the channel the audio thread listens to. As long as
+    /// this lives, the thread lives.
     cmd_tx: std::sync::mpsc::Sender<Command>,
 }
 
@@ -231,57 +507,98 @@ enum Command {
     StopMicrophone {
         id: u64,
     },
+    StopFramePlayer {
+        id: u64,
+    },
+    /// `None` for the device means "follow the system default" again.
+    SetOutputDevice {
+        device: Option<cpal::Device>,
+        reply: oneshot::Sender<Result<()>>,
+    },
+    SetInputDevice {
+        device: Option<cpal::Device>,
+        reply: oneshot::Sender<Result<()>>,
+    },
 }
 
 impl AudioThread {
-    /// Starts the little audio thread and connects to the sound device.
-    /// Do this once and keep the handle around, clone it wherever needed.
+    /// Starts the audio thread. Do this once and keep the handle around,
+    /// clone it wherever needed.
     pub fn start() -> Result<Self> {
         let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
         // Just used to find out whether the connection worked, the thread
         // answers actual requests through the oneshots in the commands.
-        let (init_tx, init_rx) = std::sync::mpsc::channel();
+        let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), String>>();
         // Cloned into every Microphone so it can announce its own death.
         let stop_tx = cmd_tx.clone();
 
         std::thread::Builder::new()
             .name("deplace-audio".into())
             .spawn(move || {
-                let mut audio = match Audio::new() {
-                    Ok(audio) => audio,
-                    Err(e) => {
-                        // Tell start() it did not work and die quietly.
-                        drop(init_tx.send(Err(format!("{e:#}"))));
-                        return;
-                    }
-                };
+                // No device is opened here: the audio thread always starts,
+                // even on a machine with no sound device at all, and opens
+                // (and reopens) the device lazily as sounds are requested.
+                let mut audio = Audio::new();
 
                 drop(init_tx.send(Ok(())));
 
                 // Answer requests until everyone is gone (last handle
-                // dropped), then the iteration ends and so does the thread.
+                // dropped). Between requests, poll for device changes so
+                // plugging/unplugging headphones or switching the system
+                // default is picked up without restarting anything.
                 // Nobody listening to the answer anymore is fine, the
                 // sound happens either way. Or does it? I'm going crazy over here
-                for command in cmd_rx {
-                    match command {
-                        Command::FramePlayer { reply } => {
-                            drop(reply.send(audio.frame_player()));
+                loop {
+                    match cmd_rx.recv_timeout(POLL_INTERVAL) {
+                        Ok(command) => match command {
+                            Command::FramePlayer { reply } => {
+                                drop(reply.send(audio.frame_player(&stop_tx)));
+                            }
+                            Command::PlayFile { path, reply } => {
+                                drop(reply.send(audio.play_file(path)));
+                            }
+                            Command::PlayData { data, reply } => {
+                                drop(reply.send(audio.play_data(data)));
+                            }
+                            Command::PlaySource { source, reply } => {
+                                drop(reply.send(audio.play_source(source)));
+                            }
+                            Command::Microphone { reply } => {
+                                drop(reply.send(audio.microphone(&stop_tx)));
+                            }
+                            Command::StopMicrophone { id } => {
+                                audio.stop_microphone(id);
+                            }
+                            Command::StopFramePlayer { id } => {
+                                audio.stop_frame_player(id);
+                            }
+                            Command::SetOutputDevice { device, reply } => {
+                                audio.set_output_device(device);
+                                drop(reply.send(Ok(())));
+                            }
+                            Command::SetInputDevice { device, reply } => {
+                                audio.set_input_device(device);
+                                drop(reply.send(Ok(())));
+                            }
+                        },
+                        // Idle: check whether the world of sound changed.
+                        Err(RecvTimeoutError::Timeout) => {
+                            if audio.default_output_changed() {
+                                audio.rebuild_output();
+                            }
+                            if audio.default_input_changed() {
+                                audio.rebuild_mics();
+                            }
+                            // Revive microphones whose stream could not be
+                            // opened before, and reopen a lost output.
+                            if audio.mics.values().any(|slot| slot.stream.is_none()) {
+                                audio.rebuild_mics();
+                            }
+                            if audio.output.is_none() && audio.frame_players_open() {
+                                audio.rebuild_output();
+                            }
                         }
-                        Command::PlayFile { path, reply } => {
-                            drop(reply.send(audio.play_file(path)));
-                        }
-                        Command::PlayData { data, reply } => {
-                            drop(reply.send(audio.play_data(data)));
-                        }
-                        Command::PlaySource { source, reply } => {
-                            drop(reply.send(audio.play_source(source)));
-                        }
-                        Command::Microphone { reply } => {
-                            drop(reply.send(audio.microphone(&stop_tx)));
-                        }
-                        Command::StopMicrophone { id } => {
-                            audio.stop_microphone(id);
-                        }
+                        Err(RecvTimeoutError::Disconnected) => break,
                     }
                 }
             })
@@ -295,7 +612,6 @@ impl AudioThread {
     }
 
     /// Creates a new player for live audio, like one call participant.
-    /// Same as [`Audio::frame_player`], just async
     pub async fn frame_player(&self) -> Result<FramePlayer> {
         let (reply_tx, reply_rx) = oneshot::channel();
 
@@ -308,8 +624,7 @@ impl AudioThread {
             .context("The audio thread died mid-request")?
     }
 
-    /// Plays an audio file. Same as [`Audio::play_file`], just
-    /// async
+    /// Plays an audio file.
     pub async fn play_file(&self, path: impl Into<PathBuf>) -> Result<Sound> {
         let (reply_tx, reply_rx) = oneshot::channel();
 
@@ -325,8 +640,7 @@ impl AudioThread {
             .context("The audio thread died mid-request")?
     }
 
-    /// Plays audio data that is in memory. Same as [`Audio::play_data`],
-    /// just async
+    /// Plays audio data that is already in memory.
     pub async fn play_data(&self, data: impl Into<Vec<u8>>) -> Result<Sound> {
         let (reply_tx, reply_rx) = oneshot::channel();
 
@@ -342,8 +656,7 @@ impl AudioThread {
             .context("The audio thread died mid-request")?
     }
 
-    /// Plays an already-decoded source, e.g. a synthesized
-    /// [`rodio::buffer::SamplesBuffer`]. Same as [`Audio::play_source`], just async
+    /// Plays an already-decoded source.
     pub async fn play_source<S>(&self, source: S) -> Result<Sound>
     where
         S: Source<Item = f32> + Send + Sync + 'static,
@@ -374,9 +687,91 @@ impl AudioThread {
             .await
             .context("The audio thread died mid-request")?
     }
+
+    /// Switches the sounds to another output device, or back to the
+    /// system default when `device` is `None`. Live call audio survives
+    /// the switch, already playing one-shot sounds stop.
+    pub async fn set_output_device(&self, device: Option<cpal::Device>) -> Result<()> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+
+        self.cmd_tx
+            .send(Command::SetOutputDevice {
+                device,
+                reply: reply_tx,
+            })
+            .context("The audio thread is gone")?;
+
+        reply_rx
+            .await
+            .context("The audio thread died mid-request")?
+    }
+
+    /// Switches recording to another input device, or back to the system
+    /// default when `device` is `None`. Open microphones keep working.
+    pub async fn set_input_device(&self, device: Option<cpal::Device>) -> Result<()> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+
+        self.cmd_tx
+            .send(Command::SetInputDevice {
+                device,
+                reply: reply_tx,
+            })
+            .context("The audio thread is gone")?;
+
+        reply_rx
+            .await
+            .context("The audio thread died mid-request")?
+    }
 }
 
-/// The microphone of the machine
+/// A sound device as a settings menu sees it. The name is shown, the
+/// device is handed back when switching devices.
+pub struct DeviceDescription {
+    pub name: String,
+    /// `None` means "use the system default".
+    pub device: Option<cpal::Device>,
+}
+
+impl DeviceDescription {
+    /// The "follow the system default" choice for a device list.
+    pub fn default_choice() -> Self {
+        Self {
+            name: "System default".into(),
+            device: None,
+        }
+    }
+}
+
+/// Every output device that exists right now, plus the default choice.
+pub fn output_devices() -> Vec<DeviceDescription> {
+    let mut list = vec![DeviceDescription::default_choice()];
+    if let Ok(devices) = cpal::default_host().output_devices() {
+        list.extend(devices.filter_map(|device| {
+            let name = device.name().ok()?;
+            Some(DeviceDescription {
+                name,
+                device: Some(device),
+            })
+        }));
+    }
+    list
+}
+
+/// Every input device that exists right now, plus the default choice.
+pub fn input_devices() -> Vec<DeviceDescription> {
+    let mut list = vec![DeviceDescription::default_choice()];
+    if let Ok(devices) = cpal::default_host().input_devices() {
+        list.extend(devices.filter_map(|device| {
+            let name = device.name().ok()?;
+            Some(DeviceDescription {
+                name,
+                device: Some(device),
+            })
+        }));
+    }
+    list
+}
+/// A running microphone recording, drop the handle to stop it.
 pub struct Microphone {
     /// Which stream this handle belongs to.
     id: u64,
@@ -413,7 +808,7 @@ impl Microphone {
             .clear();
     }
 
-    /// Stops buffering new audio until [`Microphone::set_muted`] is called with false.
+    /// Stops buffering new audio until this is called with false.
     pub fn set_muted(&self, muted: bool) {
         self.samples.muted.store(muted, Ordering::Relaxed);
         if muted {
@@ -432,7 +827,7 @@ impl Microphone {
     }
 }
 
-/// The buffer the microphone thread fills and [`Microphone`] reads from.
+/// The buffer cpal fills and the microphone handle reads from.
 #[derive(Default)]
 struct MicSamples {
     queue: Mutex<VecDeque<f32>>,
@@ -441,7 +836,7 @@ struct MicSamples {
     overflows: AtomicU64,
 }
 
-/// Builds the cpal capture stream that fills a [`MicSamples`] with whatever the device says.
+/// Builds the cpal capture stream that fills the buffer with whatever the device says.
 fn build_mic_stream(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
@@ -494,7 +889,7 @@ fn build_mic_stream(
     Ok(stream)
 }
 
-/// Mixes one captured chunk down to mono 48 kHz and buffers it in a [`MicSamples`].
+/// Mixes one captured chunk down to mono 48 kHz and buffers it.
 fn push_mic_chunk(chunk: &[f32], channels: usize, sample_rate: u32, samples: &Arc<MicSamples>) {
     if samples.muted.load(Ordering::Relaxed) || chunk.is_empty() {
         return;
@@ -524,17 +919,23 @@ fn push_mic_chunk(chunk: &[f32], channels: usize, sample_rate: u32, samples: &Ar
     queue.extend(converted);
 }
 
-/// A player for live audio like one participant in a LiveKite call.
+/// A player for live audio, like one participant in a call.
 ///
-/// Hand [`AudioFrame`]s over with
-/// [`FramePlayer::push`] and the player does the rest.
-///
-/// Frames get mixed down to stereo and resampled to 48 kHz if they come in
-/// with some weird other format, but LiveKit already sends 48 kHz, so maybe
-/// I should log it or something
+/// Push received frames into it and the player handles the rest. Frames
+/// are mixed down to stereo and resampled to 48 kHz.
 pub struct FramePlayer {
-    sink: Sink,
+    /// Which sink-slots this handle belongs to, on the audio thread.
+    id: u64,
     samples: Arc<SharedSamples>,
+    /// To tell the audio thread this handle is gone.
+    cmd_tx: std::sync::mpsc::Sender<Command>,
+}
+
+impl Drop for FramePlayer {
+    /// Stops the call audio when the last handle goes away.
+    fn drop(&mut self) {
+        drop(self.cmd_tx.send(Command::StopFramePlayer { id: self.id }));
+    }
 }
 
 impl FramePlayer {
@@ -571,10 +972,8 @@ impl FramePlayer {
             .clear();
     }
 
-    /// How many milliseconds of audio are sitting in the buffer right now,
-    /// how far the played sound lags behind the received data.
-    ///
-    /// This will be great for debugging or something trust trust
+    /// How many milliseconds of audio sit in the buffer, how far the
+    /// played sound lags behind what was received. Handy for debugging.
     pub fn buffered_millis(&self) -> u64 {
         let len = self
             .samples
@@ -586,32 +985,37 @@ impl FramePlayer {
         len as u64 * 1000 / (OUTPUT_SAMPLE_RATE as u64 * OUTPUT_CHANNELS as u64)
     }
 
-    /// How often the sound device wanted samples and the buffer was empty
-    /// Sure something interesting to know right? Like no output or smth
+    /// How often the sound device wanted samples and the buffer was empty.
     pub fn underruns(&self) -> u64 {
         self.samples.underruns.load(Ordering::Relaxed)
     }
 
     /// How often incoming frames had to be thrown away because the buffer
-    /// was full. This is more intereisting right?
+    /// was full.
     pub fn overflows(&self) -> u64 {
         self.samples.overflows.load(Ordering::Relaxed)
     }
 
-    /// How loud this player is: `0.0` is silent, `1.0` is normal volume, anything
-    /// above boosts the volume
+    /// Sets how loud they play. 0.0 is silent, 1.0 is normal, anything
+    /// above boosts it.
+    ///
+    /// Survives the sink being recreated after a device switch.
     pub fn set_volume(&self, volume: f32) {
-        self.sink.set_volume(volume);
+        *self
+            .samples
+            .volume
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = volume;
     }
 
-    /// Pauses this player until [`FramePlayer::play`] is called.
+    /// Pauses this player until it is played again.
     pub fn pause(&self) {
-        self.sink.pause();
+        self.samples.paused.store(true, Ordering::Relaxed);
     }
 
-    /// Resumes this player after [`FramePlayer::pause`].
+    /// Resumes a paused player.
     pub fn play(&self) {
-        self.sink.play();
+        self.samples.paused.store(false, Ordering::Relaxed);
     }
 }
 
@@ -624,12 +1028,16 @@ struct SharedSamples {
     underrunning: AtomicBool,
     underruns: AtomicU64,
     overflows: AtomicU64,
+    /// Volume applied by the player itself, `1.0` normal, so it survives
+    /// the sink being recreated after a device switch.
+    volume: Mutex<f32>,
+    /// True while playback is paused and silence is played instead.
+    paused: AtomicBool,
 }
 
-/// Turns a LiveKit frame into f32 stereo samples at [`OUTPUT_SAMPLE_RATE`],
-/// which is what the sound device wants. LiveKit normally already sends
-/// exactly that, so this is basically just a type conversion buuut just in
-/// case I was wrong or somethign
+/// Turns a LiveKit frame into f32 stereo samples at 48 kHz, what the
+/// sound device wants. LiveKit normally already sends exactly that, so
+/// this is mostly a type conversion.
 fn frame_to_stereo_48k(frame: &AudioFrame<'_>) -> Vec<f32> {
     let channels = frame.num_channels.max(1) as usize;
     let samples: Vec<f32> = frame
@@ -665,9 +1073,9 @@ fn frame_to_stereo_48k(frame: &AudioFrame<'_>) -> Vec<f32> {
     resample(&stereo, frame.sample_rate)
 }
 
-/// Stretches or squeezes samples to exactly [`OUTPUT_SAMPLE_RATE`]. Frames
-/// normally are 48 kHz already so this is almost always just a copy, it
-/// exists for the rare source that sends something else, still unsure
+/// Stretches or squeezes samples to exactly 48 kHz. Frames normally are
+/// 48 kHz already, so this is almost always just a copy for the rare
+/// source that sends something else.
 fn resample(samples: &[f32], from_rate: u32) -> Vec<f32> {
     if from_rate == OUTPUT_SAMPLE_RATE || samples.is_empty() {
         return samples.to_vec();
@@ -691,9 +1099,9 @@ fn resample(samples: &[f32], from_rate: u32) -> Vec<f32> {
         .collect()
 }
 
-/// The part the sound device drains: [`SharedSamples`], or
-/// silence if there is nothing there, forever. It never ends on purpose, a
-/// call player should not just die because someone had a stroke.
+/// Feeds the sound device from the shared buffer and plays silence when
+/// nothing is there. It never ends on purpose, a call player should not
+/// die just because it ran dry.
 struct FrameSource {
     samples: Arc<SharedSamples>,
 }
@@ -702,6 +1110,16 @@ impl Iterator for FrameSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
+        if self.samples.paused.load(Ordering::Relaxed) {
+            return Some(0.0);
+        }
+
+        let volume = *self
+            .samples
+            .volume
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
         let mut queue = self
             .samples
             .queue
@@ -712,7 +1130,7 @@ impl Iterator for FrameSource {
             Some(sample) => {
                 // The underrun is over once real data is flowing again.
                 self.samples.underrunning.store(false, Ordering::Relaxed);
-                Some(sample)
+                Some(sample * volume)
             }
             None => {
                 // Nothing buffered: play silence and count the heart stroke once.
