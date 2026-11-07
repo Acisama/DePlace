@@ -21,7 +21,7 @@ pub fn render_call_members(
 ) -> Element<'static, ChatMessage> {
     let icon_size = structure.chat.icon_size * 2.0;
     let height = icon_size * 2.5;
-    let rounding = icon_size / 4.0;
+    let rounding = icon_size / 6.0;
 
     let mut column = w::Column::new()
         .width(Fill)
@@ -35,38 +35,15 @@ pub fn render_call_members(
         let fillers = MAX_COLUMNS - chunk.len();
 
         for member in chunk {
-            let color = member.color();
-            let is_speaking = member.is_speaking();
-            let menu_member = member.clone();
-            let is_own = menu_member.is_own(own_device);
-
-            members_row = members_row.push_element(right_click(
-                w::container(
-                    w::container(member.render_icon(icon_size))
-                        .colored_rounded(color.to_iced().scale_lightness(0.15), rounding)
-                        .width(Length::FillPortion(2))
-                        .height(height)
-                        .align_x(Alignment::Center)
-                        .align_y(Alignment::Center),
-                )
-                .style(move |_| {
-                    ContainerStyle::default().border(Border {
-                        color: if is_speaking {
-                            theme.colors.success.into()
-                        } else {
-                            Color::TRANSPARENT
-                        },
-                        width: gap,
-                        radius: (rounding + gap * 2.0).into(),
-                    })
-                })
-                .padding(gap * 2.0),
-                move |position| {
-                    ChatMessage::ContextMenu(ContextMenu {
-                        position,
-                        kind: ContextMenuKind::call_participant(menu_member.clone(), is_own),
-                    })
-                },
+            members_row = members_row.push_element(render_call_member(
+                member.clone(),
+                theme,
+                structure,
+                icon_size,
+                rounding,
+                height,
+                gap,
+                own_device,
             ));
         }
 
@@ -134,4 +111,73 @@ fn divider<'a>(
         .width(width)
         .height(height)
         .style(move |_| ContainerStyle::default().background(theme.border))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_call_member(
+    member: CallMember,
+    theme: Theme,
+    structure: Structure,
+    icon_size: f32,
+    rounding: f32,
+    height: impl Into<Length>,
+    gap: f32,
+    own_device: &UserDevice,
+) -> w::Element<'static, ChatMessage> {
+    let color = member.color().to_iced();
+    let is_speaking = member.is_speaking();
+
+    let is_own = member.is_own(own_device);
+
+    right_click(
+        w::container(w::stack![
+            w::container(member.render_icon(icon_size))
+                .colored_rounded(color.scale_lightness(0.15), rounding)
+                .width(Length::FillPortion(2))
+                .height(height)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+            w::container(
+                w::container(
+                    w::text(member.displayname())
+                        .size(structure.font_size)
+                        .color(theme.text.normal)
+                )
+                .style(move |_| ContainerStyle {
+                    background: Some(theme.solid_bg.into()),
+                    border: Border {
+                        color: theme.border.into(),
+                        width: structure.border_thickness,
+                        radius: (rounding - structure.small_gap).into()
+                    },
+                    ..Default::default()
+                })
+                .padding(
+                    padding::horizontal(structure.small_gap).vertical(structure.small_gap / 2.0)
+                )
+            )
+            .padding(structure.small_gap)
+            .height(Fill)
+            .align_y(Alignment::End)
+        ])
+        .style(move |_| {
+            ContainerStyle::default().border(Border {
+                color: if is_speaking {
+                    theme.colors.success.into()
+                } else {
+                    Color::TRANSPARENT
+                },
+                width: gap,
+                radius: (rounding + gap * 2.0).into(),
+            })
+        })
+        .padding(gap * 2.0),
+        move |position| {
+            ChatMessage::ContextMenu(ContextMenu {
+                position,
+                kind: ContextMenuKind::call_participant(member.clone(), is_own),
+            })
+        },
+    )
+    .boxed()
 }

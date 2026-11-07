@@ -11,8 +11,8 @@ use std::{
 
 use common::{UI_FONT, set_structure, set_theme};
 use deplace_core::{
-    APP_HUMAN_NAME, APP_NAME, RestoreResult, SOCKET_NAME, state::ImportantPaths,
-    structure::Structure, theme::Theme, try_restore,
+    APP_HUMAN_NAME, APP_NAME, RestoreResult, SOCKET_NAME, audio::input_devices,
+    state::ImportantPaths, structure::Structure, theme::Theme, try_restore,
 };
 use iced::{
     Font, Task, advanced::subscription::Recipe, font::Family, futures::stream, widget::Space,
@@ -53,13 +53,17 @@ pub enum AppMessage {
     Verification(VerificationMessage),
     Home(HomeMessage),
     Restored(RestoreResult),
-    TabPressed { shift: bool },
+    TabPressed {
+        shift: bool,
+    },
     GoToLoading,
     GoToLogin(Client),
     WindowClosed(window::Id),
     WindowOpened(window::Id),
     FocusRequest(FocusRequest),
-    WindowFocus { focused: bool },
+    WindowFocus {
+        focused: bool,
+    },
     Tray(TrayAction),
     /// All ongoing calls were left, the app may now exit.
     Exit,
@@ -295,6 +299,8 @@ fn main() -> iced::Result {
             return Err(iced::Error::WindowCreationFailed(Box::new(e)));
         }
     };
+
+    println!("{:?}", input_devices());
 
     iced::daemon(
         move || {

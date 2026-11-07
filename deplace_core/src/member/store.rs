@@ -221,6 +221,14 @@ impl ProfileStore {
             let user_id = member.user_id();
             user_ids.insert(user_id.to_owned());
 
+            // Already known in this room (e.g. from the DM preload in
+            // `RoomStore::new`): keep the existing cell instead of replacing
+            // it, so we don't re-spawn avatar loads for a member we already
+            // loaded or are still loading.
+            if room_members.get(user_id).is_some() {
+                continue;
+            }
+
             let (_, user_data) = self.user_cell(user_id);
             let profile_data = ProfileData::from(member);
             let url = profile_data.avatar_url().cloned();
