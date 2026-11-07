@@ -449,6 +449,12 @@ fn render_participant_context_menu(
     let track_x =
         |value: f32| (track_width - handle_width) * value / max_volume + handle_width / 2.0;
 
+    let slider_bg_color = if volume_hovered {
+        theme.text.dim
+    } else {
+        theme.solid_hover_bg
+    };
+
     let (before_bg, after_bg) = if percent <= threshold {
         let threshold_point =
             (track_x(threshold) - track_x(percent)) / (track_width - track_x(percent));
@@ -456,8 +462,8 @@ fn render_participant_context_menu(
             theme.accent.into(),
             Linear::new(Radians::PI / 2.0)
                 .add_stops(color_stops([
-                    (0.0, theme.solid_hover_bg),
-                    (threshold_point - 0.001, theme.solid_hover_bg),
+                    (0.0, slider_bg_color),
+                    (threshold_point - 0.001, slider_bg_color),
                     (threshold_point, theme.error_half_blended().scale_alpha(0.5)),
                     (1.0, theme.error_half_blended().scale_alpha(0.5)),
                 ]))
