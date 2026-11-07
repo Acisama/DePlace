@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use deplace_core::{
-    call::VolumeCell,
+    call::{CallJoinStep, VolumeCell},
     room::call::CallMember,
     settings::NameDecoration,
     state::{ActiveServer, UserDevice},
@@ -616,6 +616,11 @@ fn render_channel(
 
             let user_in_call = room.call().own_user_device_is_in_call();
 
+            // While our own join is still on its way through the slow
+            // steps, our entry shows where it is stuck instead of the
+            // regular appearance
+            let own_join_step = room.call().join_progress();
+
             column
                 .push(
                     w::container(w::stack![
@@ -624,16 +629,22 @@ fn render_channel(
                                 .as_ref()
                                 .is_some_and(|(r, u)| r == room.room_id() && u == &p);
 
-                            render_call_participant(
-                                p,
-                                room.room_id(),
-                                is_hovered,
-                                theme,
-                                structure,
-                                icon_size,
-                                user_in_call,
-                                own_device,
-                            )
+                            if p.is_own(own_device)
+                                && let Some(step) = own_join_step
+                            {
+                                render_join_progress(p, step, theme, structure, icon_size)
+                            } else {
+                                render_call_participant(
+                                    p,
+                                    room.room_id(),
+                                    is_hovered,
+                                    theme,
+                                    structure,
+                                    icon_size,
+                                    user_in_call,
+                                    own_device,
+                                )
+                            }
                         }))
                         .spacing(structure.divider_width)
                         .padding(padding::left(icon_size)),
@@ -659,6 +670,37 @@ fn render_channel(
             column.boxed()
         }
     }
+}
+
+/// Our own call entry while the join is not through yet showing where the
+///  join currently is
+///  Once the join went through and
+/// the progress is None again, the regular rendering takes over.
+fn render_join_progress(
+    member: CallMember,
+    step: CallJoinStep,
+    theme: Theme,
+    structure: Structure,
+    icon_size: f32,
+) -> Element<'static, ChannelsMessage> {
+    w::container(
+        w::row![
+            // The same icon wrapper as the regular rows, so the avatar
+            // lines up with everyone else's once the join went through
+            render_icon_with_has_speaking_circle(&member, theme, structure, icon_size, false,),
+            // No volume yet, but its space is kept so the text does not
+            // jump when the regular row with the indicator takes over
+            Space::new().width(icon_size / 4.0),
+            weighted_text(step.label(), Weight::Semibold)
+                .size(structure.font_size)
+                .color(iced::Color::from(theme.text.dim)),
+        ]
+        .spacing(structure.small_gap)
+        .align_y(Alignment::Center)
+        .width(Fill),
+    )
+    .padding(padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap))
+    .boxed()
 }
 
 #[allow(clippy::too_many_arguments)]

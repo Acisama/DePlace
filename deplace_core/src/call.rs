@@ -203,6 +203,31 @@ pub enum CallEncryptionState {
     InternalError,
 }
 
+/// How far joining a call got, for showing progress on slow joins.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CallJoinStep {
+    /// Fetching an OpenID token and exchanging it for a LiveKit one
+    /// at the SFU
+    Authenticating,
+    /// Writing the call membership state event and ringing the room
+    Signaling,
+    /// Opening the LiveKit connection to the SFU
+    Connecting,
+    /// Setting up encryption keys and publishing the microphone
+    Preparing,
+}
+
+impl CallJoinStep {
+    pub fn label(&self) -> &'static str {
+        match self {
+            CallJoinStep::Authenticating => "Authenticating",
+            CallJoinStep::Signaling => "Signaling",
+            CallJoinStep::Connecting => "Connecting",
+            CallJoinStep::Preparing => "Preparing",
+        }
+    }
+}
+
 pub(crate) type CallHandleMap = DashMap<CallParticipantId, CallParticipantHandle>;
 
 /// Everything call-related on a room: always present.
@@ -214,6 +239,11 @@ pub struct RoomCall {
     own_handle: CallParticipantHandle,
 
     pub(crate) own_volume: Arc<VolumeCell>,
+
+    /// How far our own join into this room's call got, as long as it is
+    /// still joining. `None` once the call is live or was given up, so
+    /// a stuck step can be read off this on slow joins.
+    pub(crate) join_progress: Shared<Option<CallJoinStep>>,
 
     /// The call we've joined in this room, if any.
     /// LiveKitCall doesn't implement `Clone`, so we use an `Arc` to share it.
@@ -228,8 +258,15 @@ impl RoomCall {
             own_device,
             own_handle,
             own_volume: Arc::new(VolumeCell::default()),
+            join_progress: Shared::new(None),
             active: Shared::new(None),
         }
+    }
+
+    /// How far our own join into this room's call got, if we are joining
+    /// one right now. Nothing once the call is live or was given up.
+    pub fn join_progress(&self) -> Option<CallJoinStep> {
+        *self.join_progress.get()
     }
 
     /// Returns the call handle for the given participant ID, creating it if necessary.
@@ -547,7 +584,7 @@ impl LivekitCall {
         }
     }
 
-    fn wake(&self) {
+    pub(crate) fn wake(&self) {
         self.state_wake.send_modify(|_| ());
     }
 

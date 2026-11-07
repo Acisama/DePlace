@@ -25,8 +25,8 @@ use uuid::Uuid;
 use crate::DePlaceRoom;
 use crate::audio::{AudioThread, Microphone};
 use crate::call::{
-    CallConnectionState, CallEndReason, CallEvent, CallParticipantHandle, CallParticipantId,
-    CallRegistry, LivekitCall,
+    CallConnectionState, CallEndReason, CallEvent, CallJoinStep, CallParticipantHandle,
+    CallParticipantId, CallRegistry, LivekitCall,
 };
 use crate::member::ProfileStore;
 use crate::state::{AppState, UserDevice};
@@ -356,7 +356,47 @@ pub async fn join_matrixrtc_call(
     audio: AudioThread,
     state_wake: watch::Sender<()>,
 ) -> anyhow::Result<Arc<crate::call::LivekitCall>> {
+    let progress_room = room.clone();
+    let progress_wake = state_wake.clone();
+
+    let result = join_call_in_steps(
+        room,
+        profile_store,
+        own_device,
+        livekit_room_manager,
+        call_registry,
+        audio,
+        state_wake,
+    )
+    .await;
+
+    if result.is_err() {
+        progress_room.call.join_progress.set(None);
+        progress_wake.send_modify(|_| ());
+    }
+
+    result
+}
+
+/// Reports how far the join got and wakes the ui about it.
+fn report_join_step(room: &DePlaceRoom, state_wake: &watch::Sender<()>, step: CallJoinStep) {
+    room.call.join_progress.set(Some(step));
+    state_wake.send_modify(|_| ());
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn join_call_in_steps(
+    room: DePlaceRoom,
+    profile_store: Arc<ProfileStore>,
+    own_device: Arc<UserDevice>,
+    livekit_room_manager: LiveKitRoomManager,
+    call_registry: CallRegistry,
+    audio: AudioThread,
+    state_wake: watch::Sender<()>,
+) -> anyhow::Result<Arc<crate::call::LivekitCall>> {
     event!(Level::INFO, "Started joining call");
+
+    report_join_step(&room, &state_wake, CallJoinStep::Authenticating);
 
     let matrix_client = room.room.client();
     let rtc_foci = matrix_client
@@ -440,6 +480,9 @@ pub async fn join_matrixrtc_call(
     let jwt = response_json["jwt"].as_str().context("No jwt returned")?;
 
     event!(Level::INFO, "Successfully acquired LiveKit token");
+
+    // Membership event and ringing next, both writes over the network
+    report_join_step(&room, &state_wake, CallJoinStep::Signaling);
     log_sfu_assignment(jwt);
 
     let canonical_room_id = room_id.to_string();
@@ -572,10 +615,14 @@ async fn finish_joining_call(
     room_options.encryption = e2ee_options;
 
     event!(Level::INFO, "Connecting to LiveKit room");
+    report_join_step(dp_room, &state_wake, CallJoinStep::Connecting);
     let call_id = Uuid::new_v4();
     let (livekit_room, mut event_receiver) =
         livekit::Room::connect(&service_url, &jwt, room_options).await?;
     event!(Level::INFO, "Connected to LiveKit room: {:?}", livekit_room);
+
+    // The connection is there, keys and microphone next
+    report_join_step(dp_room, &state_wake, CallJoinStep::Preparing);
 
     // The call handle: the call thread folds its LiveKit events into its
     // state, the frontend reads that state and sends commands to it
@@ -709,6 +756,10 @@ async fn finish_joining_call(
     // Set last: every `?` above would otherwise leave a call behind whose
     // event loop never started
     dp_room.call.active.set(Some(call.clone()));
+
+    // The join is done, nothing to show progress about anymore
+    dp_room.call.join_progress.set(None);
+    call.wake();
 
     // handle events
     let cancellationtoken_clone = cancellationtoken.clone();
