@@ -24,10 +24,8 @@ pub fn static_checkbox<'a, T: 'a>(
         .style(move |_| w::container::Style {
             background: toggled.then_some(color.into()),
             border: Border {
-                color: if toggled {
+                color: if toggled || hovered {
                     color
-                } else if hovered {
-                    theme.text.normal.into()
                 } else {
                     theme.border.into()
                 },

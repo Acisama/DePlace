@@ -197,7 +197,10 @@ fn lerp_size(from: Size, to: Size, t: f32) -> Size {
 }
 
 fn center_of(position: Vector, size: Size) -> Vector {
-    Vector::new(position.x + size.width / 2.0, position.y + size.height / 2.0)
+    Vector::new(
+        position.x + size.width / 2.0,
+        position.y + size.height / 2.0,
+    )
 }
 
 fn top_left(center: Vector, size: Size) -> Vector {
@@ -240,9 +243,19 @@ fn grid_positions(
     spacing: f32,
     aspect_ratio: f32,
 ) -> (Size, Vec<Vector>) {
+    if n == 0 {
+        return (Size::ZERO, Vec::new());
+    }
+
     let (columns, tile) = best_grid(n, available, spacing, aspect_ratio);
     let rows = n.div_ceil(columns);
     let mut positions = Vec::with_capacity(n);
+
+    // 1. Calculate the total height of all rows and spacing combined
+    let total_height = rows as f32 * tile.height + (rows as f32 - 1.0).max(0.0) * spacing;
+
+    // 2. Determine the vertical starting offset to center the block
+    let y0 = (available.height - total_height) / 2.0;
 
     for row in 0..rows {
         let start = row * columns;
@@ -251,7 +264,9 @@ fn grid_positions(
 
         let row_width = count as f32 * tile.width + (count as f32 - 1.0).max(0.0) * spacing;
         let x0 = (available.width - row_width) / 2.0;
-        let y = row as f32 * (tile.height + spacing);
+
+        // 3. Add the vertical offset `y0` to the row's y position
+        let y = y0 + row as f32 * (tile.height + spacing);
 
         for offset in 0..count {
             positions.push(Vector::new(x0 + offset as f32 * (tile.width + spacing), y));
@@ -389,8 +404,7 @@ where
             let (center, size) = match from {
                 Some(from) if t < 1.0 => {
                     let size = lerp_size(state.size_from, tile, t);
-                    let center =
-                        lerp_vector(center_of(from, state.size_from), target_center, t);
+                    let center = lerp_vector(center_of(from, state.size_from), target_center, t);
                     (center, size)
                 }
                 None if t < 1.0 => (target_center, lerp_size(Size::ZERO, tile, t)),
