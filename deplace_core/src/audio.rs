@@ -732,6 +732,14 @@ pub struct DeviceDescription {
     pub device: Option<cpal::Device>,
 }
 
+impl std::fmt::Debug for DeviceDescription {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceDescription")
+            .field("name", &self.name)
+            .finish()
+    }
+}
+
 impl DeviceDescription {
     /// The "follow the system default" choice for a device list.
     pub fn default_choice() -> Self {

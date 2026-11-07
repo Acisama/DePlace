@@ -460,6 +460,7 @@ impl AppState {
         self.inner.own_avatar_url.subscribe()
     }
 
+    #[cfg(feature = "iced")]
     pub fn own_avatar(&self) -> Receiver<Avatar> {
         self.inner.own_avatar_handle.subscribe()
     }

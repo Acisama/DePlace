@@ -25,6 +25,7 @@ pub struct ProfileData {
     pub(crate) power_level: UserPowerLevel,
     #[cfg(feature = "iced")]
     pub(crate) avatar_handle: Avatar,
+    #[cfg(feature = "iced")]
     pub(crate) small_avatar_handle: Avatar,
 }
 

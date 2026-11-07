@@ -165,6 +165,7 @@ pub trait ProfileLike {
     fn displayname(&self) -> String;
     #[cfg(feature = "iced")]
     fn avatar_handle(&self) -> Avatar;
+    #[cfg(feature = "iced")]
     fn small_avatar_handle(&self) -> Avatar;
     fn initial(&self) -> char;
     fn color(&self) -> DePlaceColor;

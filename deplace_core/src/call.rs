@@ -1,6 +1,6 @@
 //! Signaling between the call thread and the frontend.
 //!
-//! [`DePlaceCall`] is the handle handed to the frontend when a call is
+//! [`LivekitCall`] is the handle handed to the frontend when a call is
 //! joined. Communication follows the split the rest of the app uses:
 //!
 //! - Rendering state lives in a [`Shared<CallState>`]:
@@ -8,7 +8,7 @@
 //!   Its wake channel (`state_watch`) tells the
 //!   message loop when it changed; it never carries data itself.
 //! - Happenings and commands live in [`CallEvent`] and the methods on
-//!   [`DePlaceCall`]: They are
+//!   [`LivekitCall`]: They are
 //!   delivered in order through a broadcast channel.
 //!
 //! The call thread folds its LiveKit events into the state on its own
@@ -374,7 +374,7 @@ pub const SPEAKING_OFF_VOLUME: f32 = 0.003;
 
 /// Call events,  broadcast to whoever subscribed. Rendering
 /// should always read
-/// [`CallState`] instead, which can't be missed.
+/// [`LivekitCall`] instead, which can't be missed.
 #[derive(Clone, Debug)]
 pub enum CallEvent {
     /// Our own connection was accepted by the SFU.
