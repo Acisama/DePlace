@@ -15,6 +15,7 @@
 //! task (see `matrix_api::matrixrtc`); the frontend task only ever reads
 //! state and sends commands.
 
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -317,6 +318,16 @@ impl RoomCall {
 
     pub fn call_participants_count(&self) -> usize {
         self.members.read().members.len()
+    }
+
+    pub fn users_in_call(&self) -> usize {
+        self.members
+            .read()
+            .members
+            .iter()
+            .map(|m| m.member.user_id())
+            .collect::<HashSet<_>>()
+            .len()
     }
 
     pub fn set_own_mic_muted(&self, muted: bool) {

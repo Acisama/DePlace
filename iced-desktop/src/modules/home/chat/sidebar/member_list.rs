@@ -215,7 +215,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         );
 
         if self.room.has_call() {
-            let length = self.room.call().call_participants_count();
+            let length = self.room.call().users_in_call();
 
             row = row.push_element(themed_tooltip_text(
                 help_view
