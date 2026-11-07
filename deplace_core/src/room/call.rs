@@ -117,6 +117,10 @@ impl Hash for CallMember {
         self.member.hash_selective(state, false, true, true, true);
         self.device_id.hash(state);
         self.handle.participant.hash(state);
+        self.handle
+            .playback_muted
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .hash(state);
     }
 }
 
@@ -166,6 +170,10 @@ impl CallMember {
 
     pub fn is_muted(&self) -> bool {
         self.handle.participant.read().muted
+    }
+
+    pub fn playback_muted(&self) -> bool {
+        self.handle.playback_muted()
     }
 
     pub fn is_speaking(&self) -> bool {

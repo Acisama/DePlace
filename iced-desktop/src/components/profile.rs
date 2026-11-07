@@ -603,6 +603,7 @@ pub fn render_icon_with_has_speaking_circle<'a, T: 'a>(
 ) -> Element<'a, T> {
     let gap = structure.icon_gap_ratio * icon_size / 4.0;
     let is_speaking = member.is_speaking();
+    let playback_muted = member.playback_muted();
 
     w::container(if big {
         member.render_icon(icon_size)
@@ -611,7 +612,9 @@ pub fn render_icon_with_has_speaking_circle<'a, T: 'a>(
     })
     .style(move |_| {
         w::container::Style::default().border(Border {
-            color: if is_speaking {
+            color: if playback_muted {
+                theme.colors.error.into()
+            } else if is_speaking {
                 theme.colors.success.into()
             } else {
                 Color::TRANSPARENT

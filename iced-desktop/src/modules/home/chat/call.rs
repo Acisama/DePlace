@@ -103,6 +103,7 @@ fn render_call_member(
 ) -> w::Element<'static, ChatMessage> {
     let color = member.color().to_iced();
     let is_speaking = member.is_speaking();
+    let playback_muted = member.playback_muted();
 
     let is_own = member.is_own(own_device);
 
@@ -139,7 +140,9 @@ fn render_call_member(
         ])
         .style(move |_| {
             ContainerStyle::default().border(Border {
-                color: if is_speaking {
+                color: if playback_muted {
+                    theme.colors.error.into()
+                } else if is_speaking {
                     theme.colors.success.into()
                 } else {
                     Color::TRANSPARENT
