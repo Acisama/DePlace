@@ -326,19 +326,7 @@ impl SignatureEvent {
                 ..SignatureEvent::Deafened.performance()
             },
             SignatureEvent::StartedScreenShare => Performance {
-                notes: 4,
-                rising: true,
-                cells: &[0.0],
-                lift: 0,
-                step: 0.07,
-                hold: 0.85,
-                tail: 0.26,
-                stretch: 0.75,
-                octave_shift: 0,
-                bass: BassMode::None,
-                root_gain: 0.3,
-                gain: 0.49,
-                window: CUE_SECS,
+                ..SignatureEvent::Deafened.performance()
             },
             SignatureEvent::StoppedScreenShare => Performance {
                 rising: false,

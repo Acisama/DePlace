@@ -10,7 +10,7 @@ use crate::modules::home::overlay::{ContextMenu, ContextMenuKind};
 
 use super::ChatMessage;
 
-const MAX_COLUMNS: usize = 4;
+const MAX_COLUMNS: usize = 3;
 
 pub fn render_call_members(
     members: Vec<CallMember>,
@@ -27,28 +27,18 @@ pub fn render_call_members(
         .padding(icon_size / 2.0)
         .spacing(icon_size / 2.0);
 
-    let total_length = members.len();
-
     let gap = structure.icon_gap_ratio * icon_size / 4.0;
 
     for chunk in members.chunks(MAX_COLUMNS) {
-        let mut row = w::Row::new().spacing(icon_size / 2.0);
+        let mut members_row = w::Row::new().spacing(icon_size / 2.0);
         let fillers = MAX_COLUMNS - chunk.len();
-
-        if fillers > 0 && total_length >= MAX_COLUMNS {
-            row = row.push_element(
-                Space::new()
-                    .width(Length::FillPortion(fillers as u16))
-                    .height(height),
-            );
-        }
 
         for member in chunk {
             let color = member.color();
             let is_speaking = member.is_speaking();
             let menu_member = member.clone();
 
-            row = row.push_element(right_click(
+            members_row = members_row.push_element(right_click(
                 w::container(
                     w::container(member.render_icon(icon_size))
                         .colored_rounded(color.to_iced().scale_lightness(0.15), rounding)
@@ -80,13 +70,20 @@ pub fn render_call_members(
             ));
         }
 
-        if fillers > 0 && total_length >= MAX_COLUMNS {
-            row = row.push_element(
+        let row = if fillers > 0 {
+            w::row![
                 Space::new()
                     .width(Length::FillPortion(fillers as u16))
                     .height(height),
-            );
-        }
+                w::container(members_row).width(Length::FillPortion((chunk.len() * 2) as u16)),
+                Space::new()
+                    .width(Length::FillPortion(fillers as u16))
+                    .height(height),
+            ]
+            .boxed()
+        } else {
+            members_row.width(Fill).boxed()
+        };
 
         column = column.push(row);
     }
