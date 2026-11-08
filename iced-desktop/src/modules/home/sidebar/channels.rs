@@ -372,8 +372,9 @@ fn render_channel(
 
     let notifications = live.notification_counts();
     let has_notifications = notifications.has_notifications();
+    let user_in_call = room.call().own_user_device_is_in_call();
 
-    let text_color = if is_hovered || is_active || has_notifications {
+    let text_color = if is_hovered || is_active || has_notifications || user_in_call {
         theme.text.normal.into()
     } else {
         theme.text.dim.into()
@@ -616,13 +617,11 @@ fn render_channel(
 
         column.boxed()
     } else {
-        if !room.is_dm() {
+        if !room.is_dm() && room.has_call() {
             let item_height = icon_size + structure.small_gap;
 
             let participants = room.call().call_participants();
             let line_height = (item_height + structure.divider_width) * participants.len() as f32;
-
-            let user_in_call = room.call().own_user_device_is_in_call();
 
             // While our own join is still on its way through the slow
             // steps, our entry shows where it is stuck instead of the
@@ -661,7 +660,11 @@ fn render_channel(
                                 .width(structure.divider_width)
                                 .height(line_height)
                                 .style(move |_| ContainerStyle {
-                                    background: Some(theme.border.into()),
+                                    background: Some(if user_in_call {
+                                        theme.text.normal.into()
+                                    } else {
+                                        theme.border.into()
+                                    }),
                                     border: border::rounded(structure.divider_width / 2.0),
                                     ..Default::default()
                                 }),
