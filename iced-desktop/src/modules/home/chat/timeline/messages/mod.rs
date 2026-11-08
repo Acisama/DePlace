@@ -159,6 +159,14 @@ impl TimelineItem {
         Some(event.identifier.clone())
     }
 
+    pub fn source(&self) -> Option<Arc<String>> {
+        match &self.kind {
+            TimelineItemKind::Message { message, .. } => message.source.clone(),
+            TimelineItemKind::System { event, .. } => event.source.clone(),
+            _ => None,
+        }
+    }
+
     pub fn event_id(&self) -> Option<OwnedEventId> {
         let TimelineItemKind::Message { message: event, .. } = &self.kind else {
             return None;
@@ -729,6 +737,8 @@ struct MessageEvent {
 
     timestamp: SystemTime,
 
+    source: Option<Arc<String>>,
+
     event_id: Option<OwnedEventId>,
     identifier: TimelineEventItemId,
 
@@ -1054,6 +1064,8 @@ struct SystemEvent {
     timezone: Receiver<Tz>,
     hour_format: Receiver<HourFormat>,
     date_format: Receiver<DateFormat>,
+
+    source: Option<Arc<String>>,
 
     #[hash]
     content: Arc<SystemMessage>,

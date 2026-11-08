@@ -26,7 +26,9 @@ use sweeten::widget::list;
 
 use crate::components::{PushElement, fills_parent, phosphor_icon};
 use crate::modules::home::overlay::{ContextMenu, ContextMenuKind, MediaOverlayParams, ModifyItem};
-use crate::modules::home::{COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, UNPIN_ICON};
+use crate::modules::home::{
+    COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, SOURCE_ICON, UNPIN_ICON,
+};
 use crate::{
     common::*,
     components::{track_bounds::track_bounds, track_scroll::track_scroll},
@@ -1210,6 +1212,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 is_pinned,
                 Some(message),
                 copyable_text,
+                source,
             )) = self.content.get(&hovered_item_id).map(|item| {
                 (
                     item.identifier(),
@@ -1218,6 +1221,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     item.is_pinned(),
                     item.message_event(),
                     item.copyable_text(),
+                    item.source(),
                 )
             })
         {
@@ -1317,6 +1321,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         can_pin,
                         can_redact,
                         copyable_text.clone(),
+                        source.clone(),
                     ))
                     .translate(move |own_bounds, _| {
                         let target_x = bounds.x + bounds.width - own_bounds.width;
@@ -1356,6 +1361,7 @@ fn render_timeline_item_buttons(
     can_pin: Option<OwnedEventId>,
     can_redact: bool,
     copyable_text: Option<Arc<String>>,
+    source: Option<Arc<String>>,
 ) -> Element<'static, TimelineMessage> {
     let mut buttons = Vec::new();
 
@@ -1409,6 +1415,16 @@ fn render_timeline_item_buttons(
         buttons.push(button(
             COPY_ICON,
             TimelineItemMessage::CopyText((*copyable_text).clone()),
+            theme.solid_hover_bg,
+            theme.text.dim,
+            theme.text.normal,
+        ));
+    }
+
+    if let Some(source) = source {
+        buttons.push(button(
+            SOURCE_ICON,
+            TimelineItemMessage::CopyText((*source).clone()),
             theme.solid_hover_bg,
             theme.text.dim,
             theme.text.normal,

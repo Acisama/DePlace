@@ -693,6 +693,13 @@ impl LivekitCall {
         self.own_handle.participant.read().muted
     }
 
+    /// Whether our own microphone is currently picking up speech, with the
+    /// same hysteresis as everyone else's speaking indicator (see
+    /// [`speaking_from`]).
+    pub fn is_own_speaking(&self) -> bool {
+        self.own_handle.participant.read().speaking
+    }
+
     /// Leave the call. Disconnects from the SFU, removes our MatrixRTC
     /// call member state, and ends up emitting
     /// `CallEvent::Ended { Left }` from the call thread.
@@ -999,6 +1006,12 @@ impl CallRegistry {
     /// A snapshot of all ongoing calls, keyed by room.
     pub fn all(&self) -> Arc<IndexMap<OwnedRoomId, Arc<LivekitCall>>> {
         self.calls.get()
+    }
+
+    /// Whether our own microphone is currently picking up speech in any
+    /// ongoing call.
+    pub fn any_own_speaking(&self) -> bool {
+        self.all().values().any(|call| call.is_own_speaking())
     }
 
     /// Wake-up signal for the frontend's message loop: fires when a call

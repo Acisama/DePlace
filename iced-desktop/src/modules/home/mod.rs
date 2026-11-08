@@ -46,6 +46,8 @@ pub const SCREENSHARING_ICON: &str = icons::monitor::BOLD;
 
 pub const CHECKMARK_ICON: &str = icons::check::BOLD;
 
+pub const SOURCE_ICON: &str = icons::code::BOLD;
+
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
     Chat {

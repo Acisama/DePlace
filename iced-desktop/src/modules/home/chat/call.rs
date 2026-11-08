@@ -134,7 +134,7 @@ fn render_call_member(
 
     if own_in_call && playback_muted {
         name_row = name_row.push_element(
-            w::text(" (muted by you)")
+            w::text("(muted by you)")
                 .size(structure.font_size)
                 .color(theme.text.dim),
         );

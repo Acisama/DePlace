@@ -85,6 +85,11 @@ const ICON_PNG: &[u8] = include_bytes!(concat!(
     "/../assets/deplace_icon.png"
 ));
 
+const ICON_SPEAKING_PNG: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../assets/deplace_icon_speaking.png"
+));
+
 const NOTO_COLOR_EMOJI_FONT: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../assets/fonts/NotoColorEmoji-Regular.ttf"
@@ -148,11 +153,24 @@ const MONO_FONT: Font = Font {
 
 pub const EMPTY_WIDGET: Option<Space> = None;
 
-fn load_tray_icon() -> Result<tray_icon::Icon, iced::Error> {
-    let image = image::load_from_memory_with_format(crate::ICON_PNG, image::ImageFormat::Png)
+fn tray_icon_image(bytes: &[u8]) -> Result<image::RgbaImage, iced::Error> {
+    let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
         .map_err(|e| iced::Error::WindowCreationFailed(Box::new(e)))?
         .resize(64, 64, image::imageops::FilterType::Lanczos3)
         .into_rgba8();
+
+    Ok(image)
+}
+
+fn load_tray_icon() -> Result<tray_icon::Icon, iced::Error> {
+    let image = tray_icon_image(ICON_PNG)?;
+    let (w, h) = image.dimensions();
+    tray_icon::Icon::from_rgba(image.into_raw(), w, h)
+        .map_err(|e| iced::Error::WindowCreationFailed(Box::new(e)))
+}
+
+fn load_tray_icon_mic_active() -> Result<tray_icon::Icon, iced::Error> {
+    let image = tray_icon_image(ICON_SPEAKING_PNG)?;
     let (w, h) = image.dimensions();
     tray_icon::Icon::from_rgba(image.into_raw(), w, h)
         .map_err(|e| iced::Error::WindowCreationFailed(Box::new(e)))
@@ -282,7 +300,8 @@ fn main() -> iced::Result {
         }
     };
 
-    let tray_icon = load_tray_icon()?;
+    let tray_icon_normal = load_tray_icon()?;
+    let tray_icon_mic_active = load_tray_icon_mic_active()?;
 
     let builder = TrayIconBuilder::new()
         .with_id(APP_NAME)
@@ -290,9 +309,9 @@ fn main() -> iced::Result {
         .with_menu_on_left_click(true)
         .with_title(APP_HUMAN_NAME)
         .with_tooltip(APP_HUMAN_NAME)
-        .with_icon(tray_icon);
+        .with_icon(tray_icon_normal.clone());
 
-    let _tray = match builder.build() {
+    let tray = match builder.build() {
         Ok(tray) => tray,
         Err(e) => {
             tracing::warn!("Failed to build tray icon: {e}");
@@ -320,7 +339,16 @@ fn main() -> iced::Result {
                 Task::perform(try_restore(paths.clone()), AppMessage::Restored),
             ]);
 
-            (Root::new(paths.clone(), listener.clone()), tasks)
+            (
+                Root::new(
+                    paths.clone(),
+                    listener.clone(),
+                    tray.clone(),
+                    tray_icon_normal.clone(),
+                    tray_icon_mic_active.clone(),
+                ),
+                tasks,
+            )
         },
         Root::update,
         Root::view,

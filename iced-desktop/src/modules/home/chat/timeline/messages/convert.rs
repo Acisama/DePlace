@@ -1,5 +1,7 @@
 use deplace_core::rich_text::FormattedBody;
 use matrix_sdk::ruma::events::StateEventType;
+use serde::Serialize;
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::time::SystemTime;
 
@@ -16,7 +18,7 @@ use super::{TimelineItem, TimelineItemKind};
 use matrix_sdk::ruma::events::room::ImageInfo;
 use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
 use matrix_sdk_ui::timeline::{
-    AnyOtherStateEventContentChange, EmbeddedEvent, ReactionsByKeyBySender,
+    AnyOtherStateEventContentChange, EmbeddedEvent, EventTimelineItem, ReactionsByKeyBySender,
     TimelineItemKind as UiTimelineItemKind,
 };
 use matrix_sdk_ui::timeline::{InReplyToDetails, VirtualTimelineItem};
@@ -58,6 +60,52 @@ impl ToTimelineItem for Arc<UiTimelineItem> {
     }
 }
 
+#[derive(Serialize)]
+struct OrderedEvent {
+    #[serde(rename = "type")]
+    event_type: Value,
+    sender: Value,
+    content: Value,
+    origin_server_ts: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unsigned: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event_id: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    room_id: Option<String>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, Value>,
+}
+
+fn get_raw_json(event: &EventTimelineItem, room_id: &RoomId) -> Option<Arc<String>> {
+    let raw_str = event.original_json()?.json().get();
+
+    let mut raw_map = serde_json::from_str::<Value>(raw_str)
+        .ok()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+
+    let event_type = raw_map.remove("type").unwrap_or(json!("m.room.message"));
+    let content = raw_map.remove("content").unwrap_or(json!({}));
+    let unsigned = raw_map.remove("unsigned");
+    let sender = raw_map.remove("sender").unwrap_or(json!(event.sender()));
+    let event_id = raw_map.remove("event_id");
+
+    let ordered_event = OrderedEvent {
+        event_type,
+        sender,
+        content,
+        origin_server_ts: json!(event.timestamp().as_secs()),
+        unsigned,
+        event_id,
+        room_id: Some(room_id.to_string()),
+        extra: raw_map,
+    };
+
+    let display_string = serde_json::to_string_pretty(&ordered_event).ok()?;
+    Some(Arc::new(display_string))
+}
+
 impl TimelineItemKind {
     fn from_ui(
         value: &UiTimelineItemKind,
@@ -89,6 +137,8 @@ impl TimelineItemKind {
                 let event_id = event.event_id().map(|id| id.to_owned());
                 let identifier = event.identifier();
 
+                let source = get_raw_json(event, room_id);
+
                 // With a normal closure, there would be move problems
                 macro_rules! system {
                     ($content:expr) => {
@@ -104,6 +154,7 @@ impl TimelineItemKind {
                                 _event_id: event_id,
                                 sender,
                                 content: Arc::new($content),
+                                source,
 
                                 timezone: state.settings().timezone.watch(),
                                 hour_format: state.settings().hour_format.watch(),
@@ -266,6 +317,8 @@ impl TimelineItemKind {
                             message: Arc::new(MessageEvent {
                                 timestamp,
                                 identifier,
+
+                                source,
 
                                 timezone: settings.timezone.watch(),
                                 hour_format: settings.hour_format.watch(),

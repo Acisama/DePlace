@@ -1,6 +1,7 @@
 use deplace_core::{RestoreResult, state::ImportantPaths};
 use iced::{advanced::subscription, widget::Shader, window};
 use interprocess::local_socket::Listener;
+use tray_icon::{Icon, TrayIcon};
 
 use crate::{SocketListener, TrayAction, TrayIconClickListener, TrayMenuListener, common::*};
 
@@ -59,16 +60,33 @@ pub struct Root {
 
     id: Option<window::Id>,
     listener: Arc<Listener>,
+
+    tray: TrayIcon,
+    tray_icon_normal: Icon,
+    tray_icon_mic_active: Icon,
+    /// Whether the tray icon is currently showing the mic-active badge, so
+    /// we only call `set_icon` on actual transitions.
+    tray_mic_active: bool,
 }
 
 impl Root {
-    pub fn new(paths: ImportantPaths, listener: Arc<Listener>) -> Self {
+    pub fn new(
+        paths: ImportantPaths,
+        listener: Arc<Listener>,
+        tray: TrayIcon,
+        tray_icon_normal: Icon,
+        tray_icon_mic_active: Icon,
+    ) -> Self {
         Self {
             listener,
             id: None,
             screen: Screen::default(),
             loading: shader::LoadingIndicator::default(),
             paths,
+            tray,
+            tray_icon_normal,
+            tray_icon_mic_active,
+            tray_mic_active: false,
         }
     }
 
@@ -151,7 +169,25 @@ impl Root {
                 None
             }
             AppMessage::Home(msg) if let Screen::Home(home) = &mut self.screen => {
-                match home.update(*msg)? {
+                let is_call_tick = matches!(*msg, HomeMessage::CallTick);
+                let action = home.update(*msg);
+
+                if is_call_tick {
+                    let speaking = home.state().call_registry().any_own_speaking();
+                    if speaking != self.tray_mic_active {
+                        self.tray_mic_active = speaking;
+                        let icon = if speaking {
+                            self.tray_icon_mic_active.clone()
+                        } else {
+                            self.tray_icon_normal.clone()
+                        };
+                        if let Err(e) = self.tray.set_icon(Some(icon)) {
+                            tracing::warn!("Failed to update tray icon: {e}");
+                        }
+                    }
+                }
+
+                match action? {
                     HomeAction::Run(task) => Some(task.map(|_| AppMessage::DoNothing)),
                     HomeAction::Perform(task) => Some(task.map(|m| AppMessage::Home(Box::new(m)))),
                     HomeAction::LoadTimeline(task) => Some(task.map(|(room_id, message)| {
