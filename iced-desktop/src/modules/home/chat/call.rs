@@ -1,4 +1,6 @@
-use deplace_core::{call::VolumeCell, room::call::CallMember, state::UserDevice};
+use deplace_core::{
+    call::VolumeCell, room::call::CallMember, settings::NameDecoration, state::UserDevice,
+};
 use iced::{Alignment, Length, Radians, border::Radius, gradient::Linear};
 
 use crate::{
@@ -21,34 +23,78 @@ pub fn render_call_members(
     theme: Theme,
     structure: Structure,
     direction: Direction,
+    decoration: NameDecoration,
 ) -> Element<'static, ChatMessage> {
-    let icon_size = structure.chat.icon_size * 2.0;
-    let rounding = icon_size / 8.0;
-    let gap = structure.icon_gap_ratio * icon_size / 4.0;
-    let own_device = own_device.clone();
+    let content = if room.has_call() {
+        let icon_size = structure.chat.icon_size * 2.0;
+        let rounding = icon_size / 8.0;
+        let gap = structure.icon_gap_ratio * icon_size / 4.0;
+        let own_device = own_device.clone();
 
-    let own_in_call = room.call().own_user_device_is_in_call();
+        let own_in_call = room.call().own_user_device_is_in_call();
 
-    let grid = call_grid(
-        members,
-        |member| (*member.device_id).clone(),
-        move |member| {
-            render_call_member(
-                member,
-                room.clone(),
-                theme,
-                structure,
-                icon_size,
-                rounding,
-                gap,
-                &own_device,
-                own_in_call,
-            )
-        },
-    )
-    .spacing(rounding)
-    .padding(rounding)
-    .height(Fill);
+        call_grid(
+            members,
+            |member| (*member.device_id).clone(),
+            move |member| {
+                render_call_member(
+                    member,
+                    room.clone(),
+                    theme,
+                    structure,
+                    icon_size,
+                    rounding,
+                    gap,
+                    &own_device,
+                    own_in_call,
+                )
+            },
+        )
+        .spacing(rounding)
+        .padding(rounding)
+        .height(Fill)
+        .boxed()
+    } else {
+        w::container(
+            w::column![
+                room.render_name_decorated(
+                    structure.large_font_size * 1.5,
+                    decoration,
+                    theme.text.normal
+                ),
+                w::text("No one is currently in this call")
+                    .size(structure.font_size)
+                    .color(theme.text.normal),
+                animated_button("Join Call")
+                    .on_press(ChatMessage::JoinCall)
+                    .style(move |_, status| ButtonStyle {
+                        background: if status.active() {
+                            Some(theme.colors.success.into())
+                        } else {
+                            Some(theme.success_blended().into())
+                        },
+                        border: Border {
+                            color: theme.colors.success.into(),
+                            width: structure.border_thickness,
+                            radius: structure.inner_border_radius.into()
+                        },
+                        text_color: if status.active() {
+                            theme.solid_bg.into()
+                        } else {
+                            theme.colors.success.into()
+                        },
+                        ..Default::default()
+                    })
+            ]
+            .spacing(structure.small_gap)
+            .align_x(Alignment::Center),
+        )
+        .width(Fill)
+        .height(Fill)
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center)
+        .boxed()
+    };
 
     let style = ContainerStyle {
         background: Some(theme.solid_bg.into()),
@@ -60,8 +106,9 @@ pub fn render_call_members(
         }),
         ..Default::default()
     };
-    let content = w::container(
-        w::container(grid)
+
+    let call_content = w::container(
+        w::container(content)
             .width(Fill)
             .height(Fill)
             .style(move |_| style),
@@ -71,18 +118,26 @@ pub fn render_call_members(
     .height(Fill);
 
     match direction {
-        Direction::Right => {
-            w::row![content, divider(theme, structure.border_thickness, Fill)].boxed()
-        }
-        Direction::Left => {
-            w::row![divider(theme, structure.border_thickness, Fill), content].boxed()
-        }
-        Direction::Top => {
-            w::column![divider(theme, Fill, structure.border_thickness), content].boxed()
-        }
-        Direction::Bottom => {
-            w::column![content, divider(theme, Fill, structure.border_thickness)].boxed()
-        }
+        Direction::Right => w::row![
+            call_content,
+            divider(theme, structure.border_thickness, Fill)
+        ]
+        .boxed(),
+        Direction::Left => w::row![
+            divider(theme, structure.border_thickness, Fill),
+            call_content
+        ]
+        .boxed(),
+        Direction::Top => w::column![
+            divider(theme, Fill, structure.border_thickness),
+            call_content
+        ]
+        .boxed(),
+        Direction::Bottom => w::column![
+            call_content,
+            divider(theme, Fill, structure.border_thickness)
+        ]
+        .boxed(),
     }
 }
 

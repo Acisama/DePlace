@@ -119,7 +119,7 @@ pub trait ProfileRenderExt {
         &self,
         size: f32,
         decoration: NameDecoration,
-        text_color: Color,
+        text_color: impl Into<Color>,
     ) -> Element<'a, T>;
 }
 
@@ -190,13 +190,13 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
         &self,
         size: f32,
         decoration: NameDecoration,
-        text_color: Color,
+        text_color: impl Into<Color>,
     ) -> Element<'a, T> {
         render_name_decorated(
             self.displayname(),
             size,
             decoration,
-            text_color,
+            text_color.into(),
             self.color().into(),
         )
     }

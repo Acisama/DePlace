@@ -119,8 +119,9 @@ impl<Message> canvas::Program<Message> for IcedPolyIcon {
         let stroke_width = edge / 8.0;
         let outer_radius = edge - stroke_width / 2.0;
 
+        let outer_rotation = UP - p * FRAC_PI_2;
         let outline_path =
-            regular_polygon_path(center, outer_radius, self.content.outline_shape, UP);
+            regular_polygon_path(center, outer_radius, self.content.outline_shape, outer_rotation);
         frame.fill(&outline_path, self.background);
         frame.stroke(
             &outline_path,
@@ -139,7 +140,7 @@ impl<Message> canvas::Program<Message> for IcedPolyIcon {
         let max_inner_radius = (outline_clearance - gap).max(0.0);
 
         let inner_radius = max_inner_radius * (0.9 + 0.1 * p);
-        let inner_rotation = UP + PI / self.content.inner_shape.max(1) as f32;
+        let inner_rotation = UP + PI / self.content.inner_shape.max(1) as f32 + p * FRAC_PI_2;
         frame.fill(
             &regular_polygon_path(
                 center,

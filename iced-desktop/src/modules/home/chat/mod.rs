@@ -3,6 +3,7 @@ use std::future;
 
 use call::render_call_members;
 use deplace_core::PaginationDirection;
+use deplace_core::settings::NameDecoration;
 use deplace_core::state::UserDevice;
 use header::{Header, HeaderAction, HeaderMessage};
 use iced::Length;
@@ -53,6 +54,7 @@ pub enum ChatMessage {
     /// Open the right-click menu of a call participant.
     ContextMenu(ContextMenu),
     HelpHover(Option<HelpKey>),
+    JoinCall,
 }
 
 impl HelpOverMessage for ChatMessage {
@@ -87,6 +89,8 @@ pub struct Chat {
     pub room: DePlaceRoom,
     own_device: Arc<UserDevice>,
 
+    name_decoration: Receiver<NameDecoration>,
+
     #[hash]
     header: Header,
     #[hash]
@@ -102,12 +106,8 @@ pub struct Chat {
 
 impl ExtraHash for Chat {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // `room` itself isn't `#[hash]`ed, so without this the call grid
-        // (rendered straight from `self.room.call().call_participants()` in
-        // `view`) only picks up a join/leave once some unrelated field
-        // happens to change too, since `Chat`'s view is cached behind
-        // `lazy_view` and keyed on this hash.
         self.room.hash_selective(state, false, false, false, true);
+        self.name_decoration.borrow().hash(state);
     }
 }
 
@@ -292,6 +292,8 @@ impl Chat {
                 sidebar: Sidebar::new(&room),
                 own_device: state.own_device(),
 
+                name_decoration: state.settings().watch_name_decoration(),
+
                 room_id: room.room_id().to_owned(),
                 room: room.clone(),
             },
@@ -353,6 +355,7 @@ impl Chat {
 impl IcedWidget<ChatMessage, ChatAction> for Chat {
     fn update(&mut self, msg: ChatMessage) -> Option<ChatAction> {
         match msg {
+            ChatMessage::JoinCall => Some(ChatAction::JoinCall),
             ChatMessage::None => None,
             ChatMessage::HelpHover(help) => Some(ChatAction::HelpHover(help)),
             ChatMessage::ToggleOverview => {
@@ -455,7 +458,8 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                         &self.own_device,
                         theme,
                         structure,
-                        Direction::Right
+                        Direction::Right,
+                        *self.name_decoration.borrow()
                     ))
                     .width(Length::FillPortion(3))
                     .height(Fill),
@@ -474,7 +478,8 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                         &self.own_device,
                         theme,
                         structure,
-                        Direction::Bottom
+                        Direction::Bottom,
+                        *self.name_decoration.borrow()
                     ))
                     .height(Length::FillPortion(1))
                     .width(Fill),

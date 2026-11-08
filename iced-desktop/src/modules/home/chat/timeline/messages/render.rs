@@ -11,7 +11,6 @@ use deplace_core::{
 use iced::{
     Alignment, Background,
     Length::{self, Shrink},
-    Radians,
     gradient::Linear,
     never,
     widget::{
@@ -78,11 +77,8 @@ pub fn render_event(
         .padding(structure.border_thickness)
         .boxed();
 
-    let content_element: Element<'static, TimelineItemMessage> = if is_hovered {
-        track_bounds(inner_container, TimelineItemMessage::MessageEventBounds).into()
-    } else {
-        inner_container
-    };
+    let content_element: Element<'static, TimelineItemMessage> =
+        track_bounds(inner_container, TimelineItemMessage::MessageEventBounds).into();
 
     w::container(
         sweeten::widget::mouse_area(content_element)
@@ -1476,15 +1472,7 @@ pub fn render_timeline_start(
     w::stack![
         w::container(EMPTY_WIDGET)
             .height(icon_size * 7.0)
-            .width(Fill)
-            .style(move |_| ContainerStyle {
-                background: Some(Background::Gradient(iced::Gradient::Linear(
-                    Linear::new(Radians::PI)
-                        .add_stop(0.0, theme.solid_bg.into())
-                        .add_stop(0.9, Color::TRANSPARENT)
-                ))),
-                ..Default::default()
-            }),
+            .width(Fill),
         w::column![
             Space::new().height(Fill),
             w::column![

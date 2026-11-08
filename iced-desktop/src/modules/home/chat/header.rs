@@ -172,7 +172,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         self.room.render_name_decorated(
                             structure.font_size,
                             *self.name_decoration.borrow(),
-                            theme.text.dim.into()
+                            theme.text.dim
                         ),
                     ),
                 ].align_y(Alignment::Center)
