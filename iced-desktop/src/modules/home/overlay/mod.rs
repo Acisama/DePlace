@@ -325,6 +325,10 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                             self.overlay_state = Some(OverlayState::ModifyItem(modify));
                             None
                         }
+                        ContextMenuAction::Run(task) => {
+                            self.overlay_state = None;
+                            Some(OverlayAction::Run(task))
+                        }
                     }
                 } else {
                     None

@@ -1267,6 +1267,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             let menu_can_reply = can_reply.clone();
             let menu_can_pin = can_pin.clone();
 
+            let menu_copyable_text = copyable_text.clone();
+            let menu_source = source.clone();
+
             let context_menu_catcher: Element<'static, ContextMenu> = w::float(
                 sweeten::widget::mouse_area(
                     Space::new()
@@ -1283,20 +1286,20 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         bounds.x + position.x,
                         bounds.y - scrolled_from_top + position.y,
                     ),
-                    kind: ContextMenuKind::Message {
-                        timeline: menu_timeline.clone(),
-                        event: menu_event.clone(),
-                        room_id: menu_room_id.clone(),
-                        identifier: menu_identifier.clone(),
-                        item_id: menu_item_id.clone(),
-
+                    kind: ContextMenuKind::message(
+                        menu_timeline.clone(),
+                        menu_event.clone(),
+                        menu_room_id.clone(),
+                        menu_identifier.clone(),
+                        menu_item_id.clone(),
                         is_pinned,
-
-                        can_edit: menu_can_edit.clone(),
-                        can_reply: menu_can_reply.clone(),
-                        can_pin: menu_can_pin.clone(),
+                        menu_can_edit.clone(),
+                        menu_can_reply.clone(),
+                        menu_can_pin.clone(),
                         can_redact,
-                    },
+                        menu_copyable_text.clone(),
+                        menu_source.clone(),
+                    ),
                 }),
             )
             .translate(move |own_bounds, _| {

@@ -29,7 +29,9 @@ use crate::{
 use super::{
     ColoredRounded, CopyUserIdExt, IcedColorExt, PushElement, StatusExt,
     corner_badge::{notch_circle, positioned},
-    link, phosphor_icon, weighted_text,
+    link, phosphor_icon,
+    polyicon::polyicon,
+    weighted_text,
 };
 
 pub fn text_icon<'a, T: 'a>(
@@ -161,7 +163,10 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
     fn render_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
         let rounding = size * self.icon_border_radius_ratio();
 
-        let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
+        let fallback = move || {
+            let color = self.color();
+            polyicon(self.icon(), size, color, color.set_lightness(0.2))
+        };
 
         render_avatar(size, rounding, fallback, self.avatar_handle())
     }
@@ -169,7 +174,10 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
     fn render_small_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
         let rounding = size * self.icon_border_radius_ratio();
 
-        let fallback = move || text_icon(self.initial(), size, rounding, self.color().to_iced());
+        let fallback = move || {
+            let color = self.color();
+            polyicon(self.icon(), size, color, color.set_lightness(0.2))
+        };
 
         render_avatar(size, rounding, fallback, self.small_avatar_handle())
     }

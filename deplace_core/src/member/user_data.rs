@@ -12,6 +12,7 @@ use crate::{
     matrix_api::profile_data::{
         BannerColorField, DePlaceProfileField, NameColorField, SonicSignatureField,
     },
+    polyicon::PolyIcon,
     state::AppState,
 };
 
@@ -19,6 +20,7 @@ use super::synth::SonicSignature;
 
 #[derive(Clone, Debug, Hash)]
 pub struct CustomData {
+    pub(crate) polyicon: PolyIcon,
     pub(crate) sonic_signature: SonicSignature,
     pub(crate) name_color: DePlaceColor,
     pub(crate) banner_color: DePlaceColor,
@@ -94,10 +96,13 @@ impl UserData {
 
 impl CustomData {
     pub fn new(user_id: &UserId) -> Self {
+        let str = user_id.as_str();
+
         Self {
-            sonic_signature: SonicSignature::from_string(user_id.as_str()),
-            name_color: DePlaceColor::from(user_id.as_str()),
-            banner_color: DePlaceColor::from(user_id.as_str()),
+            polyicon: PolyIcon::from(str),
+            sonic_signature: SonicSignature::from_string(str),
+            name_color: DePlaceColor::from(str),
+            banner_color: DePlaceColor::from(str),
         }
     }
 
@@ -116,6 +121,7 @@ impl CustomData {
             sonic_signature,
             name_color,
             banner_color,
+            polyicon: PolyIcon::from(user_id.as_str()),
         }
     }
 }

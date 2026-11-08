@@ -1,4 +1,4 @@
-use crate::{Shared, colors::DePlaceColor};
+use crate::{Shared, colors::DePlaceColor, polyicon::PolyIcon};
 use chrono::Duration;
 use profile::ProfileData;
 use rodio::buffer::SamplesBuffer;
@@ -149,5 +149,9 @@ impl Member {
             .custom_data
             .sonic_signature
             .render_samples(event)
+    }
+
+    pub fn polyicon(&self) -> PolyIcon {
+        self.user_data.read().custom_data.polyicon
     }
 }

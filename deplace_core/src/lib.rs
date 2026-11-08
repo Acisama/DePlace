@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use colors::DePlaceColor;
+use polyicon::PolyIcon;
 use room::call::CallMember;
 use ruma::{OwnedRoomId, OwnedUserId, uint};
 
@@ -31,6 +32,7 @@ pub mod keybinds;
 pub mod matrix_api;
 pub mod member;
 pub mod notifications;
+pub mod polyicon;
 pub mod rich_text;
 pub mod room;
 pub mod search;
@@ -168,6 +170,7 @@ pub trait ProfileLike {
     #[cfg(feature = "iced")]
     fn small_avatar_handle(&self) -> Avatar;
     fn initial(&self) -> String;
+    fn icon(&self) -> PolyIcon;
     fn color(&self) -> DePlaceColor;
 }
 
@@ -204,6 +207,10 @@ impl ProfileLike for Member {
         self.get_initial().to_string()
     }
 
+    fn icon(&self) -> PolyIcon {
+        self.polyicon()
+    }
+
     fn displayname(&self) -> String {
         self.get_displayname()
     }
@@ -230,6 +237,10 @@ impl ProfileLike for DePlaceRoom {
 
     fn initial(&self) -> String {
         self.info.read().initial.to_string()
+    }
+
+    fn icon(&self) -> PolyIcon {
+        self.polyicon
     }
 
     fn displayname(&self) -> String {
@@ -282,6 +293,13 @@ impl ProfileLike for ActiveServer {
         }
     }
 
+    fn icon(&self) -> PolyIcon {
+        match self {
+            ActiveServer::Dms => PolyIcon::from("dms"),
+            ActiveServer::Server(room) => room.icon(),
+        }
+    }
+
     fn color(&self) -> DePlaceColor {
         match self {
             ActiveServer::Dms => DePlaceColor::from_hsla(0.0, 0.0, 0.0, 1.0),
@@ -315,6 +333,10 @@ impl ProfileLike for CallMember {
 
     fn initial(&self) -> String {
         self.member.initial().to_string()
+    }
+
+    fn icon(&self) -> PolyIcon {
+        self.member.icon()
     }
 }
 

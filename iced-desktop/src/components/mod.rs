@@ -33,6 +33,7 @@ pub mod link;
 pub mod on_appear;
 pub mod pan;
 pub mod pie_progress;
+pub mod polyicon;
 pub mod profile;
 pub mod right_click;
 pub mod shader;

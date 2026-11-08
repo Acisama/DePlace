@@ -13,6 +13,7 @@ use crate::{
     Shared,
     call::{CallConnectionState, CallParticipantHandle, RoomCall},
     member::{Member, ProfileStore, room::RoomMembers},
+    polyicon::PolyIcon,
     state::UserDevice,
 };
 
@@ -70,6 +71,7 @@ impl DePlaceRoomType {
 pub struct DePlaceRoom {
     pub room: Room,
     pub(crate) room_id: Arc<OwnedRoomId>,
+    pub(crate) polyicon: PolyIcon,
     room_type: DePlaceRoomType,
     pub(crate) info: Arc<Shared<RoomInfo>>,
     pub(crate) live: Arc<Shared<RoomLive>>,
@@ -91,6 +93,7 @@ impl DePlaceRoom {
         let members = profile_store.get_members(room_id);
 
         Self {
+            polyicon: PolyIcon::from(room_id.as_str()),
             room_id: Arc::new(room_id.to_owned()),
             room: room.clone(),
             room_type: DePlaceRoomType::new(room),
