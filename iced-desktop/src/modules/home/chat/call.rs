@@ -27,6 +27,8 @@ pub fn render_call_members(
     let gap = structure.icon_gap_ratio * icon_size / 4.0;
     let own_device = own_device.clone();
 
+    let own_in_call = room.call().own_user_device_is_in_call();
+
     let grid = call_grid(
         members,
         |member| (*member.device_id).clone(),
@@ -40,6 +42,7 @@ pub fn render_call_members(
                 rounding,
                 gap,
                 &own_device,
+                own_in_call,
             )
         },
     )
@@ -104,6 +107,7 @@ fn render_call_member(
     rounding: f32,
     gap: f32,
     own_device: &UserDevice,
+    own_in_call: bool,
 ) -> w::Element<'static, ChatMessage> {
     let color = member.color().to_iced();
     let is_speaking = member.is_speaking();
@@ -116,7 +120,7 @@ fn render_call_member(
         .spacing(structure.small_gap / 2.0)
         .align_y(Alignment::Center);
 
-    if is_muted {
+    if own_in_call && is_muted {
         name_row = name_row.push_element(
             phosphor_icon(MUTE_ICON, structure.font_size * 0.9).color(theme.colors.error),
         );
@@ -128,7 +132,7 @@ fn render_call_member(
             .color(theme.text.normal),
     );
 
-    if playback_muted {
+    if own_in_call && playback_muted {
         name_row = name_row.push_element(
             w::text(" (muted by you)")
                 .size(structure.font_size)
@@ -138,10 +142,14 @@ fn render_call_member(
 
     let has_border = playback_muted || is_speaking;
 
-    let border_color = if playback_muted {
-        theme.colors.error.into()
-    } else if is_speaking {
-        theme.colors.success.into()
+    let border_color = if own_in_call {
+        if playback_muted {
+            theme.colors.error.into()
+        } else if is_speaking {
+            theme.colors.success.into()
+        } else {
+            Color::TRANSPARENT
+        }
     } else {
         Color::TRANSPARENT
     };
@@ -200,7 +208,7 @@ fn render_call_member(
             .padding(gap * 4.0)
             .height(Fill)
             .align_y(Alignment::End),
-            w::container(volume_bar(
+            own_in_call.then(|| w::container(volume_bar(
                 if member.is_muted() {
                     Arc::new(VolumeCell::default())
                 } else {
@@ -221,12 +229,12 @@ fn render_call_member(
                 structure.semi_small_border_radius(),
                 theme.border,
                 structure.border_thickness,
-            ),)
+            ))
             .padding(gap * 4.0)
             .height(Fill)
             .width(Fill)
             .align_y(Alignment::End)
-            .align_x(Alignment::End)
+            .align_x(Alignment::End))
         ],
         move |position| {
             ChatMessage::ContextMenu(ContextMenu {
