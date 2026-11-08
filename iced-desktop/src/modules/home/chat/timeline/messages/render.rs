@@ -19,6 +19,7 @@ use iced::{
     widget::{
         span,
         text::{LineHeight, Rich},
+        text_editor,
     },
 };
 use iced_video_player::VideoPlayer;
@@ -27,11 +28,7 @@ use matrix_sdk::{
     media::UniqueKey,
     ruma::{
         events::{
-            room::{
-                MediaSource,
-                guest_access::GuestAccess,
-                history_visibility::HistoryVisibility,
-            },
+            room::{MediaSource, guest_access::GuestAccess, history_visibility::HistoryVisibility},
             rtc::notification::CallIntent,
         },
         room::JoinRule,
@@ -155,7 +152,7 @@ impl MessageEvent {
             ));
         }
 
-        let highlight_color = if self.is_replying_to && !as_dummy {
+        let highlight_color = if self.is_replying_to || self.is_editing && !as_dummy {
             Some(theme.text.normal)
         } else if self.is_highlighted {
             Some(theme.accent)
@@ -254,7 +251,7 @@ impl MessageEvent {
                         w::text("Loading...").color(theme.colors.offline).boxed(),
                     ),
                     TimelineDetails::Ready(p) => {
-                        let icon = p.sender.render_icon(small_icon_size);
+                        let icon = p.sender.render_small_icon(small_icon_size);
                         let name = p.sender.render_name(small_text_size);
                         let color = p.sender.name_color();
 
@@ -690,7 +687,20 @@ impl MessageContent {
             MessageContent::Sticker => {
                 render_warning_text("Sticker messages are not yet implemented")
             }
-            MessageContent::Text { formatted_body, .. } => (render_body(formatted_body), None),
+            MessageContent::Text { formatted_body, .. } => {
+                let is_editing = event_id
+                    .as_ref()
+                    .is_some_and(|id| editing_event_id(room_id).as_ref() == Some(id));
+
+                if is_editing {
+                    match render_edit_box(structure, theme, room_id) {
+                        Some(edit_box) => (Some(edit_box), None),
+                        None => (render_body(formatted_body), None),
+                    }
+                } else {
+                    (render_body(formatted_body), None)
+                }
+            }
             MessageContent::UnableToDecrypt => itallic_text(
                 "Unable to decrypt message".to_string(),
                 theme.colors.warning.into(),
@@ -736,10 +746,7 @@ impl MessageContent {
 
                 // The video is only downloaded when clicked; once it's in the
                 // cache the click opens the media overlay instead.
-                let video_downloaded = video
-                    .video_cache
-                    .get(&video.source.unique_key())
-                    .is_some();
+                let video_downloaded = video.video_cache.get(&video.source.unique_key()).is_some();
 
                 let open_media = if !video_downloaded {
                     TimelineItemMessage::NeedsMedia(NeedsMedia::video(video.source.clone()))
@@ -769,6 +776,69 @@ impl MessageContent {
             }
         }
     }
+}
+
+fn render_edit_box(
+    structure: Structure,
+    theme: Theme,
+    room_id: &OwnedRoomId,
+) -> Option<Element<'static, TimelineItemMessage>> {
+    // Safe the same way `ChatInput`'s own content pointer is: the only other place this
+    // gets dereferenced mutably is `TimelineItem::update`, which never runs concurrently
+    // with this view construction.
+    let content: &'static text_editor::Content = unsafe { &*editing_content_ptr(room_id)? };
+
+    Some(
+        w::text_editor(content)
+        .id(EDIT_INPUT_ID)
+        .on_action(TimelineItemMessage::EditAction)
+        .key_binding(|key| {
+            if !key.is_focused {
+                return None;
+            }
+
+            if !key.modifiers.shift()
+                && matches!(
+                    key.key,
+                    iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
+                )
+            {
+                return Some(text_editor::Binding::Custom(
+                    TimelineItemMessage::SubmitEdit,
+                ));
+            }
+
+            if matches!(
+                key.key,
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
+            ) {
+                return Some(text_editor::Binding::Custom(
+                    TimelineItemMessage::SetIsEditing(false),
+                ));
+            }
+
+            text_editor::Binding::from_key_press(key)
+        })
+        .size(structure.chat.text_size)
+        .padding(structure.small_gap)
+        .wrapping(text::Wrapping::WordOrGlyph)
+        .style(move |_, status| text_editor::Style {
+            background: theme.solid_bg.into(),
+            border: Border {
+                color: if status.active() {
+                    theme.accent.into()
+                } else {
+                    theme.border.into()
+                },
+                width: 1.0,
+                radius: structure.inner_border_radius.into(),
+            },
+            placeholder: theme.text.muted.into(),
+            selection: theme.accent.into(),
+            value: theme.text.normal.into(),
+        })
+        .boxed(),
+    )
 }
 
 impl ImageMessage {

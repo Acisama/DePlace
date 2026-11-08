@@ -35,7 +35,7 @@ pub use timeline::{
 
 use super::overlay::{ContextMenu, MediaOverlayParams, ModifyItem};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum ChatMessage {
     None,
     Header(HeaderMessage),
@@ -56,6 +56,29 @@ pub enum ChatMessage {
     HelpHover(Option<HelpKey>),
     JoinCall,
     LeaveCall,
+}
+
+impl std::fmt::Debug for ChatMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChatMessage::None => f.debug_struct("None").finish(),
+            ChatMessage::Header(msg) => f.debug_struct("Header").field("msg", msg).finish(),
+            ChatMessage::Timeline(msg) => f.debug_struct("Timeline").field("msg", msg).finish(),
+            ChatMessage::Input(msg) => f.debug_struct("Input").field("msg", msg).finish(),
+            ChatMessage::Sidebar(msg) => f.debug_struct("Sidebar").field("msg", msg).finish(),
+            ChatMessage::ToggleOverview => f.debug_struct("ToggleOverview").finish(),
+            ChatMessage::KeyboardEvent(msg) => {
+                f.debug_struct("KeyboardEvent").field("msg", msg).finish()
+            }
+            ChatMessage::TimelinesLoaded { .. } => f.debug_struct("TimelinesLoaded").finish(),
+            ChatMessage::ContextMenu(msg) => {
+                f.debug_struct("ContextMenu").field("msg", msg).finish()
+            }
+            ChatMessage::HelpHover(msg) => f.debug_struct("HelpHover").field("msg", msg).finish(),
+            ChatMessage::JoinCall => f.debug_struct("JoinCall").finish(),
+            ChatMessage::LeaveCall => f.debug_struct("LeaveCall").finish(),
+        }
+    }
 }
 
 impl HelpOverMessage for ChatMessage {

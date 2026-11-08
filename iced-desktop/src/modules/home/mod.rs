@@ -196,7 +196,10 @@ impl Home {
             std::time::Duration::from_millis(100);
 
         let media_progress_tick_task = Task::stream(iced::futures::stream::unfold(
-            (state.media_processor().progress_tick(), std::time::Instant::now()),
+            (
+                state.media_processor().progress_tick(),
+                std::time::Instant::now(),
+            ),
             |(mut rx, last_emit)| async move {
                 rx.changed().await.ok()?;
 
@@ -206,7 +209,10 @@ impl Home {
                     tokio::time::sleep_until(earliest.into()).await;
                 }
 
-                Some((HomeMessage::MediaProgressTick, (rx, std::time::Instant::now())))
+                Some((
+                    HomeMessage::MediaProgressTick,
+                    (rx, std::time::Instant::now()),
+                ))
             },
         ));
 
@@ -291,8 +297,9 @@ impl Home {
         // and manually drop the `text_input::Content` behind the raw pointer
         // to avoid memory leaks
         // TODO: Also implement this for the whole chat
-        if let Some((_, chat)) = self.chats.push(id.clone(), chat) {
+        if let Some((old_room_id, chat)) = self.chats.push(id.clone(), chat) {
             unsafe { std::mem::drop(Box::from_raw(chat.get_input_pointer())) };
+            remove_editing_content(&old_room_id);
         };
         self.chats.promote(&id);
 
@@ -308,6 +315,10 @@ impl Home {
             return Task::none();
         };
 
+        // If this room has a message mid-edit, `RestoreScrollPosition`'s handler
+        // focuses that edit box instead, once the scroll position (and thus the
+        // edit box's row existing in the virtualized list at all) is restored --
+        // which happens strictly after this, overriding the focus set here.
         let id = id.clone();
         chat.focus_input::<()>()
             .map(move |_| (id.clone(), ChatMessage::None))
@@ -489,6 +500,13 @@ impl Home {
                 ChatMessage::Timeline(TimelineMessage::Item {
                     id: item_id,
                     message: TimelineItemMessage::SetIsReplyingTo(event_id),
+                }),
+            ),
+            OverlayAction::SetIsEditing { item_id, room_id } => self.dispatch_to_chat(
+                room_id,
+                ChatMessage::Timeline(TimelineMessage::Item {
+                    id: item_id,
+                    message: TimelineItemMessage::SetIsEditing(true),
                 }),
             ),
         }

@@ -327,6 +327,7 @@ impl TimelineItemKind {
                                 sender,
 
                                 is_replying_to: false,
+                                is_editing: false,
 
                                 reactions: convert_reactions(
                                     &m.reactions,

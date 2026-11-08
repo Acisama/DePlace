@@ -222,6 +222,8 @@ pub(crate) struct AppStateInner {
     pub(crate) own_avatar_url: Sender<Option<Arc<OwnedMxcUri>>>,
     #[cfg(feature = "iced")]
     pub(crate) own_avatar_handle: Sender<Avatar>,
+    #[cfg(feature = "iced")]
+    pub(crate) own_small_avatar_handle: Sender<Avatar>,
 
     keybinds: Sender<Keybinds>,
 
@@ -395,6 +397,8 @@ impl AppState {
                 own_avatar_url,
                 #[cfg(feature = "iced")]
                 own_avatar_handle: Sender::default(),
+                #[cfg(feature = "iced")]
+                own_small_avatar_handle: Sender::default(),
 
                 notification_manager: NotificationManager::default(),
 
@@ -481,6 +485,11 @@ impl AppState {
     #[cfg(feature = "iced")]
     pub fn own_avatar(&self) -> Receiver<Avatar> {
         self.inner.own_avatar_handle.subscribe()
+    }
+
+    #[cfg(feature = "iced")]
+    pub fn own_small_avatar(&self) -> Receiver<Avatar> {
+        self.inner.own_small_avatar_handle.subscribe()
     }
 
     pub fn keybinds(&self) -> Receiver<Keybinds> {

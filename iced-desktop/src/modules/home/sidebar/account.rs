@@ -43,7 +43,7 @@ impl AccountView {
             profile_store: state.profile_store(),
 
             own_display_name: state.own_display_name(),
-            own_avatar: state.own_avatar(),
+            own_avatar: state.own_small_avatar(),
             own_device: state.own_device(),
         }
     }

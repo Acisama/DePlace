@@ -353,7 +353,7 @@ pub fn window_title(room: Option<DePlaceRoom>, server: ActiveServer) -> String {
 }
 
 pub fn big_thumbnail_settings() -> MediaThumbnailSettings {
-    MediaThumbnailSettings::new(uint!(200), uint!(200))
+    MediaThumbnailSettings::new(uint!(100), uint!(100))
 }
 
 pub fn small_thumbnail_settings() -> MediaThumbnailSettings {

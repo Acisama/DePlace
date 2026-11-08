@@ -8,7 +8,7 @@ use macros::iced_cache;
 
 use crate::{
     common::*,
-    components::{help_mode::HeaderHelpKey, phosphor_icon},
+    components::{fps::fps_counter, help_mode::HeaderHelpKey, phosphor_icon},
     modules::home::{CONNECT, DISCONNECT},
 };
 
@@ -148,34 +148,35 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                 structure,
                 w::row![
                     w::row![
-                    w::container(help_view.call(
-                        HelpKey::Header(HeaderHelpKey::HeaderIcon),
-                        "The icon of the active room, shows other user's icon in dms",
-                        self.room.render_simple_icon(
-                            if self.room.is_dm() {
-                                button_size
-                            } else {
-                                icon_size
-                            },
-                            theme,
-                            structure,
-                            theme.solid_bg.into(),
+                        w::container(help_view.call(
+                            HelpKey::Header(HeaderHelpKey::HeaderIcon),
+                            "The icon of the active room, shows other user's icon in dms",
+                            self.room.render_simple_icon(
+                                if self.room.is_dm() {
+                                    button_size
+                                } else {
+                                    icon_size
+                                },
+                                theme,
+                                structure,
+                                theme.solid_bg.into(),
+                            )
+                        ).radius(if self.room.is_dm() { button_size * 0.5 } else {icon_size * 0.25 }))
+                        .style(move |_| ContainerStyle {
+                            text_color: Some(theme.text.normal.into()),
+                            ..Default::default()
+                        }),
+                        help_view.call(
+                            HelpKey::Header(HeaderHelpKey::HeaderName),
+                            "The name of the active room, shows the other user's display name in dms",
+                            self.room.render_name_decorated(
+                                structure.font_size,
+                                *self.name_decoration.borrow(),
+                                theme.text.dim
+                            ),
                         )
-                    ).radius(if self.room.is_dm() { button_size * 0.5 } else {icon_size * 0.25 }))
-                    .style(move |_| ContainerStyle {
-                        text_color: Some(theme.text.normal.into()),
-                        ..Default::default()
-                    }),
-                    help_view.call(
-                        HelpKey::Header(HeaderHelpKey::HeaderName),
-                        "The name of the active room, shows the other user's display name in dms",
-                        self.room.render_name_decorated(
-                            structure.font_size,
-                            *self.name_decoration.borrow(),
-                            theme.text.dim
-                        ),
-                    ),
-                ].align_y(Alignment::Center)
+                    ]
+                    .align_y(Alignment::Center)
                     .padding(if self.room.is_dm() {
                         0.0
                     } else {
@@ -183,6 +184,8 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     })
                     .align_y(Alignment::Center)
                     .spacing(structure.small_gap),
+                    Space::new().width(Fill),
+                    fps_counter(theme.colors.success, Fill, structure.font_size),
                     Space::new().width(Fill),
                     download.map(|progress| {
                         let color = theme.accent.into();

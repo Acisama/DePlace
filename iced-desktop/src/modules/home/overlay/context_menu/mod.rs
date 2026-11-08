@@ -25,6 +25,10 @@ pub enum ContextMenuAction {
     },
     OpenModifyItem(ModifyItem),
     Run(Task<()>),
+    SetIsEditing {
+        item_id: String,
+        room_id: OwnedRoomId,
+    },
 }
 
 #[iced_cache(Clone, Debug, PartialEq)]
@@ -111,8 +115,10 @@ impl IcedWidget<ContextMenuMessage, ContextMenuAction> for ContextMenu {
                         event.clone(),
                         is_pinned,
                     ))),
-                    // TODO
-                    MessageMessage::Edit(_) => None,
+                    MessageMessage::Edit(_event_id) => Some(ContextMenuAction::SetIsEditing {
+                        item_id: item_id.clone(),
+                        room_id: room_id.clone(),
+                    }),
                     MessageMessage::CopyText(text) => Some(ContextMenuAction::Run(
                         iced::clipboard::write((*text).clone()).map(|_| ()),
                     )),

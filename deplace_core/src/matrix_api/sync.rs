@@ -166,22 +166,50 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
     }
 
     #[cfg(feature = "iced")]
-    match account.get_avatar(big_thumbnail_format()).await {
-        Ok(Some(bytes)) if let Some(url) = state.inner.own_avatar_url.borrow().clone() => {
-            state.inner.own_avatar_handle.send_replace(Avatar::Ok {
-                image: ImageHandle::from_bytes(bytes),
-                avatar_url: url,
-            });
+    {
+        use crate::small_thumbnail_format;
+
+        match account.get_avatar(big_thumbnail_format()).await {
+            Ok(Some(bytes)) if let Some(url) = state.inner.own_avatar_url.borrow().clone() => {
+                state.inner.own_avatar_handle.send_replace(Avatar::Ok {
+                    image: ImageHandle::from_bytes(bytes),
+                    avatar_url: url,
+                });
+            }
+            Ok(None | _) => {
+                state.inner.own_avatar_handle.send_replace(Avatar::NoAvatar);
+            }
+            Err(e) => {
+                tracing::error!("Failed to get own avatar: {}", e);
+                state
+                    .inner
+                    .own_avatar_handle
+                    .send_replace(Avatar::Error(Arc::new(e.to_string())));
+            }
         }
-        Ok(None | _) => {
-            state.inner.own_avatar_handle.send_replace(Avatar::NoAvatar);
-        }
-        Err(e) => {
-            tracing::error!("Failed to get own avatar: {}", e);
-            state
-                .inner
-                .own_avatar_handle
-                .send_replace(Avatar::Error(Arc::new(e.to_string())));
+        match account.get_avatar(small_thumbnail_format()).await {
+            Ok(Some(bytes)) if let Some(url) = state.inner.own_avatar_url.borrow().clone() => {
+                state
+                    .inner
+                    .own_small_avatar_handle
+                    .send_replace(Avatar::Ok {
+                        image: ImageHandle::from_bytes(bytes),
+                        avatar_url: url,
+                    });
+            }
+            Ok(None | _) => {
+                state
+                    .inner
+                    .own_small_avatar_handle
+                    .send_replace(Avatar::NoAvatar);
+            }
+            Err(e) => {
+                tracing::error!("Failed to get own avatar: {}", e);
+                state
+                    .inner
+                    .own_small_avatar_handle
+                    .send_replace(Avatar::Error(Arc::new(e.to_string())));
+            }
         }
     }
 

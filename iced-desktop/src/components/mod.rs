@@ -28,6 +28,7 @@ pub mod corner_badge;
 pub mod elapsed_time;
 pub mod equal_width;
 pub mod fills_parent;
+pub mod fps;
 pub mod help_mode;
 pub mod link;
 pub mod on_appear;

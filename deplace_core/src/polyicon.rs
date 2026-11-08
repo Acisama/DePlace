@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 
 const OUTLINE_NUMS: [u8; 5] = [0, 4, 5, 6, 8];
 const INNER_NUMS: [u8; 5] = [0, 4, 5, 6, 8];
-const DOT_COUNTS: [u8; 3] = [0, 1, 2];
+const DOT_COUNTS: [u8; 3] = [1, 2, 3];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PolyIcon {

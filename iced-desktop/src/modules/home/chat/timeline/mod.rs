@@ -4,12 +4,14 @@ use std::rc::Rc;
 use chrono_tz::Tz;
 use deplace_core::PaginationDirection;
 use deplace_core::matrix_api::attachments::download_file_to_picked;
+use deplace_core::matrix_api::messages::RoomSendingExt;
 use deplace_core::settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType};
 use enumset::EnumSet;
 use iced::Vector;
 use iced::advanced::widget::operate;
 use iced::advanced::widget::operation::scrollable::{RelativeOffset, snap_to};
 use iced::keyboard::Key::Character;
+use iced::widget::operation;
 use iced::widget::operation::scrollable::scroll_to_reveal;
 use macros::iced_cache;
 use matrix_sdk::{
@@ -72,7 +74,7 @@ pub enum TimelineMessage {
     RestoreScrollPosition,
     KeyboardEvent(iced::keyboard::Event),
     ScrollTo(Option<Rectangle>),
-    FillsParent,
+    FillsParentNot,
     HelpHover(Option<HelpKey>),
 }
 
@@ -98,7 +100,7 @@ impl std::fmt::Debug for TimelineMessage {
             Self::RestoreScrollPosition => "RestoreScrollPosition",
             Self::KeyboardEvent(..) => "KeyboardEvent",
             Self::ScrollTo(..) => "ScrollTo",
-            Self::FillsParent => "FillsParent",
+            Self::FillsParentNot => "FillsParent",
             Self::HelpHover(..) => "HelpHover",
         };
         write!(f, "{name}")
@@ -187,6 +189,11 @@ pub struct ChatTimeline {
 
     #[hash]
     focused_message_id: Option<String>,
+
+    /// Row id of whichever message is currently showing the inline edit box, so
+    /// that switching to a different message's edit box can poke just that one
+    /// row back to plain text instead of touching every row in the timeline.
+    editing_row_id: Option<String>,
 }
 
 impl ExtraHash for ChatTimeline {
@@ -295,6 +302,7 @@ impl ChatTimeline {
             content: list::Content::default(),
             messages_version: 0,
             focused_message_id: None,
+            editing_row_id: None,
         };
         timeline.recalculate_with_power_levels();
         timeline
@@ -779,6 +787,34 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             }
                         })))
                     }
+                    TimelineItemAction::SubmitEdit { event_id, text } => {
+                        Arc::make_mut(item).remove_editing();
+                        self.editing_row_id = None;
+                        Some(TimelineAction::Run(Task::future(async move {
+                            if let Err(e) = timeline.edit_message(event_id, text).await {
+                                tracing::warn!("Failed to edit message: {}", e);
+                            }
+                        })))
+                    }
+                    TimelineItemAction::FocusEditBox => {
+                        tracing::trace!("Starting edit");
+                        // `id`'s own row is already poked for free by the `get_mut`
+                        // above, but the *previous* edit box (if any) needs its own
+                        // targeted poke to revert back to plain text, since it isn't
+                        // the target of this message.
+                        if let Some(old_id) = self.editing_row_id.replace(id.clone())
+                            && old_id != id
+                            && let Some(item) = self.content.get_mut(&old_id)
+                        {
+                            Arc::make_mut(item).remove_editing();
+                        }
+                        Some(TimelineAction::Run(operation::focus::<()>(EDIT_INPUT_ID)))
+                    }
+                    TimelineItemAction::CancelEdit => {
+                        Arc::make_mut(item).remove_editing();
+                        self.editing_row_id = None;
+                        None
+                    }
                 };
 
                 if self.hovered_item_id.as_ref() == Some(&id)
@@ -1109,7 +1145,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     w::operation::Animation::Smooth,
                 )))
             }
-            TimelineMessage::FillsParent => {
+            TimelineMessage::FillsParentNot => {
                 if self.reached_top {
                     None
                 } else {
@@ -1145,7 +1181,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         list(self.content.clone(), move |index, id, item| {
                             let is_focused = focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
                             let room = room.clone();
-                            lazy((item.clone(), is_focused), move |(item, is_focused)| {
+                            lazy_editing((item.clone(), is_focused), move |(item, is_focused)| {
                                 let id = id.clone();
                                 item.view(theme, structure, *is_focused, help_state, index, &room)
                                     .map_el(move |msg| TimelineMessage::Item {
@@ -1155,7 +1191,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             })
                         })
                         .id(LIST_ID),
-                        || TimelineMessage::FillsParent,
+                        || TimelineMessage::FillsParentNot,
                     ))
                     // .padding(padding::bottom(structure.gap * 3.0))
                     .width(Fill)

@@ -168,6 +168,10 @@ pub enum OverlayAction {
         room_id: OwnedRoomId,
         event_id: OwnedEventId,
     },
+    SetIsEditing {
+        item_id: String,
+        room_id: OwnedRoomId,
+    },
     HelpHover(Option<HelpKey>),
 }
 
@@ -328,6 +332,10 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                         ContextMenuAction::Run(task) => {
                             self.overlay_state = None;
                             Some(OverlayAction::Run(task))
+                        }
+                        ContextMenuAction::SetIsEditing { item_id, room_id } => {
+                            self.overlay_state = None;
+                            Some(OverlayAction::SetIsEditing { item_id, room_id })
                         }
                     }
                 } else {

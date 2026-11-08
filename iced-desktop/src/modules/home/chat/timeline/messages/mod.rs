@@ -62,6 +62,8 @@ pub enum TimelineItemMessage {
     ToggleVideoPause(Arc<iced_video_player::Video>),
     SetIsReplyingTo(OwnedEventId),
     SetIsEditing(bool),
+    EditAction(iced::widget::text_editor::Action),
+    SubmitEdit,
     MessageEventBounds(Rectangle),
     OpenProfileOverlay {
         member: Member,
@@ -131,6 +133,12 @@ pub enum TimelineItemAction {
     },
     CopyText(String),
     JoinCall,
+    SubmitEdit {
+        event_id: OwnedEventId,
+        text: String,
+    },
+    FocusEditBox,
+    CancelEdit,
 }
 
 /// An item in the timeline
@@ -241,6 +249,12 @@ impl TimelineItem {
     pub fn remove_replying(&mut self) {
         if let TimelineItemKind::Message { message, .. } = &mut self.kind {
             Arc::make_mut(message).is_replying_to = false;
+        }
+    }
+
+    pub fn remove_editing(&mut self) {
+        if let TimelineItemKind::Message { message, .. } = &mut self.kind {
+            Arc::make_mut(message).is_editing = false;
         }
     }
 
@@ -433,7 +447,39 @@ impl TimelineItem {
             TimelineItemMessage::MessageEventBounds(bounds) => {
                 Some(TimelineItemAction::MessageEventBounds(bounds))
             }
-            TimelineItemMessage::SetIsEditing(_) => None,
+            TimelineItemMessage::SetIsEditing(true) => {
+                if let TimelineItemKind::Message { message, .. } = &mut self.kind {
+                    Arc::make_mut(message).is_editing = true;
+                    let event_id = message.event_id.clone()?;
+                    let text = message
+                        .copyable_text
+                        .clone()
+                        .map(|text| text.to_string())
+                        .unwrap_or_default();
+                    start_editing(self.room_id.clone(), event_id, &text);
+                    Some(TimelineItemAction::FocusEditBox)
+                } else {
+                    None
+                }
+            }
+            TimelineItemMessage::SetIsEditing(false) => {
+                cancel_editing(&self.room_id);
+                Some(TimelineItemAction::CancelEdit)
+            }
+            TimelineItemMessage::EditAction(action) => {
+                if let Some(ptr) = editing_content_ptr(&self.room_id) {
+                    unsafe { &mut *ptr }.perform(action);
+                }
+                None
+            }
+            TimelineItemMessage::SubmitEdit => {
+                let event_id = self.event_id()?;
+                let text = editing_content_ptr(&self.room_id)
+                    .map(|ptr| unsafe { &*ptr }.text())
+                    .unwrap_or_default();
+                cancel_editing(&self.room_id);
+                Some(TimelineItemAction::SubmitEdit { event_id, text })
+            }
             TimelineItemMessage::SetIsReplyingTo(event_id) => {
                 if let TimelineItemKind::Message { message, .. } = &mut self.kind {
                     Arc::make_mut(message).is_replying_to = true;
@@ -618,8 +664,8 @@ impl TimelineItem {
 
                 render_event(
                     w::lazy(
-                        (event.clone(), help_state, index, is_hovered),
-                        move |(event, help_state, index, is_hovered)| {
+                        (event.clone(), help_state, index, is_hovered, edit_gen()),
+                        move |(event, help_state, index, is_hovered, _edit_gen)| {
                             event.view(
                                 room_id.clone(),
                                 theme,
@@ -761,6 +807,8 @@ struct MessageEvent {
 
     #[hash]
     is_replying_to: bool,
+    #[hash]
+    is_editing: bool,
 
     is_highlighted: bool,
     contains_only_emojis: bool,
@@ -932,7 +980,11 @@ impl std::hash::Hash for MessageContent {
             MessageContent::ServerNotice { body } => {
                 body.hash(state);
             }
-            MessageContent::Text { body, formatted_body, .. } => {
+            MessageContent::Text {
+                body,
+                formatted_body,
+                ..
+            } => {
                 body.hash(state);
                 formatted_body.hash(state);
             }
