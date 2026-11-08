@@ -8320,6 +8320,7 @@ dependencies = [
 [[package]]
 name = "sweeten"
 version = "0.15.0-dev"
+source = "git+https://codeberg.org/aosiuejhf/sweeten-fork.git?branch=master#7c1610ddfffb8b62a94138b128b920cd1ab051b2"
 dependencies = [
  "iced_core",
  "iced_runtime",
