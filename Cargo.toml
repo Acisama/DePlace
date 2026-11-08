@@ -85,8 +85,10 @@ git = "https://github.com/acisama/iced"
 version = "0.15.0-dev"
 features = ["advanced", "canvas", "crisp", "debug", "image", "svg", "time-travel", "tokio"]
 
-# [patch."https://codeberg.org/aosiuejhf/sweeten-fork.git"]
-# sweeten = { path = "/home/eriko/sweeten-fork" }
+# Patched to the local clone until the list-widget fixes are pushed to
+# codeberg; remove this to build the published revision again.
+[patch."https://codeberg.org/aosiuejhf/sweeten-fork.git"]
+sweeten = { path = "/home/user/sweeten-fork" }
 
 # [patch."https://github.com/acisama/iced"]
 # iced = { path = "/home/eriko/iced" }

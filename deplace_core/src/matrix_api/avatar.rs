@@ -50,10 +50,40 @@ impl Avatar {
 
         // TODO: Somehow check if the avatar is svg
         match client.media().get_media_content(&request, true).await {
-            Ok(bytes) => Avatar::Ok {
-                image: ImageHandle::from_bytes(bytes),
-                avatar_url: Arc::new(url),
-            },
+            Ok(bytes) => {
+                // Decoding off a blocking worker keeps the draw thread from
+                // having to do it while scrolling
+                let image = match tokio::task::spawn_blocking(move || {
+                    image::ImageReader::new(std::io::Cursor::new(&bytes))
+                        .with_guessed_format()
+                        .map_err(|e| tracing::error!("Failed to guess format of avatar: {e}"))
+                        .ok()?
+                        .decode()
+                        .map_err(|e| tracing::error!("Failed to decode avatar: {e}"))
+                        .ok()
+                        .map(|decoded| {
+                            let rgba = decoded.to_rgba8();
+                            ImageHandle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw())
+                        })
+                })
+                .await
+                {
+                    Ok(Some(image)) => Some(image),
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::error!("Failed to decode avatar: {e}");
+                        None
+                    }
+                };
+
+                match image {
+                    Some(image) => Avatar::Ok {
+                        image,
+                        avatar_url: Arc::new(url),
+                    },
+                    None => Avatar::Error(Arc::from("Failed to decode avatar".to_string())),
+                }
+            }
             Err(e) => {
                 tracing::warn!("Failed to load avatar: {}", e);
                 Avatar::Error(Arc::from(e.to_string()))

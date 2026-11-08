@@ -156,6 +156,31 @@ mod iced_caches {
 
     pub type ThumbnailCache = MediaCache<(String, u64, u64), ImageHandle>;
 
+    /// Decodes downloaded thumbnail bytes into an RGBA [`ImageHandle`], off
+    /// the UI thread.
+    async fn decode_thumbnail(bytes: Vec<u8>, width: u64, height: u64) -> Option<ImageHandle> {
+        tokio::task::spawn_blocking(move || {
+            let image = image::ImageReader::new(std::io::Cursor::new(&bytes))
+                .with_guessed_format()
+                .map_err(|e| tracing::error!("Failed to guess format of thumbnail: {e}"))
+                .ok()?
+                .decode()
+                .map_err(|e| tracing::error!("Failed to decode thumbnail: {e}"))
+                .ok()?;
+
+            let thumbnail = image.thumbnail(width as u32, height as u32).to_rgba8();
+
+            Some(ImageHandle::from_rgba(
+                thumbnail.width(),
+                thumbnail.height(),
+                thumbnail.into_raw(),
+            ))
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
     impl CacheLoadingWithKeyExt<MediaSource, (String, u64, u64)> for ThumbnailCache {
         /// Loads a thumbnail with the given key (incldues it's size) and returns MediaLoaded and a boolean indicating whether it was successfully loaded.
         async fn load_content_with_key(
@@ -185,7 +210,14 @@ mod iced_caches {
 
             let mut status = CacheResultStatus::Success;
             let res = match self.client.media().get_media_content(&request, true).await {
-                Ok(bytes) => MediaState::loaded(iced::widget::image::Handle::from_bytes(bytes)),
+                Ok(bytes) => match decode_thumbnail(bytes, key.1, key.2).await {
+                    Some(handle) => MediaState::loaded(handle),
+                    None => {
+                        status =
+                            CacheResultStatus::Failure("Failed to decode thumbnail".to_string());
+                        MediaState::Failed
+                    }
+                },
                 Err(e) => {
                     tracing::error!("Failed to fetch media: {e}");
                     status = CacheResultStatus::Failure(e.to_string());

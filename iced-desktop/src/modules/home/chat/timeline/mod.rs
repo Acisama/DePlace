@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
 use chrono_tz::Tz;
@@ -132,6 +132,36 @@ pub enum TimelineAction {
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
 
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+enum PendingMedia {
+    Thumbnail((String, u64, u64)),
+    Video(String),
+}
+
+impl PendingMedia {
+    /// The entry a row waits on for the given request, if the timeline shows
+    /// it at all.
+    fn of(needs_media: &NeedsMedia) -> Option<Self> {
+        match needs_media {
+            NeedsMedia::Thumbnail { key, .. } => Some(Self::Thumbnail(key.clone())),
+            NeedsMedia::Video { source } => Some(Self::Video(source.unique_key())),
+            // Images aren't shown in the timeline itself, only thumbnails
+            NeedsMedia::Image { .. } => None,
+        }
+    }
+}
+
+impl From<&MediaLoaded> for PendingMedia {
+    fn from(media_loaded: &MediaLoaded) -> Self {
+        match media_loaded {
+            MediaLoaded::Thumbnail { key } => Self::Thumbnail(key.clone()),
+            MediaLoaded::Video { key } => Self::Video(key.clone()),
+            // Never requested by rows; `touch_media` ignores image loads.
+            MediaLoaded::Image { .. } => Self::Video(String::new()),
+        }
+    }
+}
+
 #[iced_cache(Clone)]
 pub struct ChatTimeline {
     state: AppState,
@@ -186,6 +216,8 @@ pub struct ChatTimeline {
     content: list::Content<String, Arc<TimelineItem>>,
     #[hash]
     messages_version: u64,
+
+    pending_media_pokes: BTreeMap<PendingMedia, BTreeSet<String>>,
 
     #[hash]
     focused_message_id: Option<String>,
@@ -301,6 +333,7 @@ impl ChatTimeline {
 
             content: list::Content::default(),
             messages_version: 0,
+            pending_media_pokes: BTreeMap::new(),
             focused_message_id: None,
             editing_row_id: None,
         };
@@ -354,23 +387,32 @@ impl ChatTimeline {
             .user_can_redact_event_of_other(&self.own_user_id);
     }
 
-    /// The virtualized `List` only re-examines a row's hash when `get_mut`
-    /// queues a `Change::Updated` for it; this method pokes every row to trigger
-    /// re-examination when the media is actually loaded.
     pub fn touch_media(&mut self, media: &MediaLoaded) {
-        let relevant = match media {
-            MediaLoaded::Thumbnail { key } => self.thumbnail_states_for_hash.contains(key),
-            MediaLoaded::Video { key } => self.video_states_for_hash.contains(key),
+        let (key, relevant) = match media {
+            MediaLoaded::Thumbnail { key } => (
+                PendingMedia::Thumbnail(key.clone()),
+                self.thumbnail_states_for_hash.contains(key),
+            ),
+            MediaLoaded::Video { key } => (
+                PendingMedia::Video(key.clone()),
+                self.video_states_for_hash.contains(key),
+            ),
             // Messages don't contain images, only thumbnails
-            MediaLoaded::Image { .. } => false,
+            MediaLoaded::Image { .. } => return,
         };
 
         if !relevant {
             return;
         }
 
-        for index in 0..self.content.len() {
-            self.content.get_index_mut(index);
+        let Some(ids) = self.pending_media_pokes.remove(&key) else {
+            return;
+        };
+
+        for id in ids {
+            if let Some(index) = self.content.index_map().get_index_of(&id) {
+                self.content.get_index_mut(index);
+            }
         }
     }
 
@@ -378,9 +420,9 @@ impl ChatTimeline {
     /// why this is necessary. Used when something outside `self.content`
     /// that every row's view depends on changes, e.g. `system_messages_to_show`.
     pub fn touch_all(&mut self) {
-        for index in 0..self.content.len() {
-            self.content.get_index_mut(index);
-        }
+        // for index in 0..self.content.len() {
+        //     self.content.get_index_mut(index);
+        // }
     }
 
     /// Recomputes `connects_previous`/`previous_is_text_message` for a
@@ -761,6 +803,14 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             }
                             NeedsMedia::Image { .. } => {}
                         }
+
+                        if let Some(key) = PendingMedia::of(&needs_media) {
+                            self.pending_media_pokes
+                                .entry(key)
+                                .or_default()
+                                .insert(id.clone());
+                        }
+
                         Some(TimelineAction::NeedsMedia(needs_media))
                     }
                     TimelineItemAction::SetIsReplyingTo { message, event_id } => {
