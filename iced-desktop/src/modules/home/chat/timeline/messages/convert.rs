@@ -531,8 +531,11 @@ impl MessageContent {
                         source: video.source.clone(),
                         info: video.info.as_ref().map(|info| info.into()),
 
+                        thumbnail_cache: thumbnail_cache.clone(),
+                        thumbnail_states_for_hash: BTreeSet::new(),
                         video_cache: video_cache.clone(),
                         video_states_for_hash: BTreeSet::new(),
+                        media_processor: state.media_processor(),
 
                         data_size_unit: settings.data_size_unit.watch(),
                     },

@@ -1,5 +1,7 @@
 use std::time::SystemTime;
 
+use std::sync::atomic::Ordering;
+
 use chrono_tz::Tz;
 use deplace_core::{
     formatting::{
@@ -7,6 +9,7 @@ use deplace_core::{
     },
     rich_text::FormattedBody,
     settings::HourFormat,
+    state::media_fetcher::DownloadProgress,
 };
 use iced::{
     Alignment, Background,
@@ -24,7 +27,11 @@ use matrix_sdk::{
     media::UniqueKey,
     ruma::{
         events::{
-            room::{guest_access::GuestAccess, history_visibility::HistoryVisibility},
+            room::{
+                MediaSource,
+                guest_access::GuestAccess,
+                history_visibility::HistoryVisibility,
+            },
             rtc::notification::CallIntent,
         },
         room::JoinRule,
@@ -727,7 +734,16 @@ impl MessageContent {
                     )
                 }
 
-                let open_media = if let Some(event_id) = event_id {
+                // The video is only downloaded when clicked; once it's in the
+                // cache the click opens the media overlay instead.
+                let video_downloaded = video
+                    .video_cache
+                    .get(&video.source.unique_key())
+                    .is_some();
+
+                let open_media = if !video_downloaded {
+                    TimelineItemMessage::NeedsMedia(NeedsMedia::video(video.source.clone()))
+                } else if let Some(event_id) = event_id {
                     TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
                         media: OverlayMediaType::Video(Arc::new(video.clone())),
                         source: video.source.clone(),
@@ -913,6 +929,49 @@ impl VideoMessage {
         )
     }
 
+    /// Status line shown under the play button while the video is being fetched.
+    /// Once all bytes of an encrypted video are downloaded, the remaining work is
+    /// decryption, so say so instead of showing a stuck 100% download.
+    fn download_status(&self) -> String {
+        let unit = *self.data_size_unit.borrow();
+
+        match self.media_processor.file_download_progress(&self.source) {
+            Some(DownloadProgress::Downloading {
+                total_bytes,
+                downloaded_bytes,
+                ..
+            }) => {
+                let downloaded = downloaded_bytes.load(Ordering::Relaxed);
+                let total = total_bytes.load(Ordering::Relaxed);
+
+                if total > 0
+                    && downloaded >= total
+                    && matches!(self.source, MediaSource::Encrypted(_))
+                {
+                    return "Decrypting...".to_string();
+                }
+
+                // Fall back to the size declared in the event if the server
+                // didn't send a content length.
+                let total = match total {
+                    0 => self.info.as_ref().and_then(|i| i.size),
+                    total => Some(total),
+                };
+
+                match total {
+                    Some(total) => format!(
+                        "Downloading Video... {} / {}",
+                        format_bytes(downloaded, unit),
+                        format_bytes(total, unit)
+                    ),
+                    None => format!("Downloading Video... {}", format_bytes(downloaded, unit)),
+                }
+            }
+            Some(DownloadProgress::Completed { .. }) => "Preparing Video...".to_string(),
+            _ => "Loading Video...".to_string(),
+        }
+    }
+
     fn video_view(
         &self,
         theme: Theme,
@@ -933,8 +992,8 @@ impl VideoMessage {
             );
         }
 
-        stack = match cached_video.as_ref().unwrap_or(&MediaState::Loading) {
-            MediaState::Loaded(video) => stack.push_element(
+        stack = match cached_video.as_ref() {
+            Some(MediaState::Loaded(video)) => stack.push_element(
                 w::mouse_area(
                     VideoPlayer::<TimelineItemMessage>::new(video.0.clone())
                         .width(width)
@@ -942,33 +1001,95 @@ impl VideoMessage {
                 )
                 .on_press(TimelineItemMessage::ToggleVideoPause(video.0.clone())),
             ),
-            MediaState::Failed => stack.push(render_media_failed_to_load(
+            Some(MediaState::Failed) => stack.push(render_media_failed_to_load(
                 theme,
                 structure,
                 width,
                 height,
                 MediaType::Video,
             )),
-            MediaState::Loading => stack.push_element(
-                w::container(
-                    weighted_text("Loading Video...", Weight::Normal)
-                        .size(structure.chat.text_size),
-                )
-                .width(width)
-                .height(height)
-                .align_x(Alignment::Center)
-                .align_y(Alignment::Center),
-            ),
-        };
+            // The video is only downloaded once the user clicks it, so until
+            // it's loaded show its thumbnail with a play button on top. While
+            // the download runs, a status line is shown under the play button.
+            Some(MediaState::Loading) | None => {
+                let thumbnail = self
+                    .info
+                    .as_ref()
+                    .and_then(|i| i.thumbnail_source.clone())
+                    .map(|source| {
+                        let key = (source.unique_key(), width as u64, height as u64);
+                        let state = self.thumbnail_cache.get(&key);
+                        (source, key, state)
+                    });
 
-        if cached_video.is_none() {
-            stack = stack.push_element(on_appear(
-                Space::new(),
-                TimelineItemMessage::NeedsMedia(NeedsMedia::Video {
-                    source: self.source.clone(),
-                }),
-            ))
-        }
+                if let Some((source, key, thumbnail)) = &thumbnail {
+                    if let Some(MediaState::Loaded(image)) = thumbnail.as_ref() {
+                        stack = stack.push_element(
+                            w::image((*(*image).clone()).clone())
+                                .width(width)
+                                .height(height)
+                                .content_fit(iced::ContentFit::Fill)
+                                .border_radius(structure.inner_border_radius),
+                        );
+                    }
+
+                    if thumbnail.is_none() {
+                        stack = stack.push_element(on_appear(
+                            Space::new(),
+                            TimelineItemMessage::NeedsMedia(NeedsMedia::thumbnail(
+                                source.clone(),
+                                key.clone(),
+                            )),
+                        ));
+                    }
+                }
+
+                let status = if cached_video.is_some() {
+                    Some(self.download_status())
+                } else {
+                    None
+                };
+
+                let play_button = w::container(
+                    w::container(phosphor_icon(
+                        icons::play::FILL,
+                        structure.chat.text_size * 2.0,
+                    ))
+                    .padding(structure.small_gap)
+                    .style(move |_| ContainerStyle {
+                        background: Some(theme.solid_bg.into()),
+                        border: Border {
+                            color: theme.border.into(),
+                            width: structure.border_thickness,
+                            radius: 999.0.into(),
+                        },
+                        ..Default::default()
+                    }),
+                );
+
+                let overlay = match status {
+                    Some(status) => w::column![
+                        play_button,
+                        w::text(status)
+                            .size(structure.chat.text_size)
+                            .color(theme.text.dim)
+                    ]
+                    .align_x(Alignment::Center)
+                    .spacing(structure.small_gap / 2.0),
+                    None => w::column![play_button].align_x(Alignment::Center),
+                };
+
+                stack = stack.push_element(
+                    w::container(overlay)
+                        .width(width)
+                        .height(height)
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center),
+                );
+
+                stack
+            }
+        };
 
         stack.boxed()
     }

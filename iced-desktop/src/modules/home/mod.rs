@@ -8,7 +8,10 @@ use chat::{
 use deplace_core::{
     PaginationDirection,
     keybinds::{KeybindAction, Keybinds},
-    state::{ActiveServer, cache::CacheResultStatus},
+    state::{
+        ActiveServer,
+        cache::{CacheResultStatus, MediaState},
+    },
 };
 use iced::{
     advanced::widget::{operate, operation::focusable::unfocus},
@@ -186,11 +189,24 @@ impl Home {
             },
         ));
 
+        // The processor bumps the tick after every downloaded chunk, which can be
+        // thousands of times per second. Coalesce them so that poking the
+        // timeline rows on every tick stays cheap.
+        const MEDIA_PROGRESS_TICK_INTERVAL: std::time::Duration =
+            std::time::Duration::from_millis(100);
+
         let media_progress_tick_task = Task::stream(iced::futures::stream::unfold(
-            state.media_processor().progress_tick(),
-            |mut rx| async move {
+            (state.media_processor().progress_tick(), std::time::Instant::now()),
+            |(mut rx, last_emit)| async move {
                 rx.changed().await.ok()?;
-                Some((HomeMessage::MediaProgressTick, rx))
+
+                let now = std::time::Instant::now();
+                let earliest = last_emit + MEDIA_PROGRESS_TICK_INTERVAL;
+                if now < earliest {
+                    tokio::time::sleep_until(earliest.into()).await;
+                }
+
+                Some((HomeMessage::MediaProgressTick, (rx, std::time::Instant::now())))
             },
         ));
 
@@ -647,6 +663,14 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             }
             HomeMessage::Overlay(message) => self.handle_overlay_message(message),
             HomeMessage::MediaLoaded(media) => {
+                // Videos are only downloaded on click, so start playback as
+                // soon as the download finishes.
+                if let MediaLoaded::Video { key } = &media
+                    && let Some(MediaState::Loaded(video)) = self.state.video_cache().get(key)
+                {
+                    video.0.set_paused(false);
+                }
+
                 let chat = self
                     .active_room_id
                     .as_ref()
@@ -676,7 +700,18 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             }
             HomeMessage::SyncTick => None,
             HomeMessage::CallTick => None,
-            HomeMessage::MediaProgressTick => None,
+            HomeMessage::MediaProgressTick => {
+                // The virtualized list only re-examines a row's (lazy) hash when
+                // poked, and video message hashes embed the download progress,
+                // so poke the rows to refresh the progress display while media
+                // is downloading.
+                if let Some(room_id) = &self.active_room_id
+                    && let Some(chat) = self.chats.peek_mut(room_id)
+                {
+                    chat.touch_all();
+                }
+                None
+            }
             HomeMessage::HelpToggle => {
                 self.help.active = true;
                 None

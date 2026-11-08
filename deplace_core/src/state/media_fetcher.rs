@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     hash::Hash,
-    io::Read,
+    io::{Read, Write as _},
     path::PathBuf,
     sync::{
         Arc,
@@ -47,7 +47,11 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 #[derive(Clone)]
 pub struct MediaProcessor {
-    reqwest_client: ReqwestClient,
+    client: Client,
+    /// The client media is requested and streamed over: the SDK's settings
+    /// minus its baked-in 30s total-request timeout (see
+    /// [`MediaProcessor::new`]).
+    streaming_client: ReqwestClient,
 
     downloads: ProgressMap<DownloadProgress>,
     /// Maps download keys to their corresponding file paths, also ordered by start time.
@@ -280,15 +284,44 @@ impl Hash for ProgressCompleteness {
     }
 }
 
+/// The result of downloading a file into the video cache.
+#[derive(Debug)]
+pub enum DownloadedFile {
+    /// The source was an encrypted attachment: its raw ciphertext was stored,
+    /// the key material lives in the event itself.
+    Ciphertext,
+    /// The source was a plain download: the file was encrypted with a locally
+    /// generated key so nothing readable lands on disk. The info must be
+    /// persisted by the caller for later decryption.
+    LocallyEncrypted(matrix_sdk_base::crypto::MediaEncryptionInfo),
+}
+
 /// A custom media fetch for the matrix client, notifying about download progress
 impl MediaProcessor {
     pub fn new(client: &Client) -> Self {
         let (tick, _) = watch::channel(0);
 
+        // The SDK bakes a 30s total-request timeout (its
+        // `DEFAULT_REQUEST_TIMEOUT`) into its inner reqwest client, which
+        // also aborts any *response body* that streams for longer -- a
+        // video on a slow connection can easily exceed that. Media
+        // downloads use a client without an overall deadline instead; a
+        // read timeout still notices a connection that goes quiet
+        // mid-download instead of hanging forever.
+        let streaming_client = matrix_sdk::reqwest::Client::builder()
+            // Mirror the SDK's client settings (BCP 195, same user agent).
+            .min_tls_version(matrix_sdk::reqwest::tls::Version::TLS_1_2)
+            .user_agent("matrix-rust-sdk")
+            .read_timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("building the media download client must not fail");
+
         Self {
+            client: client.clone(),
             downloads: Arc::new(Mutex::new(IndexMap::new())),
             download_paths: Arc::new(Mutex::new(IndexMap::new())),
-            reqwest_client: client.http_client().clone(),
+
+            streaming_client,
 
             compressions: Arc::new(Mutex::new(IndexMap::new())),
             in_flight: Arc::new(DashMap::new()),
@@ -390,7 +423,7 @@ impl MediaProcessor {
         // Deconstruct the HTTP request to build a Reqwest request
         let (parts, _body) = http_request.into_parts();
         let mut reqwest_builder = self
-            .reqwest_client
+            .streaming_client
             .request(parts.method, parts.uri.to_string());
 
         for (name, value) in parts.headers {
@@ -464,8 +497,16 @@ impl MediaProcessor {
                         .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?
                 };
 
+                let fetch_started = std::time::Instant::now();
                 let content = self.execute_and_stream(http_req, progress).await?;
+                tracing::info!(
+                    media_key = %request.source.unique_key(),
+                    compressed_bytes = content.len(),
+                    elapsed_ms = fetch_started.elapsed().as_millis() as u64,
+                    "media download finished"
+                );
 
+                let decrypt_started = std::time::Instant::now();
                 let mut cursor = std::io::Cursor::new(content.clone());
                 let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
                     &mut cursor,
@@ -474,6 +515,12 @@ impl MediaProcessor {
 
                 let mut decrypted = Vec::with_capacity(content.len());
                 reader.read_to_end(&mut decrypted)?;
+                tracing::info!(
+                    media_key = %request.source.unique_key(),
+                    bytes = decrypted.len(),
+                    elapsed_ms = decrypt_started.elapsed().as_millis() as u64,
+                    "media decryption finished"
+                );
 
                 Ok(decrypted)
             }
@@ -535,10 +582,215 @@ impl MediaProcessor {
                         .map_err(|e| matrix_sdk::Error::UnknownError(e.into()))?
                 };
 
+                let fetch_started = std::time::Instant::now();
                 let content = self.execute_and_stream(http_req, progress).await?;
+                tracing::info!(
+                    media_key = %request.source.unique_key(),
+                    bytes = content.len(),
+                    elapsed_ms = fetch_started.elapsed().as_millis() as u64,
+                    "media download finished"
+                );
                 Ok(content)
             }
         }
+    }
+
+    /// Downloads the full file of a media source into `dest` for the video
+    /// cache, registering a [`DownloadProgress`] under the same key regular
+    /// file fetches use (so the UI can show it). Encrypted attachments are
+    /// stored as raw ciphertext, plain downloads are encrypted with a locally
+    /// generated key on the fly.
+    pub async fn download_media_file_to_cache(
+        &self,
+        source: &MediaSource,
+        dest: &std::path::Path,
+    ) -> Result<DownloadedFile, String> {
+        // Plain downloads are encrypted locally so no readable file lands in
+        // the cache; encrypted attachments are already ciphertext.
+        let encrypt = matches!(source, MediaSource::Plain(_));
+
+        let request = MediaRequestParameters {
+            source: source.clone(),
+            format: MediaFormat::File,
+        };
+
+        let supported_versions = self
+            .client
+            .supported_versions()
+            .await
+            .map_err(|e| e.to_string())?;
+        let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
+            .is_supported(&supported_versions);
+
+        let homeserver = self.client.homeserver();
+        let token = self.client.access_token();
+        let token_str = token.as_deref().unwrap_or("");
+        let auth = SendAccessToken::IfRequired(token_str);
+
+        let http_req = match source {
+            MediaSource::Encrypted(file) => {
+                if use_auth {
+                    authenticated_media::get_content::v1::Request::from_uri(&file.url)
+                        .map_err(|e| e.to_string())?
+                        .try_into_http_request::<Vec<u8>>(
+                            homeserver.as_str(),
+                            auth,
+                            Cow::Borrowed(&supported_versions),
+                        )
+                        .map_err(|e| e.to_string())?
+                } else {
+                    #[allow(deprecated)]
+                    media::get_content::v3::Request::from_url(&file.url)
+                        .map_err(|e| e.to_string())?
+                        .try_into_http_request::<Vec<u8>>(
+                            homeserver.as_str(),
+                            auth,
+                            Cow::Borrowed(&supported_versions),
+                        )
+                        .map_err(|e| e.to_string())?
+                }
+            }
+            MediaSource::Plain(uri) => {
+                if use_auth {
+                    authenticated_media::get_content::v1::Request::from_uri(uri)
+                        .map_err(|e| e.to_string())?
+                        .try_into_http_request::<Vec<u8>>(
+                            homeserver.as_str(),
+                            auth,
+                            Cow::Borrowed(&supported_versions),
+                        )
+                        .map_err(|e| e.to_string())?
+                } else {
+                    #[allow(deprecated)]
+                    media::get_content::v3::Request::from_url(uri)
+                        .map_err(|e| e.to_string())?
+                        .try_into_http_request::<Vec<u8>>(
+                            homeserver.as_str(),
+                            auth,
+                            Cow::Borrowed(&supported_versions),
+                        )
+                        .map_err(|e| e.to_string())?
+                }
+            }
+        };
+
+        let started_at = SystemTime::now();
+        let progress = DownloadProgress::new(started_at);
+        {
+            let mut downloads = lock(&self.downloads);
+            downloads.shift_remove(&request.unique_key());
+            downloads.insert(request.unique_key(), progress.clone());
+        }
+        self.bump_tick();
+
+        tracing::info!(
+            media_key = %source.unique_key(),
+            encrypted_source = !encrypt,
+            "video cache file download started"
+        );
+
+        let result = self
+            .stream_to_file(http_req, &progress, dest, encrypt)
+            .await;
+
+        tracing::info!(
+            media_key = %source.unique_key(),
+            elapsed_ms = started_at.elapsed().unwrap_or_default().as_millis() as u64,
+            successful = result.is_ok(),
+            "video cache file download finished"
+        );
+
+        {
+            let mut downloads = lock(&self.downloads);
+            downloads.insert(
+                request.unique_key(),
+                match &result {
+                    Ok(_) => DownloadProgress::completed(started_at),
+                    Err(e) => DownloadProgress::failed(started_at, Arc::new(e.clone())),
+                },
+            );
+        }
+        self.bump_tick();
+
+        result.map(|info| match info {
+            Some(info) => DownloadedFile::LocallyEncrypted(info),
+            None => DownloadedFile::Ciphertext,
+        })
+    }
+
+    /// Streams the body of the given HTTP request into `dest`, updating the
+    /// progress while doing so; with `encrypt`, wraps the writer so a plain
+    /// download is encrypted (matrix-attachment style) on the way in,
+    /// returning its decryption info.
+    async fn stream_to_file(
+        &self,
+        http_request: http::Request<Vec<u8>>,
+        progress: &DownloadProgress,
+        dest: &std::path::Path,
+        encrypt: bool,
+    ) -> Result<Option<matrix_sdk_base::crypto::MediaEncryptionInfo>, String> {
+        // Deconstruct the HTTP request to build a Reqwest request
+        let (parts, _body) = http_request.into_parts();
+        let mut reqwest_builder = self
+            .streaming_client
+            .request(parts.method, parts.uri.to_string());
+
+        for (name, value) in parts.headers {
+            if let Some(name) = name {
+                reqwest_builder = reqwest_builder.header(name, value);
+            }
+        }
+
+        let response = reqwest_builder
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .error_for_status()
+            .map_err(|e| e.to_string())?;
+
+        if let Some(total) = response.content_length() {
+            progress.set_total_bytes(total);
+        }
+
+        let file = std::fs::File::create(dest).map_err(|e| e.to_string())?;
+        let mut stream = response.bytes_stream();
+
+        if encrypt {
+            let mut writer = super::local_file_encryption::AttachmentWriter::new(file)
+                .map_err(|e| e.to_string())?;
+
+            while let Some(chunk_res) = stream.next().await {
+                let chunk = chunk_res.map_err(|e| e.to_string())?;
+                writer.write_all(&chunk).map_err(|e| e.to_string())?;
+                progress.add_to_downloaded_bytes(chunk.len() as u64);
+                self.bump_tick();
+            }
+
+            let info = writer.finish().map_err(|e| e.to_string())?;
+            Ok(Some(info))
+        } else {
+            let mut writer = std::io::BufWriter::new(file);
+
+            while let Some(chunk_res) = stream.next().await {
+                let chunk = chunk_res.map_err(|e| e.to_string())?;
+                writer.write_all(&chunk).map_err(|e| e.to_string())?;
+                progress.add_to_downloaded_bytes(chunk.len() as u64);
+                self.bump_tick();
+            }
+
+            writer.flush().map_err(|e| e.to_string())?;
+            Ok(None)
+        }
+    }
+
+    /// Progress of the full-file download for the given media source, if one is
+    /// running or has finished.
+    pub fn file_download_progress(&self, source: &MediaSource) -> Option<DownloadProgress> {
+        let request = MediaRequestParameters {
+            source: source.clone(),
+            format: MediaFormat::File,
+        };
+        lock(&self.downloads).get(&request.unique_key()).cloned()
     }
 
     pub fn current_download(&self) -> Option<DownloadProgress> {

@@ -13,7 +13,10 @@ use deplace_core::{
     formatting::format_date_divider,
     rich_text::{FormattedBody, Mention},
     settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType},
-    state::cache::VideoCache,
+    state::{
+        cache::{ThumbnailCache, VideoCache},
+        media_fetcher::MediaProcessor,
+    },
 };
 use enumset::EnumSet;
 use iced::Alignment;
@@ -360,10 +363,10 @@ impl TimelineItem {
     fn thumbnail_hashes(&mut self) -> Option<&mut BTreeSet<(String, u64, u64)>> {
         if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
             let event = Arc::make_mut(event);
-            if let MessageContent::Image { image, .. } = &mut event.content {
-                Some(&mut image.thumbnail_states_for_hash)
-            } else {
-                None
+            match &mut event.content {
+                MessageContent::Image { image, .. } => Some(&mut image.thumbnail_states_for_hash),
+                MessageContent::Video { video, .. } => Some(&mut video.thumbnail_states_for_hash),
+                _ => None,
             }
         } else {
             None
@@ -929,11 +932,7 @@ impl std::hash::Hash for MessageContent {
             MessageContent::ServerNotice { body } => {
                 body.hash(state);
             }
-            MessageContent::Text {
-                body,
-                formatted_body,
-                ..
-            } => {
+            MessageContent::Text { body, formatted_body, .. } => {
                 body.hash(state);
                 formatted_body.hash(state);
             }
@@ -1007,7 +1006,9 @@ pub struct VideoMessage {
 
     blur_preview: Option<ImageHandle>,
 
+    thumbnail_cache: ThumbnailCache,
     video_cache: VideoCache,
+    media_processor: MediaProcessor,
 
     #[hash]
     filename: String,
@@ -1022,6 +1023,11 @@ impl ExtraHash for VideoMessage {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.source.unique_key().hash(state);
         self.data_size_unit.borrow().hash(state);
+        // Hash the download progress so the view re-renders on progress ticks
+        // while the video is being downloaded.
+        self.media_processor
+            .file_download_progress(&self.source)
+            .hash(state);
     }
 }
 

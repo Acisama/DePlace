@@ -105,8 +105,11 @@ pub struct UserDevice {
 }
 
 pub mod cache;
+pub mod local_file_encryption;
 pub mod media_fetcher;
 pub mod roles;
+#[cfg(feature = "iced")]
+pub mod video_stream;
 
 #[derive(Clone, Debug)]
 pub enum ActiveServer {
@@ -275,6 +278,16 @@ impl AppState {
             .set_media_fetcher(Arc::new(media_processor.clone()))
             .await;
 
+        // The video cache encrypts plain downloads at rest; its sidecar cipher
+        // is bound to the keyring's store key of the logged-in user.
+        #[cfg(feature = "iced_desktop")]
+        let video_store_key = {
+            let Some(user_id) = client.user_id() else {
+                return Err(anyhow::anyhow!("client must have a restored session"));
+            };
+            crate::keyring::get_or_create_store_key(user_id.as_str()).await?
+        };
+
         let calls_tick = Sender::new(());
 
         let breadcrumbs_content = BreadcrumbsContent::fetch(&client).await;
@@ -359,7 +372,12 @@ impl AppState {
                 thumbnail_cache: cache::ThumbnailCache::new(client.clone()),
 
                 #[cfg(feature = "iced_desktop")]
-                video_cache: cache::VideoCache::new(client.clone()),
+                video_cache: cache::VideoCache::new(
+                    client.clone(),
+                    media_processor.clone(),
+                    video_store_key,
+                    important_paths.cache_dir.as_ref(),
+                ),
 
                 #[cfg(feature = "iced_desktop")]
                 image_cache: cache::ImageCache::new(client.clone()),

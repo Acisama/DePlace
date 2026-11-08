@@ -1879,6 +1879,7 @@ dependencies = [
 name = "deplace_core"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "android-native-keyring-store",
  "anyhow",
  "apple-native-keyring-store",
@@ -1891,6 +1892,7 @@ dependencies = [
  "const_format",
  "cpal",
  "csscolorparser",
+ "ctr",
  "dashmap",
  "dirs",
  "ego-tree",
@@ -1898,6 +1900,8 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.4.3",
+ "gstreamer",
+ "gstreamer-app",
  "hex",
  "iana-time-zone",
  "iced",
@@ -1913,6 +1917,7 @@ dependencies = [
  "macros",
  "matrix-sdk",
  "matrix-sdk-base",
+ "matrix-sdk-store-encryption",
  "matrix-sdk-ui",
  "mime",
  "mime_guess",
@@ -1927,6 +1932,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-util",
  "toml_edit",
@@ -3673,7 +3679,6 @@ dependencies = [
 [[package]]
 name = "iced_video_player"
 version = "0.6.0"
-source = "git+https://codeberg.org/aosiuejhf/iced_video_player.git#44888f16b098668286bff844f1ba5fd199a0e066"
 dependencies = [
  "glib",
  "gstreamer",

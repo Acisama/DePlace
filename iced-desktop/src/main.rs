@@ -181,6 +181,15 @@ fn main() -> iced::Result {
         .install_default()
         .expect("Could not install the rustls crypto provider");
 
+    // Gstreamer's own diagnostics name the element that breaks a pipeline;
+    // without this it only ever logs hard errors to stderr, which the log
+    // file doesn't capture.
+    if std::env::var("GST_DEBUG").is_err() {
+        // SAFETY: single-threaded process start, before gstreamer spawns
+        // anything that could read this variable.
+        unsafe { std::env::set_var("GST_DEBUG", "2") };
+    }
+
     let paths = match ImportantPaths::new() {
         Ok(p) => p,
         Err(e) => {
