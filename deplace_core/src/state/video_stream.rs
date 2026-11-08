@@ -6,11 +6,11 @@
 //!
 //! Seeking (which mp4 demuxers do, e.g. for `moov` at the end of the file or
 //! when looping) is supported by repositioning the decrypted stream: the
-//! decryptor is rebuilt from the start of the file and fast-forwarded to the
-//! requested offset.
+//! AES-CTR keystream is addressable by byte offset, so a seek is a counter
+//! jump in constant time -- no matter how far into a big file it goes.
 
 use std::{
-    io::{BufReader, Read},
+    io::Read,
     path::Path,
     sync::{
         Arc,
@@ -23,7 +23,6 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use iced_video_player::Video;
-use matrix_sdk_base::crypto::AttachmentDecryptor;
 use ruma::events::room::EncryptedFile;
 
 /// How much data the appsrc queue may hold before push blocks. Sizing this
@@ -417,39 +416,37 @@ fn stream_run(
     offset: u64,
     encryption: Option<&EncryptedFile>,
 ) -> Result<FeedOutcome, VideoStreamError> {
-    let mut plain = BufReader::new(std::fs::File::open(path)?);
+    let mut file = std::fs::File::open(path)?;
 
+    // Both kinds of stream are seekable directly: plain files via their
+    // offset, encrypted ones by repositioning the CTR keystream counter --
+    // no data has to pass through the decryptor to get to the requested
+    // byte, making a seek to a far-off offset (e.g. the `moov` box at the
+    // end of a big non-faststart file) effectively instant.
     match encryption {
-        None => pump(appsrc, rx, &mut plain, offset),
-        Some(file) => {
-            let mut decryptor = AttachmentDecryptor::new(&mut plain, file.clone().into())?;
-            pump(appsrc, rx, &mut decryptor, offset)
+        None => {
+            use std::io::Seek as _;
+            file.seek(std::io::SeekFrom::Start(offset))?;
+            pump(appsrc, rx, &mut file)
+        }
+        Some(encrypted) => {
+            let mut reader = crate::state::local_file_encryption::AttachmentReader::new(
+                file,
+                encrypted.clone().into(),
+            )?;
+            reader.seek_to(offset)?;
+            pump(appsrc, rx, &mut reader)
         }
     }
 }
 
-/// Fast-forwards the stream by `offset` bytes and then pushes chunks into the
-/// appsrc until the file ends or a seek signal arrives.
+/// Pushes chunks from the stream into the appsrc until the file ends or a
+/// seek signal arrives.
 fn pump(
     appsrc: &gst_app::AppSrc,
     rx: &Receiver<FeedSignal>,
     stream: &mut dyn Read,
-    offset: u64,
 ) -> Result<FeedOutcome, VideoStreamError> {
-    // Fast-forward: for encrypted streams this also advances the CTR keystream
-    // to the right position.
-    let mut remaining = offset;
-    let mut scratch = vec![0u8; CHUNK_SIZE];
-    while remaining > 0 {
-        let n = stream.read(&mut scratch[..(remaining.min(CHUNK_SIZE as u64)) as usize])?;
-        if n == 0 {
-            return Err(VideoStreamError::Io(
-                "unexpected end of video file while seeking".into(),
-            ));
-        }
-        remaining -= n as u64;
-    }
-
     let mut buffer = vec![0u8; CHUNK_SIZE];
     loop {
         // Serve a pending seek signal: acknowledge it (the `seek_data`
@@ -873,8 +870,7 @@ mod tests {
 
         let plain_path = make_test_file("deplace-stream-test-enc-src.mp4", false, true);
         let encrypted_path = std::env::temp_dir().join("deplace-stream-test-enc.mp4");
-
-        let mut plain = BufReader::new(std::fs::File::open(&plain_path).unwrap());
+        let mut plain = std::io::BufReader::new(std::fs::File::open(&plain_path).unwrap());
         let mut encrypted =
             std::fs::File::create(&encrypted_path).expect("creating encrypted test file");
 
@@ -891,6 +887,88 @@ mod tests {
 
         assert!(video.size().0 > 0);
         assert!(plays(&video), "encrypted video should have started playing");
+
+        video.set_paused(true);
+    }
+
+    #[test]
+    fn opens_huge_moov_at_end_encrypted_file_quickly() {
+        // Reproduces the real-world failure: a 100MB+, non-faststart mp4.
+        // The demuxer seeks to the far-end `moov` box on open; the seek must
+        // be an O(1) counter jump (not a decryptor fast-forward through the
+        // whole file), and the player must wait for the resulting caps
+        // instead of giving up after 5 seconds.
+        use matrix_sdk_base::crypto::{AttachmentEncryptor, MediaEncryptionInfo};
+        use std::io::Write as _;
+
+        let plain_path = std::env::temp_dir().join("deplace-stream-test-huge.mp4");
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "mandelbrot=size=1280x720:rate=30",
+            "-t",
+            "10",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-b:v",
+            "300M",
+        ]);
+        cmd.arg(&plain_path);
+        cmd.status()
+            .expect("ffmpeg should be installed for tests")
+            .success()
+            .then_some(())
+            .expect("ffmpeg should succeed");
+
+        // The head must parse as ftyp + mdat (moov at the very end).
+        let mut head = [0u8; 8];
+        std::fs::File::open(&plain_path)
+            .and_then(|mut file| file.read_exact(&mut head))
+            .unwrap();
+        assert_eq!(&head[4..], b"ftyp", "test file must be an mp4");
+        let plain_len = std::fs::metadata(&plain_path).unwrap().len();
+        assert!(
+            plain_len > 100 * 1024 * 1024,
+            "test file must be huge, got {plain_len} bytes"
+        );
+
+        let encrypted_path = std::env::temp_dir().join("deplace-stream-test-huge.bin");
+        let mut writer = std::io::BufWriter::new(
+            std::fs::File::create(&encrypted_path).expect("creating encrypted test file"),
+        );
+        let mut plain_reader =
+            std::io::BufReader::new(std::fs::File::open(&plain_path).unwrap());
+        let mut encryptor = AttachmentEncryptor::new(&mut plain_reader);
+        std::io::copy(&mut encryptor, &mut writer).unwrap();
+        let info: MediaEncryptionInfo = encryptor.finish();
+        writer.flush().unwrap();
+        drop(writer);
+
+        let url = ruma::owned_mxc_uri!("mxc://localhost/deplace-stream-test-huge");
+        let encrypted_file =
+            ruma::events::room::EncryptedFile::new(url, info.encryption_info, info.hashes);
+
+        let started = std::time::Instant::now();
+        let opened = open_stream(&encrypted_path, Some(&encrypted_file), "fakesink");
+        let (video, _feeder) =
+            opened.expect("streaming encrypted video should start");
+        let elapsed = started.elapsed();
+        println!("opened huge moov-at-end video in {elapsed:?}");
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "opening must not need to decrypt the whole file"
+        );
+
+        assert!(video.size().0 > 0);
+        assert!(plays(&video), "huge encrypted video should be playing");
 
         video.set_paused(true);
     }

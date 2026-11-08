@@ -27,9 +27,10 @@ use ruma::{
         auth_scheme::SendAccessToken,
         client::{authenticated_media, media},
     },
-    events::room::MediaSource,
+    events::room::{EncryptedFileHashAlgorithm, MediaSource},
     exports::http,
 };
+use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 use tokio::sync::watch::{self, Receiver, Sender};
 
@@ -43,6 +44,24 @@ type ProgressMap<V> = Arc<Mutex<IndexMap<String, V>>>;
 /// Locks the mutex, recovering the data if a previous holder panicked.
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+/// The event's sha256 hash of a ciphertext source, which the download loop
+/// verifies while writing the file. Playback streams the file through a
+/// seekable decryptor -- a seek must not read the skipped bytes, so the
+/// streaming path cannot verify the hash of the whole ciphertext anymore;
+/// the download is the natural place for the check.
+fn expected_ciphertext_hash(source: &MediaSource) -> Option<[u8; 32]> {
+    let MediaSource::Encrypted(file) = source else {
+        return None;
+    };
+
+    match file.hashes.get(&EncryptedFileHashAlgorithm::Sha256) {
+        Some(ruma::events::room::EncryptedFileHash::Sha256(hash)) => {
+            Some(hash.clone().into_inner())
+        }
+        _ => None,
+    }
 }
 
 #[derive(Clone)]
@@ -690,7 +709,13 @@ impl MediaProcessor {
         );
 
         let result = self
-            .stream_to_file(http_req, &progress, dest, encrypt)
+            .stream_to_file(
+                http_req,
+                &progress,
+                dest,
+                encrypt,
+                expected_ciphertext_hash(source),
+            )
             .await;
 
         tracing::info!(
@@ -721,13 +746,18 @@ impl MediaProcessor {
     /// Streams the body of the given HTTP request into `dest`, updating the
     /// progress while doing so; with `encrypt`, wraps the writer so a plain
     /// download is encrypted (matrix-attachment style) on the way in,
-    /// returning its decryption info.
+    /// returning its decryption info. Ciphertext downloads are verified
+    /// against `expected_ciphertext_hash` (the event's sha256 hash of the
+    /// ciphertext) so corrupted or mismatching downloads never reach the
+    /// cache: playback streams decrypted data seekably and no longer passes
+    /// every byte through a sequential hash.
     async fn stream_to_file(
         &self,
         http_request: http::Request<Vec<u8>>,
         progress: &DownloadProgress,
         dest: &std::path::Path,
         encrypt: bool,
+        expected_ciphertext_hash: Option<[u8; 32]>,
     ) -> Result<Option<matrix_sdk_base::crypto::MediaEncryptionInfo>, String> {
         // Deconstruct the HTTP request to build a Reqwest request
         let (parts, _body) = http_request.into_parts();
@@ -770,15 +800,27 @@ impl MediaProcessor {
             Ok(Some(info))
         } else {
             let mut writer = std::io::BufWriter::new(file);
+            let mut sha = Sha256::default();
 
             while let Some(chunk_res) = stream.next().await {
                 let chunk = chunk_res.map_err(|e| e.to_string())?;
                 writer.write_all(&chunk).map_err(|e| e.to_string())?;
+                if expected_ciphertext_hash.is_some() {
+                    sha.update(&chunk);
+                }
                 progress.add_to_downloaded_bytes(chunk.len() as u64);
                 self.bump_tick();
             }
 
             writer.flush().map_err(|e| e.to_string())?;
+
+            if let Some(expected) = expected_ciphertext_hash {
+                let digest: [u8; 32] = sha.finalize().into();
+                if digest != expected {
+                    return Err("downloaded file does not match the announced sha256 hash".into());
+                }
+            }
+
             Ok(None)
         }
     }
