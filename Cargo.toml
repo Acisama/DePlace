@@ -85,9 +85,6 @@ git = "https://github.com/acisama/iced"
 version = "0.15.0-dev"
 features = ["advanced", "canvas", "crisp", "debug", "image", "svg", "time-travel", "tokio"]
 
-[patch."https://codeberg.org/aosiuejhf/iced_video_player.git"]
-iced_video_player = { path = "/home/user/iced_video_player" }
-
 # [patch."https://codeberg.org/aosiuejhf/sweeten-fork.git"]
 # sweeten = { path = "/home/eriko/sweeten-fork" }
 
