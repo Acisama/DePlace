@@ -24,6 +24,7 @@ use const_format::formatcp;
 mod keyring;
 
 pub mod audio;
+pub mod cache;
 pub mod call;
 pub mod colors;
 pub mod formatting;

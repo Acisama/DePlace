@@ -84,8 +84,8 @@ impl<Message, Content: DePlaceWidget<Message>> BoundsButton<Message, Content> {
         self
     }
 
-    pub fn style(mut self, style: Style) -> Self {
-        self.class = Box::new(move |_theme, _status| style.clone());
+    pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'static) -> Self {
+        self.class = Box::new(style);
         self
     }
 }
