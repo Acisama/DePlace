@@ -10,6 +10,7 @@ use iced::{
 use image::ImageReader;
 use macros::iced_cache;
 use matrix_sdk_ui::Timeline;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
 use uuid::Uuid;
 
@@ -191,6 +192,12 @@ pub struct ChatInput {
     #[hash]
     attachments: Vec<Arc<Attachment>>,
 
+    // Attachments can become unsendable if AttachmentReady or Failed is delivered
+    // before AttachmentAdded,
+    // so hold the outcome until the preview arrives instead.
+    ready_attachments: BTreeMap<Uuid, MatrixAttachment>,
+    failed_attachments: BTreeSet<Uuid>,
+
     keybinds: Receiver<Keybinds>,
 }
 
@@ -213,6 +220,9 @@ impl ChatInput {
             replying_to: None,
 
             attachments: Vec::new(),
+
+            ready_attachments: BTreeMap::new(),
+            failed_attachments: BTreeSet::new(),
 
             keybinds: state.keybinds(),
         }
@@ -244,7 +254,31 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 Some(InputAction::Perform(self.focus()))
             }
             InputMessage::AttachmentAdded(attachments) => {
-                self.attachments.extend(attachments);
+                for mut attachment in attachments {
+                    if self.failed_attachments.remove(&attachment.id) {
+                        tracing::debug!(
+                            "Dropping attachment {}: it failed to encode before its preview was added",
+                            attachment.id
+                        );
+                        continue;
+                    }
+
+                    if let Some(ready) = self.ready_attachments.remove(&attachment.id) {
+                        tracing::debug!(
+                            "Attachment {} finished encoding before its preview arrived, completing it now",
+                            attachment.id
+                        );
+                        let thumbnail = attachment.thumbnail.clone();
+                        attachment = Arc::new(Attachment {
+                            id: attachment.id,
+                            thumbnail,
+                            attachment: ready,
+                            pending: false,
+                        });
+                    }
+
+                    self.attachments.push(attachment);
+                }
                 Some(InputAction::Perform(self.focus()))
             }
             InputMessage::OpenAttachmentPicker => Some(InputAction::Perform(
@@ -342,10 +376,18 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         attachment,
                         pending: false,
                     });
+                } else {
+                    // hold the result until the matching `AttachmentAdded`
+                    // arrives.
+                    self.ready_attachments.insert(id, attachment);
                 }
                 None
             }
             InputMessage::AttachmentFailed(id) => {
+                if !self.attachments.iter().any(|a| a.id == id) {
+                    // pending attachment added afterwards must be dropped too.
+                    self.failed_attachments.insert(id);
+                }
                 self.attachments.retain(|a| a.id != id);
                 None
             }
