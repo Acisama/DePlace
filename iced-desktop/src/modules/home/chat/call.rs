@@ -25,13 +25,15 @@ pub fn render_call_members(
     direction: Direction,
     decoration: NameDecoration,
 ) -> Element<'static, ChatMessage> {
-    let content = if room.has_call() {
-        let icon_size = structure.chat.icon_size * 2.0;
-        let rounding = icon_size / 8.0;
-        let gap = structure.icon_gap_ratio * icon_size / 4.0;
+    let own_in_call = room.call().own_user_device_is_in_call();
+    let icon_size = structure.chat.icon_size * 2.0;
+    let rounding = icon_size / 8.0;
+    let gap = structure.icon_gap_ratio * icon_size / 4.0;
+
+    let grid = || {
         let own_device = own_device.clone();
 
-        let own_in_call = room.call().own_user_device_is_in_call();
+        let room_clone = room.clone();
 
         call_grid(
             members,
@@ -39,7 +41,7 @@ pub fn render_call_members(
             move |member| {
                 render_call_member(
                     member,
-                    room.clone(),
+                    room_clone.clone(),
                     theme,
                     structure,
                     icon_size,
@@ -53,51 +55,50 @@ pub fn render_call_members(
         .spacing(rounding)
         .padding(rounding)
         .height(Fill)
-        .boxed()
-    } else {
-        w::container(
-            w::column![
-                room.render_name_decorated(
-                    structure.large_font_size * 1.5,
-                    decoration,
-                    theme.text.normal
-                ),
-                w::text("No one is currently in this call")
-                    .size(structure.font_size)
-                    .color(theme.text.normal),
-                animated_button("Join Call")
-                    .on_press(ChatMessage::JoinCall)
-                    .style(move |_, status| ButtonStyle {
-                        background: if status.active() {
-                            Some(theme.colors.success.into())
-                        } else {
-                            Some(theme.success_blended().into())
-                        },
-                        border: Border {
-                            color: theme.colors.success.into(),
-                            width: structure.border_thickness,
-                            radius: structure.inner_border_radius.into()
-                        },
-                        text_color: if status.active() {
-                            theme.solid_bg.into()
-                        } else {
-                            theme.colors.success.into()
-                        },
-                        ..Default::default()
-                    })
-            ]
-            .spacing(structure.small_gap)
-            .align_x(Alignment::Center),
-        )
-        .width(Fill)
-        .height(Fill)
-        .align_x(Alignment::Center)
-        .align_y(Alignment::Center)
-        .boxed()
     };
 
-    let style = ContainerStyle {
-        background: Some(theme.solid_bg.into()),
+    let join_stuff = || {
+        w::column![
+            room.render_name_decorated(
+                structure.large_font_size * 1.5,
+                decoration,
+                theme.text.normal
+            ),
+            w::text(if !room.has_call() {
+                "No one is currently in this call"
+            } else {
+                "Ready to join the conversation?"
+            })
+            .size(structure.font_size)
+            .color(theme.text.normal),
+            animated_button("Join Call")
+                .on_press(ChatMessage::JoinCall)
+                .style(move |_, status| ButtonStyle {
+                    background: if status.active() {
+                        Some(theme.colors.success.into())
+                    } else {
+                        Some(theme.success_blended().into())
+                    },
+                    border: Border {
+                        color: theme.colors.success.into(),
+                        width: structure.border_thickness,
+                        radius: structure.inner_border_radius.into()
+                    },
+                    text_color: if status.active() {
+                        theme.solid_bg.into()
+                    } else {
+                        theme.colors.success.into()
+                    },
+                    ..Default::default()
+                })
+        ]
+        .width(Fill)
+        .spacing(structure.small_gap)
+        .align_x(Alignment::Center)
+    };
+
+    let style = move |bg| ContainerStyle {
+        background: Some(bg),
         border: border::rounded(match direction {
             Direction::Right => Radius::default().left(structure.outer_border_radius),
             Direction::Left => Radius::default().right(structure.outer_border_radius),
@@ -107,11 +108,52 @@ pub fn render_call_members(
         ..Default::default()
     };
 
+    let content = w::stack![
+        w::column![
+            grid(),
+            own_in_call.then(|| {
+                w::row![
+                    animated_button("Leave Call")
+                        .on_press(ChatMessage::LeaveCall)
+                        .style(move |_, status| ButtonStyle {
+                            background: if status.active() {
+                                Some(theme.colors.error.into())
+                            } else {
+                                Some(theme.error_blended().into())
+                            },
+                            border: Border {
+                                color: theme.colors.error.into(),
+                                width: structure.border_thickness,
+                                radius: structure.inner_border_radius.into(),
+                            },
+                            text_color: if status.active() {
+                                theme.solid_bg.into()
+                            } else {
+                                theme.colors.error.into()
+                            },
+                            ..Default::default()
+                        })
+                ]
+                .align_y(Alignment::Center)
+                .padding(padding::bottom(rounding))
+            })
+        ]
+        .align_x(Alignment::Center),
+        (!own_in_call).then(|| {
+            w::container(join_stuff())
+                .style(move |_| style(theme.background.into()))
+                .width(Fill)
+                .height(Fill)
+                .align_y(Alignment::Center)
+        })
+    ]
+    .boxed();
+
     let call_content = w::container(
         w::container(content)
             .width(Fill)
             .height(Fill)
-            .style(move |_| style),
+            .style(move |_| style(theme.solid_bg.into())),
     )
     .padding(structure.border_thickness)
     .width(Fill)

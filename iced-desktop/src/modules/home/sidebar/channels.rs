@@ -533,7 +533,8 @@ fn render_channel(
         if expanded {
             let length = children.len();
 
-            let line_height = (item_height + structure.divider_width) * length as f32;
+            let line_height = item_height * length as f32
+                + structure.divider_width * length.saturating_sub(1) as f32;
 
             column = column.push_element(
                 w::container(w::stack([
@@ -618,10 +619,15 @@ fn render_channel(
         column.boxed()
     } else {
         if !room.is_dm() && room.has_call() {
-            let item_height = icon_size + structure.small_gap;
+            // `render_icon_with_has_speaking_circle` pads its icon by
+            // `gap * 3.0` on every side (room for the speaking-ring border,
+            // even while transparent), which otherwise isn't reflected here.
+            let speaking_ring_padding = 1.5 * structure.icon_gap_ratio * icon_size;
+            let item_height = icon_size + speaking_ring_padding + structure.small_gap;
 
             let participants = room.call().call_participants();
-            let line_height = (item_height + structure.divider_width) * participants.len() as f32;
+            let line_height = item_height * participants.len() as f32
+                + structure.divider_width * participants.len().saturating_sub(1) as f32;
 
             // While our own join is still on its way through the slow
             // steps, our entry shows where it is stuck instead of the

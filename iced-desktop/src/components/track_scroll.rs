@@ -133,6 +133,9 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
             );
 
             if let Some(value) = operation.value {
+                // Rounded to whole pixels, the scrollable's offset jitters
+                // by sub-pixel amounts every frame while animating
+                let value = value.round();
                 let state: &mut State = tree.state.downcast_mut();
                 if state.last_value != Some(value) {
                     state.last_value = Some(value);

@@ -55,6 +55,7 @@ pub enum ChatMessage {
     ContextMenu(ContextMenu),
     HelpHover(Option<HelpKey>),
     JoinCall,
+    LeaveCall,
 }
 
 impl HelpOverMessage for ChatMessage {
@@ -356,6 +357,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
     fn update(&mut self, msg: ChatMessage) -> Option<ChatAction> {
         match msg {
             ChatMessage::JoinCall => Some(ChatAction::JoinCall),
+            ChatMessage::LeaveCall => Some(ChatAction::LeaveCall),
             ChatMessage::None => None,
             ChatMessage::HelpHover(help) => Some(ChatAction::HelpHover(help)),
             ChatMessage::ToggleOverview => {
