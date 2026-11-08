@@ -133,6 +133,25 @@ impl PartialEq for CallMember {
 impl Eq for CallMember {}
 
 impl CallMember {
+    /// A stand-in for our own entry while a join is in progress but our
+    /// membership event hasn't been synced into the members yet, so
+    /// the join progress can be rendered from the moment the join was
+    /// started.
+    pub(crate) fn own_pending(
+        member: Member,
+        own_device: &UserDevice,
+        handle: CallParticipantHandle,
+    ) -> Self {
+        Self {
+            member,
+            device_id: Arc::new(own_device.device_id.clone()),
+            call_intent: Arc::new(CallIntent::Audio),
+            created: None,
+
+            handle,
+        }
+    }
+
     pub(crate) fn new(membership: &MembershipData, member: Member, call: &RoomCall) -> Self {
         let user_id = member.user_id().to_owned();
         let device_id = membership.device_id().to_owned();

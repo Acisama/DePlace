@@ -138,6 +138,10 @@ impl DePlaceRoom {
         }
         if call {
             self.call.members.read().hash(state);
+            // The join progress never touches the members while the join
+            // is on its way through the early steps, but progress
+            // widgets render it, so it must invalidate their caches
+            self.call.join_progress.get().hash(state);
             self.call
                 .active
                 .read()

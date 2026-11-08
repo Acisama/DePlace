@@ -37,8 +37,8 @@ use crate::Shared;
 use crate::audio::AudioThread;
 use crate::colors::DePlaceColor;
 use crate::matrix_api::matrixrtc::{LiveKitRoomManager, leave_matrixrtc_call};
-use crate::member::ProfileStore;
 use crate::member::synth::SignatureEvent;
+use crate::member::{Member, ProfileStore};
 use crate::room::call::{CallMember, CallMembers};
 use crate::state::UserDevice;
 use crate::theme::Theme;
@@ -273,6 +273,14 @@ impl RoomCall {
     /// one right now. Nothing once the call is live or was given up.
     pub fn join_progress(&self) -> Option<CallJoinStep> {
         *self.join_progress.get()
+    }
+
+    /// A stand-in call member for our own entry while a join is in
+    /// progress but our membership event hasn't made it into the call
+    /// members yet, with it the join progress can be rendered from
+    /// the moment the join was started.
+    pub fn own_pending_member(&self, member: Member) -> CallMember {
+        CallMember::own_pending(member, &self.own_device, self.own_handle.clone())
     }
 
     /// Returns the call handle for the given participant ID, creating it if necessary.

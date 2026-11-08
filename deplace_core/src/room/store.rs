@@ -294,6 +294,10 @@ impl RoomStore {
     pub fn own_device(&self) -> &UserDevice {
         &self.own_device
     }
+
+    pub fn profile_store(&self) -> &Arc<ProfileStore> {
+        &self.profile_store
+    }
 }
 
 async fn apply_parent_update(hierarchy: &Shared<SpaceHierarchy>, room: &Room) {
