@@ -41,8 +41,8 @@ use crate::{
     EMOJI_FONT, MONO_FONT,
     common::*,
     components::{
-        MediaType, PushElement, help_mode::MessageHelpKey, link::link, phosphor_icon,
-        profile::render_row_of_icons, render_media_failed_to_load, track_bounds::track_bounds,
+        MediaType, PushElement, bounds_button::bounds_button, help_mode::MessageHelpKey,
+        link::link, phosphor_icon, profile::render_row_of_icons, render_media_failed_to_load,
     },
     modules::home::overlay::{MediaOverlayParams, OverlayMediaType},
 };
@@ -81,13 +81,10 @@ pub fn render_event(
         .padding(structure.border_thickness)
         .boxed();
 
-    let content_element: Element<'static, TimelineItemMessage> =
-        track_bounds(inner_container, TimelineItemMessage::MessageEventBounds).into();
-
     w::container(
-        sweeten::widget::mouse_area(content_element)
-            .on_enter(|_, _| TimelineItemMessage::EventEnter)
-            .on_exit(|_, _| TimelineItemMessage::EventExit),
+        bounds_button(inner_container)
+            .on_enter(TimelineItemMessage::EventEnter)
+            .on_exit(|_| TimelineItemMessage::EventExit),
     )
     .padding(padding::top(if previous_is_event && !connect_previous {
         gap
@@ -790,54 +787,54 @@ fn render_edit_box(
 
     Some(
         w::text_editor(content)
-        .id(EDIT_INPUT_ID)
-        .on_action(TimelineItemMessage::EditAction)
-        .key_binding(|key| {
-            if !key.is_focused {
-                return None;
-            }
+            .id(EDIT_INPUT_ID)
+            .on_action(TimelineItemMessage::EditAction)
+            .key_binding(|key| {
+                if !key.is_focused {
+                    return None;
+                }
 
-            if !key.modifiers.shift()
-                && matches!(
+                if !key.modifiers.shift()
+                    && matches!(
+                        key.key,
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
+                    )
+                {
+                    return Some(text_editor::Binding::Custom(
+                        TimelineItemMessage::SubmitEdit,
+                    ));
+                }
+
+                if matches!(
                     key.key,
-                    iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
-                )
-            {
-                return Some(text_editor::Binding::Custom(
-                    TimelineItemMessage::SubmitEdit,
-                ));
-            }
+                    iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
+                ) {
+                    return Some(text_editor::Binding::Custom(
+                        TimelineItemMessage::SetIsEditing(false),
+                    ));
+                }
 
-            if matches!(
-                key.key,
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
-            ) {
-                return Some(text_editor::Binding::Custom(
-                    TimelineItemMessage::SetIsEditing(false),
-                ));
-            }
-
-            text_editor::Binding::from_key_press(key)
-        })
-        .size(structure.chat.text_size)
-        .padding(structure.small_gap)
-        .wrapping(text::Wrapping::WordOrGlyph)
-        .style(move |_, status| text_editor::Style {
-            background: theme.solid_bg.into(),
-            border: Border {
-                color: if status.active() {
-                    theme.accent.into()
-                } else {
-                    theme.border.into()
+                text_editor::Binding::from_key_press(key)
+            })
+            .size(structure.chat.text_size)
+            .padding(structure.small_gap)
+            .wrapping(text::Wrapping::WordOrGlyph)
+            .style(move |_, status| text_editor::Style {
+                background: theme.solid_bg.into(),
+                border: Border {
+                    color: if status.active() {
+                        theme.accent.into()
+                    } else {
+                        theme.border.into()
+                    },
+                    width: 1.0,
+                    radius: structure.inner_border_radius.into(),
                 },
-                width: 1.0,
-                radius: structure.inner_border_radius.into(),
-            },
-            placeholder: theme.text.muted.into(),
-            selection: theme.accent.into(),
-            value: theme.text.normal.into(),
-        })
-        .boxed(),
+                placeholder: theme.text.muted.into(),
+                selection: theme.accent.into(),
+                value: theme.text.normal.into(),
+            })
+            .boxed(),
     )
 }
 

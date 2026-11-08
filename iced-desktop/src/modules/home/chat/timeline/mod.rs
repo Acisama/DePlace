@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use chrono_tz::Tz;
@@ -26,15 +26,13 @@ use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
 use messages::{MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::widget::list;
 
+use crate::components::track_bounds::track_bounds;
 use crate::components::{PushElement, fills_parent, phosphor_icon};
 use crate::modules::home::overlay::{ContextMenu, ContextMenuKind, MediaOverlayParams, ModifyItem};
 use crate::modules::home::{
     COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, SOURCE_ICON, UNPIN_ICON,
 };
-use crate::{
-    common::*,
-    components::{track_bounds::track_bounds, track_scroll::track_scroll},
-};
+use crate::{common::*, components::track_scroll::track_scroll};
 
 pub mod messages;
 
@@ -203,14 +201,12 @@ pub struct ChatTimeline {
     loading_top: bool,
     loading_bottom: bool,
 
-    #[hash]
-    hovered_item_id: Option<String>,
+    hovered_item: Option<(String, Rectangle)>,
     #[hash]
     buttons_hovered: bool,
     #[hash]
     replying_to: Option<String>,
 
-    message_event_bounds: HashMap<String, Rectangle>,
     tile_bounds: Rectangle,
 
     content: list::Content<String, Arc<TimelineItem>>,
@@ -232,34 +228,20 @@ impl ExtraHash for ChatTimeline {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.room.hash_selective(state, false, true, true, false);
 
-        if self.hovered_item_id.is_some() {
+        if let Some((id, _)) = &self.hovered_item {
+            id.hash(state);
             self.scrolled_from_top.to_bits().hash(state);
             self.tile_bounds.x.to_bits().hash(state);
             self.tile_bounds.y.to_bits().hash(state);
             self.tile_bounds.width.to_bits().hash(state);
             self.tile_bounds.height.to_bits().hash(state);
         }
-        self.message_event_bounds.len().hash(state);
 
         self.system_messages_to_show.borrow().hash(state);
         self.timezone.borrow().hash(state);
         self.hour_format.borrow().hash(state);
         self.date_format.borrow().hash(state);
         self.data_size_unit.borrow().hash(state);
-
-        // sort for deterministic hashing
-        let mut sorted_keys: Vec<&String> = self.message_event_bounds.keys().collect();
-        sorted_keys.sort_unstable();
-
-        for key in sorted_keys {
-            if let Some(bounds) = self.message_event_bounds.get(key) {
-                key.hash(state);
-                bounds.x.to_bits().hash(state);
-                bounds.y.to_bits().hash(state);
-                bounds.width.to_bits().hash(state);
-                bounds.height.to_bits().hash(state);
-            }
-        }
     }
 }
 
@@ -318,11 +300,10 @@ impl ChatTimeline {
             loading_top: false,
             loading_bottom: false,
 
-            hovered_item_id: None,
+            hovered_item: None,
             buttons_hovered: false,
             replying_to: None,
 
-            message_event_bounds: HashMap::new(),
             // No-op until the first real measurement comes in via `ChatAreaBounds`.
             tile_bounds: Rectangle {
                 x: -1_000_000.0,
@@ -363,7 +344,7 @@ impl ChatTimeline {
     // overlays that are logically stacked on top. Clear hover state whenever a
     // modal opens so the floating buttons don't visually leak above it.
     pub fn clear_hover(&mut self) {
-        if let Some(item_id) = self.hovered_item_id.take()
+        if let Some((item_id, _)) = self.hovered_item.take()
             && let Some(item) = self.content.get_mut(&item_id)
         {
             Arc::make_mut(item).set_is_hovered(false);
@@ -681,14 +662,18 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             TimelineMessage::ContextMenu(menu) => Some(TimelineAction::ContextMenu(Box::new(menu))),
             TimelineMessage::HelpHover(help_key) => Some(TimelineAction::HelpHover(help_key)),
             TimelineMessage::ButtonsHovered { id, hovered } => {
-                if self.hovered_item_id.as_deref() != Some(id.as_str()) {
+                if self
+                    .hovered_item
+                    .as_ref()
+                    .is_some_and(|(old_id, _)| old_id != id.as_str())
+                {
                     return None;
                 }
 
                 self.buttons_hovered = hovered;
 
                 if !hovered {
-                    self.hovered_item_id = None;
+                    self.hovered_item = None;
                     if let Some(item) = self.content.get_mut(&id) {
                         Arc::make_mut(item).set_is_hovered(false);
                     }
@@ -764,29 +749,34 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             },
                         })
                     }
-                    TimelineItemAction::HoverChanged(hovered) => {
-                        if hovered {
-                            if let Some(old_id) = &self.hovered_item_id
-                                && old_id != &id
-                                && let Some(old_item) = self.content.get_mut(old_id)
-                            {
-                                Arc::make_mut(old_item).set_is_hovered(false);
-                            }
-
-                            if self.hovered_item_id.as_deref() != Some(&id) {
-                                self.buttons_hovered = false;
-                            }
-                            self.hovered_item_id = Some(id.clone());
-                        } else if self.hovered_item_id.as_deref() == Some(&id)
-                            && !self.buttons_hovered
+                    TimelineItemAction::HoverEntered(bounds) => {
+                        if let Some((old_id, _)) = &self.hovered_item
+                            && old_id != &id
+                            && let Some(old_item) = self.content.get_mut(old_id)
                         {
-                            self.hovered_item_id = None;
+                            Arc::make_mut(old_item).set_is_hovered(false);
                         }
-                        self.messages_version += 1;
+
+                        if self
+                            .hovered_item
+                            .as_ref()
+                            .is_some_and(|(old_id, _)| old_id != &id)
+                        {
+                            self.buttons_hovered = false;
+                        }
+                        self.hovered_item = Some((id.clone(), bounds));
                         None
                     }
-                    TimelineItemAction::MessageEventBounds(bounds) => {
-                        self.message_event_bounds.insert(id.clone(), bounds);
+                    TimelineItemAction::HoverExited => {
+                        if self
+                            .hovered_item
+                            .as_ref()
+                            .is_some_and(|(old_id, _)| old_id == &id)
+                            && !self.buttons_hovered
+                        {
+                            self.hovered_item = None;
+                        }
+                        self.messages_version += 1;
                         None
                     }
                     TimelineItemAction::Update => {
@@ -867,7 +857,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     }
                 };
 
-                if self.hovered_item_id.as_ref() == Some(&id)
+                if self
+                    .hovered_item
+                    .as_ref()
+                    .is_some_and(|(hover_id, _)| hover_id == &id)
                     && self.buttons_hovered
                     && let Some(item) = self.content.get_mut(&id)
                 {
@@ -1289,8 +1282,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         ]
         .height(Fill);
 
-        if let Some(hovered_item_id) = self.hovered_item_id.clone()
-            && let Some(bounds) = self.message_event_bounds.get(&hovered_item_id).cloned()
+        if let Some((hovered_item_id, bounds)) = self.hovered_item.clone()
             && let Some((
                 Some(identifier),
                 event_id,

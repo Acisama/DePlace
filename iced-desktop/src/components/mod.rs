@@ -23,6 +23,7 @@ use matrix_sdk::ruma::{OwnedUserId, serde::Base64};
 
 pub mod animated_button;
 pub mod animation_clock;
+pub mod bounds_button;
 pub mod call_grid;
 pub mod corner_badge;
 pub mod elapsed_time;

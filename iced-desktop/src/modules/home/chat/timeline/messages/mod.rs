@@ -55,7 +55,7 @@ pub enum TimelineItemMessage {
     None,
     JoinCall,
     NeedsMedia(NeedsMedia),
-    EventEnter,
+    EventEnter(Rectangle),
     EventExit,
     MediaMouseEnter,
     MediaMouseLeave,
@@ -64,7 +64,6 @@ pub enum TimelineItemMessage {
     SetIsEditing(bool),
     EditAction(iced::widget::text_editor::Action),
     SubmitEdit,
-    MessageEventBounds(Rectangle),
     OpenProfileOverlay {
         member: Member,
         bounds: Rectangle,
@@ -108,8 +107,8 @@ pub enum TimelineItemAction {
         message: Arc<MessageEvent>,
         event_id: OwnedEventId,
     },
-    MessageEventBounds(Rectangle),
-    HoverChanged(bool),
+    HoverEntered(Rectangle),
+    HoverExited,
     OpenProfileOverlay {
         member: Member,
         bounds: Rectangle,
@@ -444,9 +443,6 @@ impl TimelineItem {
             TimelineItemMessage::OpenProfileOverlay { member, bounds } => {
                 Some(TimelineItemAction::OpenProfileOverlay { member, bounds })
             }
-            TimelineItemMessage::MessageEventBounds(bounds) => {
-                Some(TimelineItemAction::MessageEventBounds(bounds))
-            }
             TimelineItemMessage::SetIsEditing(true) => {
                 if let TimelineItemKind::Message { message, .. } = &mut self.kind {
                     Arc::make_mut(message).is_editing = true;
@@ -527,13 +523,13 @@ impl TimelineItem {
                     None
                 }
             }
-            TimelineItemMessage::EventEnter => {
+            TimelineItemMessage::EventEnter(bounds) => {
                 self.set_hovered(true);
-                Some(TimelineItemAction::HoverChanged(true))
+                Some(TimelineItemAction::HoverEntered(bounds))
             }
             TimelineItemMessage::EventExit => {
                 self.set_hovered(false);
-                Some(TimelineItemAction::HoverChanged(false))
+                Some(TimelineItemAction::HoverExited)
             }
             TimelineItemMessage::NeedsMedia(media) => {
                 match &media {

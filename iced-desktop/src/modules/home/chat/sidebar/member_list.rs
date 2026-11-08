@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use deplace_core::member::room::RoomMembers;
 use iced::{Alignment, Length, widget::svg};
 use macros::iced_cache;
@@ -7,8 +5,8 @@ use macros::iced_cache;
 use crate::{
     common::*,
     components::{
-        PushElement, help_mode::ChatSidebarHelpKey, phosphor_icon, profile::MemberRenderExt,
-        track_bounds::track_bounds,
+        PushElement, bounds_button::bounds_button, help_mode::ChatSidebarHelpKey, phosphor_icon,
+        profile::MemberRenderExt,
     },
     modules::home::MIC_ICON,
 };
@@ -16,14 +14,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum MemberListMessage {
     None,
-    Bounds {
-        user_id: OwnedUserId,
-        bounds: Rectangle,
-    },
-    MemberPressed {
-        member: Member,
-        bounds: Rectangle,
-    },
+    MemberPressed { member: Member, bounds: Rectangle },
     MemberHovered(OwnedUserId),
     MemberUnhovered(OwnedUserId),
     HelpHover(Option<HelpKey>),
@@ -50,8 +41,6 @@ pub struct MemberList {
     #[hash]
     hovered_member: Option<OwnedUserId>,
 
-    member_bounds: HashMap<OwnedUserId, Rectangle>,
-
     #[hash]
     room_id: OwnedRoomId,
 }
@@ -70,7 +59,6 @@ impl MemberList {
             members: room.members(),
             hovered_member: None,
 
-            member_bounds: HashMap::new(),
             room_id: room.room_id().to_owned(),
         }
     }
@@ -81,10 +69,6 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
         match message {
             MemberListMessage::HelpHover(help_key) => Some(MemberListAction::HelpHover(help_key)),
             MemberListMessage::None => None,
-            MemberListMessage::Bounds { user_id, bounds } => {
-                self.member_bounds.insert(user_id, bounds);
-                None
-            }
             MemberListMessage::MemberPressed { member, bounds } => {
                 tracing::trace!(
                     "Member {:?} pressed at bounds {:?}",
@@ -135,7 +119,6 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                             ]
                             .extend(members.iter().map(|member| {
                                 let id = member.user_id().to_owned();
-                                let bounds = self.member_bounds.get(&id).cloned();
                                 let is_hovered = self.hovered_member.as_ref() == Some(&id);
 
                                 let bg_color = if is_hovered {
@@ -144,59 +127,55 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                                     theme.solid_bg.into()
                                 };
 
-                                track_bounds(
-                                    w::mouse_area(
-                                        w::container(
-                                            w::row![
-                                                member.render_icon_with_presence(
-                                                    icon_size, theme, structure, bg_color,
-                                                ),
-                                                member.render_name(structure.font_size)
-                                            ]
-                                            .padding(
-                                                padding::vertical(structure.small_gap * 0.75)
-                                                    .horizontal(structure.small_gap),
-                                            )
-                                            .width(Fill)
-                                            .spacing(structure.gap)
-                                            .align_y(Alignment::Center),
+                                let press_member = member.clone();
+
+                                let enter_id = id.clone();
+                                let leave_id = id.clone();
+
+                                bounds_button(
+                                    w::container(
+                                        w::row![
+                                            member.render_icon_with_presence(
+                                                icon_size, theme, structure, bg_color,
+                                            ),
+                                            member.render_name(structure.font_size)
+                                        ]
+                                        .padding(
+                                            padding::vertical(structure.small_gap * 0.75)
+                                                .horizontal(structure.small_gap),
                                         )
-                                        .style(move |_| {
-                                            ContainerStyle {
-                                                background: is_hovered
-                                                    .then_some(theme.solid_hover_bg.into()),
-                                                border: Border {
-                                                    color: if is_hovered {
-                                                        theme.border.into()
-                                                    } else {
-                                                        Color::TRANSPARENT
-                                                    },
-                                                    width: structure.border_thickness,
-                                                    radius: structure.inner_border_radius.into(),
-                                                },
-                                                ..Default::default()
-                                            }
-                                        }),
+                                        .width(Fill)
+                                        .spacing(structure.gap)
+                                        .align_y(Alignment::Center),
                                     )
-                                    .interaction(Interaction::Pointer)
-                                    .on_enter(MemberListMessage::MemberHovered(id.clone()))
-                                    .on_exit(MemberListMessage::MemberUnhovered(id.clone()))
-                                    .on_press(
-                                        if let Some(bounds) = bounds {
-                                            MemberListMessage::MemberPressed {
-                                                member: member.clone(),
-                                                bounds,
-                                            }
-                                        } else {
-                                            MemberListMessage::None
-                                        },
-                                    ),
-                                    move |bounds| MemberListMessage::Bounds {
-                                        user_id: id.clone(),
-                                        bounds,
-                                    },
+                                    .style(move |_| {
+                                        ContainerStyle {
+                                            background: is_hovered
+                                                .then_some(theme.solid_hover_bg.into()),
+                                            border: Border {
+                                                color: if is_hovered {
+                                                    theme.border.into()
+                                                } else {
+                                                    Color::TRANSPARENT
+                                                },
+                                                width: structure.border_thickness,
+                                                radius: structure.inner_border_radius.into(),
+                                            },
+                                            ..Default::default()
+                                        }
+                                    }),
                                 )
-                                .into()
+                                .on_enter(move |_| {
+                                    MemberListMessage::MemberHovered(enter_id.clone())
+                                })
+                                .on_exit(move |_| {
+                                    MemberListMessage::MemberUnhovered(leave_id.clone())
+                                })
+                                .on_press(move |bounds| MemberListMessage::MemberPressed {
+                                    member: press_member.clone(),
+                                    bounds,
+                                })
+                                .boxed()
                             }))
                             .padding(structure.divider_width),
                         )
