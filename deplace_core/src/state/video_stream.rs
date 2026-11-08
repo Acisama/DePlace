@@ -536,6 +536,7 @@ fn pump(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::let_underscore_must_use)]
 mod tests {
     use super::*;
     use std::{path::PathBuf, process::Command, time::Duration};
@@ -944,8 +945,7 @@ mod tests {
         let mut writer = std::io::BufWriter::new(
             std::fs::File::create(&encrypted_path).expect("creating encrypted test file"),
         );
-        let mut plain_reader =
-            std::io::BufReader::new(std::fs::File::open(&plain_path).unwrap());
+        let mut plain_reader = std::io::BufReader::new(std::fs::File::open(&plain_path).unwrap());
         let mut encryptor = AttachmentEncryptor::new(&mut plain_reader);
         std::io::copy(&mut encryptor, &mut writer).unwrap();
         let info: MediaEncryptionInfo = encryptor.finish();
@@ -958,8 +958,7 @@ mod tests {
 
         let started = std::time::Instant::now();
         let opened = open_stream(&encrypted_path, Some(&encrypted_file), "fakesink");
-        let (video, _feeder) =
-            opened.expect("streaming encrypted video should start");
+        let (video, _feeder) = opened.expect("streaming encrypted video should start");
         let elapsed = started.elapsed();
         println!("opened huge moov-at-end video in {elapsed:?}");
         assert!(

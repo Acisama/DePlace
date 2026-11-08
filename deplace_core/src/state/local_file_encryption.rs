@@ -116,8 +116,7 @@ impl<R: Read + Seek> AttachmentReader<R> {
         let ruma::events::room::EncryptedFileInfo::V2(info) = info.encryption_info else {
             return Err(DecryptorError::UnknownVersion);
         };
-        let cipher =
-            <Ctr128BE<Aes256>>::new(info.k.as_inner().into(), info.iv.as_inner().into());
+        let cipher = <Ctr128BE<Aes256>>::new(info.k.as_inner().into(), info.iv.as_inner().into());
         Ok(Self { inner, cipher })
     }
 
@@ -140,6 +139,7 @@ impl<R: Read + Seek> Read for AttachmentReader<R> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::io::Read;

@@ -67,7 +67,7 @@ impl DePlaceRoomType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DePlaceRoom {
     pub room: Room,
     pub(crate) room_id: Arc<OwnedRoomId>,
@@ -80,6 +80,15 @@ pub struct DePlaceRoom {
     pub(crate) call: Arc<RoomCall>,
 
     pub(crate) own_handle: CallParticipantHandle,
+}
+
+impl std::fmt::Debug for DePlaceRoom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DePlaceRoom")
+            .field("room_id", &self.room_id)
+            .field("room_type", &self.room_type)
+            .finish()
+    }
 }
 
 impl DePlaceRoom {

@@ -676,7 +676,65 @@ mod iced_caches {
         }
     }
 
+    pub type ImageCache = MediaCache<String, (ImageHandle, Vec<u8>, Option<(u32, u32)>)>;
+
+    impl CacheLoadingExt<MediaSource> for ImageCache {
+        async fn load_content(&self, source: &MediaSource) -> CacheLoadingResult {
+            use matrix_sdk::media::UniqueKey;
+
+            let key = &source.unique_key();
+            let media_res = MediaLoaded::Video { key: key.clone() };
+
+            if self.cache.get(key).is_some() {
+                return CacheLoadingResult {
+                    loaded: media_res,
+                    status: CacheResultStatus::CacheHit,
+                };
+            }
+
+            self.cache.insert(key.clone(), MediaState::Loading);
+
+            let request = &MediaRequestParameters {
+                source: source.clone(),
+                format: MediaFormat::File,
+            };
+
+            let mut status = CacheResultStatus::Success;
+            let res = match self.client.media().get_media_content(request, true).await {
+                Ok(bytes) => {
+                    let dimensions = image::ImageReader::new(Cursor::new(&bytes))
+                        .with_guessed_format()
+                        .map_err(|e| tracing::error!("Failed to read image: {e}"))
+                        .ok()
+                        .and_then(|reader| {
+                            reader
+                                .into_dimensions()
+                                .map_err(|e| tracing::error!("Failed to read dimensions: {e}"))
+                                .ok()
+                        });
+                    MediaState::Loaded(Arc::new((
+                        ImageHandle::from_bytes(bytes.clone()),
+                        bytes,
+                        dimensions,
+                    )))
+                }
+                Err(e) => {
+                    tracing::error!("Failed to fetch media: {e}");
+                    status = CacheResultStatus::Failure(e.to_string());
+                    MediaState::Failed
+                }
+            };
+
+            self.cache.insert(key.clone(), res);
+
+            CacheLoadingResult {
+                loaded: media_res,
+                status,
+            }
+        }
+    }
     #[cfg(test)]
+    #[allow(clippy::unwrap_used)]
     mod tests {
         use super::*;
 
@@ -761,64 +819,6 @@ mod iced_caches {
             assert!(!part.is_file());
             assert!(!part_info.is_file());
             assert!(encrypted.is_file());
-        }
-    }
-
-    pub type ImageCache = MediaCache<String, (ImageHandle, Vec<u8>, Option<(u32, u32)>)>;
-
-    impl CacheLoadingExt<MediaSource> for ImageCache {
-        async fn load_content(&self, source: &MediaSource) -> CacheLoadingResult {
-            use matrix_sdk::media::UniqueKey;
-
-            let key = &source.unique_key();
-            let media_res = MediaLoaded::Video { key: key.clone() };
-
-            if self.cache.get(key).is_some() {
-                return CacheLoadingResult {
-                    loaded: media_res,
-                    status: CacheResultStatus::CacheHit,
-                };
-            }
-
-            self.cache.insert(key.clone(), MediaState::Loading);
-
-            let request = &MediaRequestParameters {
-                source: source.clone(),
-                format: MediaFormat::File,
-            };
-
-            let mut status = CacheResultStatus::Success;
-            let res = match self.client.media().get_media_content(request, true).await {
-                Ok(bytes) => {
-                    let dimensions = image::ImageReader::new(Cursor::new(&bytes))
-                        .with_guessed_format()
-                        .map_err(|e| tracing::error!("Failed to read image: {e}"))
-                        .ok()
-                        .and_then(|reader| {
-                            reader
-                                .into_dimensions()
-                                .map_err(|e| tracing::error!("Failed to read dimensions: {e}"))
-                                .ok()
-                        });
-                    MediaState::Loaded(Arc::new((
-                        ImageHandle::from_bytes(bytes.clone()),
-                        bytes,
-                        dimensions,
-                    )))
-                }
-                Err(e) => {
-                    tracing::error!("Failed to fetch media: {e}");
-                    status = CacheResultStatus::Failure(e.to_string());
-                    MediaState::Failed
-                }
-            };
-
-            self.cache.insert(key.clone(), res);
-
-            CacheLoadingResult {
-                loaded: media_res,
-                status,
-            }
         }
     }
 }
