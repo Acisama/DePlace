@@ -5,7 +5,7 @@ use components::{
     GeneralSection, GeneralSectionAction, GeneralSectionMessage, UpdatesSection,
     UpdatesSectionAction, UpdatesSectionMessage,
 };
-use deplace_core::{settings::SettingsSection, state::UserDevice};
+use deplace_core::{cache::ProfileAvatars, settings::SettingsSection, state::UserDevice};
 use iced::{
     Alignment::{self, Center},
     Length,
@@ -51,14 +51,13 @@ pub struct SettingsView {
     active_section: SettingsSection,
 
     own_display_name: Receiver<Option<String>>,
-    own_avatar: Receiver<Avatar>,
+    own_avatar: Receiver<Option<ProfileAvatars>>,
     own_device: Arc<UserDevice>,
 }
 
 impl ExtraHash for SettingsView {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.own_display_name.borrow().hash(state);
-        self.own_avatar.borrow().hash(state);
     }
 }
 
@@ -289,26 +288,28 @@ fn render_profile_section(
     theme: Theme,
     structure: Structure,
     active_section: SettingsSection,
-    avatar: Avatar,
+    avatar: Option<ProfileAvatars>,
     display_name: Option<String>,
     user_id: &OwnedUserId,
 ) -> Element<'static, SettingsMessage> {
     let is_selected = active_section == SettingsSection::Profile;
     let color = DePlaceColor::from(user_id.as_ref()).to_iced();
 
-    let fallback = || {
+    let fallback_name = display_name.clone();
+    let fallback_id = user_id.to_string();
+    let fallback = Box::new(move |_, opacity| {
         text_icon(
-            display_name
+            fallback_name
                 .clone()
-                .unwrap_or(user_id.to_string())
+                .unwrap_or(fallback_id.clone())
                 .chars()
                 .next()
                 .unwrap_or('?'),
             structure.server_column.icon_size,
             structure.server_column.icon_size / 2.0,
-            color,
+            color.scale_alpha(opacity),
         )
-    };
+    });
 
     w::button(
         w::row![

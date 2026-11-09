@@ -5,6 +5,7 @@ use std::{
     hash::Hash,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use anyhow::Result;
@@ -23,7 +24,7 @@ use tokio::sync::watch::{self, Receiver, Sender};
 use crate::{
     APP_NAME,
     audio::AudioThread,
-    cache::ThumbnailCache,
+    cache::{ProfileAvatars, ThumbnailCache},
     call::CallRegistry,
     keybinds::Keybinds,
     matrix_api::{
@@ -37,9 +38,6 @@ use crate::{
     settings::Settings,
     window_title,
 };
-
-#[cfg(feature = "iced")]
-use crate::Avatar;
 
 #[derive(Debug, Clone)]
 pub struct ImportantPaths {
@@ -221,10 +219,7 @@ pub(crate) struct AppStateInner {
 
     pub(crate) own_display_name: Sender<Option<String>>,
     pub(crate) own_avatar_url: Sender<Option<Arc<OwnedMxcUri>>>,
-    #[cfg(feature = "iced")]
-    pub(crate) own_avatar_handle: Sender<Avatar>,
-    #[cfg(feature = "iced")]
-    pub(crate) own_small_avatar_handle: Sender<Avatar>,
+    pub(crate) own_avatar: Sender<Option<ProfileAvatars>>,
 
     keybinds: Sender<Keybinds>,
 
@@ -298,13 +293,16 @@ impl AppState {
         let breadcrumbs_content = BreadcrumbsContent::fetch(&client).await;
         let last_server_order = ServerOrderContent::fetch(&client).await;
 
-        let profile_store = Arc::new(ProfileStore::new(&client));
+        let better_thumbnail_cache = Arc::new(ThumbnailCache::new(client.clone()));
+
+        let profile_store = Arc::new(ProfileStore::new(&client, better_thumbnail_cache.clone()));
         let room_store = Arc::new(
             RoomStore::new(
                 &client,
                 profile_store.clone(),
                 last_server_order,
                 own_device.clone(),
+                better_thumbnail_cache.clone(),
             )
             .await,
         );
@@ -371,12 +369,15 @@ impl AppState {
             own_device.clone(),
         );
 
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
         Ok(Self {
             inner: Arc::new(AppStateInner {
                 #[cfg(feature = "iced_desktop")]
                 thumbnail_cache: cache::ThumbnailCache::new(client.clone()),
 
-                better_thumbnail_cache: Arc::new(ThumbnailCache::new(client.clone())),
+                own_avatar: Sender::default(),
+                better_thumbnail_cache,
 
                 #[cfg(feature = "iced_desktop")]
                 video_cache: cache::VideoCache::new(
@@ -400,10 +401,6 @@ impl AppState {
 
                 own_display_name,
                 own_avatar_url,
-                #[cfg(feature = "iced")]
-                own_avatar_handle: Sender::default(),
-                #[cfg(feature = "iced")]
-                own_small_avatar_handle: Sender::default(),
 
                 notification_manager: NotificationManager::default(),
 
@@ -491,14 +488,8 @@ impl AppState {
         self.inner.own_avatar_url.subscribe()
     }
 
-    #[cfg(feature = "iced")]
-    pub fn own_avatar(&self) -> Receiver<Avatar> {
-        self.inner.own_avatar_handle.subscribe()
-    }
-
-    #[cfg(feature = "iced")]
-    pub fn own_small_avatar(&self) -> Receiver<Avatar> {
-        self.inner.own_small_avatar_handle.subscribe()
+    pub fn own_avatar(&self) -> Receiver<Option<ProfileAvatars>> {
+        self.inner.own_avatar.subscribe()
     }
 
     pub fn keybinds(&self) -> Receiver<Keybinds> {

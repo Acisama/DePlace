@@ -21,9 +21,6 @@ pub mod messages;
 pub mod profile_data;
 pub mod sync;
 
-#[cfg(feature = "iced")]
-pub mod avatar;
-
 use crate::{
     DEVICE_DISPLAY_NAME,
     keybinds::Keybinds,

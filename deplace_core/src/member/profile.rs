@@ -9,10 +9,10 @@ use ruma::{
     },
 };
 
-#[cfg(feature = "iced")]
-use crate::Avatar;
+use crate::cache::{ProfileAvatars, ThumbnailCache};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
+#[non_exhaustive]
 pub struct ProfileData {
     pub(crate) user_id: Arc<OwnedUserId>,
     pub(crate) avatar_url: Option<OwnedMxcUri>,
@@ -23,10 +23,8 @@ pub struct ProfileData {
 
     pub(crate) membership: MembershipState,
     pub(crate) power_level: UserPowerLevel,
-    #[cfg(feature = "iced")]
-    pub(crate) avatar_handle: Avatar,
-    #[cfg(feature = "iced")]
-    pub(crate) small_avatar_handle: Avatar,
+
+    pub(crate) avatars: Option<ProfileAvatars>,
 }
 
 impl ProfileData {
@@ -41,40 +39,49 @@ impl ProfileData {
 
             membership: MembershipState::Join,
             power_level: UserPowerLevel::Infinite,
-            #[cfg(feature = "iced")]
-            avatar_handle: Avatar::NoAvatar,
-            #[cfg(feature = "iced")]
-            small_avatar_handle: Avatar::NoAvatar,
+
+            avatars: None,
         }
     }
 }
 
-impl From<&RoomMember> for ProfileData {
-    fn from(m: &RoomMember) -> Self {
+impl ProfileData {
+    pub(crate) fn from_room_member(
+        m: &RoomMember,
+        cache: &ThumbnailCache,
+        eagerly_load: bool,
+    ) -> Self {
+        let avatar_url = m.avatar_url().map(|u| u.to_owned());
+        let avatars = avatar_url
+            .clone()
+            .map(|url| ProfileAvatars::get(cache, url));
+
+        if eagerly_load && let Some(avatar) = &avatars {
+            avatar.start_load_all();
+        }
+
         let mut member = Self {
             user_id: Arc::new(m.user_id().to_owned()),
             membership: m.membership().clone(),
             power_level: m.power_level(),
-            avatar_url: m.avatar_url().map(|u| u.to_owned()),
+            avatar_url,
 
             displayname: m.display_name().map(|n| n.to_owned()),
             display_string: String::new(),
             initial: '?',
 
-            #[cfg(feature = "iced")]
-            avatar_handle: Avatar::NoAvatar,
-            #[cfg(feature = "iced")]
-            small_avatar_handle: Avatar::NoAvatar,
+            avatars,
         };
 
         member.calculate_strings();
         member
     }
-}
 
-impl ProfileData {
-    pub(crate) fn avatar_url(&self) -> Option<&OwnedMxcUri> {
-        self.avatar_url.as_ref()
+    pub(crate) fn reload_avatars(&mut self, new_url: Option<OwnedMxcUri>, cache: &ThumbnailCache) {
+        if let Some(url) = new_url.clone() {
+            self.avatars = Some(ProfileAvatars::get(cache, url));
+        }
+        self.avatar_url = new_url;
     }
 
     pub(crate) fn calculate_strings(&mut self) {

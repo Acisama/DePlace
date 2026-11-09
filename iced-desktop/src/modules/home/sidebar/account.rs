@@ -1,4 +1,4 @@
-use deplace_core::state::UserDevice;
+use deplace_core::{cache::ProfileAvatars, state::UserDevice};
 use iced::Alignment;
 use macros::{iced_cache, iced_icon};
 
@@ -26,14 +26,13 @@ pub struct AccountView {
     profile_store: Arc<ProfileStore>,
 
     own_display_name: Receiver<Option<String>>,
-    own_avatar: Receiver<Avatar>,
+    own_avatar: Receiver<Option<ProfileAvatars>>,
     own_device: Arc<UserDevice>,
 }
 
 impl ExtraHash for AccountView {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.own_display_name.borrow().hash(state);
-        self.own_avatar.borrow().hash(state);
     }
 }
 
@@ -43,7 +42,7 @@ impl AccountView {
             profile_store: state.profile_store(),
 
             own_display_name: state.own_display_name(),
-            own_avatar: state.own_small_avatar(),
+            own_avatar: state.own_avatar(),
             own_device: state.own_device(),
         }
     }
@@ -75,9 +74,16 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
 
         let initial = display_name.chars().next().unwrap_or('?');
 
-        let color = DePlaceColor::from(user_id.as_str()).into();
+        let color = DePlaceColor::from(user_id.as_str()).to_iced();
 
-        let fallback = move || text_icon(initial, button_size, button_size * 0.5, color);
+        let fallback = Box::new(move |_, opacity| {
+            text_icon(
+                initial,
+                button_size,
+                button_size * 0.5,
+                color.scale_alpha(opacity),
+            )
+        });
         let presence = self.profile_store.get_presence(&user_id);
 
         let avatar = render_avatar(

@@ -2,10 +2,10 @@ use std::{collections::HashSet, sync::Arc};
 
 use dashmap::DashMap;
 use matrix_sdk::{Client, Room, RoomMemberships, room::RoomMember};
-use ruma::{OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UserId};
+use ruma::{OwnedRoomId, OwnedUserId, RoomId, UserId};
 use tokio::sync::watch;
 
-use crate::Shared;
+use crate::{Shared, cache::ThumbnailCache};
 
 use super::{
     Member,
@@ -14,29 +14,39 @@ use super::{
     user_data::{CustomData, Presence, UserData},
 };
 
-#[cfg(feature = "iced")]
-use crate::Avatar;
-
 pub type RoomMemberMap = DashMap<OwnedRoomId, Arc<RoomMembers>>;
 pub type UserMap = DashMap<OwnedUserId, (Arc<OwnedUserId>, Arc<Shared<UserData>>)>;
 
-#[derive(Debug)]
 pub struct ProfileStore {
     client: Client,
     handle: tokio::runtime::Handle,
+
     room_map: RoomMemberMap,
     user_map: UserMap,
+
+    thumbnail_cache: Arc<ThumbnailCache>,
+
     pub(crate) changed: watch::Sender<()>,
 }
 
+impl std::fmt::Debug for ProfileStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProfileStore")
+            .field("rooms", &self.room_map.len())
+            .field("users", &self.user_map.len())
+            .finish()
+    }
+}
+
 impl ProfileStore {
-    pub fn new(client: &Client) -> Self {
+    pub fn new(client: &Client, thumbnail_cache: Arc<ThumbnailCache>) -> Self {
         Self {
             client: client.clone(),
             handle: tokio::runtime::Handle::current(),
             room_map: RoomMemberMap::default(),
             user_map: UserMap::default(),
 
+            thumbnail_cache,
             changed: watch::channel(()).0,
         }
     }
@@ -101,6 +111,7 @@ impl ProfileStore {
     ) {
         let client = self.client.clone();
         let changed = self.changed.clone();
+        let thumbnail_cache = self.thumbnail_cache.clone();
 
         self.handle.spawn(async move {
             let Some(room) = client.get_room(&room_id) else {
@@ -112,51 +123,9 @@ impl ProfileStore {
                 Err(e) => return tracing::warn!("get_member {user_id} in {room_id}: {e}"),
             };
 
-            let data = ProfileData::from(&m);
-            let url = data.avatar_url().cloned();
+            let data = ProfileData::from_room_member(&m, &thumbnail_cache, false);
             cell.set(data);
             changed.send_modify(|_| ());
-
-            if cfg!(feature = "iced") {
-                let url_clone = url.clone();
-                let changed_clone = changed.clone();
-                let client_clone = client.clone();
-                let cell_clone = cell.clone();
-                futures::future::join(
-                    async move {
-                        let avatar = Avatar::load_avatar(&client, url.clone(), false).await;
-                        cell.change(|d| d.avatar_handle = avatar.clone());
-                        changed.send_modify(|_| ());
-                    },
-                    async move {
-                        let small_avatar =
-                            Avatar::load_avatar(&client_clone, url_clone, true).await;
-                        cell_clone.change(|d| d.small_avatar_handle = small_avatar.clone());
-                        changed_clone.send_modify(|_| ());
-                    },
-                )
-                .await;
-            }
-        });
-    }
-
-    #[cfg(feature = "iced")]
-    fn spawn_avatar_load(&self, cell: Arc<Shared<ProfileData>>, url: Option<OwnedMxcUri>) {
-        let client = self.client.clone();
-        let changed = self.changed.clone();
-        let url_clone = url.clone();
-        let changed_clone = changed.clone();
-        let client_clone = client.clone();
-        let cell_clone = cell.clone();
-        self.handle.spawn(async move {
-            let avatar = Avatar::load_avatar(&client, url.clone(), false).await;
-            cell.change(|d| d.avatar_handle = avatar.clone());
-            changed.send_modify(|_| ());
-        });
-        self.handle.spawn(async move {
-            let small_avatar = Avatar::load_avatar(&client_clone, url_clone, true).await;
-            cell_clone.change(|d| d.small_avatar_handle = small_avatar.clone());
-            changed_clone.send_modify(|_| ());
         });
     }
 
@@ -227,12 +196,8 @@ impl ProfileStore {
             }
 
             let (_, user_data) = self.user_cell(user_id);
-            let profile_data = ProfileData::from(member);
-            let url = profile_data.avatar_url().cloned();
+            let profile_data = ProfileData::from_room_member(member, &self.thumbnail_cache, true);
             let room_data = Arc::new(Shared::new(profile_data));
-
-            #[cfg(feature = "iced")]
-            self.spawn_avatar_load(room_data.clone(), url);
 
             let member = Member {
                 user_id: Arc::new(user_id.to_owned()),

@@ -23,6 +23,7 @@ use deplace_core::{
     Shared,
     cache::{DePlaceImage, DePlaceThumbnailShared, MediaState, ThumbnailLoader},
 };
+use iced::Length::Fill;
 use iced::{
     Color, Element, Event, Length, Renderer, Size, Theme, Vector, Widget as _,
     advanced::{
@@ -37,11 +38,17 @@ use iced::{
 /// How long the fallback takes to fade out once the real content is ready.
 const FADE_DURATION: Duration = Duration::from_millis(250);
 
-type Success<'a, Message, I> = Box<dyn Fn(&I, Length, Length, Radius) -> Element<'a, Message> + 'a>;
+/// `width`/`height` aren't passed to either closure: `RenderMedia` already
+/// owns that sizing contract via its own `width`/`height` fields, which
+/// `layout()` turns into the `Limits` whatever this content resolves to
+/// gets laid out with -- regardless of whether that happens through an
+/// outer wrapping `Container` or through `RenderMedia`'s own `size()`
+/// being read by a plain `Row`/`Column`. Implementations just need to use
+/// `Length::Fill` for their own root widget to pick that up.
+type Success<'a, Message, I> = Box<dyn Fn(&I, Radius) -> Element<'a, Message> + 'a>;
 /// `alpha` goes from `1.0` (freshly shown) down to `0.0` (fully faded out,
 /// right before being dropped) while the real content fades in underneath.
-pub type Fallback<'a, Message> =
-    Box<dyn Fn(Length, Length, Radius, f32) -> Element<'a, Message> + 'a>;
+pub type Fallback<'a, Message> = Box<dyn Fn(Radius, f32) -> Element<'a, Message> + 'a>;
 
 /// Builds a [`RenderMedia`]. `start` is called once, right away, with a
 /// clone of `cell` -- typically `|cell| cell.start_loading::<ImageLoader>()`.
@@ -55,8 +62,8 @@ pub fn render_media<'a, Message, I>(
     width: impl Into<Length>,
     height: impl Into<Length>,
     radius: impl Into<Radius>,
-    success: impl Fn(&I, Length, Length, Radius) -> Element<'a, Message> + 'a,
-    fallback: impl Fn(Length, Length, Radius, f32) -> Element<'a, Message> + 'a,
+    success: impl Fn(&I, Radius) -> Element<'a, Message> + 'a,
+    fallback: impl Fn(Radius, f32) -> Element<'a, Message> + 'a,
 ) -> RenderMedia<'a, Message, I>
 where
     Message: 'a,
@@ -112,8 +119,8 @@ where
         width: impl Into<Length>,
         height: impl Into<Length>,
         radius: impl Into<Radius>,
-        success: impl Fn(&I, Length, Length, Radius) -> Element<'a, Message> + 'a,
-        fallback: impl Fn(Length, Length, Radius, f32) -> Element<'a, Message> + 'a,
+        success: impl Fn(&I, Radius) -> Element<'a, Message> + 'a,
+        fallback: impl Fn(Radius, f32) -> Element<'a, Message> + 'a,
     ) -> Self {
         // Safe to call every time this gets (re)built, not just the first:
         // `start_loading` already no-ops once the cell has moved past
@@ -205,25 +212,28 @@ where
         phase: Phase,
     ) -> Element<'a, Message> {
         match phase {
-            Phase::Pending => fallback(width, height, radius, 1.0),
+            Phase::Pending => fallback(radius, 1.0),
             Phase::Done => match cell.read().as_ref() {
-                MediaState::Loaded(item) => success(item, width, height, radius),
-                _ => fallback(width, height, radius, 1.0),
+                MediaState::Loaded(item) => success(item, radius),
+                _ => fallback(radius, 1.0),
             },
             Phase::Fading(start) => {
                 let t = (start.elapsed().as_secs_f32() / FADE_DURATION.as_secs_f32()).min(1.0);
                 match cell.read().as_ref() {
-                    MediaState::Loaded(item) => w::stack![
-                        success(item, width, height, radius),
-                        fallback(width, height, radius, 1.0 - t),
-                    ]
-                    .width(width)
-                    .height(height)
-                    .boxed(),
+                    // The stack is the one thing here that still needs an
+                    // explicit size: both layers are `Fill`-sized to cover
+                    // whatever box *it* is given, so something has to be
+                    // the authority on what that box actually is.
+                    MediaState::Loaded(item) => {
+                        w::stack![success(item, radius), fallback(radius, 1.0 - t),]
+                            .width(width)
+                            .height(height)
+                            .boxed()
+                    }
                     // Shouldn't happen (nothing moves a cell backwards out
                     // of `Loaded`), but fall back to the plain fallback
                     // rather than panicking if it ever does.
-                    _ => fallback(width, height, radius, 1.0 - t),
+                    _ => fallback(radius, 1.0 - t),
                 }
             }
         }
@@ -517,32 +527,22 @@ pub fn render_image<'a, Message: 'a>(
     )
 }
 
-fn render_deplace_image<'a, Message>(
-    image: &DePlaceImage,
-    width: Length,
-    height: Length,
-    radius: Radius,
-) -> Element<'a, Message> {
+fn render_deplace_image<'a, Message>(image: &DePlaceImage, radius: Radius) -> Element<'a, Message> {
     match image {
         DePlaceImage::Raster(handle) => w::image(handle)
-            .width(width)
-            .height(height)
+            .width(Fill)
+            .height(Fill)
             .border_radius(radius)
-            .content_fit(iced::ContentFit::Contain)
+            .content_fit(iced::ContentFit::Cover)
             .boxed(),
-        DePlaceImage::Svg(handle) => w::svg(handle.clone()).width(width).height(height).boxed(),
+        DePlaceImage::Svg(handle) => w::svg(handle.clone()).width(Fill).height(Fill).boxed(),
     }
 }
 
-fn render_image_fallback<'a, Message>(
-    width: Length,
-    height: Length,
-    radius: Radius,
-    opacity: f32,
-) -> Element<'a, Message> {
+fn render_image_fallback<'a, Message>(radius: Radius, opacity: f32) -> Element<'a, Message> {
     w::container(w::text("Image not available"))
-        .width(width)
-        .height(height)
+        .width(Fill)
+        .height(Fill)
         .style(move |_| {
             w::container::Style::default()
                 .border(border::rounded(radius))

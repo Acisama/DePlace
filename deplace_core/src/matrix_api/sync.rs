@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::{pin::pin, sync::Arc};
 
 use crate::audio::AudioThread;
+use crate::cache::ProfileAvatars;
 use crate::call::play_signature_samples;
 use crate::member::ProfileStore;
 use crate::member::synth::SignatureEvent;
@@ -16,11 +17,6 @@ use crate::{
 use futures_util::StreamExt;
 use matrix_sdk::{Client, config::SyncSettings, ruma::presence::PresenceState, sync::SyncResponse};
 use matrix_sdk_base::RoomInfoNotableUpdateReasons;
-
-#[cfg(feature = "iced")]
-use crate::{Avatar, big_thumbnail_format};
-#[cfg(feature = "iced")]
-use iced::advanced::image::Handle as ImageHandle;
 
 use super::matrixrtc::{cleanup_ghost_calls, handle_call_member_change, handle_to_device_messages};
 use super::members::handle_member_event;
@@ -157,59 +153,19 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
     }
 
     match account.get_avatar_url().await {
-        Ok(url) => {
-            state.inner.own_avatar_url.send_replace(url.map(Arc::new));
+        Ok(original) => {
+            let url = original.clone().map(Arc::new);
+            let changed = state.inner.own_avatar_url.borrow().as_ref() != url.as_ref();
+            state.inner.own_avatar_url.send_replace(url);
+
+            if changed {
+                state.inner.own_avatar.send_replace(
+                    original.map(|u| ProfileAvatars::get(state.better_thumbnail_cache(), u)),
+                );
+            }
         }
         Err(e) => {
             tracing::error!("Failed to get own avatar url: {}", e);
-        }
-    }
-
-    #[cfg(feature = "iced")]
-    {
-        use crate::small_thumbnail_format;
-
-        match account.get_avatar(big_thumbnail_format()).await {
-            Ok(Some(bytes)) if let Some(url) = state.inner.own_avatar_url.borrow().clone() => {
-                state.inner.own_avatar_handle.send_replace(Avatar::Ok {
-                    image: ImageHandle::from_bytes(bytes),
-                    avatar_url: url,
-                });
-            }
-            Ok(None | _) => {
-                state.inner.own_avatar_handle.send_replace(Avatar::NoAvatar);
-            }
-            Err(e) => {
-                tracing::error!("Failed to get own avatar: {}", e);
-                state
-                    .inner
-                    .own_avatar_handle
-                    .send_replace(Avatar::Error(Arc::new(e.to_string())));
-            }
-        }
-        match account.get_avatar(small_thumbnail_format()).await {
-            Ok(Some(bytes)) if let Some(url) = state.inner.own_avatar_url.borrow().clone() => {
-                state
-                    .inner
-                    .own_small_avatar_handle
-                    .send_replace(Avatar::Ok {
-                        image: ImageHandle::from_bytes(bytes),
-                        avatar_url: url,
-                    });
-            }
-            Ok(None | _) => {
-                state
-                    .inner
-                    .own_small_avatar_handle
-                    .send_replace(Avatar::NoAvatar);
-            }
-            Err(e) => {
-                tracing::error!("Failed to get own avatar: {}", e);
-                state
-                    .inner
-                    .own_small_avatar_handle
-                    .send_replace(Avatar::Error(Arc::new(e.to_string())));
-            }
         }
     }
 
@@ -268,14 +224,9 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
                         info.calculate_strings();
                     }
                     if avatar_url_changed {
-                        info.avatar_url = avatar_url.clone();
+                        info.update_avatar(avatar_url.clone(), state.better_thumbnail_cache());
                     }
                 });
-
-                #[cfg(feature = "iced")]
-                if avatar_url_changed {
-                    state.room_store_ref().spawn_avatar_load(dp_room.clone());
-                }
             }
 
             if room.is_dm()

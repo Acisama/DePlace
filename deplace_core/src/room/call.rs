@@ -114,7 +114,7 @@ pub struct CallMember {
 }
 impl Hash for CallMember {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.member.hash_selective(state, false, true, true, true);
+        self.member.hash_selective(state, false, true, true);
         self.device_id.hash(state);
         self.handle.participant.hash(state);
         self.handle

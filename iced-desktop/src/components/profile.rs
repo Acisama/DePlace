@@ -1,5 +1,6 @@
 use deplace_core::{
-    Avatar, DePlaceRoom, ProfileLike,
+    DePlaceRoom, ProfileLike,
+    cache::ProfileAvatars,
     member::{Member, user_data::Presence},
     room::{DePlaceRoomType, call::CallMember},
     settings::NameDecoration,
@@ -8,7 +9,7 @@ use deplace_core::{
 };
 
 use iced::{
-    Alignment, Border, Color, ContentFit, Element,
+    Alignment, Border, Color, Element,
     Length::Fill,
     Rectangle, Widget,
     alignment::{Horizontal, Vertical},
@@ -21,16 +22,14 @@ use iced::{
     },
 };
 
-use crate::{
-    common::{structure, theme, themed_tooltip_content},
-    modules::home::{DEFAULT_ROOM_ICON, SCREENSHARING_ICON, SPACE_ICON, SPEAKER_ICON},
-};
+use crate::modules::home::{DEFAULT_ROOM_ICON, SCREENSHARING_ICON, SPACE_ICON, SPEAKER_ICON};
 
 use super::{
     ColoredRounded, CopyUserIdExt, IcedColorExt, PushElement, StatusExt,
     corner_badge::{notch_circle, positioned},
     link, phosphor_icon,
     polyicon::polyicon,
+    render_media::{Fallback, render_image},
     weighted_text,
 };
 
@@ -70,33 +69,25 @@ pub fn loading_icon<'a, T: 'a>(size: f32, rounding: f32, theme: Theme) -> Elemen
 pub fn render_avatar<'a, T: 'a>(
     size: f32,
     rounding: f32,
-    fallback: impl FnOnce() -> Element<'a, T>,
-    avatar: Avatar,
+    fallback: Fallback<'a, T>,
+    avatar: Option<ProfileAvatars>,
 ) -> Element<'a, T> {
-    match avatar {
-        Avatar::Ok { image, .. } => w::image(image)
+    if let Some(avatar) = avatar {
+        w::container(
+            render_image(avatar.best_fitting(size.into()))
+                .fallback(fallback)
+                .width(size)
+                .height(size)
+                .radius(rounding),
+        )
+        .width(size)
+        .height(size)
+        .boxed()
+    } else {
+        w::container(fallback(rounding.into(), 1.0))
             .width(size)
             .height(size)
-            .content_fit(ContentFit::Cover)
-            .border_radius(rounding)
-            .boxed(),
-        Avatar::Error(error) => {
-            let theme = theme();
-            let structure = structure();
-
-            themed_tooltip_content(
-                fallback(),
-                w::text((*error).clone())
-                    .color(theme.colors.error)
-                    .size(structure.font_size),
-                structure,
-                theme,
-                w::tooltip::Position::Top,
-                0.0,
-            )
             .boxed()
-        }
-        Avatar::NoAvatar => fallback(),
     }
 }
 
@@ -107,9 +98,6 @@ pub trait OpenProfileOverlayExt: Sized {
 pub trait ProfileRenderExt {
     /// Renders the profile's avatar icon.
     fn render_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
-
-    /// Renders the profile's small avatar icon.
-    fn render_small_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
 
     /// Renders the profile's name in bold using the profile's color.
     fn render_name<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
@@ -163,23 +151,19 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
     fn render_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
         let rounding = size * self.icon_border_radius_ratio();
 
-        let fallback = move || {
-            let color = self.color();
-            polyicon(self.icon(), size, color, color.set_lightness(0.2))
-        };
+        let icon = self.icon();
+        let color = self.color();
 
-        render_avatar(size, rounding, fallback, self.avatar_handle())
-    }
+        let fallback = Box::new(move |_, opacity| {
+            polyicon(
+                icon,
+                size,
+                color,
+                color.set_lightness(0.2).scale_alpha(opacity),
+            )
+        });
 
-    fn render_small_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
-        let rounding = size * self.icon_border_radius_ratio();
-
-        let fallback = move || {
-            let color = self.color();
-            polyicon(self.icon(), size, color, color.set_lightness(0.2))
-        };
-
-        render_avatar(size, rounding, fallback, self.small_avatar_handle())
+        render_avatar(size, rounding, fallback, self.avatars())
     }
 
     fn render_name<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
@@ -227,7 +211,7 @@ impl MemberRenderExt for Member {
         background_color: Color,
     ) -> Element<'a, T> {
         render_presence_badge(
-            self.render_small_icon(size),
+            self.render_icon(size),
             self.presence(),
             theme,
             structure,
@@ -590,7 +574,7 @@ pub fn render_row_of_icons<'a, T: 'a, Profile: ProfileLike>(
             .padding(padding::left(index as f32 * step)),
         );
         stack = stack.push_element(
-            w::container(member.render_small_icon(icon_size))
+            w::container(member.render_icon(icon_size))
                 .width(Fill)
                 .height(Fill)
                 .align_x(Alignment::Start)
@@ -629,30 +613,25 @@ pub fn render_icon_with_has_speaking_circle<'a, T: 'a>(
     theme: Theme,
     structure: Structure,
     icon_size: f32,
-    big: bool,
 ) -> Element<'a, T> {
     let gap = structure.icon_gap_ratio * icon_size / 4.0;
     let is_speaking = member.is_speaking();
     let playback_muted = member.playback_muted();
 
-    w::container(if big {
-        member.render_icon(icon_size)
-    } else {
-        member.render_small_icon(icon_size)
-    })
-    .style(move |_| {
-        w::container::Style::default().border(Border {
-            color: if playback_muted {
-                theme.colors.error.into()
-            } else if is_speaking {
-                theme.colors.success.into()
-            } else {
-                Color::TRANSPARENT
-            },
-            width: gap,
-            radius: (icon_size + gap).into(),
+    w::container(member.render_icon(icon_size))
+        .style(move |_| {
+            w::container::Style::default().border(Border {
+                color: if playback_muted {
+                    theme.colors.error.into()
+                } else if is_speaking {
+                    theme.colors.success.into()
+                } else {
+                    Color::TRANSPARENT
+                },
+                width: gap,
+                radius: (icon_size + gap).into(),
+            })
         })
-    })
-    .padding(gap * 3.0)
-    .boxed()
+        .padding(gap * 3.0)
+        .boxed()
 }

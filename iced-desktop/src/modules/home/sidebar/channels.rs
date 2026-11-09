@@ -726,7 +726,7 @@ fn render_join_progress(
         w::row![
             // The same icon wrapper as the regular rows, so the avatar
             // lines up with everyone else's once the join went through
-            render_icon_with_has_speaking_circle(&member, theme, structure, icon_size, false,),
+            render_icon_with_has_speaking_circle(&member, theme, structure, icon_size),
             // No volume yet, but its space is kept so the text does not
             // jump when the regular row with the indicator takes over
             Space::new().width(icon_size / 4.0),
@@ -757,7 +757,7 @@ fn render_call_participant(
     let hover_room_id = room_id.clone();
 
     let mut view_row = vec![render_icon_with_has_speaking_circle(
-        &member, theme, structure, icon_size, false,
+        &member, theme, structure, icon_size,
     )];
 
     if user_in_call {

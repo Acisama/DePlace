@@ -3,9 +3,6 @@ use ruma::events::room::member::OriginalSyncRoomMemberEvent;
 
 use crate::{member::profile::ProfileData, state::AppState};
 
-#[cfg(feature = "iced")]
-use crate::Avatar;
-
 pub(crate) async fn handle_member_event(
     ev: OriginalSyncRoomMemberEvent,
     room: Room,
@@ -40,12 +37,7 @@ pub(crate) async fn handle_member_event(
             data.calculate_strings();
         }
         if change_avatar_url {
-            data.avatar_url = new_avatar_url.clone();
-
-            #[cfg(feature = "iced")]
-            if new_avatar_url.is_none() {
-                data.avatar_handle = Avatar::NoAvatar;
-            }
+            data.reload_avatars(new_avatar_url.clone(), state.better_thumbnail_cache());
         }
         if change_membership {
             data.membership = new_membership.clone();
@@ -54,29 +46,6 @@ pub(crate) async fn handle_member_event(
             data.power_level = level;
         }
     };
-
-    #[cfg(feature = "iced")]
-    if change_avatar_url && let Some(url) = new_avatar_url.clone() {
-        let cell = member.room_data.clone();
-        let cell_clone = cell.clone();
-        let client = state.client();
-        let client_clone = client.clone();
-        let url_clone = url.clone();
-        tokio::join![
-            async move {
-                let avatar = Avatar::load_avatar(&client, Some(url), false).await;
-                cell.change(|info| {
-                    info.avatar_handle = avatar.clone();
-                });
-            },
-            async move {
-                let avatar = Avatar::load_avatar(&client_clone, Some(url_clone), true).await;
-                cell_clone.change(|info| {
-                    info.avatar_handle = avatar.clone();
-                });
-            }
-        ];
-    }
 
     state
         .profile_store_ref()

@@ -3,12 +3,12 @@ use std::sync::Arc;
 use matrix_sdk::Room;
 use ruma::{OwnedMxcUri, OwnedRoomId};
 
-#[cfg(feature = "iced")]
-use crate::Avatar;
+use crate::{
+    cache::{ProfileAvatars, ThumbnailCache},
+    colors::DePlaceColor,
+};
 
-use crate::colors::DePlaceColor;
-
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RoomInfo {
     room_id: Arc<OwnedRoomId>,
 
@@ -17,12 +17,9 @@ pub struct RoomInfo {
     pub(crate) initial: char,
 
     pub(crate) avatar_url: Option<OwnedMxcUri>,
-    #[cfg(feature = "iced")]
-    pub(crate) avatar_handle: Avatar,
-    #[cfg(feature = "iced")]
-    pub(crate) small_avatar_handle: Avatar,
-
     pub(crate) color: DePlaceColor,
+
+    avatars: Option<ProfileAvatars>,
 }
 
 impl PartialEq for RoomInfo {
@@ -34,8 +31,14 @@ impl PartialEq for RoomInfo {
 }
 
 impl RoomInfo {
-    pub fn new(room: &Room) -> Self {
+    pub fn new(room: &Room, cache: &ThumbnailCache, eagerly_load: bool) -> Self {
         let room_id = room.room_id();
+        let avatar_url = room.avatar_url();
+        let avatars = avatar_url.map(|url| ProfileAvatars::get(cache, url));
+
+        if eagerly_load && let Some(avatars) = &avatars {
+            avatars.start_load_all();
+        }
 
         let mut info = Self {
             room_id: Arc::new(room_id.to_owned()),
@@ -45,16 +48,18 @@ impl RoomInfo {
             initial: '?',
 
             avatar_url: room.avatar_url(),
-            #[cfg(feature = "iced")]
-            avatar_handle: Avatar::NoAvatar,
-            #[cfg(feature = "iced")]
-            small_avatar_handle: Avatar::NoAvatar,
+            avatars,
 
             color: DePlaceColor::from(room_id.as_str()),
         };
 
         info.calculate_strings();
         info
+    }
+
+    pub fn update_avatar(&mut self, avatar_url: Option<OwnedMxcUri>, cache: &ThumbnailCache) {
+        self.avatar_url = avatar_url.clone();
+        self.avatars = avatar_url.map(|url| ProfileAvatars::get(cache, url));
     }
 
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
@@ -79,16 +84,15 @@ impl RoomInfo {
         self.display_string.clone()
     }
 
+    pub fn avatars(&self) -> Option<ProfileAvatars> {
+        self.avatars.clone()
+    }
+
     pub fn initial(&self) -> char {
         self.initial
     }
 
     pub fn color(&self) -> DePlaceColor {
         self.color
-    }
-
-    #[cfg(feature = "iced")]
-    pub fn avatar_handle(&self) -> Avatar {
-        self.avatar_handle.clone()
     }
 }

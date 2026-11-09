@@ -249,7 +249,7 @@ impl MessageEvent {
                         w::text("Loading...").color(theme.colors.offline).boxed(),
                     ),
                     TimelineDetails::Ready(p) => {
-                        let icon = p.sender.render_small_icon(small_icon_size);
+                        let icon = p.sender.render_icon(small_icon_size);
                         let name = p.sender.render_name(small_text_size);
                         let color = p.sender.name_color();
 
@@ -867,20 +867,20 @@ impl ImageMessage {
                 .height(height)
                 .radius(structure.inner_border_radius)
                 .fallback(if let Some(handle) = self.blur_preview.clone() {
-                    Box::new(move |width, height, radius, opacity| {
+                    Box::new(move |radius, opacity| {
                         w::image(handle.clone())
-                            .width(width)
-                            .height(height)
+                            .width(Fill)
+                            .height(Fill)
                             .border_radius(radius)
                             .opacity(opacity)
                             .content_fit(iced::ContentFit::Fill)
                             .boxed()
                     })
                 } else {
-                    Box::new(move |width, height, radius, opacity| {
+                    Box::new(move |radius, opacity| {
                         w::container(EMPTY_WIDGET)
-                            .width(width)
-                            .height(height)
+                            .width(Fill)
+                            .height(Fill)
                             .colored_rounded(theme.colors.offline.scale_alpha(opacity), radius)
                             .boxed()
                     })

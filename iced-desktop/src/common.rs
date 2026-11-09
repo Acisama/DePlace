@@ -20,7 +20,7 @@ pub use crate::components::{
     weighted_text,
 };
 pub use deplace_core::{
-    Avatar, ProfileLike,
+    ProfileLike,
     colors::DePlaceColor,
     get_change,
     helpers::{DisplayString, EventChange, get_current_and_prev},
@@ -39,6 +39,7 @@ pub use deplace_core::{
     theme::Theme,
 };
 use iced::advanced::Widget;
+use iced::widget::text_editor;
 pub use iced::{
     Border, Color, Element, Font,
     Length::Fill,
@@ -66,7 +67,6 @@ pub use matrix_sdk::{
         presence::PresenceState,
     },
 };
-use iced::widget::text_editor;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 pub use std::hash::Hash;
@@ -138,7 +138,11 @@ pub fn editing_content_ptr(room_id: &OwnedRoomId) -> Option<*mut text_editor::Co
 
 /// The event id `room_id` is currently showing an inline edit box for, if any.
 pub fn editing_event_id(room_id: &OwnedRoomId) -> Option<OwnedEventId> {
-    EDITING.with(|m| m.borrow().get(room_id).and_then(|state| state.event_id.clone()))
+    EDITING.with(|m| {
+        m.borrow()
+            .get(room_id)
+            .and_then(|state| state.event_id.clone())
+    })
 }
 
 /// Switches `room_id`'s edit content over to `event_id`, seeding it with `text`.
@@ -154,9 +158,9 @@ pub fn start_editing(room_id: OwnedRoomId, event_id: OwnedEventId, text: &str) {
 
         let content = unsafe { &mut *state.content };
         content.perform(text_editor::Action::SelectAll);
-        content.perform(text_editor::Action::Edit(text_editor::Edit::Paste(Arc::new(
-            text.to_string(),
-        ))));
+        content.perform(text_editor::Action::Edit(text_editor::Edit::Paste(
+            Arc::new(text.to_string()),
+        )));
         state.event_id = Some(event_id);
     });
     EDIT_GEN.set(EDIT_GEN.get() + 1);

@@ -6,8 +6,9 @@ use std::{
 use dashmap::DashMap;
 use matrix_sdk::{
     Client,
-    media::{MediaRequestParameters, UniqueKey},
+    media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings, UniqueKey},
 };
+use ruma::{OwnedMxcUri, UInt, uint};
 
 use crate::Shared;
 
@@ -22,7 +23,7 @@ pub trait MediaLoader: Send + Sync + 'static {
     ) -> impl Future<Output = MediaState<Self::Item>> + Send;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum MediaState<T: Clone> {
     /// Contains everything needed to fetch the media. `handle` is carried
     /// along rather than relying on an ambient Tokio context at
@@ -41,6 +42,17 @@ pub enum MediaState<T: Clone> {
     Loading,
     Failed(Arc<String>),
     Loaded(T),
+}
+
+impl<T: Clone> std::fmt::Debug for MediaState<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MediaState::LoadNotStarted { .. } => write!(f, "LoadNotStarted"),
+            MediaState::Loading => write!(f, "Loading"),
+            MediaState::Failed(_) => write!(f, "Failed"),
+            MediaState::Loaded(_) => write!(f, "Loaded"),
+        }
+    }
 }
 
 impl<T: Clone> Hash for MediaState<T> {
@@ -277,8 +289,89 @@ mod iced_caches {
 mod iced_caches {
     pub type ThumbnailCache = MediaCache<()>;
     pub type ImageCache = MediaCache<()>;
-    pub type DePlaceThumbnail = Arc<Shared<MediaState<ImageHandle>>>;
-    pub type DePlaceImage = Arc<Shared<MediaState<(ImageHandle, Option<(u32, u32)>)>>>;
+    pub type DePlaceThumbnail = Arc<Shared<MediaState<()>>>;
+    pub type DePlaceImage = Arc<Shared<MediaState<((), Option<(u32, u32)>)>>>;
 }
 
 pub use iced_caches::*;
+
+#[derive(Clone)]
+pub struct ProfileAvatars {
+    small: DePlaceThumbnailShared,
+    medium: DePlaceThumbnailShared,
+    large: DePlaceThumbnailShared,
+    extra_large: DePlaceThumbnailShared,
+
+    small_thumbnail_size: UInt,
+    medium_thumbnail_size: UInt,
+    large_thumbnail_size: UInt,
+    extra_large_thumbnail_size: UInt,
+}
+
+impl std::fmt::Debug for ProfileAvatars {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProfileAvatars")
+            .field("small", &self.small)
+            .field("medium", &self.medium)
+            .field("large", &self.large)
+            .finish()
+    }
+}
+
+impl ProfileAvatars {
+    pub(crate) fn get(cache: &ThumbnailCache, avatar_url: OwnedMxcUri) -> Self {
+        let small = uint!(25);
+        let medium = uint!(50);
+        let large = uint!(100);
+        let extra_large = uint!(200);
+
+        let thumbnail = |size| {
+            cache.get(&MediaRequestParameters {
+                source: ruma::events::room::MediaSource::Plain(avatar_url.clone()),
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(size, size)),
+            })
+        };
+
+        Self {
+            small: thumbnail(small),
+            medium: thumbnail(medium),
+            large: thumbnail(large),
+            extra_large: thumbnail(extra_large),
+
+            small_thumbnail_size: small,
+            medium_thumbnail_size: medium,
+            large_thumbnail_size: large,
+            extra_large_thumbnail_size: extra_large,
+        }
+    }
+
+    pub fn best_fitting(&self, size: f64) -> DePlaceThumbnailShared {
+        let scaling_factor = 1.0;
+        let physical_size = size * scaling_factor;
+        let physical_area = physical_size * physical_size;
+
+        let small_area: f64 = self.small_thumbnail_size.saturating_pow(2).into();
+        let medium_area: f64 = self.medium_thumbnail_size.saturating_pow(2).into();
+        let large_area: f64 = self.large_thumbnail_size.saturating_pow(2).into();
+        let extra_large_area: f64 = self.extra_large_thumbnail_size.saturating_pow(2).into();
+
+        if physical_area <= small_area {
+            self.small.clone()
+        } else if physical_area <= medium_area {
+            self.medium.clone()
+        } else if physical_area <= large_area {
+            self.large.clone()
+        } else if physical_area <= extra_large_area {
+            self.extra_large.clone()
+        } else {
+            // If it exceeds extra large, fall back to the largest available
+            self.extra_large.clone()
+        }
+    }
+
+    pub fn start_load_all(&self) {
+        self.small.clone().start_loading::<ThumbnailLoader>();
+        self.medium.clone().start_loading::<ThumbnailLoader>();
+        self.large.clone().start_loading::<ThumbnailLoader>();
+    }
+}

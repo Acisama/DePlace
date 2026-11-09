@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use cache::ProfileAvatars;
 use colors::DePlaceColor;
 use polyicon::PolyIcon;
 use room::call::CallMember;
@@ -45,8 +46,6 @@ pub use shared::Shared;
 pub mod structure;
 pub mod theme;
 
-#[cfg(feature = "iced")]
-pub use crate::matrix_api::avatar::Avatar;
 pub use member::Member;
 pub use room::DePlaceRoom;
 
@@ -166,10 +165,7 @@ pub fn get_room_name_fallback(room: &Room, fallback: &str) -> String {
 pub trait ProfileLike {
     fn icon_border_radius_ratio(&self) -> f32;
     fn displayname(&self) -> String;
-    #[cfg(feature = "iced")]
-    fn avatar_handle(&self) -> Avatar;
-    #[cfg(feature = "iced")]
-    fn small_avatar_handle(&self) -> Avatar;
+    fn avatars(&self) -> Option<ProfileAvatars>;
     fn initial(&self) -> String;
     fn icon(&self) -> PolyIcon;
     fn color(&self) -> DePlaceColor;
@@ -194,14 +190,8 @@ impl ProfileLike for Member {
         self.name_color()
     }
 
-    #[cfg(feature = "iced")]
-    fn avatar_handle(&self) -> Avatar {
-        self.avatar_handle()
-    }
-
-    #[cfg(feature = "iced")]
-    fn small_avatar_handle(&self) -> Avatar {
-        self.small_avatar_handle()
+    fn avatars(&self) -> Option<ProfileAvatars> {
+        self.avatars()
     }
 
     fn initial(&self) -> String {
@@ -248,14 +238,8 @@ impl ProfileLike for DePlaceRoom {
         self.info.read().display_string.clone()
     }
 
-    #[cfg(feature = "iced")]
-    fn avatar_handle(&self) -> Avatar {
-        self.info.read().avatar_handle.clone()
-    }
-
-    #[cfg(feature = "iced")]
-    fn small_avatar_handle(&self) -> Avatar {
-        self.info.read().small_avatar_handle.clone()
+    fn avatars(&self) -> Option<ProfileAvatars> {
+        self.avatars()
     }
 }
 
@@ -278,19 +262,10 @@ impl ProfileLike for ActiveServer {
         }
     }
 
-    #[cfg(feature = "iced")]
-    fn avatar_handle(&self) -> Avatar {
+    fn avatars(&self) -> Option<ProfileAvatars> {
         match self {
-            ActiveServer::Dms => Avatar::NoAvatar,
-            ActiveServer::Server(room) => room.avatar_handle(),
-        }
-    }
-
-    #[cfg(feature = "iced")]
-    fn small_avatar_handle(&self) -> Avatar {
-        match self {
-            ActiveServer::Dms => Avatar::NoAvatar,
-            ActiveServer::Server(room) => room.small_avatar_handle(),
+            ActiveServer::Dms => None,
+            ActiveServer::Server(room) => room.avatars(),
         }
     }
 
@@ -318,14 +293,8 @@ impl ProfileLike for CallMember {
         self.member.displayname()
     }
 
-    #[cfg(feature = "iced")]
-    fn avatar_handle(&self) -> Avatar {
-        self.member.avatar_handle()
-    }
-
-    #[cfg(feature = "iced")]
-    fn small_avatar_handle(&self) -> Avatar {
-        self.member.small_avatar_handle()
+    fn avatars(&self) -> Option<ProfileAvatars> {
+        self.member.avatars()
     }
 
     fn color(&self) -> DePlaceColor {
@@ -357,12 +326,20 @@ pub fn big_thumbnail_settings() -> MediaThumbnailSettings {
     MediaThumbnailSettings::new(uint!(100), uint!(100))
 }
 
+pub fn medium_thumbnail_settings() -> MediaThumbnailSettings {
+    MediaThumbnailSettings::new(uint!(50), uint!(50))
+}
+
 pub fn small_thumbnail_settings() -> MediaThumbnailSettings {
     MediaThumbnailSettings::new(uint!(25), uint!(25))
 }
 
 pub fn big_thumbnail_format() -> MediaFormat {
     MediaFormat::Thumbnail(big_thumbnail_settings())
+}
+
+pub fn medium_thumbnail_format() -> MediaFormat {
+    MediaFormat::Thumbnail(medium_thumbnail_settings())
 }
 
 pub fn small_thumbnail_format() -> MediaFormat {

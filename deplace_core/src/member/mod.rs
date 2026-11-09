@@ -1,4 +1,4 @@
-use crate::{Shared, colors::DePlaceColor, polyicon::PolyIcon};
+use crate::{Shared, cache::ProfileAvatars, colors::DePlaceColor, polyicon::PolyIcon};
 use chrono::Duration;
 use profile::ProfileData;
 use rodio::buffer::SamplesBuffer;
@@ -9,8 +9,6 @@ use std::{
 use synth::{SignatureEvent, SonicSignature};
 use user_data::{Presence, UserData};
 
-#[cfg(feature = "iced")]
-use crate::Avatar;
 use ruma::{OwnedRoomId, OwnedUserId, RoomId, UserId};
 
 pub mod profile;
@@ -21,12 +19,21 @@ pub mod user_data;
 
 pub use store::ProfileStore;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Member {
     pub(crate) user_id: Arc<OwnedUserId>,
     pub(crate) room_id: Arc<OwnedRoomId>,
     pub(crate) room_data: Arc<Shared<ProfileData>>,
     pub(crate) user_data: Arc<Shared<UserData>>,
+}
+
+impl std::fmt::Debug for Member {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Member")
+            .field("user_id", &self.user_id)
+            .field("room_id", &self.room_id)
+            .finish()
+    }
 }
 
 impl PartialEq for Member {
@@ -51,7 +58,6 @@ impl Member {
         presence: bool,
         custom_data: bool,
         hash_name: bool,
-        hash_avatar: bool,
     ) {
         self.user_id.hash(state);
         self.room_id.hash(state);
@@ -65,16 +71,10 @@ impl Member {
         if hash_name {
             self.room_data.data.load().display_string.hash(state);
         }
-        if hash_avatar {
-            #[cfg(feature = "iced")]
-            self.room_data.data.load().avatar_handle.hash(state);
-            #[cfg(not(feature = "iced"))]
-            self.room_data.data.load().avatar_url.hash(state);
-        }
     }
 
     pub fn hash_all<H: Hasher>(&self, state: &mut H) {
-        self.hash_selective(state, true, true, true, true);
+        self.hash_selective(state, true, true, true);
     }
 
     pub(crate) fn update_room_profile(&self, f: impl Fn(&mut ProfileData)) {
@@ -97,22 +97,16 @@ impl Member {
         self.room_data.read().initial
     }
 
-    #[cfg(feature = "iced")]
-    pub fn avatar_handle(&self) -> Avatar {
-        self.room_data.read().avatar_handle.clone()
-    }
-
-    #[cfg(feature = "iced")]
-    pub fn small_avatar_handle(&self) -> Avatar {
-        self.room_data.read().small_avatar_handle.clone()
-    }
-
     pub fn name_color(&self) -> DePlaceColor {
         self.user_data.read().custom_data.name_color
     }
 
     pub fn banner_color(&self) -> DePlaceColor {
         self.user_data.read().custom_data.banner_color
+    }
+
+    pub fn avatars(&self) -> Option<ProfileAvatars> {
+        self.room_data.read().avatars.clone()
     }
 
     pub fn sonic_signature(&self) -> SonicSignature {

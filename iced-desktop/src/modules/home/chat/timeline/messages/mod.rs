@@ -846,7 +846,7 @@ impl ExtraHash for MessageEvent {
             }
         }
 
-        self.sender.hash_selective(state, false, true, true, true);
+        self.sender.hash_selective(state, false, true, true);
     }
 }
 
@@ -1134,7 +1134,7 @@ impl ExtraHash for SystemEvent {
         self.hour_format.borrow().hash(state);
         self.date_format.borrow().hash(state);
 
-        self.sender.hash_selective(state, false, true, true, true);
+        self.sender.hash_selective(state, false, true, true);
     }
 }
 

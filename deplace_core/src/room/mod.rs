@@ -11,6 +11,7 @@ use tokio::sync::OnceCell;
 
 use crate::{
     Shared,
+    cache::{ProfileAvatars, ThumbnailCache},
     call::{CallConnectionState, CallParticipantHandle, RoomCall},
     member::{Member, ProfileStore, room::RoomMembers},
     polyicon::PolyIcon,
@@ -97,6 +98,8 @@ impl DePlaceRoom {
         profile_store: &ProfileStore,
         own_device: Arc<UserDevice>,
         own_handle: CallParticipantHandle,
+        cache: &ThumbnailCache,
+        eagerly_load: bool,
     ) -> Self {
         let room_id = room.room_id();
         let members = profile_store.get_members(room_id);
@@ -106,7 +109,7 @@ impl DePlaceRoom {
             room_id: Arc::new(room_id.to_owned()),
             room: room.clone(),
             room_type: DePlaceRoomType::new(room),
-            info: Arc::new(Shared::new(RoomInfo::new(room))),
+            info: Arc::new(Shared::new(RoomInfo::new(room, cache, eagerly_load))),
             live: Arc::new(Shared::new(RoomLive::new(room))),
             members,
             timelines: Arc::new(OnceCell::new()),
@@ -209,6 +212,10 @@ impl DePlaceRoom {
 
     pub fn room_type(&self) -> DePlaceRoomType {
         self.room_type
+    }
+
+    pub fn avatars(&self) -> Option<ProfileAvatars> {
+        self.info.read().avatars()
     }
 
     pub fn get_input_placeholder(&self) -> String {

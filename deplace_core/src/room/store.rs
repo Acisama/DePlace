@@ -9,17 +9,14 @@ use ruma::{
 use tokio::sync::watch;
 
 use crate::{
-    Shared, call::CallParticipantHandle, matrix_api::account_data::ServerOrderContent,
-    member::ProfileStore, state::UserDevice,
+    Shared, cache::ThumbnailCache, call::CallParticipantHandle,
+    matrix_api::account_data::ServerOrderContent, member::ProfileStore, state::UserDevice,
 };
 
 use super::{
     DePlaceRoom,
     hierarchy::{ChildOrder, SpaceHierarchy},
 };
-
-#[cfg(feature = "iced")]
-use crate::Avatar;
 
 pub type RoomMap = DashMap<OwnedRoomId, DePlaceRoom>;
 
@@ -29,6 +26,8 @@ pub struct RoomStore {
     profile_store: Arc<ProfileStore>,
     own_device: Arc<UserDevice>,
     own_handle: CallParticipantHandle,
+
+    cache: Arc<ThumbnailCache>,
 
     room_map: RoomMap,
 
@@ -43,6 +42,7 @@ impl RoomStore {
         profile_store: Arc<ProfileStore>,
         last_server_order: ServerOrderContent,
         own_device: Arc<UserDevice>,
+        cache: Arc<ThumbnailCache>,
     ) -> Self {
         let rooms = client.rooms();
         let own_handle = CallParticipantHandle::default();
@@ -55,7 +55,14 @@ impl RoomStore {
             .map(|r| {
                 (
                     r.room_id().to_owned(),
-                    DePlaceRoom::new(r, &profile_store, own_device.clone(), own_handle.clone()),
+                    DePlaceRoom::new(
+                        r,
+                        &profile_store,
+                        own_device.clone(),
+                        own_handle.clone(),
+                        &cache,
+                        true,
+                    ),
                 )
             })
             .collect();
@@ -69,6 +76,7 @@ impl RoomStore {
             room_map,
             own_device,
             own_handle,
+            cache,
             dms: Arc::new(Shared::new(Vec::new())),
             hierarchy: Arc::new(Shared::new(SpaceHierarchy::new(last_server_order))),
             changed: watch::channel(()).0,
@@ -86,12 +94,6 @@ impl RoomStore {
         .await;
 
         store.recompute_dms();
-
-        #[cfg(feature = "iced")]
-        for room in store.room_map.iter() {
-            store.spawn_avatar_load(room.value().clone());
-        }
-
         store
     }
 
@@ -122,38 +124,8 @@ impl RoomStore {
         let hierarchy = self.hierarchy.clone();
         let room = dp_room.room.clone();
 
-        self.spawn_avatar_load(dp_room);
-
         self.handle.spawn(async move {
             apply_parent_update(&hierarchy, &room).await;
-        });
-    }
-
-    #[cfg(feature = "iced")]
-    pub(crate) fn spawn_avatar_load(&self, dp_room: DePlaceRoom) {
-        let changed = self.changed.clone();
-        let changed_clone = changed.clone();
-        let client = self.client.clone();
-        let client_clone = client.clone();
-        let url = dp_room.info.data.load().avatar_url();
-        let url_clone = url.clone();
-
-        let cell = dp_room.info.clone();
-        let cell_clone = cell.clone();
-
-        self.handle.spawn(async move {
-            let avatar = Avatar::load_avatar(&client, url, false).await;
-            cell.change(|info| {
-                info.avatar_handle = avatar.clone();
-            });
-            changed.send_modify(|_| ());
-        });
-        self.handle.spawn(async move {
-            let small_avatar = Avatar::load_avatar(&client_clone, url_clone, true).await;
-            cell_clone.change(|info| {
-                info.small_avatar_handle = small_avatar.clone();
-            });
-            changed_clone.send_modify(|_| ());
         });
     }
 
@@ -188,6 +160,8 @@ impl RoomStore {
                     &self.profile_store,
                     self.own_device.clone(),
                     self.own_handle.clone(),
+                    &self.cache,
+                    false,
                 );
                 e.insert(room.clone());
                 (room, true)
