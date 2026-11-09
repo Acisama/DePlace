@@ -23,6 +23,7 @@ use tokio::sync::watch::{self, Receiver, Sender};
 use crate::{
     APP_NAME,
     audio::AudioThread,
+    cache::ThumbnailCache,
     call::CallRegistry,
     keybinds::Keybinds,
     matrix_api::{
@@ -248,14 +249,16 @@ pub(crate) struct AppStateInner {
 
     sync_tick: Sender<u64>,
 
-    pub active_room: Sender<Option<DePlaceRoom>>,
-    pub active_server: Sender<ActiveServer>,
+    pub(crate) active_room: Sender<Option<DePlaceRoom>>,
+    pub(crate) active_server: Sender<ActiveServer>,
 
     server_order: Sender<Vec<OwnedRoomId>>,
 
     /// Last accessed servers and rooms, since the data is only
     /// needed as snapshots, it is held in a mutex
     breadcrumbs: Mutex<BreadcrumbsContent>,
+
+    better_thumbnail_cache: Arc<ThumbnailCache>,
 
     #[cfg(feature = "iced_desktop")]
     thumbnail_cache: cache::ThumbnailCache,
@@ -373,6 +376,8 @@ impl AppState {
                 #[cfg(feature = "iced_desktop")]
                 thumbnail_cache: cache::ThumbnailCache::new(client.clone()),
 
+                better_thumbnail_cache: Arc::new(ThumbnailCache::new(client.clone())),
+
                 #[cfg(feature = "iced_desktop")]
                 video_cache: cache::VideoCache::new(
                     client.clone(),
@@ -426,6 +431,10 @@ impl AppState {
     #[cfg(feature = "iced_desktop")]
     pub fn thumbnail_cache(&self) -> &cache::ThumbnailCache {
         &self.inner.thumbnail_cache
+    }
+
+    pub fn better_thumbnail_cache(&self) -> &ThumbnailCache {
+        &self.inner.better_thumbnail_cache
     }
 
     pub fn calls_tick(&self) -> &Sender<()> {

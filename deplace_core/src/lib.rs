@@ -5,7 +5,7 @@ use std::sync::Arc;
 use colors::DePlaceColor;
 use polyicon::PolyIcon;
 use room::call::CallMember;
-use ruma::{OwnedRoomId, OwnedUserId, uint};
+use ruma::{OwnedRoomId, OwnedUserId, UInt, uint};
 
 use matrix_sdk::{
     Client, Room, SessionMeta, SessionTokens,
@@ -367,4 +367,11 @@ pub fn big_thumbnail_format() -> MediaFormat {
 
 pub fn small_thumbnail_format() -> MediaFormat {
     MediaFormat::Thumbnail(small_thumbnail_settings())
+}
+
+pub fn thumbnail_format(width: u64, height: u64) -> MediaFormat {
+    MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+        UInt::new_saturating(width),
+        UInt::new_saturating(height),
+    ))
 }

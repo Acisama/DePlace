@@ -12,6 +12,7 @@ default-members = ["iced-desktop"]
 deplace_core = { path = "deplace_core" }
 macros = { path = "macros" }
 
+aes = "0.9"
 anyhow = "1"
 arc-swap = "1.9.3"
 base64 = "0.23.0"
@@ -22,14 +23,13 @@ chrono-tz = { version = "0.10.4", features = ["serde"] }
 const_format = "0.2.36"
 cpal = "0.15.3"
 csscolorparser = "0.8.3"
+ctr = "0.10"
 dashmap = "7.0.0-rc2"
 dirs = "6.0.0"
 emojis = "0.9.0"
 enumset = { version = "1.1.14", features = ["serde"] }
 futures = "0.3.34"
 futures-util = "0.3"
-aes = "0.9"
-ctr = "0.10"
 getrandom = { version = "0.4.0-rc.1" }
 gstreamer = "0.23"
 gstreamer-app = "0.23"
@@ -58,17 +58,17 @@ rfd = "0.17.2"
 rodio = "0.20"
 ruma = { version = "0.17.0", features = ["unstable-msc4095"] }
 ruma-html = { version = "0.9.0", features = ["matrix"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rust-embed = "8.12.0"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11.0"
 smallvec = "1.15.2"
 sweeten = { git = "https://codeberg.org/aosiuejhf/sweeten-fork.git", branch = "master" }
+thiserror = "2"
 thumbhash = "0.1.0"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7.19"
-thiserror = "2"
 toml_edit = { version = "0.25.13", features = ["serde"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"

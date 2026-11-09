@@ -42,7 +42,8 @@ use crate::{
     common::*,
     components::{
         MediaType, PushElement, bounds_button::bounds_button, help_mode::MessageHelpKey,
-        link::link, phosphor_icon, profile::render_row_of_icons, render_media_failed_to_load,
+        link::link, phosphor_icon, profile::render_row_of_icons, render_media::render_image,
+        render_media_failed_to_load,
     },
     modules::home::overlay::{MediaOverlayParams, OverlayMediaType},
 };
@@ -618,7 +619,7 @@ impl MessageContent {
                                     .horizontal(structure.small_gap),
                             ),
                         )
-                        .height(image.get_dimensions(structure).1)
+                        .height(image.height)
                         .padding(structure.small_gap / 2.0)
                         .align_y(Alignment::End),
                     )
@@ -852,101 +853,50 @@ impl ImageMessage {
         )
     }
 
-    fn get_dimensions(&self, structure: Structure) -> (f32, f32) {
-        let max_width = structure.chat.max_media_width;
-        let max_height = structure.chat.max_media_height;
-        let info = &self.info;
-
-        let min_width = self.label().len() as f32 * structure.chat.text_size;
-        let min_height = structure.chat.text_size * 2.0;
-
-        fit_dimensions(
-            info.as_ref()
-                .and_then(|i| i.width.map(|w| w as f32))
-                .unwrap_or(max_width),
-            info.as_ref()
-                .and_then(|i| i.height.map(|h| h as f32))
-                .unwrap_or(max_height),
-            max_width,
-            max_height,
-            min_width,
-            min_height,
-        )
-    }
-
     fn image_view(
         &self,
         theme: Theme,
         structure: Structure,
     ) -> Element<'static, TimelineItemMessage> {
-        let info = &self.info;
+        let width = self.width;
+        let height = self.height;
 
-        let (width, height) = self.get_dimensions(structure);
-
-        let thumbnail_source = info
-            .as_ref()
-            .and_then(|i| i.thumbnail_source.clone())
-            .unwrap_or_else(|| self.source.clone());
-
-        let thumbnail_key = (thumbnail_source.unique_key(), width as u64, height as u64);
-        let image = self.thumbnail_cache.get(&thumbnail_key);
-
-        let mut stack_children = Vec::new();
-
-        if let Some(image) = self.blur_preview.clone() {
-            stack_children.push(
-                w::image(image)
-                    .width(width)
-                    .height(height)
-                    .content_fit(iced::ContentFit::Fill)
-                    .border_radius(structure.inner_border_radius)
-                    .boxed(),
-            );
-        }
-
-        match image.as_ref().unwrap_or(&MediaState::Loading) {
-            MediaState::Failed => stack_children.push(render_media_failed_to_load(
-                theme,
-                structure,
-                width,
-                height,
-                MediaType::Image,
-            )),
-            MediaState::Loaded(image) => stack_children.push(
-                w::image((*(*image).clone()).clone())
-                    .width(width)
-                    .height(height)
-                    .border_radius(structure.inner_border_radius)
-                    .boxed(),
-            ),
-            _ => {}
-        };
-
-        if image.is_none() {
-            stack_children.push(
-                on_appear(
-                    Space::new(),
-                    TimelineItemMessage::NeedsMedia(NeedsMedia::thumbnail(
-                        self.source.clone(),
-                        thumbnail_key,
-                    )),
-                )
-                .boxed(),
-            )
-        }
-
-        w::container(Stack::with_children(stack_children))
-            .width(width)
-            .height(height)
-            .style(move |_| ContainerStyle {
-                border: Border {
-                    color: Color::TRANSPARENT,
-                    width: 0.0,
-                    radius: structure.inner_border_radius.into(),
-                },
-                ..Default::default()
-            })
-            .boxed()
+        w::container(
+            render_image(self.image.clone())
+                .width(width)
+                .height(height)
+                .radius(structure.inner_border_radius)
+                .fallback(if let Some(handle) = self.blur_preview.clone() {
+                    Box::new(move |width, height, radius, opacity| {
+                        w::image(handle.clone())
+                            .width(width)
+                            .height(height)
+                            .border_radius(radius)
+                            .opacity(opacity)
+                            .content_fit(iced::ContentFit::Fill)
+                            .boxed()
+                    })
+                } else {
+                    Box::new(move |width, height, radius, opacity| {
+                        w::container(EMPTY_WIDGET)
+                            .width(width)
+                            .height(height)
+                            .colored_rounded(theme.colors.offline.scale_alpha(opacity), radius)
+                            .boxed()
+                    })
+                }),
+        )
+        .width(width)
+        .height(height)
+        .style(move |_| ContainerStyle {
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: structure.inner_border_radius.into(),
+            },
+            ..Default::default()
+        })
+        .boxed()
     }
 }
 

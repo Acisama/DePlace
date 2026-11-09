@@ -37,6 +37,7 @@ pub mod pan;
 pub mod pie_progress;
 pub mod polyicon;
 pub mod profile;
+pub mod render_media;
 pub mod right_click;
 pub mod shader;
 pub mod static_checkbox;

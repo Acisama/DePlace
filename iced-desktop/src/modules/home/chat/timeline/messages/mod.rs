@@ -10,6 +10,7 @@ use std::{
 
 use chrono_tz::Tz;
 use deplace_core::{
+    cache::DePlaceThumbnailShared,
     formatting::format_date_divider,
     rich_text::{FormattedBody, Mention},
     settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType},
@@ -377,7 +378,6 @@ impl TimelineItem {
         if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
             let event = Arc::make_mut(event);
             match &mut event.content {
-                MessageContent::Image { image, .. } => Some(&mut image.thumbnail_states_for_hash),
                 MessageContent::Video { video, .. } => Some(&mut video.thumbnail_states_for_hash),
                 _ => None,
             }
@@ -1027,7 +1027,10 @@ pub struct ImageMessage {
 
     pub blur_preview: Option<ImageHandle>,
 
-    thumbnail_cache: ThumbnailCache,
+    image: DePlaceThumbnailShared,
+
+    width: f32,
+    height: f32,
 
     #[hash]
     pub filename: String,

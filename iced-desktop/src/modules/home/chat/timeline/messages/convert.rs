@@ -1,4 +1,7 @@
+use deplace_core::formatting::fit_dimensions;
 use deplace_core::rich_text::FormattedBody;
+use deplace_core::thumbnail_format;
+use matrix_sdk::media::MediaRequestParameters;
 use matrix_sdk::ruma::events::StateEventType;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -438,6 +441,37 @@ fn string_to_option(s: &str) -> Option<String> {
     }
 }
 
+fn get_dimensions(info: &Option<Box<ImageInfo>>, structure: Structure) -> (f32, f32) {
+    let max_width = structure.chat.max_media_width;
+    let max_height = structure.chat.max_media_height;
+
+    let min_width = 10.0;
+    let min_height = structure.chat.text_size * 2.0;
+
+    fit_dimensions(
+        info.as_ref()
+            .and_then(|i| {
+                i.width.map(|w| {
+                    let u: u64 = w.into();
+                    u as f32
+                })
+            })
+            .unwrap_or(max_width),
+        info.as_ref()
+            .and_then(|i| {
+                i.height.map(|h| {
+                    let u: u64 = h.into();
+                    u as f32
+                })
+            })
+            .unwrap_or(max_height),
+        max_width,
+        max_height,
+        min_width,
+        min_height,
+    )
+}
+
 impl MessageContent {
     fn from_ui(value: &MsgLikeKind, state: &AppState) -> Self {
         let settings = state.settings();
@@ -460,34 +494,46 @@ impl MessageContent {
                     info: file.info.clone(),
                     data_size_unit: settings.data_size_unit.watch(),
                 },
-                MessageType::Image(image) => MessageContent::Image {
-                    image: ImageMessage {
-                        caption: image.caption().map(|s| s.to_string()),
-                        formatted_caption: FormattedBody::new(
-                            image.caption(),
-                            image.formatted_caption(),
-                        ),
-
-                        blur_preview: image.info.as_ref().and_then(|info| {
-                            info.thumbhash
-                                .as_ref()
-                                .map(thumbhash_to_image)
-                                .unwrap_or_else(|| {
-                                    info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
-                                })
-                        }),
-
-                        filename: image.filename().to_string(),
+                MessageType::Image(image) => {
+                    let (width, height) = get_dimensions(&image.info, structure());
+                    let parameters = MediaRequestParameters {
                         source: image.source.clone(),
-                        info: image.info.as_ref().map(|info| info.into()),
+                        format: thumbnail_format(width as u64, height as u64),
+                    };
 
-                        thumbnail_cache: thumbnail_cache.clone(),
-                        thumbnail_states_for_hash: BTreeSet::new(),
+                    let dp_image = state.better_thumbnail_cache().get(&parameters);
 
-                        data_size_unit: settings.data_size_unit.watch(),
-                    },
-                    is_hovered: false,
-                },
+                    MessageContent::Image {
+                        image: ImageMessage {
+                            caption: image.caption().map(|s| s.to_string()),
+                            formatted_caption: FormattedBody::new(
+                                image.caption(),
+                                image.formatted_caption(),
+                            ),
+
+                            width,
+                            height,
+
+                            image: dp_image,
+
+                            blur_preview: image.info.as_ref().and_then(|info| {
+                                info.thumbhash
+                                    .as_ref()
+                                    .map(thumbhash_to_image)
+                                    .unwrap_or_else(|| {
+                                        info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
+                                    })
+                            }),
+
+                            filename: image.filename().to_string(),
+                            source: image.source.clone(),
+                            info: image.info.as_ref().map(|info| info.into()),
+
+                            data_size_unit: settings.data_size_unit.watch(),
+                        },
+                        is_hovered: false,
+                    }
+                }
                 MessageType::Location(_) => MessageContent::Location,
                 MessageType::Notice(notice) => MessageContent::Notice {
                     body: string_to_option(&notice.body),
