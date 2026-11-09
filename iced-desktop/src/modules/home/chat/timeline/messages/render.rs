@@ -42,7 +42,7 @@ use crate::{
     common::*,
     components::{
         MediaType, PushElement, bounds_button::bounds_button, help_mode::MessageHelpKey,
-        link::link, phosphor_icon, profile::render_row_of_icons, render_media::render_image,
+        link::link, phosphor_icon, profile::render_row_of_icons, render_media::render_thumbnail,
         render_media_failed_to_load,
     },
     modules::home::overlay::{MediaOverlayParams, OverlayMediaType},
@@ -862,7 +862,7 @@ impl ImageMessage {
         let height = self.height;
 
         w::container(
-            render_image(self.image.clone())
+            render_thumbnail(self.image.clone())
                 .width(width)
                 .height(height)
                 .radius(structure.inner_border_radius)
@@ -888,10 +888,11 @@ impl ImageMessage {
         )
         .width(width)
         .height(height)
+        .padding(structure.border_thickness)
         .style(move |_| ContainerStyle {
             border: Border {
-                color: Color::TRANSPARENT,
-                width: 0.0,
+                color: theme.border.into(),
+                width: structure.border_thickness,
                 radius: structure.inner_border_radius.into(),
             },
             ..Default::default()

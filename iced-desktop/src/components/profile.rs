@@ -29,7 +29,7 @@ use super::{
     corner_badge::{notch_circle, positioned},
     link, phosphor_icon,
     polyicon::polyicon,
-    render_media::{Fallback, render_image},
+    render_media::{Fallback, render_thumbnail},
     weighted_text,
 };
 
@@ -74,7 +74,7 @@ pub fn render_avatar<'a, T: 'a>(
 ) -> Element<'a, T> {
     if let Some(avatar) = avatar {
         w::container(
-            render_image(avatar.best_fitting(size.into()))
+            render_thumbnail(avatar.best_fitting(size.into()))
                 .fallback(fallback)
                 .width(size)
                 .height(size)

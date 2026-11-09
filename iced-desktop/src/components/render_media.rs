@@ -513,7 +513,7 @@ where
     }
 }
 
-pub fn render_image<'a, Message: 'a>(
+pub fn render_thumbnail<'a, Message: 'a>(
     cell: DePlaceThumbnailShared,
 ) -> RenderMedia<'a, Message, DePlaceImage> {
     RenderMedia::new(
