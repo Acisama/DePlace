@@ -21,7 +21,6 @@ use crate::{
 };
 use futures_util::StreamExt;
 use matrix_sdk::{Client, config::SyncSettings, ruma::presence::PresenceState, sync::SyncResponse};
-use matrix_sdk_base::RoomInfoNotableUpdateReasons;
 
 use super::matrixrtc::{cleanup_ghost_calls, handle_call_member_change, handle_to_device_messages};
 use super::members::handle_member_event;
@@ -273,8 +272,13 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
             };
 
             // Room was just created by the lookup above, which already loads
-            // it fresh - nothing to sync yet.
+            // it fresh - nothing to sync yet. But if it is a DM it has to
+            // enter the list right away
             if created {
+                let is_dm = client.get_room(&room_id).is_some_and(|room| room.is_dm());
+                if is_dm {
+                    state.room_store_ref().recompute_dms();
+                }
                 continue;
             }
 
@@ -302,11 +306,10 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
                 });
             }
 
-            if room.is_dm()
-                && update
-                    .reasons
-                    .intersects(RoomInfoNotableUpdateReasons::RECENCY_STAMP)
-            {
+            // RECENCYSTAMP is presumably only set by the new sliding sync
+            // which we don't use yet, so until then we have to stay with
+            // our old logic
+            if room.is_dm() {
                 state.room_store_ref().recompute_dms();
             }
 
