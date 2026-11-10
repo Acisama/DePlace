@@ -3051,7 +3051,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.21",
- "windows 0.62.2",
+ "windows 0.54.0",
 ]
 
 [[package]]
@@ -3713,7 +3713,7 @@ dependencies = [
 [[package]]
 name = "iced_video_player"
 version = "0.6.0"
-source = "git+https://codeberg.org/aosiuejhf/iced_video_player.git#01d3edf4ba4cc9dc498beb3ebb9219460e9f0665"
+source = "git+https://codeberg.org/aosiuejhf/iced_video_player.git#ae93d7b6f0acaa9187ad27f4022e6fde34cfe171"
 dependencies = [
  "glib",
  "gstreamer",
@@ -6183,7 +6183,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
