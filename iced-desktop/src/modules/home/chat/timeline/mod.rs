@@ -1070,6 +1070,24 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         )));
                     }
 
+                    if key == Character("e".into()) {
+                        let id = self.focused_message_id.clone()?;
+                        let can_edit = self.user_can_send
+                            && self
+                                .content
+                                .get(&id)
+                                .is_some_and(|item| item.booleans().1);
+
+                        if can_edit {
+                            return self.update(TimelineMessage::Item {
+                                id,
+                                message: TimelineItemMessage::SetIsEditing(true),
+                            });
+                        }
+
+                        return None;
+                    }
+
                     if key == iced::keyboard::Key::Character("k".into()) {
                         let mut new_focus_index = match self
                             .focused_message_id
