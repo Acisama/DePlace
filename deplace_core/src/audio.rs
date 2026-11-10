@@ -16,7 +16,9 @@
 //! Nothing is connected right away, the output device opens on the
 //! first sound and reopens on the next one whenever it was lost. On the
 //! idle polling between requests the thread watches for the system
-//! default device changing and plugs or unplugs being yanked.
+//! default device changing and plugs or unplugs being yanked. An output
+//! that nothing has used for a while is closed again too, so an idle app
+//! does not sit on an open sound device and consumes 100% of a CPU core.
 //!
 //! Switching devices just rebuilds the streams inside Audio. Frame
 //! players keep their sample buffers and microphones keep their handles,
@@ -40,7 +42,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::RecvTimeoutError,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -58,6 +60,11 @@ const OUTPUT_CHANNELS: u16 = 2;
 const MAX_BUFFERED_SAMPLES: usize = 12_000;
 /// How often the audio thread checks for device changes
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// How long the output may go unused before its connection is closed
+/// again, so nothing holds on to the sound device while idle. Any sound
+/// request resets the timer, live call audio blocks closing entirely.
+/// Let me try setting this to something low and we will see if we hate that.
+const OUTPUT_IDLE_CLOSE_AFTER: Duration = Duration::from_secs(5);
 
 /// Name of the current default output device, if there is one.
 fn default_output_name() -> Option<String> {
@@ -94,6 +101,9 @@ pub struct Audio {
     output: Option<OutputConn>,
     /// The output device to use, or `None` to follow the system default.
     output_device: Option<cpal::Device>,
+    /// When the output was last needed, so an unused connection can be
+    /// closed after [`OUTPUT_IDLE_CLOSE_AFTER`].
+    last_output_use: Instant,
     /// Name of the default output device last seen, to notice changes.
     last_default_output: Option<String>,
     /// Live frame players for call audio, so their sinks can be recreated
@@ -138,6 +148,7 @@ impl Audio {
         Self {
             output: None,
             output_device: None,
+            last_output_use: Instant::now(),
             // Prime the names so the first idle poll doesn't reopen a
             // perfectly fine device just because there was nothing to
             // compare against yet.
@@ -155,10 +166,24 @@ impl Audio {
     /// method goes through this, so a lost device is reconnected on the
     /// very next sound instead of killing anything.
     fn open(&mut self) -> Result<()> {
+        // I hope this is performant enough
+        self.last_output_use = Instant::now();
         if self.output.is_none() {
             self.output = Some(self.build_output()?);
+            event!(Level::DEBUG, "Opened the sound output");
         }
         Ok(())
+    }
+
+    /// Closes the output connection once nothing has needed the device
+    /// for a while, so a silent app does not keep a sound device open
+    /// and idles my fucking cpu core at 100% like what the fuck why?
+    /// Actually now I need to look at this, how is pushing empty frames
+    /// so hard on the cpu?
+    fn close_output(&mut self) {
+        if let Some(conn) = self.output.take() {
+            drop(conn);
+        }
     }
 
     /// Opens a connection, honoring the device choice, with a fallback
@@ -596,6 +621,21 @@ impl AudioThread {
                             }
                             if audio.output.is_none() && audio.frame_players_open() {
                                 audio.rebuild_output();
+                            }
+                            // Sitting on a sound device while nothing is
+                            // happening keeps its cpal worker thread around,
+                            // and maybe it breaks during a system suspend
+                            // spins on a single core forever. Kill it
+                            if audio.output.is_some()
+                                && !audio.frame_players_open()
+                                && audio.last_output_use.elapsed() >= OUTPUT_IDLE_CLOSE_AFTER
+                            {
+                                event!(
+                                    Level::DEBUG,
+                                    "Closing the sound output after {}s idle",
+                                    audio.last_output_use.elapsed().as_secs()
+                                );
+                                audio.close_output();
                             }
                         }
                         Err(RecvTimeoutError::Disconnected) => break,
