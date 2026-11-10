@@ -1075,7 +1075,11 @@ impl VideoMessage {
                     ))
                     .padding(structure.small_gap)
                     .style(move |_| ContainerStyle {
-                        background: Some(theme.solid_bg.into()),
+                        background: Some(
+                            deplace_core::colors::DePlaceColor::from_rgba(1.0, 1.0, 1.0, 0.75)
+                                .into(),
+                        ),
+                        text_color: Some(theme.solid_bg.into()),
                         border: Border {
                             color: theme.border.into(),
                             width: structure.border_thickness,
