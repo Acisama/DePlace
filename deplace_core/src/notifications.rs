@@ -123,6 +123,12 @@ pub async fn on_message(
     actions: Vec<Action>,
     state: Ctx<AppState>,
 ) {
+    tracing::debug!(
+        "Received message event in {} from {}",
+        room.room_id(),
+        event.sender
+    );
+
     if !actions.iter().any(|a| a.should_notify()) {
         return;
     }

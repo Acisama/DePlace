@@ -1,5 +1,10 @@
 use std::collections::HashSet;
-use std::{pin::pin, sync::Arc};
+use std::{
+    pin::pin,
+    sync::Arc,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use crate::audio::AudioThread;
 use crate::cache::ProfileAvatars;
@@ -36,6 +41,7 @@ pub fn spawn_sync_runners(client: &Client, state: &AppState, own_device: Arc<Use
     });
 
     tokio::spawn(run_sync_stream(client.clone(), state.clone()));
+    tokio::spawn(run_sync_stall_watchdog());
     tokio::spawn(run_keystore_save_stream(client.clone()));
     spawn_room_sync(client.clone(), state.clone(), own_device.clone());
     run_space_hierarchy_update(client);
@@ -106,29 +112,79 @@ async fn run_keystore_save_stream(client: Client) {
     }
 }
 
+/// Time of the last processed sync response, zero means none arrived yet.
+static LAST_SYNC: AtomicU64 = AtomicU64::new(0);
+
+/// Warn when no sync response arrived for this long.
+const SYNC_STALL_WARN_AFTER: u64 = 90;
+
 async fn run_sync_stream(client: Client, state: AppState) {
     let sync_settings = SyncSettings::default()
         .ignore_timeout_on_first_sync(true)
         .set_presence(PresenceState::Online)
-        .timeout(std::time::Duration::from_secs(30));
+        .timeout(Duration::from_secs(30));
+
+    tracing::debug!("Starting the sync stream");
 
     let sync_stream = client.sync_stream(sync_settings).await;
     let mut sync_stream = pin!(sync_stream);
 
     let Some(result) = sync_stream.next().await else {
+        tracing::error!(
+            "Sync stream ended before the first response arrived, \
+             messages will not be received until the app is restarted"
+        );
         return;
     };
 
     #[allow(clippy::useless_conversion)]
     handle_sync_result(result.into(), &state).await;
     client.add_event_handler(on_message);
+    tracing::debug!("First sync response processed, message handler attached");
 
+    let mut responses = 1;
     while let Some(result) = sync_stream.next().await {
+        responses += 1;
         #[allow(clippy::useless_conversion)]
         handle_sync_result(result.into(), &state).await;
     }
 
-    tracing::warn!("Sync stream ended");
+    tracing::error!(
+        "Sync stream ended after {responses} responses; it is not \
+         restarted, messages will not be received until the app is \
+         restarted"
+    );
+}
+
+/// Watches [`LAST_SYNC`] and warns while no sync response arrives, so a
+/// silently dead sync loop is visible in the logs instead of just quietly
+/// dying and never notifying me, I will squash this bug
+async fn run_sync_stall_watchdog() {
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+
+        let last = LAST_SYNC.load(Ordering::Relaxed);
+        if last == 0 {
+            continue;
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|since_epoch| since_epoch.as_secs())
+            .unwrap_or(0);
+        let quiet = now.saturating_sub(last);
+        if quiet >= SYNC_STALL_WARN_AFTER {
+            tracing::warn!("No sync response for {quiet}s, message reception looks stalled");
+        }
+    }
+}
+
+fn note_sync_received() {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since_epoch| since_epoch.as_secs())
+        .unwrap_or(0);
+    LAST_SYNC.store(now, Ordering::Relaxed);
 }
 
 async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &AppState) {
@@ -139,6 +195,23 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
             return;
         }
     };
+
+    // Heartbeat: sync delivers a response at least every 30 s,
+    // so this line showing up regularly proves the loop is alive.
+    note_sync_received();
+    let timeline_events: usize = result
+        .rooms
+        .joined
+        .values()
+        .map(|room| room.timeline.events.len())
+        .sum();
+    tracing::debug!(
+        "Sync response: next_batch={} joined_updates={} timeline_events={} to_device_events={}",
+        result.next_batch,
+        result.rooms.joined.len(),
+        timeline_events,
+        result.to_device.len(),
+    );
 
     // Call encryption keys arrive as decrypted to-device events
     handle_to_device_messages(result.to_device, state.livekit_room_manager()).await;
