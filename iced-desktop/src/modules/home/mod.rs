@@ -349,28 +349,6 @@ impl Home {
         let state = self.state.clone();
         Some(HomeAction::LoadMediaTask(Task::future(async move {
             match needs_media {
-                NeedsMedia::Thumbnail { source, key } => {
-                    let res = state
-                        .thumbnail_cache()
-                        .load_content_with_key(&source, key)
-                        .await;
-                    match res.status {
-                        CacheResultStatus::CacheHit => {}
-                        CacheResultStatus::Success => {
-                            tracing::trace!(
-                                "Loading of thumbnail {} finished successfully",
-                                source.unique_key()
-                            );
-                        }
-                        CacheResultStatus::Failure(e) => {
-                            tracing::error!(
-                                "Loading of thumbnail {} failed: {e}",
-                                source.unique_key()
-                            );
-                        }
-                    }
-                    res.loaded
-                }
                 NeedsMedia::Video { source } => {
                     let unique_key = source.unique_key();
                     let res = state.video_cache().load_content(&source).await;
@@ -388,23 +366,10 @@ impl Home {
                     }
                     res.loaded
                 }
-                NeedsMedia::Image { source } => {
-                    let unique_key = source.unique_key();
-                    let res = state.image_cache().load_content(&source).await;
-                    match res.status {
-                        CacheResultStatus::CacheHit => {}
-                        CacheResultStatus::Success => {
-                            tracing::trace!(
-                                "Loading of image {} finished successfully",
-                                unique_key
-                            );
-                        }
-                        CacheResultStatus::Failure(e) => {
-                            tracing::error!("Loading of image {} failed: {e}", unique_key);
-                        }
-                    }
-                    res.loaded
-                }
+                NeedsMedia::Image { source } => MediaLoaded::Image {
+                    key: source.unique_key(),
+                },
+                NeedsMedia::Thumbnail { key, .. } => MediaLoaded::Thumbnail { key },
             }
         })))
     }

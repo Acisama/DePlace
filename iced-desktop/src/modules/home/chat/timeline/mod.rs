@@ -193,7 +193,6 @@ pub struct ChatTimeline {
     #[hash]
     previous_pinned_event_ids: BTreeSet<OwnedEventId>,
 
-    thumbnail_cache: ThumbnailCache,
     video_cache: VideoCache,
 
     reached_top: bool,
@@ -289,10 +288,8 @@ impl ChatTimeline {
 
             previous_pinned_event_ids: initial_pinned_event_ids,
 
-            thumbnail_cache: state.thumbnail_cache().clone(),
             video_cache: state.video_cache().clone(),
 
-            thumbnail_states_for_hash: BTreeSet::new(),
             video_states_for_hash: BTreeSet::new(),
 
             reached_top: false,
@@ -370,16 +367,11 @@ impl ChatTimeline {
 
     pub fn touch_media(&mut self, media: &MediaLoaded) {
         let (key, relevant) = match media {
-            MediaLoaded::Thumbnail { key } => (
-                PendingMedia::Thumbnail(key.clone()),
-                self.thumbnail_states_for_hash.contains(key),
-            ),
             MediaLoaded::Video { key } => (
                 PendingMedia::Video(key.clone()),
                 self.video_states_for_hash.contains(key),
             ),
-            // Messages don't contain images, only thumbnails
-            MediaLoaded::Image { .. } => return,
+            _ => return,
         };
 
         if !relevant {
@@ -784,14 +776,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         None
                     }
                     TimelineItemAction::NeedsMedia(needs_media) => {
-                        match &needs_media {
-                            NeedsMedia::Thumbnail { key, .. } => {
-                                self.thumbnail_states_for_hash.insert(key.clone());
-                            }
-                            NeedsMedia::Video { source, .. } => {
-                                self.video_states_for_hash.insert(source.unique_key());
-                            }
-                            NeedsMedia::Image { .. } => {}
+                        if let NeedsMedia::Video { source, .. } = &needs_media {
+                            self.video_states_for_hash.insert(source.unique_key());
                         }
 
                         if let Some(key) = PendingMedia::of(&needs_media) {

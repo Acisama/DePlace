@@ -26,6 +26,8 @@ where
     height: Length,
     padding: Padding,
     class: StyleFn<'static, Theme>,
+
+    always_pointer: bool,
 }
 
 struct State {
@@ -49,6 +51,7 @@ impl<Message, Content: DePlaceWidget<Message>> BoundsButton<Message, Content> {
             on_press: None,
             width: Length::Shrink,
             height: Length::Shrink,
+            always_pointer: false,
             padding: 0.0.into(),
             class: Box::new(|_theme, _status| Style::default()),
         }
@@ -66,6 +69,11 @@ impl<Message, Content: DePlaceWidget<Message>> BoundsButton<Message, Content> {
 
     pub fn on_press(mut self, f: impl Fn(Rectangle) -> Message + 'static) -> Self {
         self.on_press = Some(Box::new(f));
+        self
+    }
+
+    pub fn always_pointer(mut self) -> Self {
+        self.always_pointer = true;
         self
     }
 
@@ -265,8 +273,12 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.content
-            .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+        if self.always_pointer || (cursor.is_over(layout.bounds()) && self.on_press.is_some()) {
+            mouse::Interaction::Pointer
+        } else {
+            self.content
+                .mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+        }
     }
 
     fn overlay<'b>(

@@ -130,32 +130,26 @@ pub enum MediaLoaded {
 }
 
 #[cfg(feature = "iced")]
-pub use iced_caches::{ImageCache, ThumbnailCache, VideoCache};
+pub use iced_caches::VideoCache;
 
 #[cfg(feature = "iced")]
 mod iced_caches {
     use std::{
-        io::Cursor,
         path::{Path, PathBuf},
         sync::Arc,
     };
 
     use iced_video_player::Video;
-    use matrix_sdk::{
-        Client,
-        media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
-    };
-    use ruma::{UInt, events::room::MediaSource};
+    use matrix_sdk::Client;
+    use ruma::events::room::MediaSource;
 
     use iced::widget::image::Handle as ImageHandle;
 
     use super::{
-        CacheLoadingExt, CacheLoadingResult, CacheLoadingWithKeyExt, CacheResultStatus, MediaCache,
-        MediaLoaded, MediaState,
+        CacheLoadingExt, CacheLoadingResult, CacheResultStatus, MediaCache, MediaLoaded, MediaState,
     };
 
-    pub type ThumbnailCache = MediaCache<(String, u64, u64), ImageHandle>;
-
+    /// TODO: Use this again
     /// Decodes downloaded thumbnail bytes into an RGBA [`ImageHandle`], off
     /// the UI thread.
     async fn decode_thumbnail(bytes: Vec<u8>, width: u64, height: u64) -> Option<ImageHandle> {
@@ -179,59 +173,6 @@ mod iced_caches {
         .await
         .ok()
         .flatten()
-    }
-
-    impl CacheLoadingWithKeyExt<MediaSource, (String, u64, u64)> for ThumbnailCache {
-        /// Loads a thumbnail with the given key (incldues it's size) and returns MediaLoaded and a boolean indicating whether it was successfully loaded.
-        async fn load_content_with_key(
-            &self,
-            source: &MediaSource,
-            key: (String, u64, u64),
-        ) -> CacheLoadingResult {
-            let media_res = MediaLoaded::Thumbnail { key: key.clone() };
-
-            if self.cache.get(&key).is_some() {
-                tracing::warn!("Thumbnail already cached: {key:?}");
-                return CacheLoadingResult {
-                    loaded: media_res,
-                    status: CacheResultStatus::CacheHit,
-                };
-            }
-
-            self.cache.insert(key.clone(), MediaState::Loading);
-
-            let request = MediaRequestParameters {
-                source: source.clone(),
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    UInt::new_saturating(key.1),
-                    UInt::new_saturating(key.2),
-                )),
-            };
-
-            let mut status = CacheResultStatus::Success;
-            let res = match self.client.media().get_media_content(&request, true).await {
-                Ok(bytes) => match decode_thumbnail(bytes, key.1, key.2).await {
-                    Some(handle) => MediaState::loaded(handle),
-                    None => {
-                        status =
-                            CacheResultStatus::Failure("Failed to decode thumbnail".to_string());
-                        MediaState::Failed
-                    }
-                },
-                Err(e) => {
-                    tracing::error!("Failed to fetch media: {e}");
-                    status = CacheResultStatus::Failure(e.to_string());
-                    MediaState::Failed
-                }
-            };
-
-            self.cache.insert(key, res);
-
-            CacheLoadingResult {
-                loaded: media_res,
-                status,
-            }
-        }
     }
 
     /// A loaded video: the player plus the streaming feeder keeping its
@@ -676,63 +617,6 @@ mod iced_caches {
         }
     }
 
-    pub type ImageCache = MediaCache<String, (ImageHandle, Vec<u8>, Option<(u32, u32)>)>;
-
-    impl CacheLoadingExt<MediaSource> for ImageCache {
-        async fn load_content(&self, source: &MediaSource) -> CacheLoadingResult {
-            use matrix_sdk::media::UniqueKey;
-
-            let key = &source.unique_key();
-            let media_res = MediaLoaded::Video { key: key.clone() };
-
-            if self.cache.get(key).is_some() {
-                return CacheLoadingResult {
-                    loaded: media_res,
-                    status: CacheResultStatus::CacheHit,
-                };
-            }
-
-            self.cache.insert(key.clone(), MediaState::Loading);
-
-            let request = &MediaRequestParameters {
-                source: source.clone(),
-                format: MediaFormat::File,
-            };
-
-            let mut status = CacheResultStatus::Success;
-            let res = match self.client.media().get_media_content(request, true).await {
-                Ok(bytes) => {
-                    let dimensions = image::ImageReader::new(Cursor::new(&bytes))
-                        .with_guessed_format()
-                        .map_err(|e| tracing::error!("Failed to read image: {e}"))
-                        .ok()
-                        .and_then(|reader| {
-                            reader
-                                .into_dimensions()
-                                .map_err(|e| tracing::error!("Failed to read dimensions: {e}"))
-                                .ok()
-                        });
-                    MediaState::Loaded(Arc::new((
-                        ImageHandle::from_bytes(bytes.clone()),
-                        bytes,
-                        dimensions,
-                    )))
-                }
-                Err(e) => {
-                    tracing::error!("Failed to fetch media: {e}");
-                    status = CacheResultStatus::Failure(e.to_string());
-                    MediaState::Failed
-                }
-            };
-
-            self.cache.insert(key.clone(), res);
-
-            CacheLoadingResult {
-                loaded: media_res,
-                status,
-            }
-        }
-    }
     #[cfg(test)]
     #[allow(clippy::unwrap_used)]
     mod tests {

@@ -862,7 +862,7 @@ impl ImageMessage {
         let height = self.height;
 
         w::container(
-            render_thumbnail(self.image.clone())
+            render_thumbnail(self.thumbnail.clone())
                 .width(width)
                 .height(height)
                 .radius(structure.inner_border_radius)
@@ -1030,37 +1030,37 @@ impl VideoMessage {
             // it's loaded show its thumbnail with a play button on top. While
             // the download runs, a status line is shown under the play button.
             Some(MediaState::Loading) | None => {
-                let thumbnail = self
-                    .info
-                    .as_ref()
-                    .and_then(|i| i.thumbnail_source.clone())
-                    .map(|source| {
-                        let key = (source.unique_key(), width as u64, height as u64);
-                        let state = self.thumbnail_cache.get(&key);
-                        (source, key, state)
-                    });
+                // let thumbnail = self
+                //     .info
+                //     .as_ref()
+                //     .and_then(|i| i.thumbnail_source.clone())
+                //     .map(|source| {
+                //         let key = (source.unique_key(), width as u64, height as u64);
+                //         let state = self.thumbnail_cache.get(&key);
+                //         (source, key, state)
+                //     });
 
-                if let Some((source, key, thumbnail)) = &thumbnail {
-                    if let Some(MediaState::Loaded(image)) = thumbnail.as_ref() {
-                        stack = stack.push_element(
-                            w::image((*(*image).clone()).clone())
-                                .width(width)
-                                .height(height)
-                                .content_fit(iced::ContentFit::Fill)
-                                .border_radius(structure.inner_border_radius),
-                        );
-                    }
-
-                    if thumbnail.is_none() {
-                        stack = stack.push_element(on_appear(
-                            Space::new(),
-                            TimelineItemMessage::NeedsMedia(NeedsMedia::thumbnail(
-                                source.clone(),
-                                key.clone(),
-                            )),
-                        ));
-                    }
-                }
+                //                 if let Some((source, key, thumbnail)) = &thumbnail {
+                //                     if let Some(MediaState::Loaded(image)) = thumbnail.as_ref() {
+                //                         stack = stack.push_element(
+                //                             w::image((*(*image).clone()).clone())
+                //                                 .width(width)
+                //                                 .height(height)
+                //                                 .content_fit(iced::ContentFit::Fill)
+                //                                 .border_radius(structure.inner_border_radius),
+                //                         );
+                //                     }
+                //
+                //                     if thumbnail.is_none() {
+                //                         stack = stack.push_element(on_appear(
+                //                             Space::new(),
+                //                             TimelineItemMessage::NeedsMedia(NeedsMedia::thumbnail(
+                //                                 source.clone(),
+                //                                 key.clone(),
+                //                             )),
+                //                         ));
+                //                     }
+                //                 }
 
                 let status = if cached_video.is_some() {
                     Some(self.download_status())

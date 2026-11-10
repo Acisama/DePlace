@@ -24,7 +24,7 @@ use tokio::sync::watch::{self, Receiver, Sender};
 use crate::{
     APP_NAME,
     audio::AudioThread,
-    cache::{ProfileAvatars, ThumbnailCache},
+    cache::{ImageCache, ProfileAvatars, ThumbnailCache},
     call::CallRegistry,
     keybinds::Keybinds,
     matrix_api::{
@@ -253,16 +253,11 @@ pub(crate) struct AppStateInner {
     /// needed as snapshots, it is held in a mutex
     breadcrumbs: Mutex<BreadcrumbsContent>,
 
-    better_thumbnail_cache: Arc<ThumbnailCache>,
-
-    #[cfg(feature = "iced_desktop")]
-    thumbnail_cache: cache::ThumbnailCache,
+    thumbnail_cache: Arc<ThumbnailCache>,
+    image_cache: Arc<ImageCache>,
 
     #[cfg(feature = "iced_desktop")]
     video_cache: cache::VideoCache,
-
-    #[cfg(feature = "iced_desktop")]
-    image_cache: cache::ImageCache,
 }
 
 impl AppState {
@@ -373,11 +368,9 @@ impl AppState {
 
         Ok(Self {
             inner: Arc::new(AppStateInner {
-                #[cfg(feature = "iced_desktop")]
-                thumbnail_cache: cache::ThumbnailCache::new(client.clone()),
-
                 own_avatar: Sender::default(),
-                better_thumbnail_cache,
+                thumbnail_cache: better_thumbnail_cache,
+                image_cache: Arc::new(ImageCache::new(client.clone())),
 
                 #[cfg(feature = "iced_desktop")]
                 video_cache: cache::VideoCache::new(
@@ -386,9 +379,6 @@ impl AppState {
                     video_store_key,
                     important_paths.cache_dir.as_ref(),
                 ),
-
-                #[cfg(feature = "iced_desktop")]
-                image_cache: cache::ImageCache::new(client.clone()),
 
                 media_processor,
                 profile_store,
@@ -425,13 +415,16 @@ impl AppState {
         })
     }
 
-    #[cfg(feature = "iced_desktop")]
-    pub fn thumbnail_cache(&self) -> &cache::ThumbnailCache {
+    pub fn thumbnail_cache(&self) -> &ThumbnailCache {
         &self.inner.thumbnail_cache
     }
 
-    pub fn better_thumbnail_cache(&self) -> &ThumbnailCache {
-        &self.inner.better_thumbnail_cache
+    pub fn image_cache(&self) -> &ImageCache {
+        &self.inner.image_cache
+    }
+
+    pub fn clone_image_cache(&self) -> Arc<ImageCache> {
+        self.inner.image_cache.clone()
     }
 
     pub fn calls_tick(&self) -> &Sender<()> {
@@ -445,11 +438,6 @@ impl AppState {
     #[cfg(feature = "iced_desktop")]
     pub fn video_cache(&self) -> &cache::VideoCache {
         &self.inner.video_cache
-    }
-
-    #[cfg(feature = "iced_desktop")]
-    pub fn image_cache(&self) -> &cache::ImageCache {
-        &self.inner.image_cache
     }
 
     pub fn profile_store_ref(&self) -> &ProfileStore {

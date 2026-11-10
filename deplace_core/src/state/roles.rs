@@ -5,19 +5,9 @@ pub trait IsActiveServer {}
 impl IsActiveServer for tokio::sync::watch::Receiver<crate::state::ActiveServer> {}
 
 #[cfg(feature = "iced")]
-pub trait IsThumbnailCache {}
-#[cfg(feature = "iced")]
-impl IsThumbnailCache for crate::state::cache::ThumbnailCache {}
-
-#[cfg(feature = "iced")]
 pub trait IsVideoCache {}
 #[cfg(feature = "iced")]
 impl IsVideoCache for crate::state::cache::VideoCache {}
-
-#[cfg(feature = "iced")]
-pub trait IsImageCache {}
-#[cfg(feature = "iced")]
-impl IsImageCache for crate::state::cache::ImageCache {}
 
 /// Implemented by `#[iced_cache]` structs that need to fold extra state into their
 /// `Hash` impl beyond their `#[hash]`-marked fields. Picked up automatically by the

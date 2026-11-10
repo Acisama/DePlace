@@ -37,7 +37,7 @@ pub(crate) async fn handle_member_event(
             data.calculate_strings();
         }
         if change_avatar_url {
-            data.reload_avatars(new_avatar_url.clone(), state.better_thumbnail_cache());
+            data.reload_avatars(new_avatar_url.clone(), state.thumbnail_cache());
         }
         if change_membership {
             data.membership = new_membership.clone();

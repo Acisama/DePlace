@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use crate::{
     common::*,
-    components::{MediaType, render_media_failed_to_load},
+    components::render_media::render_image,
     modules::home::chat::{ImageMessage, VideoMessage},
 };
 use chrono_tz::Tz;
@@ -44,7 +44,6 @@ pub struct MediaOverlay {
     #[hash]
     media: OverlayMediaType,
 
-    image_cache: ImageCache,
     video_cache: VideoCache,
 
     sender: Member,
@@ -83,10 +82,7 @@ impl MediaOverlay {
         Self {
             media,
 
-            image_cache: state.image_cache().clone(),
             video_cache: state.video_cache().clone(),
-
-            image_states_for_hash: Default::default(),
             video_states_for_hash: Default::default(),
 
             sender,
@@ -109,11 +105,8 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
             MediaOverlayMessage::Close => Some(MediaOverlayAction::Close),
             MediaOverlayMessage::NeedsMedia(media) => {
                 match &media {
-                    NeedsMedia::Image { source } => {
-                        self.image_states_for_hash.insert(source.unique_key())
-                    }
                     NeedsMedia::Video { source } => {
-                        self.image_states_for_hash.insert(source.unique_key())
+                        self.video_states_for_hash.insert(source.unique_key())
                     }
                     _ => return None,
                 };
@@ -180,87 +173,38 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
             .width(Fill)
             .padding(padding::left(header.button_padding()))
             .height(header.height),
-            w::container(render_image(theme, structure, image, &self.image_cache))
-                .width(Fill)
-                .height(Fill)
-                .center(Fill)
+            w::container(render_image(image.image.clone()).fallback(Box::new(
+                move |_radius, opacity| {
+                    w::container(
+                        w::container(
+                            w::text("Media loading...")
+                                .color(theme.text.dim.to_iced().scale_alpha(opacity))
+                                .size(structure.large_font_size),
+                        )
+                        .style(move |_| ContainerStyle {
+                            background: Some(theme.solid_bg.to_iced().scale_alpha(opacity).into()),
+                            border: Border {
+                                color: theme.border.into(),
+                                width: structure.border_thickness,
+                                radius: structure.inner_border_radius.into(),
+                            },
+                            ..Default::default()
+                        })
+                        .padding(structure.small_gap),
+                    )
+                    .width(Fill)
+                    .height(Fill)
+                    .center(Fill)
+                    .boxed()
+                }
+            )))
+            .width(Fill)
+            .height(Fill)
+            .center(Fill)
         ]
         .width(Fill)
         .height(Fill)
         .spacing(structure.gap)
         .boxed()
-    }
-}
-
-fn render_image(
-    theme: Theme,
-    structure: Structure,
-    image: &Arc<ImageMessage>,
-    image_cache: &ImageCache,
-) -> iced::Element<'static, MediaOverlayMessage> {
-    let result = image_cache.get(&image.source.unique_key());
-
-    let fired = result.is_some();
-    let media_state = result.unwrap_or(MediaState::Loading);
-
-    let dimensions = media_state.as_option().and_then(|arc| arc.2);
-
-    let width = dimensions
-        .map(|(w, _)| w as f32)
-        .or(image.info.as_ref().and_then(|i| i.width.map(|w| w as f32)))
-        .unwrap_or(structure.chat.max_media_width);
-    let height = dimensions
-        .map(|(_, h)| h as f32)
-        .or(image.info.as_ref().and_then(|i| i.height.map(|h| h as f32)))
-        .unwrap_or(structure.chat.max_media_height);
-
-    let mut stack_children = Vec::new();
-
-    if let Some(image) = image.blur_preview.clone() {
-        stack_children.push(
-            w::image(image)
-                .width(Fill)
-                .height(Fill)
-                .content_fit(iced::ContentFit::Contain)
-                .border_radius(structure.inner_border_radius)
-                .boxed(),
-        );
-    }
-
-    match media_state {
-        MediaState::Failed => {
-            stack_children.push(render_media_failed_to_load(
-                theme,
-                structure,
-                width,
-                height,
-                MediaType::Image,
-            ));
-        }
-        MediaState::Loaded(img) => {
-            stack_children.push(
-                w::image(img.0.clone())
-                    .width(Fill)
-                    .height(Fill)
-                    .content_fit(iced::ContentFit::Contain)
-                    .border_radius(structure.inner_border_radius)
-                    .boxed(),
-            );
-        }
-        _ => {}
-    }
-
-    let stack = Stack::with_children(stack_children).clip(true).boxed();
-
-    if !fired {
-        on_appear(
-            stack,
-            MediaOverlayMessage::NeedsMedia(NeedsMedia::Image {
-                source: image.source.clone(),
-            }),
-        )
-        .into()
-    } else {
-        stack
     }
 }

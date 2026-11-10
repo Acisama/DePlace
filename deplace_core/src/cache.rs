@@ -1,4 +1,5 @@
 use std::{
+    any::type_name,
     hash::Hash,
     sync::{Arc, atomic::Ordering},
 };
@@ -135,7 +136,13 @@ impl<I: Clone + Sync + Send + 'static> Shared<MediaState<I>> {
 pub struct MediaCache<T: Clone + MediaLoader> {
     client: Client,
     handle: tokio::runtime::Handle,
-    pub cache: DashMap<String, Arc<Shared<MediaState<T::Item>>>>,
+    cache: DashMap<String, Arc<Shared<MediaState<T::Item>>>>,
+}
+
+impl<T: MediaLoader + Clone> std::fmt::Debug for MediaCache<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("MediaCache<{}>", type_name::<T>()))
+    }
 }
 
 impl<T: MediaLoader + Clone> MediaCache<T> {

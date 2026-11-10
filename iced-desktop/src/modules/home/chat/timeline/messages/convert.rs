@@ -476,7 +476,6 @@ impl MessageContent {
     fn from_ui(value: &MsgLikeKind, state: &AppState) -> Self {
         let settings = state.settings();
 
-        let thumbnail_cache = state.thumbnail_cache().clone();
         let video_cache = state.video_cache().clone();
 
         let result = match value {
@@ -501,7 +500,8 @@ impl MessageContent {
                         format: thumbnail_format(width as u64, height as u64),
                     };
 
-                    let dp_image = state.better_thumbnail_cache().get(&parameters);
+                    let thumbnail = state.thumbnail_cache().get(&parameters);
+                    let dp_image = state.image_cache().get(&parameters);
 
                     MessageContent::Image {
                         image: ImageMessage {
@@ -514,6 +514,7 @@ impl MessageContent {
                             width,
                             height,
 
+                            thumbnail,
                             image: dp_image,
 
                             blur_preview: image.info.as_ref().and_then(|info| {
@@ -578,8 +579,6 @@ impl MessageContent {
                         source: video.source.clone(),
                         info: video.info.as_ref().map(|info| info.into()),
 
-                        thumbnail_cache: thumbnail_cache.clone(),
-                        thumbnail_states_for_hash: BTreeSet::new(),
                         video_cache: video_cache.clone(),
                         video_states_for_hash: BTreeSet::new(),
                         media_processor: state.media_processor(),

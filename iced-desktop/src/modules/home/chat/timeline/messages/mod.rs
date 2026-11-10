@@ -10,20 +10,17 @@ use std::{
 
 use chrono_tz::Tz;
 use deplace_core::{
-    cache::DePlaceThumbnailShared,
+    cache::{DePlaceImageShared, DePlaceThumbnailShared},
     formatting::format_date_divider,
     rich_text::{FormattedBody, Mention},
     settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType},
-    state::{
-        cache::{ThumbnailCache, VideoCache},
-        media_fetcher::MediaProcessor,
-    },
+    state::{cache::VideoCache, media_fetcher::MediaProcessor},
 };
 use enumset::EnumSet;
 use iced::Alignment;
 use macros::iced_cache;
 use matrix_sdk::{
-    media::UniqueKey,
+    media::{MediaRequestParameters, UniqueKey},
     ruma::{
         OwnedRoomAliasId,
         events::{
@@ -374,18 +371,6 @@ impl TimelineItem {
         }
     }
 
-    fn thumbnail_hashes(&mut self) -> Option<&mut BTreeSet<(String, u64, u64)>> {
-        if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
-            let event = Arc::make_mut(event);
-            match &mut event.content {
-                MessageContent::Video { video, .. } => Some(&mut video.thumbnail_states_for_hash),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    }
-
     fn video_hashes(&mut self) -> Option<&mut BTreeSet<String>> {
         if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
             let event = Arc::make_mut(event);
@@ -533,11 +518,6 @@ impl TimelineItem {
             }
             TimelineItemMessage::NeedsMedia(media) => {
                 match &media {
-                    NeedsMedia::Thumbnail { key, .. }
-                        if let Some(hashes) = self.thumbnail_hashes() =>
-                    {
-                        hashes.insert(key.clone())
-                    }
                     NeedsMedia::Video { source, .. } if let Some(hashes) = self.video_hashes() => {
                         hashes.insert(source.unique_key())
                     }
@@ -1027,7 +1007,8 @@ pub struct ImageMessage {
 
     pub blur_preview: Option<ImageHandle>,
 
-    image: DePlaceThumbnailShared,
+    thumbnail: DePlaceThumbnailShared,
+    pub image: DePlaceImageShared,
 
     width: f32,
     height: f32,
@@ -1057,7 +1038,6 @@ pub struct VideoMessage {
 
     blur_preview: Option<ImageHandle>,
 
-    thumbnail_cache: ThumbnailCache,
     video_cache: VideoCache,
     media_processor: MediaProcessor,
 

@@ -160,7 +160,7 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
 
             if changed {
                 state.inner.own_avatar.send_replace(
-                    original.map(|u| ProfileAvatars::get(state.better_thumbnail_cache(), u)),
+                    original.map(|u| ProfileAvatars::get(state.thumbnail_cache(), u)),
                 );
             }
         }
@@ -224,7 +224,7 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
                         info.calculate_strings();
                     }
                     if avatar_url_changed {
-                        info.update_avatar(avatar_url.clone(), state.better_thumbnail_cache());
+                        info.update_avatar(avatar_url.clone(), state.thumbnail_cache());
                     }
                 });
             }

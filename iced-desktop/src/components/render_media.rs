@@ -19,6 +19,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use deplace_core::cache::{DePlaceImageShared, ImageLoader};
 use deplace_core::{
     Shared,
     cache::{DePlaceImage, DePlaceThumbnailShared, MediaState, ThumbnailLoader},
@@ -45,7 +46,7 @@ const FADE_DURATION: Duration = Duration::from_millis(250);
 /// outer wrapping `Container` or through `RenderMedia`'s own `size()`
 /// being read by a plain `Row`/`Column`. Implementations just need to use
 /// `Length::Fill` for their own root widget to pick that up.
-type Success<'a, Message, I> = Box<dyn Fn(&I, Radius) -> Element<'a, Message> + 'a>;
+type Success<'a, Message, I> = Box<dyn Fn(&I, Radius, f32) -> Element<'a, Message> + 'a>;
 /// `alpha` goes from `1.0` (freshly shown) down to `0.0` (fully faded out,
 /// right before being dropped) while the real content fades in underneath.
 pub type Fallback<'a, Message> = Box<dyn Fn(Radius, f32) -> Element<'a, Message> + 'a>;
@@ -62,7 +63,7 @@ pub fn render_media<'a, Message, I>(
     width: impl Into<Length>,
     height: impl Into<Length>,
     radius: impl Into<Radius>,
-    success: impl Fn(&I, Radius) -> Element<'a, Message> + 'a,
+    success: impl Fn(&I, Radius, f32) -> Element<'a, Message> + 'a,
     fallback: impl Fn(Radius, f32) -> Element<'a, Message> + 'a,
 ) -> RenderMedia<'a, Message, I>
 where
@@ -119,7 +120,7 @@ where
         width: impl Into<Length>,
         height: impl Into<Length>,
         radius: impl Into<Radius>,
-        success: impl Fn(&I, Radius) -> Element<'a, Message> + 'a,
+        success: impl Fn(&I, Radius, f32) -> Element<'a, Message> + 'a,
         fallback: impl Fn(Radius, f32) -> Element<'a, Message> + 'a,
     ) -> Self {
         // Safe to call every time this gets (re)built, not just the first:
@@ -214,7 +215,7 @@ where
         match phase {
             Phase::Pending => fallback(radius, 1.0),
             Phase::Done => match cell.read().as_ref() {
-                MediaState::Loaded(item) => success(item, radius),
+                MediaState::Loaded(item) => success(item, radius, 1.0),
                 _ => fallback(radius, 1.0),
             },
             Phase::Fading(start) => {
@@ -225,7 +226,7 @@ where
                     // whatever box *it* is given, so something has to be
                     // the authority on what that box actually is.
                     MediaState::Loaded(item) => {
-                        w::stack![success(item, radius), fallback(radius, 1.0 - t),]
+                        w::stack![success(item, radius, t), fallback(radius, 1.0 - t),]
                             .width(width)
                             .height(height)
                             .boxed()
@@ -522,20 +523,49 @@ pub fn render_thumbnail<'a, Message: 'a>(
         Length::Shrink,
         Length::Shrink,
         0.0,
-        render_deplace_image,
+        |image, radius, opacity| {
+            render_deplace_image(image, radius, opacity, iced::ContentFit::Cover)
+        },
         render_image_fallback,
     )
 }
 
-fn render_deplace_image<'a, Message>(image: &DePlaceImage, radius: Radius) -> Element<'a, Message> {
+pub fn render_image<'a, Message: 'a>(
+    cell: DePlaceImageShared,
+) -> RenderMedia<'a, Message, (DePlaceImage, Option<(u32, u32)>)> {
+    RenderMedia::new(
+        cell,
+        |cell| cell.start_loading::<ImageLoader>(),
+        Fill,
+        Fill,
+        0.0,
+        |(image, _dimensions), radius, opacity| {
+            render_deplace_image(image, radius, opacity, iced::ContentFit::Contain)
+        },
+        render_image_fallback,
+    )
+}
+
+fn render_deplace_image<'a, Message>(
+    image: &DePlaceImage,
+    radius: Radius,
+    opacity: f32,
+    content_fit: iced::ContentFit,
+) -> Element<'a, Message> {
     match image {
         DePlaceImage::Raster(handle) => w::image(handle)
             .width(Fill)
             .height(Fill)
             .border_radius(radius)
-            .content_fit(iced::ContentFit::Cover)
+            .content_fit(content_fit)
+            .opacity(opacity)
             .boxed(),
-        DePlaceImage::Svg(handle) => w::svg(handle.clone()).width(Fill).height(Fill).boxed(),
+        DePlaceImage::Svg(handle) => w::svg(handle.clone())
+            .width(Fill)
+            .height(Fill)
+            .content_fit(content_fit)
+            .opacity(opacity)
+            .boxed(),
     }
 }
 

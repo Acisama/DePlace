@@ -30,8 +30,8 @@ pub use deplace_core::{
     state::{
         AppState,
         cache::{
-            CacheLoadingExt, CacheLoadingWithKeyExt, ImageCache, MediaLoaded, MediaState,
-            NeedsMedia, ThumbnailCache, VideoCache,
+            CacheLoadingExt, CacheLoadingWithKeyExt, MediaLoaded, MediaState, NeedsMedia,
+            VideoCache,
         },
         roles::ExtraHash,
     },
