@@ -263,27 +263,63 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
             column = column.push_element(w::column(dm_notification_pills).spacing(structure.gap));
         }
 
-        let servers = sweeten::widget::column(
-            self.room_store
-                .servers()
-                .iter()
-                .filter_map(|id| self.room_store.get_room(id))
-                .enumerate()
-                .map(|(index, room)| {
-                    render_server_icon(
-                        &room,
-                        index,
-                        theme,
-                        structure,
-                        &self.room_store,
-                        &active_server,
-                        &self.hovered_server,
-                        &help_view,
-                    )
-                }),
-        )
-        .on_drag(ServerColumnMessage::ServerDragged)
+        let mut server_targets: Vec<f32> = Vec::new();
+        let server_items: Vec<Element<'static, ServerColumnMessage>> = self
+            .room_store
+            .servers()
+            .iter()
+            .filter_map(|id| self.room_store.get_room(id))
+            .enumerate()
+            .map(|(index, room)| {
+                let (target, element) = render_server_icon(
+                    &room,
+                    index,
+                    theme,
+                    structure,
+                    &self.room_store,
+                    &active_server,
+                    &self.hovered_server,
+                    &help_view,
+                );
+                server_targets.push(target);
+                element
+            })
+            .collect();
+
+        let servers = sweeten::widget::column(server_items)
+            .on_drag(ServerColumnMessage::ServerDragged)
+            .style(move |_| sweeten::widget::column::Style {
+                ghost_background: theme.solid_hover_bg.into(),
+                ghost_border: Border {
+                    color: theme.border.into(),
+                    width: structure.border_thickness,
+                    radius: (structure.server_column.icon_size * 0.25).into(),
+                },
+                moved_item_overlay: Color::TRANSPARENT,
+                scale: 1.0,
+            })
+            .spacing(structure.gap);
+
+        // Render the pills as their own layer behind the column, rather than
+        // baking them into each item's row, so that every draggable item's
+        // measured bounds (what sweeten uses for the drag hitbox) stays a
+        // perfect square matching just the icon.
+        let server_pills = w::column(server_targets.into_iter().map(|target| {
+            Canvas::new(PillCanvas {
+                target,
+                width: structure.small_gap / 2.0,
+                color: theme.text.normal.into(),
+                radius: structure.small_gap / 4.0,
+            })
+            .width(structure.small_gap / 2.0)
+            .height(icon_size)
+        }))
         .spacing(structure.gap);
+
+        let servers_with_pills = Stack::new()
+            .push(w::row![Space::new().width(structure.small_gap), servers].boxed())
+            .push_under(server_pills.boxed())
+            .boxed();
 
         let column = column
             .push_element(
@@ -303,7 +339,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                 .width(Fill)
                 .align_x(Alignment::Center),
             )
-            .push_element(servers);
+            .push_element(servers_with_pills);
 
         help_view
             .call(
@@ -334,7 +370,7 @@ fn render_server_icon(
     active_server: &ActiveServer,
     hovered_server: &Option<ActiveServerId>,
     help_view: &HelpView<ServerColumnMessage>,
-) -> Element<'static, ServerColumnMessage> {
+) -> (f32, Element<'static, ServerColumnMessage>) {
     let id = room.room_id().to_owned();
     let children = room_store.get_all_children(&id);
 
@@ -447,8 +483,7 @@ fn render_server_icon(
         })
     }
 
-    pill(
-        theme,
+    let target = pill_target(
         structure,
         active_server.is_server(&id),
         hovered_server
@@ -456,14 +491,30 @@ fn render_server_icon(
             .map(|sid| sid.is_server(&id))
             .unwrap_or(false),
         counts.has_notifications(),
-        help_view
-            .call(
-                SidebarHelpKey::Server(index),
-                "A server, click on it to view it",
-                badge,
-            )
-            .radius(icon_size * room.icon_border_radius_ratio()),
-    )
+    );
+
+    let content = help_view
+        .call(
+            SidebarHelpKey::Server(index),
+            "A server, click on it to view it",
+            badge,
+        )
+        .radius(icon_size * room.icon_border_radius_ratio())
+        .into();
+
+    (target, content)
+}
+
+fn pill_target(structure: Structure, active: bool, hovered: bool, has_messages: bool) -> f32 {
+    if active {
+        structure.server_column.icon_size
+    } else if hovered {
+        structure.server_column.icon_size / 2.0
+    } else if has_messages {
+        structure.server_column.icon_size / 4.0
+    } else {
+        0.0
+    }
 }
 
 fn pill(
@@ -474,16 +525,7 @@ fn pill(
     has_messages: bool,
     content: impl Into<Element<'static, ServerColumnMessage>>,
 ) -> Element<'static, ServerColumnMessage> {
-    let target = if active {
-        structure.server_column.icon_size
-    } else if hovered {
-        structure.server_column.icon_size / 2.0
-    } else if has_messages {
-        structure.server_column.icon_size / 4.0
-    } else {
-        0.0
-    };
-
+    let target = pill_target(structure, active, hovered, has_messages);
     let content = content.into();
 
     // `content` must stay the base layer (first `.push`) so it drives the
