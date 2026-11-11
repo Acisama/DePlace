@@ -697,17 +697,66 @@ impl MessageContent {
             MessageContent::VerificationRequest { formatted_body, .. } => {
                 (render_body(formatted_body), None)
             }
-            MessageContent::Video { video, .. } => (
-                render_body(&video.formatted_caption),
-                Some(
-                    w::mouse_area(w::lazy(video.clone(), move |video| {
-                        video.video_view(theme, structure)
-                    }))
-                    .on_enter(TimelineItemMessage::MediaMouseEnter)
-                    .on_exit(TimelineItemMessage::MediaMouseLeave)
-                    .boxed(),
-                ),
-            ),
+            MessageContent::Video { video, is_hovered } => {
+                let mut stack = w::stack![w::lazy(video.clone(), move |video| {
+                    video.video_view(theme, structure)
+                })];
+
+                if *is_hovered {
+                    stack = stack.push_element(
+                        w::container(
+                            w::container(
+                                w::text(video.label())
+                                    .size(structure.chat.text_size)
+                                    .color(theme.text.normal),
+                            )
+                            .style(move |_| ContainerStyle {
+                                background: Some(theme.solid_bg.into()),
+                                border: Border {
+                                    color: theme.border.into(),
+                                    width: structure.border_thickness,
+                                    radius: ((structure.smaller_border_radius
+                                        + structure.inner_border_radius)
+                                        / 2.0)
+                                        .into(),
+                                },
+                                ..Default::default()
+                            })
+                            .padding(
+                                padding::vertical(structure.small_gap / 2.0)
+                                    .horizontal(structure.small_gap),
+                            ),
+                        )
+                        .height(video.height)
+                        .padding(structure.small_gap / 2.0)
+                        .align_y(Alignment::Start),
+                    )
+                }
+
+                let open_media = if let Some(event_id) = event_id {
+                    TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
+                        media: OverlayMediaType::Video(Arc::new(video.clone())),
+                        source: video.source.clone(),
+                        sender: sender.clone(),
+                        event_id: event_id.clone(),
+                        timestamp,
+                    })
+                } else {
+                    TimelineItemMessage::None
+                };
+
+                (
+                    render_body(&video.formatted_caption),
+                    Some(
+                        w::mouse_area(stack)
+                            .on_enter(TimelineItemMessage::MediaMouseEnter)
+                            .on_exit(TimelineItemMessage::MediaMouseLeave)
+                            .interaction(Interaction::Pointer)
+                            .on_press(open_media)
+                            .boxed(),
+                    ),
+                )
+            }
         }
     }
 }

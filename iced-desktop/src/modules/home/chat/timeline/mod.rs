@@ -1314,6 +1314,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         .id(LIST_ID),
                         || TimelineMessage::FillsParentNot,
                     ))
+                    .clip(true)
                     .width(Fill)
                     .height(Fill)
                     .align_bottom(Fill),
