@@ -918,6 +918,7 @@ where
             self.rebuild_content(tree, renderer, size, phase);
             self.rebuild_not_started(tree, renderer, size, phase);
             self.rebuild_fading_fallback(tree, renderer, size, phase);
+            self.rebuild_status_overlay(tree, renderer, size, status.as_ref(), phase);
 
             let mut bar_animating = false;
 
