@@ -1288,14 +1288,18 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                                 },
                             );
                             // Bottom padding on the last row, so the newest
-                            // message isn't flush against the input box.
-                            let row = if index == length - 1 {
-                                w::container(content)
-                                    .padding(padding::bottom(structure.gap * 3.0))
-                                    .boxed()
-                            } else {
-                                content
-                            };
+                            // message isn't flush against the input box. The
+                            // wrapper must keep the same widget type whether
+                            // or not the row is last because of the virtualized list
+                            //  tree, and swapping container
+                            // for bare content changes the tree shape.
+                            let row = w::container(content)
+                                .padding(if index == length - 1 {
+                                    padding::bottom(structure.gap * 3.0)
+                                } else {
+                                    iced::Padding::ZERO
+                                })
+                                .boxed();
 
                             // Only the newest message from someone else reports
                             // being rendered; the others report a harmless no-op.
