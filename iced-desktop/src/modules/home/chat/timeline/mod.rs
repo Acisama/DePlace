@@ -992,10 +992,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     if key == Character("e".into()) {
                         let id = self.focused_message_id.clone()?;
                         let can_edit = self.user_can_send
-                            && self
-                                .content
-                                .get(&id)
-                                .is_some_and(|item| item.booleans().1);
+                            && self.content.get(&id).is_some_and(|item| item.booleans().1);
 
                         if can_edit {
                             return self.update(TimelineMessage::Item {
@@ -1140,6 +1137,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         let help_state = help_state();
         let room = self.room.clone();
 
+        let length = self.content.len();
+
         let mut stack = w::stack![
             w::container(track_scroll(
                 themed_scrollable(
@@ -1147,19 +1146,39 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         list(self.content.clone(), move |index, id, item| {
                             let is_focused = focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
                             let room = room.clone();
-                            lazy_editing((item.clone(), is_focused), move |(item, is_focused)| {
-                                let id = id.clone();
-                                item.view(theme, structure, *is_focused, help_state, index, &room)
-                                    .map_el(move |msg| TimelineMessage::Item {
-                                        id: id.clone(),
-                                        message: msg,
+
+                            let content = lazy_editing(
+                                (item.clone(), is_focused),
+                                move |(item, is_focused)| {
+                                    let id = id.clone();
+                                    item.view(
+                                        theme,
+                                        structure,
+                                        *is_focused,
+                                        help_state,
+                                        index,
+                                        &room,
+                                    )
+                                    .map_el(move |msg| {
+                                        TimelineMessage::Item {
+                                            id: id.clone(),
+                                            message: msg,
+                                        }
                                     })
-                            })
+                                },
+                            );
+
+                            if index == length - 1 {
+                                w::container(content)
+                                    .padding(padding::bottom(structure.gap * 3.0))
+                                    .boxed()
+                            } else {
+                                content
+                            }
                         })
                         .id(LIST_ID),
                         || TimelineMessage::FillsParentNot,
                     ))
-                    // .padding(padding::bottom(structure.gap * 3.0))
                     .width(Fill)
                     .height(Fill)
                     .align_bottom(Fill),
@@ -1199,7 +1218,6 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 SCROLLABLE_ID,
                 TimelineMessage::ScrolledFromTop,
             ))
-            .padding(padding::bottom(15.0))
             .width(Fill)
             .align_bottom(Fill),
         ]
