@@ -166,7 +166,14 @@ impl Root {
         match message {
             AppMessage::WindowFocus { focused } if let Screen::Home(home) = &mut self.screen => {
                 home.set_frontend_focused(focused);
-                None
+                if focused {
+                    // Let the open chat re-check whether it counts as read
+                    // now that the window is focused and it will then set
+                    // read markers based on this
+                    self.update_screen(AppMessage::Home(Box::new(HomeMessage::WindowFocused)))
+                } else {
+                    None
+                }
             }
             AppMessage::Home(msg) if let Screen::Home(home) = &mut self.screen => {
                 let is_call_tick = matches!(*msg, HomeMessage::CallTick);

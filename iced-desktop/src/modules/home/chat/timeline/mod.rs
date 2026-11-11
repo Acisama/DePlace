@@ -71,6 +71,15 @@ pub enum TimelineMessage {
     ScrollTo(Option<Rectangle>),
     FillsParentNot,
     HelpHover(Option<HelpKey>),
+    /// The newest message sent by someone else was that was rendered (and by
+    /// extension seen by the user), if the window is focused
+    /// or get's focused later, the whole room counts as read.
+    LastMessageRendered {
+        id: String,
+    },
+    /// The window regained focus, so a room whose newest message was
+    /// rendered earlier may now count as read.
+    WindowFocused,
 }
 
 impl std::fmt::Debug for TimelineMessage {
@@ -97,6 +106,13 @@ impl std::fmt::Debug for TimelineMessage {
             Self::ScrollTo(..) => "ScrollTo",
             Self::FillsParentNot => "FillsParent",
             Self::HelpHover(..) => "HelpHover",
+            Self::LastMessageRendered { id } => {
+                return f
+                    .debug_struct("LastMessageRendered")
+                    .field("id", id)
+                    .finish();
+            }
+            Self::WindowFocused => "WindowFocused",
         };
         write!(f, "{name}")
     }
@@ -183,6 +199,17 @@ pub struct ChatTimeline {
     /// that switching to a different message's edit box can poke just that one
     /// row back to plain text instead of touching every row in the timeline.
     editing_row_id: Option<String>,
+
+    /// Row id of the newest message from someone else that has been rendered
+    /// since it arrived, this is used to determine whether the user has read
+    /// the newest messages and then to set local and remote read indicators
+    rendered_last_message_id: Option<String>,
+    /// Row id of the newest message from someone else that the read indication
+    /// was already sent for, so it is sent at most once per message.
+    marked_last_message_id: Option<String>,
+    /// Whether this chat is the one currently displayed. Only the displayed
+    /// chat may short-circuit read marking when a new message arrives.
+    active: bool,
 }
 
 impl ExtraHash for ChatTimeline {
@@ -271,6 +298,9 @@ impl ChatTimeline {
             messages_version: 0,
             focused_message_id: None,
             editing_row_id: None,
+            rendered_last_message_id: None,
+            marked_last_message_id: None,
+            active: false,
         };
         timeline.recalculate_with_power_levels();
         timeline
@@ -468,6 +498,18 @@ impl ChatTimeline {
         }
     }
 
+    /// Marks this chat as the one currently displayed or not. Only the
+    /// displayed chat short-circuits read marking when new messages arrive
+    /// so that no indicator flashes.
+    ///
+    /// TODO: This still needs to be implemented, the sidebar and timeline
+    /// must coordinate so that if the window is focused and the timeline
+    /// is at the bottom, then the unread message marker shouldn't flash or
+    /// something.
+    pub fn set_active(&mut self, active: bool) {
+        self.active = active;
+    }
+
     /// The index of the bottom-most item that is an actual message,
     /// skipping trailing non-message items (e.g. the read marker) --
     /// used to seed initial focus so `j`/`k` start on a real message.
@@ -484,6 +526,59 @@ impl ChatTimeline {
             }
             index = index.checked_sub(1)?;
         }
+    }
+
+    /// The row id and event id of the newest message sent by someone else.
+    fn last_remote_message(&self) -> Option<(String, OwnedEventId)> {
+        (0..self.content.len()).rev().find_map(|index| {
+            let items = self.content.index_map();
+            let (id, item) = items.get_index(index)?;
+            let (is_own, ..) = item.booleans();
+            if is_own {
+                return None;
+            }
+            Some((id.clone(), item.event_id()?))
+        })
+    }
+
+    /// Read tracking: a room counts as fully read once the newest message
+    /// from someone else has been rendered and the window was focused at
+    /// that point or afterwards. When that happens, everything up to that
+    /// message is marked read by sending the read marker (`m.fully_read`,
+    /// ocal red marker) and the public read receipt
+    /// (`m.read`, what other users see) in a single request.
+    fn try_mark_remote_message_read(&mut self) -> Option<TimelineAction> {
+        let timeline = self.timeline.clone()?;
+        let (item_id, event_id) = self.last_remote_message()?;
+
+        // The newest message from someone else hasn't been rendered yet, so
+        // the room can't count as read.
+        if self.rendered_last_message_id.as_deref() != Some(item_id.as_str()) {
+            return None;
+        }
+        // Already marked so sending again wouldn't move the receipts forward.
+        if self.marked_last_message_id.as_deref() == Some(item_id.as_str()) {
+            return None;
+        }
+        // Not focused at rendering time, wait until the window regains focus.
+        if !self.state.window_focused() {
+            return None;
+        }
+
+        self.marked_last_message_id = Some(item_id);
+
+        if !self.state.settings().get_send_read_markers() {
+            return None;
+        }
+
+        Some(TimelineAction::Run(Task::future(async move {
+            let receipts = matrix_sdk::room::Receipts::new()
+                .fully_read_marker(event_id.clone())
+                .public_read_receipt(event_id);
+            if let Err(e) = timeline.send_multiple_receipts(receipts).await {
+                tracing::warn!("Failed to send read receipts: {e}");
+            }
+        })))
     }
 
     fn pagination_task(
@@ -1036,6 +1131,14 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                                 self.focused_message_id = Some(id.clone());
 
+                                // A focused last message means the viewport
+                                // is on the room's end: nothing left to load
+                                // forward, and messages arriving now are
+                                // being watched.
+                                // if Some(new_focus_index) == self.last_message_index() {
+                                //     self.reached_bottom = true;
+                                // }
+
                                 let task = operate(sweeten::widget::list::FindItemBounds::new(
                                     Some(LIST_ID),
                                     new_focus_index,
@@ -1079,6 +1182,14 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                                 self.focused_message_id = Some(id.clone());
 
+                                // A focused last message means the viewport
+                                // is on the room's end: nothing left to load
+                                // forward, and messages arriving now are
+                                // being watched.
+                                // if Some(new_focus_index) == self.last_message_index() {
+                                //     self.reached_bottom = true;
+                                // }
+
                                 let task = operate(sweeten::widget::list::FindItemBounds::new(
                                     Some(LIST_ID),
                                     new_focus_index,
@@ -1115,6 +1226,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     self.pagination_task(PaginationDirection::Backward, 30)
                 }
             }
+            TimelineMessage::LastMessageRendered { id } => {
+                self.rendered_last_message_id = Some(id);
+                self.try_mark_remote_message_read()
+            }
+            TimelineMessage::WindowFocused => self.try_mark_remote_message_read(),
             TimelineMessage::None => None,
         }
     }
@@ -1134,6 +1250,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
         let focused_id = Rc::new(self.focused_message_id.clone());
 
+        // Only the newest message from someone else carries the read
+        // indication, so mark its row so it reports being rendered.
+        let last_remote_id = Rc::new(self.last_remote_message().map(|(id, _)| id));
+
         let help_state = help_state();
         let room = self.room.clone();
 
@@ -1146,7 +1266,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                         list(self.content.clone(), move |index, id, item| {
                             let is_focused = focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
                             let room = room.clone();
-
+                            let row_id = id.clone();
                             let content = lazy_editing(
                                 (item.clone(), is_focused),
                                 move |(item, is_focused)| {
@@ -1167,14 +1287,25 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                                     })
                                 },
                             );
-
-                            if index == length - 1 {
+                            // Bottom padding on the last row, so the newest
+                            // message isn't flush against the input box.
+                            let row = if index == length - 1 {
                                 w::container(content)
                                     .padding(padding::bottom(structure.gap * 3.0))
                                     .boxed()
                             } else {
                                 content
-                            }
+                            };
+
+                            // Only the newest message from someone else reports
+                            // being rendered; the others report a harmless no-op.
+                            let message =
+                                if last_remote_id.as_ref().as_deref() == Some(row_id.as_str()) {
+                                    TimelineMessage::LastMessageRendered { id: row_id }
+                                } else {
+                                    TimelineMessage::None
+                                };
+                            crate::components::on_appear(row, message).into()
                         })
                         .id(LIST_ID),
                         || TimelineMessage::FillsParentNot,

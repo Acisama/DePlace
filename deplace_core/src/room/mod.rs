@@ -192,6 +192,14 @@ impl DePlaceRoom {
         self.live.change_if_modified(f);
     }
 
+    /// Locally clears the room's notification counts, without touching the
+    /// server. Used right after the frontend itself sent its read indication,
+    /// so unread badges don't flash up until the next sync
+    /// confirms the receipts.
+    pub fn clear_notification_counts(&self) {
+        self.update_live_if_modified(|live| live.notification_counts = Default::default());
+    }
+
     pub fn members_ref(&self) -> &RoomMembers {
         &self.members
     }

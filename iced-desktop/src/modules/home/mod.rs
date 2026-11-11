@@ -65,6 +65,9 @@ pub enum HomeMessage {
         finished: bool,
     },
     SettingsChanged,
+    /// The window regained focus -- the frontend may now mark the open
+    /// room as read if its newest message was rendered earlier.
+    WindowFocused,
     /// Notify of updated call state
     CallTick,
     SyncTick,
@@ -272,7 +275,19 @@ impl Home {
 
     fn load_room(&mut self, room: DePlaceRoom) -> Option<HomeAction> {
         let id = room.room_id().to_owned();
-        self.active_room_id = Some(id.clone());
+        let previous = self.active_room_id.replace(id.clone());
+
+        // Keep chats aware of which one is displayed, so only that one
+        // short-circuits read marking when new messages arrive.
+        if previous != Some(id.clone())
+            && let Some(previous) = &previous
+            && let Some(chat) = self.chats.peek_mut(previous)
+        {
+            chat.set_active(false);
+        }
+        if let Some(chat) = self.chats.peek_mut(&id) {
+            chat.set_active(true);
+        }
 
         let restore_scroll = Task::done((
             id.clone(),
@@ -297,6 +312,9 @@ impl Home {
             remove_editing_content(&old_room_id);
         };
         self.chats.promote(&id);
+        if let Some(chat) = self.chats.peek_mut(&id) {
+            chat.set_active(true);
+        }
 
         Some(HomeAction::LoadTimeline(Task::batch([
             task,
@@ -552,7 +570,16 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 }
             },
             HomeMessage::ActiveRoomChanged(Some(room)) => self.load_room(room),
-            HomeMessage::ActiveRoomChanged(None) => None,
+            HomeMessage::ActiveRoomChanged(None) => {
+                // Nothing is displayed anymore, so no chat may short-circuit
+                // read marking until a room is opened again.
+                if let Some(room_id) = &self.active_room_id
+                    && let Some(chat) = self.chats.peek_mut(room_id)
+                {
+                    chat.set_active(false);
+                }
+                None
+            }
             HomeMessage::Chat { room_id, message } => self.dispatch_to_chat(room_id, message),
             // TODO: Implement empty chat
             HomeMessage::EmptyChat(_) => {
@@ -627,6 +654,13 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
 
                 chat.touch_all();
                 None
+            }
+            HomeMessage::WindowFocused => {
+                let room_id = self.active_room_id.clone()?;
+                self.dispatch_to_chat(
+                    room_id,
+                    ChatMessage::Timeline(TimelineMessage::WindowFocused),
+                )
             }
             HomeMessage::SyncTick => None,
             HomeMessage::CallTick => None,

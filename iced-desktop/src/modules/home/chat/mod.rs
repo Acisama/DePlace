@@ -328,6 +328,15 @@ impl Chat {
         self.input.get_raw_content_pointer()
     }
 
+    /// Marks this chat as the one currently displayed or not and the
+    /// timeline uses it to decide whether new messages may be marked read
+    /// immediately. All other timelines never immediately mark the latest
+    /// message as read. This will be needed for short-circuiting read
+    /// notifs in the ui
+    pub fn set_active(&mut self, active: bool) {
+        self.timeline.set_active(active);
+    }
+
     pub fn focus_input<T>(&self) -> Task<T> {
         self.input.focus()
     }

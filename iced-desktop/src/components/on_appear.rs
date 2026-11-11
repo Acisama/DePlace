@@ -61,7 +61,14 @@ impl<Message: Clone, Content: DePlaceWidget<Message>> Widget<Message, iced::Them
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) {
-        self.content.layout(&mut tree.children[0], renderer, limits)
+        self.content.layout(&mut tree.children[0], renderer, limits);
+
+        // a widget's `layout` must record its resulting
+        // size on its tree, the virtualized list measures rows by
+        // reading `tree.size` after laying them out. Wrapping rows in
+        // on_appear made them measure as zero-sized and render as empty.
+        // Silly me, I should totally have known that. Totally.
+        tree.size = tree.children[0].size;
     }
 
     fn operate(
