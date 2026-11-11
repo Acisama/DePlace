@@ -117,47 +117,98 @@ static LAST_SYNC: AtomicU64 = AtomicU64::new(0);
 /// Warn when no sync response arrived for this long.
 const SYNC_STALL_WARN_AFTER: u64 = 90;
 
+/// Hard deadline for one fetch from the sync stream, covering the 30 s
+/// long poll and the stream's own error-retry cycle (90 s worst case).
+/// If the iteration doens't yield within this time, an await is stuck
+/// which would explain the silent missing sync
+const SYNC_FETCH_DEADLINE: Duration = Duration::from_secs(120);
+
+/// Hard deadline for handling one sync response
+const SYNC_HANDLE_DEADLINE: Duration = Duration::from_secs(120);
+
+/// Pause between sync stream rebuilds
+const SYNC_REBUILD_PAUSE: Duration = Duration::from_secs(2);
+
 async fn run_sync_stream(client: Client, state: AppState) {
     let sync_settings = SyncSettings::default()
         .ignore_timeout_on_first_sync(true)
         .set_presence(PresenceState::Online)
         .timeout(Duration::from_secs(30));
 
-    tracing::debug!("Starting the sync stream");
+    let mut responses = 0u64;
+    let mut restarts = 0u64;
+    let mut handler_attached = false;
 
-    let sync_stream = client.sync_stream(sync_settings).await;
-    let mut sync_stream = pin!(sync_stream);
+    // Outer loop: whenever the stream stalls or ends, a fresh one is
+    // rebuilt from the client's stored sync token, so message reception
+    // recovers on its own instead of requiring an app restart.
+    loop {
+        tracing::debug!(restarts, responses, "Starting the sync stream");
 
-    let Some(result) = sync_stream.next().await else {
-        tracing::error!(
-            "Sync stream ended before the first response arrived, \
-             messages will not be received until the app is restarted"
-        );
-        return;
-    };
+        let sync_stream = client.sync_stream(sync_settings.clone()).await;
+        let mut sync_stream = pin!(sync_stream);
 
-    #[allow(clippy::useless_conversion)]
-    handle_sync_result(result.into(), &state).await;
-    client.add_event_handler(on_message);
-    tracing::debug!("First sync response processed, message handler attached");
+        loop {
+            let fetched = tokio::time::timeout(SYNC_FETCH_DEADLINE, sync_stream.next()).await;
 
-    let mut responses = 1;
-    while let Some(result) = sync_stream.next().await {
-        responses += 1;
-        #[allow(clippy::useless_conversion)]
-        handle_sync_result(result.into(), &state).await;
+            let result = match fetched {
+                Ok(Some(result)) => result,
+                Ok(None) => {
+                    tracing::error!(
+                        responses,
+                        restarts = restarts + 1,
+                        "Sync stream ended after {responses} responses; \
+                         it is rebuilt so messages keep flowing"
+                    );
+                    break;
+                }
+                Err(_elapsed) => {
+                    tracing::error!(
+                        responses,
+                        restarts = restarts + 1,
+                        "Sync stream stalled for \
+                         {SYNC_FETCH_DEADLINE:?} without a response, \
+                         rebuilding it to squash the dead sync bug"
+                    );
+                    break;
+                }
+            };
+
+            responses += 1;
+
+            let handled = tokio::time::timeout(
+                SYNC_HANDLE_DEADLINE,
+                #[allow(clippy::useless_conversion)]
+                async {
+                    handle_sync_result(result.into(), &state).await;
+                },
+            )
+            .await;
+
+            if let Err(_elapsed) = handled {
+                tracing::error!(
+                    responses,
+                    "Handling a sync response stalled for \
+                     {SYNC_HANDLE_DEADLINE:?}; it is dropped, but the \
+                     sync stream itself stays alive"
+                );
+            }
+
+            if !handler_attached {
+                client.add_event_handler(on_message);
+                handler_attached = true;
+                tracing::debug!("First sync response processed, message handler attached");
+            }
+        }
+
+        restarts += 1;
+        tokio::time::sleep(SYNC_REBUILD_PAUSE).await;
     }
-
-    tracing::error!(
-        "Sync stream ended after {responses} responses; it is not \
-         restarted, messages will not be received until the app is \
-         restarted"
-    );
 }
 
 /// Watches [`LAST_SYNC`] and warns while no sync response arrives, so a
-/// silently dead sync loop is visible in the logs instead of just quietly
-/// dying and never notifying me, I will squash this bug
+/// stalled sync loop stays visible in the logs. The stream loop rebuilds
+/// itself on [`SYNC_FETCH_DEADLINE`], this only reports the outage.
 async fn run_sync_stall_watchdog() {
     loop {
         tokio::time::sleep(Duration::from_secs(30)).await;
