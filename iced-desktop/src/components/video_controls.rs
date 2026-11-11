@@ -34,10 +34,6 @@ use crate::{EMPTY_WIDGET, MONO_FONT};
 use super::render_media::Fallback;
 use super::{ColoredRounded, StatusExt, default_button, phosphor_icon};
 
-pub trait VideoControlsMessage {
-    fn fullscreen(video: Arc<Video>) -> Self;
-}
-
 /// How long the bar takes to slide fully in or out.
 const SLIDE_DURATION: Duration = Duration::from_millis(200);
 /// How long the real video takes to crossfade in over `fallback` once the
@@ -137,7 +133,6 @@ where
         fallback: Box::new(fallback),
         radius: Radius::default(),
         content: None,
-        fading_fallback: None,
         not_started: None,
         bar: None,
         status_overlay: None,
@@ -154,21 +149,9 @@ pub struct VideoControls<'a, Message> {
     fallback: Fallback<'a, Message>,
     radius: Radius,
 
-    /// The fallback, or the real video player (built lazily) for whatever
-    /// `Phase` the cell is currently in. During `Fading` this is *just* the
-    /// (always fully opaque) video -- see `fading_fallback` for why the
-    /// fallback it's crossfading with isn't layered in here too.
+    /// The fallback, crossfade, or real video player (built lazily)
+    /// for whatever `Phase` the cell is currently in
     content: Option<Element<'a, Message>>,
-
-    /// The fallback, drawn in its own `with_layer` pass on top of `content`
-    /// and faded out over `FADE_DURATION` while `Phase::Fading`, empty the
-    /// rest of the time. Has to be a separate layer rather than just stacked
-    /// on top of `content` within the same one: `VideoPlayer` draws through
-    /// a raw GPU primitive, which this renderer composites in its own batch
-    /// *regardless* of widget draw order relative to ordinary quads/images --
-    /// stacking them in the same layer still let the video win every time,
-    /// which is exactly the "hard cut, no fade" symptom this works around.
-    fading_fallback: Option<Element<'a, Message>>,
 
     not_started: Option<Element<'a, Local>>,
     bar: Option<Element<'a, Local>>,
@@ -362,14 +345,10 @@ fn status_alpha(phase: Phase) -> f32 {
     }
 }
 
-/// `VideoPlayer` draws through a raw GPU primitive with no opacity control
-/// of its own -- unlike `w::image`/`w::container`, there's no way to fade
-/// the video frame itself in. So it's always drawn fully opaque; `Fading`
-/// gets its crossfade look by fading the *fallback* out on top of it
-/// instead (see `content_for`).
 fn video_element<'a, Message: Clone + 'a>(
     video: Arc<Video>,
     radius: Radius,
+    opacity: f32,
 ) -> Element<'a, Message> {
     w::container(VideoPlayer::new(video).content_fit(iced::ContentFit::Cover))
         .width(Fill)
@@ -378,7 +357,7 @@ fn video_element<'a, Message: Clone + 'a>(
         .style(move |_| {
             w::container::Style::default()
                 .border(border::rounded(radius))
-                .background(Color::WHITE)
+                .background(Color::WHITE.scale_alpha(opacity))
         })
         .boxed()
 }
@@ -402,27 +381,28 @@ where
     fn content_for(&self, phase: Phase) -> Element<'a, Message> {
         match phase {
             Phase::Pending | Phase::NotStarted => (self.fallback)(self.radius, 1.0),
-            // Shouldn't happen for `None` (nothing moves the cell backwards
-            // out of `Loaded`), but fall back to the plain fallback rather
-            // than panicking if it ever does.
-            Phase::Fading(_) | Phase::Done => match self.video() {
-                Some(video) => video_element(video, self.radius),
-                None => (self.fallback)(self.radius, 1.0),
-            },
-        }
-    }
-
-    /// The fallback's own layer, faded out over `Fading`. See the field doc
-    /// on `fading_fallback` for why this can't just be stacked on top of
-    /// `content` directly.
-    fn fading_fallback_for(&self, phase: Phase) -> Element<'a, Message> {
-        match phase {
-            Phase::Fading(started) if self.video().is_some() => {
+            Phase::Fading(started) => {
                 let t =
                     (started.elapsed().as_secs_f32() / FADE_DURATION.as_secs_f32()).clamp(0.0, 1.0);
-                (self.fallback)(self.radius, 1.0 - t)
+
+                match self.video() {
+                    Some(video) => w::stack![
+                        video_element(video, self.radius, t),
+                        (self.fallback)(self.radius, 1.0 - t),
+                    ]
+                    .width(Fill)
+                    .height(Fill)
+                    .boxed(),
+                    // Shouldn't happen (nothing moves the cell backwards
+                    // out of `Loaded`), but fall back to the plain
+                    // fallback rather than panicking if it ever does.
+                    None => (self.fallback)(self.radius, 1.0),
+                }
             }
-            _ => EMPTY_WIDGET.boxed(),
+            Phase::Done => match self.video() {
+                Some(video) => video_element(video, self.radius, 1.0),
+                None => (self.fallback)(self.radius, 1.0),
+            },
         }
     }
 
@@ -443,32 +423,6 @@ where
             &layout::Limits::new(Size::ZERO, size),
         );
         self.content = Some(content);
-    }
-
-    fn ensure_fading_fallback(&mut self, phase: Phase) -> &mut Element<'a, Message> {
-        if self.fading_fallback.is_none() {
-            self.fading_fallback = Some(self.fading_fallback_for(phase));
-        }
-        #[allow(clippy::unwrap_used)]
-        self.fading_fallback.as_mut().unwrap()
-    }
-
-    fn rebuild_fading_fallback(
-        &mut self,
-        tree: &mut Tree,
-        renderer: &Renderer,
-        size: Size,
-        phase: Phase,
-    ) {
-        let mut fading_fallback = self.fading_fallback_for(phase);
-        tree.children[4].diff(&mut fading_fallback);
-        fading_fallback.layout(
-            &mut tree.children[4],
-            renderer,
-            &layout::Limits::new(Size::ZERO, size),
-        );
-        tree.children[4].translation = Vector::ZERO;
-        self.fading_fallback = Some(fading_fallback);
     }
 
     fn ensure_not_started(&mut self, phase: Phase) -> &mut Element<'a, Local> {
@@ -708,7 +662,7 @@ impl<'a, Message> Meta for VideoControls<'a, Message> {}
 
 impl<'a, Message> Widget<Message, IcedTheme, Renderer> for VideoControls<'a, Message>
 where
-    Message: Clone + VideoControlsMessage + 'a,
+    Message: Clone + 'a,
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
@@ -737,14 +691,13 @@ where
     fn diff(&mut self, tree: &mut Tree) {
         let phase = tree.state.downcast_ref::<State>().phase;
 
-        if tree.children.len() < 5 {
-            tree.children.resize_with(5, Tree::empty);
+        if tree.children.len() < 4 {
+            tree.children.resize_with(4, Tree::empty);
         }
         tree.children[0].diff(self.ensure_content(phase));
         tree.children[1].diff(self.ensure_bar());
         tree.children[2].diff(self.ensure_status_overlay(phase));
         tree.children[3].diff(self.ensure_not_started(phase));
-        tree.children[4].diff(self.ensure_fading_fallback(phase));
     }
 
     fn size(&self) -> Size<Length> {
@@ -798,13 +751,6 @@ where
             &layout::Limits::new(Size::ZERO, size),
         );
         tree.children[3].translation = Vector::ZERO;
-
-        self.ensure_fading_fallback(phase).layout(
-            &mut tree.children[4],
-            renderer,
-            &layout::Limits::new(Size::ZERO, size),
-        );
-        tree.children[4].translation = Vector::ZERO;
     }
 
     fn operate(
@@ -937,7 +883,6 @@ where
 
             self.rebuild_content(tree, renderer, size, phase);
             self.rebuild_not_started(tree, renderer, size, phase);
-            self.rebuild_fading_fallback(tree, renderer, size, phase);
             self.rebuild_status_overlay(tree, renderer, size, status.as_ref(), phase);
 
             let mut bar_animating = false;
@@ -1192,14 +1137,6 @@ where
             return;
         };
 
-        if let Some(fading_fallback) = &self.fading_fallback
-            && let Some((ff_layout, ff_tree)) = layout.iter(&tree.children).nth(4)
-        {
-            renderer.with_layer(clip, |renderer| {
-                fading_fallback.draw(ff_tree, renderer, theme, style, ff_layout, cursor, viewport);
-            });
-        }
-
         if let Some(overlay) = &self.status_overlay
             && let Some((overlay_layout, overlay_tree)) = layout.iter(&tree.children).nth(2)
         {
@@ -1268,7 +1205,7 @@ where
 
 impl<'a, Message> From<VideoControls<'a, Message>> for Element<'a, Message>
 where
-    Message: Clone + VideoControlsMessage + 'a,
+    Message: Clone + 'a,
 {
     fn from(widget: VideoControls<'a, Message>) -> Self {
         widget.boxed()

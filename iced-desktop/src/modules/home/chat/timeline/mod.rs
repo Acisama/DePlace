@@ -210,6 +210,8 @@ pub struct ChatTimeline {
     /// Whether this chat is the one currently displayed. Only the displayed
     /// chat may short-circuit read marking when a new message arrives.
     active: bool,
+
+    send_read_receipts: Receiver<bool>,
 }
 
 impl ExtraHash for ChatTimeline {
@@ -301,6 +303,8 @@ impl ChatTimeline {
             rendered_last_message_id: None,
             marked_last_message_id: None,
             active: false,
+
+            send_read_receipts: settings.send_read_markers.watch(),
         };
         timeline.recalculate_with_power_levels();
         timeline
@@ -548,6 +552,10 @@ impl ChatTimeline {
     /// ocal red marker) and the public read receipt
     /// (`m.read`, what other users see) in a single request.
     fn try_mark_remote_message_read(&mut self) -> Option<TimelineAction> {
+        if !*self.send_read_receipts.borrow() {
+            return None;
+        }
+
         let timeline = self.timeline.clone()?;
         let (item_id, event_id) = self.last_remote_message()?;
 

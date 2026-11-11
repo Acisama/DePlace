@@ -54,7 +54,7 @@ pub use elapsed_time::elapsed_time;
 pub use fills_parent::fills_parent;
 pub use on_appear::on_appear;
 pub use pan::pan;
-pub use video_controls::{VideoControlsMessage, video_controls};
+pub use video_controls::video_controls;
 pub use volume_bar::volume_bar;
 
 use crate::common::DePlaceWidget;

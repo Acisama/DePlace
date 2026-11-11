@@ -1,6 +1,5 @@
 use crate::{
-    common::*,
-    components::{VideoControlsMessage, profile::OpenProfileOverlayExt},
+    common::*, components::profile::OpenProfileOverlayExt,
     modules::home::overlay::MediaOverlayParams,
 };
 use std::{
@@ -88,12 +87,6 @@ pub enum TimelineItemMessage {
 impl OpenProfileOverlayExt for TimelineItemMessage {
     fn open_profile(member: Member, bounds: Rectangle) -> Self {
         Self::OpenProfileOverlay { member, bounds }
-    }
-}
-
-impl VideoControlsMessage for TimelineItemMessage {
-    fn fullscreen(_video: Arc<iced_video_player::Video>) -> Self {
-        TimelineItemMessage::None
     }
 }
 

@@ -159,20 +159,22 @@ jobs:
         shell: pwsh
         run: |
           # gpu-allocator 0.28.0 allows windows up to 0.62, but its own
-          # Cargo.lock entry sometimes resolves to the older 0.61.3, which
-          # conflicts with wgpu-hal's windows ^0.62 requirement (duplicate,
-          # incompatible `windows`/`windows-core` types in the D3D12 backend).
-          # This re-applies that pin on every run so it survives Cargo.lock
-          # being regenerated/reset. Scoped to gpu-allocator's own block only
-          # (bounded by the next [[package]] marker) so it can't accidentally
-          # touch other crates, like tauri-winrt-notification, that also
-          # depend on windows 0.61.3 and are unaffected by this conflict.
+          # Cargo.lock entry sometimes resolves to the older 0.54.0 (the
+          # version cpal pins exactly, via `windows ^0.54.0`) instead of
+          # unifying with wgpu-hal's direct windows ^0.62 requirement. That
+          # leaves two incompatible `windows`/`windows-core` types in the
+          # D3D12 backend (wgpu-hal passing 0.62 types into gpu-allocator's
+          # 0.54 API). This re-applies that pin on every run so it survives
+          # Cargo.lock being regenerated/reset. Scoped to gpu-allocator's own
+          # block only (bounded by the next [[package]] marker) so it can't
+          # accidentally touch other crates, like cpal, that depend on
+          # windows 0.54.0 on purpose and are unaffected by this conflict.
           $lockPath = "Cargo.lock"
           $content = Get-Content $lockPath -Raw
-          $pattern = '(?s)(name = "gpu-allocator"(?:(?!\[\[package\]\]).)*?)"windows 0\.61\.3"'
+          $pattern = '(?s)(name = "gpu-allocator"(?:(?!\[\[package\]\]).)*?)"windows 0\.54\.0"'
 
           if ($content -match $pattern) {
-            Write-Host "Patching gpu-allocator's windows dependency: 0.61.3 -> 0.62.2"
+            Write-Host "Patching gpu-allocator's windows dependency: 0.54.0 -> 0.62.2"
             $patched = [regex]::Replace($content, $pattern, '$1"windows 0.62.2"')
             Set-Content -Path $lockPath -Value $patched -NoNewline
           } else {
