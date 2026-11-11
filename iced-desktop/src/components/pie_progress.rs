@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use iced::advanced::svg;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, path::Arc};
-use iced::{Color, Element, Event, Radians, Rectangle, Renderer, Theme, Widget, mouse};
+use iced::{Color, Element, Event, Length, Radians, Rectangle, Renderer, Theme, Widget, mouse};
 
 pub struct PieProgress {
     pub value: f32, // 0.0..=1.0
@@ -120,14 +120,15 @@ impl<Message> canvas::Program<Message> for PieProgress {
 
 pub fn pie_progress<'a, Message: 'a>(
     value: f32,
-    size: f32,
-    color: Color,
+    size: impl Into<Length>,
+    color: impl Into<Color>,
     thickness: f32,
     icon: Option<&'static str>,
 ) -> Element<'a, Message> {
+    let size = size.into();
     Canvas::new(PieProgress {
         value,
-        color,
+        color: color.into(),
         thickness,
         icon: icon.map(|svg_content| svg::Handle::from_memory(svg_content.as_bytes())),
     })

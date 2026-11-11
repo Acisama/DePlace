@@ -161,7 +161,6 @@ impl Overlay {
 pub enum OverlayAction {
     Run(Task<()>),
     Perform(Task<OverlayMessage>),
-    NeedsMedia(NeedsMedia),
     ChangeRoom(Option<DePlaceRoom>),
     SetIsReplyingTo {
         item_id: String,
@@ -298,9 +297,6 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
             OverlayMessage::Media(message) => {
                 if let Some(OverlayState::Media(media)) = &mut self.overlay_state {
                     match media.update(message)? {
-                        MediaOverlayAction::NeedsMedia(media) => {
-                            Some(OverlayAction::NeedsMedia(media))
-                        }
                         MediaOverlayAction::Close => self.close(),
                         MediaOverlayAction::HelpHover(help_key) => {
                             Some(OverlayAction::HelpHover(help_key))

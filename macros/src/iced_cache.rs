@@ -92,28 +92,6 @@ pub fn convert_iced(item: ItemStruct, derives: Punctuated<Path, Token![,]>) -> T
                 self.active_server.borrow().hash(state);
             });
         }
-
-        if field_name.to_string().as_str() == "video_cache"
-            || type_string(&field.ty).as_str() == "VideoCache"
-        {
-            assertions.push(assert_role(
-                &struct_name,
-                &field_name,
-                &field_ty,
-                quote! { ::deplace_core::state::roles::IsVideoCache },
-            ));
-            item_fields.push(quote! {
-                video_states_for_hash: std::collections::BTreeSet<String>,
-            });
-            hashings.push(quote! {
-                for key in &self.video_states_for_hash {
-                    self.video_cache
-                        .get(key)
-                        .unwrap_or_default()
-                        .hash(state);
-                }
-            });
-        }
     }
 
     // Autoref specialization: fold in `self.extra_hash(state)` if `#struct_name`

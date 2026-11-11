@@ -13,19 +13,27 @@ use ruma::{OwnedMxcUri, UInt, uint};
 
 use crate::Shared;
 
+#[cfg(feature = "iced")]
+pub mod video;
+#[cfg(feature = "iced")]
+pub mod video_stream;
+
 /// Loads one kind of media (e.g. a thumbnail vs. the original file) for a
 /// [`MediaCache`]. `fetch` is only ever invoked once per cache key, by
 /// whichever caller wins the race in [`Shared::start_loading`].
-pub trait MediaLoader: Send + Sync + 'static {
+pub trait MediaLoader<Extra: Clone>: Send + Sync + 'static {
     type Item: Clone + Sync + Send + 'static;
+
     fn fetch(
         client: Client,
         parameters: MediaRequestParameters,
-    ) -> impl Future<Output = MediaState<Self::Item>> + Send;
+        extra: Extra,
+        fallback: bool,
+    ) -> impl Future<Output = MediaState<Self::Item, Extra>> + Send;
 }
 
 #[derive(Clone)]
-pub enum MediaState<T: Clone> {
+pub enum MediaState<T: Clone, Extra: Clone> {
     /// Contains everything needed to fetch the media. `handle` is carried
     /// along rather than relying on an ambient Tokio context at
     /// `start_loading` time: that gets called from widget code during
@@ -39,13 +47,14 @@ pub enum MediaState<T: Clone> {
         client: Client,
         parameters: MediaRequestParameters,
         handle: tokio::runtime::Handle,
+        extra: Extra,
     },
     Loading,
     Failed(Arc<String>),
     Loaded(T),
 }
 
-impl<T: Clone> std::fmt::Debug for MediaState<T> {
+impl<T: Clone, Extra: Clone> std::fmt::Debug for MediaState<T, Extra> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MediaState::LoadNotStarted { .. } => write!(f, "LoadNotStarted"),
@@ -56,7 +65,7 @@ impl<T: Clone> std::fmt::Debug for MediaState<T> {
     }
 }
 
-impl<T: Clone> Hash for MediaState<T> {
+impl<T: Clone, Extra: Clone> Hash for MediaState<T, Extra> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             MediaState::LoadNotStarted { .. } => 0.hash(state),
@@ -67,7 +76,7 @@ impl<T: Clone> Hash for MediaState<T> {
     }
 }
 
-impl<T: Clone> PartialEq for MediaState<T> {
+impl<T: Clone, Extra: Clone> PartialEq for MediaState<T, Extra> {
     fn eq(&self, other: &Self) -> bool {
         matches!(
             (self, other),
@@ -81,7 +90,9 @@ impl<T: Clone> PartialEq for MediaState<T> {
     }
 }
 
-impl<I: Clone + Sync + Send + 'static> Shared<MediaState<I>> {
+impl<I: Clone + Sync + Send + 'static, Extra: Clone + Send + Sync + 'static>
+    Shared<MediaState<I, Extra>>
+{
     pub fn has_started(&self) -> bool {
         !matches!(**self.read(), MediaState::LoadNotStarted { .. })
     }
@@ -96,7 +107,14 @@ impl<I: Clone + Sync + Send + 'static> Shared<MediaState<I>> {
     /// the same media (e.g. a message and its reply preview, rendered at
     /// the same time) could both observe `LoadNotStarted` in the gap before
     /// either had written `Loading`, and both go on to fetch it.
-    fn media_stuff(&self) -> Option<(Client, MediaRequestParameters, tokio::runtime::Handle)> {
+    fn media_stuff(
+        &self,
+    ) -> Option<(
+        Client,
+        MediaRequestParameters,
+        tokio::runtime::Handle,
+        Extra,
+    )> {
         let mut stuff = None;
 
         self.data.rcu(|current| match current.as_ref() {
@@ -104,8 +122,14 @@ impl<I: Clone + Sync + Send + 'static> Shared<MediaState<I>> {
                 client,
                 parameters,
                 handle,
+                extra,
             } => {
-                stuff = Some((client.clone(), parameters.clone(), handle.clone()));
+                stuff = Some((
+                    client.clone(),
+                    parameters.clone(),
+                    handle.clone(),
+                    extra.clone(),
+                ));
                 Arc::new(MediaState::Loading)
             }
             _ => {
@@ -121,43 +145,53 @@ impl<I: Clone + Sync + Send + 'static> Shared<MediaState<I>> {
         stuff
     }
 
-    pub fn start_loading<T: MediaLoader<Item = I>>(self: Arc<Self>) {
-        let Some((client, parameters, handle)) = self.media_stuff() else {
+    pub fn start_loading<T: MediaLoader<Extra, Item = I>>(self: Arc<Self>, fallback: bool) {
+        let Some((client, parameters, handle, extra)) = self.media_stuff() else {
             return;
         };
 
         handle.spawn(async move {
-            let result = T::fetch(client, parameters).await;
+            let result = T::fetch(client, parameters, extra, fallback).await;
             self.change_if_modified(|state| *state = result.clone());
         });
     }
 }
 
-pub struct MediaCache<T: Clone + MediaLoader> {
+pub struct MediaCache<T: Clone + MediaLoader<Extra>, Extra: Clone> {
     client: Client,
     handle: tokio::runtime::Handle,
-    cache: DashMap<String, Arc<Shared<MediaState<T::Item>>>>,
+    #[allow(clippy::type_complexity)]
+    cache: DashMap<String, Arc<Shared<MediaState<T::Item, Extra>>>>,
+    extra: Extra,
 }
 
-impl<T: MediaLoader + Clone> std::fmt::Debug for MediaCache<T> {
+impl<T: MediaLoader<Extra> + Clone, Extra: Clone> std::fmt::Debug for MediaCache<T, Extra> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("MediaCache<{}>", type_name::<T>()))
     }
 }
 
-impl<T: MediaLoader + Clone> MediaCache<T> {
-    pub(crate) fn new(client: Client) -> Self {
+impl<T: MediaLoader<Extra> + Clone, Extra: Clone> MediaCache<T, Extra> {
+    pub(crate) fn new(client: Client, extra: Extra) -> Self {
         MediaCache {
             client,
             handle: tokio::runtime::Handle::current(),
             cache: DashMap::new(),
+            extra,
         }
+    }
+
+    pub fn extra(&self) -> &Extra {
+        &self.extra
     }
 
     /// Returns the cell for this media, creating it (as `LoadNotStarted`) if
     /// it doesn't exist yet. Never fetches anything by itself -- call
     /// [`Shared::start_loading`] on the result once it's actually rendered.
-    pub fn get(&self, parameters: &MediaRequestParameters) -> Arc<Shared<MediaState<T::Item>>> {
+    pub fn get(
+        &self,
+        parameters: &MediaRequestParameters,
+    ) -> Arc<Shared<MediaState<T::Item, Extra>>> {
         self.cache
             .entry(parameters.unique_key())
             .or_insert_with(|| {
@@ -165,6 +199,7 @@ impl<T: MediaLoader + Clone> MediaCache<T> {
                     client: self.client.clone(),
                     parameters: parameters.clone(),
                     handle: self.handle.clone(),
+                    extra: self.extra.clone(),
                 }))
             })
             .clone()
@@ -215,20 +250,24 @@ mod iced_caches {
     #[derive(Clone)]
     pub struct ImageLoader;
 
-    impl MediaLoader for ThumbnailLoader {
+    impl MediaLoader<()> for ThumbnailLoader {
         type Item = DePlaceImage;
 
         async fn fetch(
             client: Client,
             parameters: MediaRequestParameters,
-        ) -> MediaState<Self::Item> {
+            _extra: (),
+            fallback: bool,
+        ) -> MediaState<Self::Item, ()> {
             match client.media().get_media_content(&parameters, true).await {
                 Ok(bytes) => MediaState::Loaded(DePlaceImage::from_bytes(bytes)),
                 // The homeserver rejects thumbnail requests for formats it can't
                 // rasterize (e.g. SVG) instead of just serving the original, so
                 // fall back to fetching the full file in that case.
-                Err(e) if matches!(parameters.format, MediaFormat::Thumbnail(_)) => {
-                    tracing::warn!("Thumbnail request failed ({e}), falling back to the full file");
+                Err(e) if fallback && matches!(parameters.format, MediaFormat::Thumbnail(_)) => {
+                    tracing::trace!(
+                        "Thumbnail request failed ({e}), falling back to the full file"
+                    );
                     let file_request = MediaRequestParameters {
                         source: parameters.source.clone(),
                         format: MediaFormat::File,
@@ -242,20 +281,22 @@ mod iced_caches {
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Failed to fetch media: {e}");
+                    tracing::debug!("Failed to fetch media: {e}");
                     MediaState::Failed(Arc::new(e.to_string()))
                 }
             }
         }
     }
 
-    impl MediaLoader for ImageLoader {
+    impl MediaLoader<()> for ImageLoader {
         type Item = (DePlaceImage, Option<(u32, u32)>);
 
         async fn fetch(
             client: Client,
             parameters: MediaRequestParameters,
-        ) -> MediaState<Self::Item> {
+            _extra: (),
+            _fallback: bool,
+        ) -> MediaState<Self::Item, ()> {
             match client.media().get_media_content(&parameters, true).await {
                 Ok(bytes) => {
                     if looks_like_svg(&bytes) {
@@ -285,11 +326,11 @@ mod iced_caches {
         }
     }
 
-    pub type ThumbnailCache = MediaCache<ThumbnailLoader>;
-    pub type ImageCache = MediaCache<ImageLoader>;
+    pub type ThumbnailCache = MediaCache<ThumbnailLoader, ()>;
+    pub type ImageCache = MediaCache<ImageLoader, ()>;
 
-    pub type DePlaceThumbnailShared = Arc<Shared<MediaState<DePlaceImage>>>;
-    pub type DePlaceImageShared = Arc<Shared<MediaState<(DePlaceImage, Option<(u32, u32)>)>>>;
+    pub type DePlaceThumbnailShared = Arc<Shared<MediaState<DePlaceImage, ()>>>;
+    pub type DePlaceImageShared = Arc<Shared<MediaState<(DePlaceImage, Option<(u32, u32)>), ()>>>;
 }
 
 #[cfg(not(feature = "iced"))]
@@ -377,8 +418,8 @@ impl ProfileAvatars {
     }
 
     pub fn start_load_all(&self) {
-        self.small.clone().start_loading::<ThumbnailLoader>();
-        self.medium.clone().start_loading::<ThumbnailLoader>();
-        self.large.clone().start_loading::<ThumbnailLoader>();
+        self.small.clone().start_loading::<ThumbnailLoader>(true);
+        self.medium.clone().start_loading::<ThumbnailLoader>(true);
+        self.large.clone().start_loading::<ThumbnailLoader>(true);
     }
 }

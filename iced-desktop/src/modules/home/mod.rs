@@ -8,10 +8,7 @@ use chat::{
 use deplace_core::{
     PaginationDirection,
     keybinds::{KeybindAction, Keybinds},
-    state::{
-        ActiveServer,
-        cache::{CacheResultStatus, MediaState},
-    },
+    state::ActiveServer,
 };
 use iced::{
     advanced::widget::{operate, operation::focusable::unfocus},
@@ -19,7 +16,6 @@ use iced::{
 };
 use lru::LruCache;
 use macros::{iced_cache, nonzero_usize};
-use matrix_sdk::media::UniqueKey;
 use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 
 pub mod overlay;
@@ -50,6 +46,7 @@ pub const SCREENSHARING_ICON: &str = icons::monitor::BOLD;
 pub const CHECKMARK_ICON: &str = icons::check::BOLD;
 
 pub const SOURCE_ICON: &str = icons::code::BOLD;
+pub const DOWNLOAD_ICON: &str = icons::download_simple::BOLD;
 
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
@@ -62,7 +59,6 @@ pub enum HomeMessage {
     ActiveRoomChanged(Option<DePlaceRoom>),
     KeyboardEvent(iced::keyboard::Event),
     Overlay(OverlayMessage),
-    MediaLoaded(MediaLoaded),
     TimelineScrollFinished {
         room_id: OwnedRoomId,
         direction: PaginationDirection,
@@ -90,7 +86,6 @@ pub enum HomeAction {
     /// The ouput will be fed into the app as a message after
     /// completion.
     Perform(Task<HomeMessage>),
-    LoadMediaTask(Task<MediaLoaded>),
     LoadTimeline(Task<(OwnedRoomId, ChatMessage)>),
     TimelineScroll {
         room_id: OwnedRoomId,
@@ -345,35 +340,6 @@ impl Home {
         })))
     }
 
-    fn load_media_task(&self, needs_media: NeedsMedia) -> Option<HomeAction> {
-        let state = self.state.clone();
-        Some(HomeAction::LoadMediaTask(Task::future(async move {
-            match needs_media {
-                NeedsMedia::Video { source } => {
-                    let unique_key = source.unique_key();
-                    let res = state.video_cache().load_content(&source).await;
-                    match res.status {
-                        CacheResultStatus::CacheHit => {}
-                        CacheResultStatus::Success => {
-                            tracing::trace!(
-                                "Loading of video {} finished successfully",
-                                unique_key
-                            );
-                        }
-                        CacheResultStatus::Failure(e) => {
-                            tracing::error!("Loading of video {} failed: {e}", unique_key);
-                        }
-                    }
-                    res.loaded
-                }
-                NeedsMedia::Image { source } => MediaLoaded::Image {
-                    key: source.unique_key(),
-                },
-                NeedsMedia::Thumbnail { key, .. } => MediaLoaded::Thumbnail { key },
-            }
-        })))
-    }
-
     fn clear_active_chat_hover(&mut self) {
         if let Some(room_id) = &self.active_room_id
             && let Some(chat) = self.chats.peek_mut(room_id)
@@ -407,7 +373,6 @@ impl Home {
                     None
                 }
                 ChatAction::Run(task) => Some(HomeAction::Run(task)),
-                ChatAction::NeedsMedia(needs_media) => self.load_media_task(needs_media),
                 ChatAction::TimelineScroll { direction, task } => {
                     Some(HomeAction::TimelineScroll {
                         room_id: chat.room_id.clone(),
@@ -454,7 +419,6 @@ impl Home {
                 Some(HomeAction::Perform(task.map(HomeMessage::Overlay)))
             }
             OverlayAction::Run(task) => Some(HomeAction::Run(task)),
-            OverlayAction::NeedsMedia(media) => self.load_media_task(media),
             OverlayAction::ChangeRoom(room) => self.set_active_room_task(room),
             OverlayAction::SetIsReplyingTo {
                 item_id,
@@ -645,23 +609,6 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 self.dispatch_to_chat(id, ChatMessage::KeyboardEvent(event))
             }
             HomeMessage::Overlay(message) => self.handle_overlay_message(message),
-            HomeMessage::MediaLoaded(media) => {
-                // Videos are only downloaded on click, so start playback as
-                // soon as the download finishes.
-                if let MediaLoaded::Video { key } = &media
-                    && let Some(MediaState::Loaded(video)) = self.state.video_cache().get(key)
-                {
-                    video.0.set_paused(false);
-                }
-
-                let chat = self
-                    .active_room_id
-                    .as_ref()
-                    .and_then(|id| self.chats.peek_mut(id))?;
-
-                chat.touch_media(&media);
-                None
-            }
             HomeMessage::TimelineScrollFinished {
                 room_id,
                 direction,

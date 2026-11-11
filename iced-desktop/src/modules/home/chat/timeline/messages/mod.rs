@@ -1,26 +1,26 @@
 use crate::{
-    common::*, components::profile::OpenProfileOverlayExt,
+    common::*,
+    components::{VideoControlsMessage, profile::OpenProfileOverlayExt},
     modules::home::overlay::MediaOverlayParams,
 };
 use std::{
-    collections::BTreeSet,
     fmt::Debug,
     time::{Duration, SystemTime},
 };
 
 use chrono_tz::Tz;
 use deplace_core::{
-    cache::{DePlaceImageShared, DePlaceThumbnailShared},
+    cache::{DePlaceImageShared, DePlaceThumbnailShared, video::DePlaceVideoShared},
     formatting::format_date_divider,
     rich_text::{FormattedBody, Mention},
     settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType},
-    state::{cache::VideoCache, media_fetcher::MediaProcessor},
+    state::media_fetcher::MediaProcessor,
 };
 use enumset::EnumSet;
 use iced::Alignment;
 use macros::iced_cache;
 use matrix_sdk::{
-    media::{MediaRequestParameters, UniqueKey},
+    media::UniqueKey,
     ruma::{
         OwnedRoomAliasId,
         events::{
@@ -52,7 +52,6 @@ use render::{render_event, render_timeline_start};
 pub enum TimelineItemMessage {
     None,
     JoinCall,
-    NeedsMedia(NeedsMedia),
     EventEnter(Rectangle),
     EventExit,
     MediaMouseEnter,
@@ -92,6 +91,12 @@ impl OpenProfileOverlayExt for TimelineItemMessage {
     }
 }
 
+impl VideoControlsMessage for TimelineItemMessage {
+    fn fullscreen(_video: Arc<iced_video_player::Video>) -> Self {
+        TimelineItemMessage::None
+    }
+}
+
 impl HelpOverMessage for TimelineItemMessage {
     fn help_over(help: Option<HelpKey>) -> Self {
         TimelineItemMessage::HelpHover(help)
@@ -100,7 +105,6 @@ impl HelpOverMessage for TimelineItemMessage {
 
 pub enum TimelineItemAction {
     Update,
-    NeedsMedia(NeedsMedia),
     SetIsReplyingTo {
         message: Arc<MessageEvent>,
         event_id: OwnedEventId,
@@ -371,19 +375,6 @@ impl TimelineItem {
         }
     }
 
-    fn video_hashes(&mut self) -> Option<&mut BTreeSet<String>> {
-        if let TimelineItemKind::Message { message: event, .. } = &mut self.kind {
-            let event = Arc::make_mut(event);
-            if let MessageContent::Video { video, .. } = &mut event.content {
-                Some(&mut video.video_states_for_hash)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
     fn set_hovered(&mut self, new_hovered: bool) -> Option<TimelineItemAction> {
         match &mut self.kind {
             TimelineItemKind::Message { is_hovered, .. } if *is_hovered != new_hovered => {
@@ -515,15 +506,6 @@ impl TimelineItem {
             TimelineItemMessage::EventExit => {
                 self.set_hovered(false);
                 Some(TimelineItemAction::HoverExited)
-            }
-            TimelineItemMessage::NeedsMedia(media) => {
-                match &media {
-                    NeedsMedia::Video { source, .. } if let Some(hashes) = self.video_hashes() => {
-                        hashes.insert(source.unique_key())
-                    }
-                    _ => return None,
-                };
-                Some(TimelineItemAction::NeedsMedia(media))
             }
             TimelineItemMessage::ToggleVideoPause(video) => {
                 video.set_paused(!video.paused());
@@ -1037,9 +1019,18 @@ pub struct VideoMessage {
     formatted_caption: Option<FormattedBody>,
 
     blur_preview: Option<ImageHandle>,
+    thumbnail: DePlaceThumbnailShared,
 
-    video_cache: VideoCache,
+    video: DePlaceVideoShared,
+
+    width: f32,
+    height: f32,
+
+    is_encrypted: bool,
+    is_loaded: bool,
+
     media_processor: MediaProcessor,
+    parameters_key: String,
 
     #[hash]
     filename: String,
@@ -1054,11 +1045,12 @@ impl ExtraHash for VideoMessage {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.source.unique_key().hash(state);
         self.data_size_unit.borrow().hash(state);
+        // TODO: Actually show download progress
         // Hash the download progress so the view re-renders on progress ticks
         // while the video is being downloaded.
-        self.media_processor
-            .file_download_progress(&self.source)
-            .hash(state);
+        // self.media_processor
+        //     .file_download_progress(&self.source)
+        //     .hash(state);
     }
 }
 

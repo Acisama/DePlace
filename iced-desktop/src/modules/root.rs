@@ -193,11 +193,6 @@ impl Root {
                     HomeAction::LoadTimeline(task) => Some(task.map(|(room_id, message)| {
                         AppMessage::Home(Box::new(HomeMessage::Chat { room_id, message }))
                     })),
-                    HomeAction::LoadMediaTask(task) => {
-                        Some(task.map(|media| {
-                            AppMessage::Home(Box::new(HomeMessage::MediaLoaded(media)))
-                        }))
-                    }
                     HomeAction::TimelineScroll {
                         room_id,
                         direction,
@@ -289,9 +284,6 @@ impl Root {
                         }
                         HomeAction::LoadTimeline(task) => Some(task.map(|(room_id, message)| {
                             AppMessage::Home(Box::new(HomeMessage::Chat { room_id, message }))
-                        })),
-                        HomeAction::LoadMediaTask(task) => Some(task.map(|media| {
-                            AppMessage::Home(Box::new(HomeMessage::MediaLoaded(media)))
                         })),
                         HomeAction::TimelineScroll {
                             room_id,

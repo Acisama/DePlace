@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use chrono_tz::Tz;
@@ -14,12 +14,9 @@ use iced::keyboard::Key::Character;
 use iced::widget::operation;
 use iced::widget::operation::scrollable::scroll_to_reveal;
 use macros::iced_cache;
-use matrix_sdk::{
-    media::UniqueKey,
-    ruma::{
-        events::{MessageLikeEventType, StateEventType, room::power_levels::RoomPowerLevels},
-        room_version_rules::AuthorizationRules,
-    },
+use matrix_sdk::ruma::{
+    events::{MessageLikeEventType, StateEventType, room::power_levels::RoomPowerLevels},
+    room_version_rules::AuthorizationRules,
 };
 use matrix_sdk_ui::timeline::TimelineEventItemId;
 use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
@@ -106,7 +103,6 @@ impl std::fmt::Debug for TimelineMessage {
 }
 
 pub enum TimelineAction {
-    NeedsMedia(NeedsMedia),
     SetIsReplyingTo {
         message: Arc<MessageEvent>,
         event_id: OwnedEventId,
@@ -129,36 +125,6 @@ pub enum TimelineAction {
     JoinCall,
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
-
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-enum PendingMedia {
-    Thumbnail((String, u64, u64)),
-    Video(String),
-}
-
-impl PendingMedia {
-    /// The entry a row waits on for the given request, if the timeline shows
-    /// it at all.
-    fn of(needs_media: &NeedsMedia) -> Option<Self> {
-        match needs_media {
-            NeedsMedia::Thumbnail { key, .. } => Some(Self::Thumbnail(key.clone())),
-            NeedsMedia::Video { source } => Some(Self::Video(source.unique_key())),
-            // Images aren't shown in the timeline itself, only thumbnails
-            NeedsMedia::Image { .. } => None,
-        }
-    }
-}
-
-impl From<&MediaLoaded> for PendingMedia {
-    fn from(media_loaded: &MediaLoaded) -> Self {
-        match media_loaded {
-            MediaLoaded::Thumbnail { key } => Self::Thumbnail(key.clone()),
-            MediaLoaded::Video { key } => Self::Video(key.clone()),
-            // Never requested by rows; `touch_media` ignores image loads.
-            MediaLoaded::Image { .. } => Self::Video(String::new()),
-        }
-    }
-}
 
 #[iced_cache(Clone)]
 pub struct ChatTimeline {
@@ -193,8 +159,6 @@ pub struct ChatTimeline {
     #[hash]
     previous_pinned_event_ids: BTreeSet<OwnedEventId>,
 
-    video_cache: VideoCache,
-
     reached_top: bool,
     reached_bottom: bool,
     loading_top: bool,
@@ -211,8 +175,6 @@ pub struct ChatTimeline {
     content: list::Content<String, Arc<TimelineItem>>,
     #[hash]
     messages_version: u64,
-
-    pending_media_pokes: BTreeMap<PendingMedia, BTreeSet<String>>,
 
     #[hash]
     focused_message_id: Option<String>,
@@ -288,10 +250,6 @@ impl ChatTimeline {
 
             previous_pinned_event_ids: initial_pinned_event_ids,
 
-            video_cache: state.video_cache().clone(),
-
-            video_states_for_hash: BTreeSet::new(),
-
             reached_top: false,
             reached_bottom: false,
             loading_top: false,
@@ -311,7 +269,6 @@ impl ChatTimeline {
 
             content: list::Content::default(),
             messages_version: 0,
-            pending_media_pokes: BTreeMap::new(),
             focused_message_id: None,
             editing_row_id: None,
         };
@@ -363,30 +320,6 @@ impl ChatTimeline {
         self.user_can_redact_other = self
             .power_levels
             .user_can_redact_event_of_other(&self.own_user_id);
-    }
-
-    pub fn touch_media(&mut self, media: &MediaLoaded) {
-        let (key, relevant) = match media {
-            MediaLoaded::Video { key } => (
-                PendingMedia::Video(key.clone()),
-                self.video_states_for_hash.contains(key),
-            ),
-            _ => return,
-        };
-
-        if !relevant {
-            return;
-        }
-
-        let Some(ids) = self.pending_media_pokes.remove(&key) else {
-            return;
-        };
-
-        for id in ids {
-            if let Some(index) = self.content.index_map().get_index_of(&id) {
-                self.content.get_index_mut(index);
-            }
-        }
     }
 
     /// Pokes every row to trigger re-examination -- see `touch_media` for
@@ -774,20 +707,6 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     TimelineItemAction::Update => {
                         self.messages_version += 1;
                         None
-                    }
-                    TimelineItemAction::NeedsMedia(needs_media) => {
-                        if let NeedsMedia::Video { source, .. } = &needs_media {
-                            self.video_states_for_hash.insert(source.unique_key());
-                        }
-
-                        if let Some(key) = PendingMedia::of(&needs_media) {
-                            self.pending_media_pokes
-                                .entry(key)
-                                .or_default()
-                                .insert(id.clone());
-                        }
-
-                        Some(TimelineAction::NeedsMedia(needs_media))
                     }
                     TimelineItemAction::SetIsReplyingTo { message, event_id } => {
                         if let Some(prev_replying_to_id) = self.replying_to.as_ref()

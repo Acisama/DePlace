@@ -88,7 +88,6 @@ impl HelpOverMessage for ChatMessage {
 }
 
 pub enum ChatAction {
-    NeedsMedia(NeedsMedia),
     Run(Task<()>),
     Perform(Task<ChatMessage>),
     TimelineScroll {
@@ -337,10 +336,6 @@ impl Chat {
         self.timeline.set_scroll_finished(direction, finished);
     }
 
-    pub fn touch_media(&mut self, media: &MediaLoaded) {
-        self.timeline.touch_media(media);
-    }
-
     pub fn touch_all(&mut self) {
         self.timeline.touch_all();
     }
@@ -361,7 +356,6 @@ impl Chat {
             TimelineAction::Perform(task) => {
                 Some(ChatAction::Perform(task.map(ChatMessage::Timeline)))
             }
-            TimelineAction::NeedsMedia(needs_media) => Some(ChatAction::NeedsMedia(needs_media)),
             TimelineAction::Scroll { direction, task } => {
                 Some(ChatAction::TimelineScroll { direction, task })
             }

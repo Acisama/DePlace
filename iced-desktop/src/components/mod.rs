@@ -12,7 +12,7 @@ use iced::{
     font::{Family, Weight},
     gradient::ColorStop,
     widget::{
-        self as w, Canvas, Column, Container, Row, Scrollable, Stack,
+        self as w, Button, Canvas, Column, Container, Row, Scrollable, Stack,
         canvas::{self, Frame, Path, Stroke},
         image::Handle as ImageHandle,
         rich_text, span, svg,
@@ -45,6 +45,7 @@ pub mod tile_background;
 pub mod tooltip;
 pub mod track_bounds;
 pub mod track_scroll;
+pub mod video_controls;
 pub mod volume_bar;
 
 pub use call_grid::call_grid;
@@ -53,6 +54,7 @@ pub use elapsed_time::elapsed_time;
 pub use fills_parent::fills_parent;
 pub use on_appear::on_appear;
 pub use pan::pan;
+pub use video_controls::{VideoControlsMessage, video_controls};
 pub use volume_bar::volume_bar;
 
 use crate::common::DePlaceWidget;
@@ -546,6 +548,13 @@ where
         color: Option<C>,
         rounded: impl Into<Radius>,
     ) -> Self;
+    fn colored_rounded_with_border(
+        self,
+        color: impl Into<Background>,
+        radius: impl Into<Radius>,
+        thickness: f32,
+        border_color: impl Into<Color>,
+    ) -> Self;
 }
 
 impl<'a, T: 'a> ColoredRounded<'a, T> for Container<'a, T> {
@@ -569,6 +578,82 @@ impl<'a, T: 'a> ColoredRounded<'a, T> for Container<'a, T> {
         self.style(move |_| w::container::Style {
             background: color,
             border: border::rounded(rounded),
+            ..Default::default()
+        })
+    }
+
+    fn colored_rounded_with_border(
+        self,
+        color: impl Into<Background>,
+        radius: impl Into<Radius>,
+        thickness: f32,
+        border_color: impl Into<Color>,
+    ) -> Self {
+        let radius = radius.into();
+        let color = color.into();
+        let border_color = border_color.into();
+
+        self.style(move |_| w::container::Style {
+            background: Some(color),
+            border: Border {
+                color: border_color,
+                width: thickness,
+                radius,
+            },
+            ..Default::default()
+        })
+    }
+}
+
+pub trait ButtonTheme {
+    #[allow(clippy::too_many_arguments)]
+    fn deplace_style(
+        self,
+        bg: Option<Background>,
+        hover_bg: Option<Background>,
+        text_color: impl Into<Color>,
+        hover_text_color: impl Into<Color>,
+        border_radius: impl Into<Radius>,
+        border_thickness: f32,
+        border_color: impl Into<Color>,
+        hovered_border_color: impl Into<Color>,
+    ) -> Self;
+}
+
+impl<'a, Message: 'a, W> ButtonTheme for Button<'a, Message, W> {
+    fn deplace_style(
+        self,
+        bg: Option<Background>,
+        hover_bg: Option<Background>,
+        text_color: impl Into<Color>,
+        hover_text_color: impl Into<Color>,
+        border_radius: impl Into<Radius>,
+        border_thickness: f32,
+        border_color: impl Into<Color>,
+        hovered_border_color: impl Into<Color>,
+    ) -> Self {
+        let text_color = text_color.into();
+        let hover_text_color = hover_text_color.into();
+        let border_color = border_color.into();
+        let hovered_border_color = hovered_border_color.into();
+        let border_radius = border_radius.into();
+
+        self.style(move |_, status| w::button::Style {
+            background: if status.active() { bg } else { hover_bg },
+            text_color: if status.active() {
+                text_color
+            } else {
+                hover_text_color
+            },
+            border: Border {
+                color: if status.active() {
+                    border_color
+                } else {
+                    hovered_border_color
+                },
+                width: border_thickness,
+                radius: border_radius,
+            },
             ..Default::default()
         })
     }
@@ -609,4 +694,16 @@ pub fn color_stops<C: Into<Color>>(
         offset,
         color: color.into(),
     })
+}
+
+/// An iced button with no padding and no background
+pub fn default_button<'a, Message: 'a, Content: 'a>(
+    content: Content,
+) -> Button<'a, Message, Content> {
+    Button::new(content)
+        .padding(0.0)
+        .style(move |_, _| w::button::Style {
+            background: None,
+            ..Default::default()
+        })
 }

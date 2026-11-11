@@ -57,15 +57,15 @@ pub type Fallback<'a, Message> = Box<dyn Fn(Radius, f32) -> Element<'a, Message>
 /// [`MediaState::Loaded`], to build the actual content; `fallback` is used
 /// for every other state, and continues to be called with a decreasing
 /// `alpha` while the real content fades in underneath it.
-pub fn render_media<'a, Message, I>(
-    cell: Arc<Shared<MediaState<I>>>,
-    start: impl FnOnce(Arc<Shared<MediaState<I>>>) + 'a,
+pub fn render_media<'a, Message, I, E: Clone>(
+    cell: Arc<Shared<MediaState<I, E>>>,
+    start: impl FnOnce(Arc<Shared<MediaState<I, E>>>) + 'a,
     width: impl Into<Length>,
     height: impl Into<Length>,
     radius: impl Into<Radius>,
     success: impl Fn(&I, Radius, f32) -> Element<'a, Message> + 'a,
     fallback: impl Fn(Radius, f32) -> Element<'a, Message> + 'a,
-) -> RenderMedia<'a, Message, I>
+) -> RenderMedia<'a, Message, I, E>
 where
     Message: 'a,
     I: Clone + Sync + Send + 'static,
@@ -73,8 +73,8 @@ where
     RenderMedia::new(cell, start, width, height, radius, success, fallback)
 }
 
-pub struct RenderMedia<'a, Message, I: Clone> {
-    cell: Arc<Shared<MediaState<I>>>,
+pub struct RenderMedia<'a, Message, I: Clone, E: Clone> {
+    cell: Arc<Shared<MediaState<I, E>>>,
     success: Success<'a, Message, I>,
     fallback: Fallback<'a, Message>,
 
@@ -87,6 +87,8 @@ pub struct RenderMedia<'a, Message, I: Clone> {
 
     /// Built lazily, the first time the widget is actually processed
     content: Option<Element<'a, Message>>,
+
+    opacity: f32,
 }
 
 /// Where the widget is in its lifecycle, driving both what gets drawn and
@@ -107,16 +109,27 @@ enum Phase {
 
 struct State {
     phase: Phase,
+    /// Identity of the `cell` this `phase` was last computed for, so a swap
+    /// to a *different* cell at the same widget position -- e.g. a just-sent
+    /// image's local-echo cache cell getting replaced by the server's once
+    /// the send completes -- is caught in `diff()` and re-evaluated via
+    /// `initial_phase()` instead of blindly inheriting whatever `Phase` the
+    /// old cell had reached. That keeps the "skip the fade on a cache hit"
+    /// behavior correct for the new cell too: if it's already resolved by
+    /// the time the swap is noticed, no fade; otherwise it fades in like any
+    /// other fresh load.
+    cell_id: usize,
 }
 
-impl<'a, Message, I> RenderMedia<'a, Message, I>
+impl<'a, Message, I, E> RenderMedia<'a, Message, I, E>
 where
+    E: Clone,
     Message: 'a,
     I: Clone + Sync + Send + 'static,
 {
     pub fn new(
-        cell: Arc<Shared<MediaState<I>>>,
-        start: impl FnOnce(Arc<Shared<MediaState<I>>>) + 'a,
+        cell: Arc<Shared<MediaState<I, E>>>,
+        start: impl FnOnce(Arc<Shared<MediaState<I, E>>>) + 'a,
         width: impl Into<Length>,
         height: impl Into<Length>,
         radius: impl Into<Radius>,
@@ -137,6 +150,7 @@ where
             radius: radius.into(),
             on_resolved: None,
             content: None,
+            opacity: 1.0,
         }
     }
 
@@ -162,6 +176,7 @@ where
                 self.width,
                 self.height,
                 self.radius,
+                self.opacity,
                 phase,
             ));
         }
@@ -190,6 +205,7 @@ where
             self.width,
             self.height,
             self.radius,
+            self.opacity,
             phase,
         ));
 
@@ -203,19 +219,21 @@ where
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn content_for(
-        cell: &Shared<MediaState<I>>,
+        cell: &Shared<MediaState<I, E>>,
         success: &Success<'a, Message, I>,
         fallback: &Fallback<'a, Message>,
         width: Length,
         height: Length,
         radius: Radius,
+        opacity: f32,
         phase: Phase,
     ) -> Element<'a, Message> {
         match phase {
             Phase::Pending => fallback(radius, 1.0),
             Phase::Done => match cell.read().as_ref() {
-                MediaState::Loaded(item) => success(item, radius, 1.0),
+                MediaState::Loaded(item) => success(item, radius, opacity),
                 _ => fallback(radius, 1.0),
             },
             Phase::Fading(start) => {
@@ -226,7 +244,18 @@ where
                     // whatever box *it* is given, so something has to be
                     // the authority on what that box actually is.
                     MediaState::Loaded(item) => {
-                        w::stack![success(item, radius, t), fallback(radius, 1.0 - t),]
+                        // `fallback` sits at the bottom fully opaque and
+                        // `success` fades in on top of it with increasing
+                        // alpha -- not the other way around. Stacking two
+                        // *independently* fading layers (success under a
+                        // still-translucent fallback) composites quadratically
+                        // rather than linearly, since the top layer's alpha
+                        // partially obscures the bottom layer's own fade on
+                        // top of whatever's behind both of them. That left
+                        // the fallback visually dominant for most of the
+                        // transition before snapping to `success` right at
+                        // the end.
+                        w::stack![fallback(radius, 1.0), success(item, radius, t),]
                             .width(width)
                             .height(height)
                             .boxed()
@@ -249,6 +278,12 @@ where
             MediaState::Loaded(_) | MediaState::Failed(_) => Phase::Done,
             MediaState::LoadNotStarted { .. } | MediaState::Loading => Phase::Pending,
         }
+    }
+
+    /// Identity of `self.cell`, to notice in `diff()` when it's been swapped
+    /// out for a different one. See the field doc on `State::cell_id`.
+    fn cell_id(&self) -> usize {
+        Arc::as_ptr(&self.cell) as *const () as usize
     }
 
     /// Called once, the moment the widget is fully settled (no more
@@ -298,11 +333,17 @@ where
         }
         self
     }
+
+    pub fn opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
+    }
 }
 
-impl<'a, Message, I: Clone> Meta for RenderMedia<'a, Message, I> {}
+impl<'a, Message, I: Clone, E: Clone> Meta for RenderMedia<'a, Message, I, E> {}
 
-impl<'a, Message, I> Widget<Message, Theme, Renderer> for RenderMedia<'a, Message, I>
+impl<'a, Message, I: Clone, E: Clone> Widget<Message, Theme, Renderer>
+    for RenderMedia<'a, Message, I, E>
 where
     Message: 'a,
     I: Clone + Sync + Send + 'static,
@@ -314,11 +355,20 @@ where
     fn state(&self) -> tree::State {
         tree::State::new(State {
             phase: self.initial_phase(),
+            cell_id: self.cell_id(),
         })
     }
 
     fn diff(&mut self, tree: &mut Tree) {
-        let phase = tree.state.downcast_ref::<State>().phase;
+        let state = tree.state.downcast_mut::<State>();
+
+        let cell_id = self.cell_id();
+        if state.cell_id != cell_id {
+            state.cell_id = cell_id;
+            state.phase = self.initial_phase();
+        }
+
+        let phase = state.phase;
         tree.diff_children(std::slice::from_mut(self.ensure_content(phase)));
     }
 
@@ -504,22 +554,24 @@ where
     }
 }
 
-impl<'a, Message, I> From<RenderMedia<'a, Message, I>> for Element<'a, Message>
+impl<'a, Message, I: Clone, E> From<RenderMedia<'a, Message, I, E>> for Element<'a, Message>
 where
+    E: Clone + 'a,
     Message: 'a,
     I: Clone + Sync + Send + 'static,
 {
-    fn from(widget: RenderMedia<'a, Message, I>) -> Self {
+    fn from(widget: RenderMedia<'a, Message, I, E>) -> Self {
         widget.boxed()
     }
 }
 
 pub fn render_thumbnail<'a, Message: 'a>(
     cell: DePlaceThumbnailShared,
-) -> RenderMedia<'a, Message, DePlaceImage> {
+    fallback: bool,
+) -> RenderMedia<'a, Message, DePlaceImage, ()> {
     RenderMedia::new(
         cell,
-        |cell| cell.start_loading::<ThumbnailLoader>(),
+        move |cell| cell.start_loading::<ThumbnailLoader>(fallback),
         Length::Shrink,
         Length::Shrink,
         0.0,
@@ -530,12 +582,13 @@ pub fn render_thumbnail<'a, Message: 'a>(
     )
 }
 
+#[allow(clippy::type_complexity)]
 pub fn render_image<'a, Message: 'a>(
     cell: DePlaceImageShared,
-) -> RenderMedia<'a, Message, (DePlaceImage, Option<(u32, u32)>)> {
+) -> RenderMedia<'a, Message, (DePlaceImage, Option<(u32, u32)>), ()> {
     RenderMedia::new(
         cell,
-        |cell| cell.start_loading::<ImageLoader>(),
+        |cell| cell.start_loading::<ImageLoader>(true),
         Fill,
         Fill,
         0.0,

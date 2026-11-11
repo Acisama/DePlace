@@ -1,7 +1,8 @@
 use deplace_core::formatting::fit_dimensions;
 use deplace_core::rich_text::FormattedBody;
 use deplace_core::thumbnail_format;
-use matrix_sdk::media::MediaRequestParameters;
+use matrix_sdk::media::{MediaRequestParameters, UniqueKey};
+use matrix_sdk::ruma::UInt;
 use matrix_sdk::ruma::events::StateEventType;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -18,8 +19,8 @@ use super::{
 };
 use super::{TimelineItem, TimelineItemKind};
 
-use matrix_sdk::ruma::events::room::ImageInfo;
 use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
+use matrix_sdk::ruma::events::room::{ImageInfo, MediaSource};
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, EmbeddedEvent, EventTimelineItem, ReactionsByKeyBySender,
     TimelineItemKind as UiTimelineItemKind,
@@ -441,7 +442,7 @@ fn string_to_option(s: &str) -> Option<String> {
     }
 }
 
-fn get_dimensions(info: &Option<Box<ImageInfo>>, structure: Structure) -> (f32, f32) {
+fn get_dimensions(info: Option<(Option<UInt>, Option<UInt>)>, structure: Structure) -> (f32, f32) {
     let max_width = structure.chat.max_media_width;
     let max_height = structure.chat.max_media_height;
 
@@ -451,7 +452,7 @@ fn get_dimensions(info: &Option<Box<ImageInfo>>, structure: Structure) -> (f32, 
     fit_dimensions(
         info.as_ref()
             .and_then(|i| {
-                i.width.map(|w| {
+                i.0.map(|w| {
                     let u: u64 = w.into();
                     u as f32
                 })
@@ -459,7 +460,7 @@ fn get_dimensions(info: &Option<Box<ImageInfo>>, structure: Structure) -> (f32, 
             .unwrap_or(max_width),
         info.as_ref()
             .and_then(|i| {
-                i.height.map(|h| {
+                i.1.map(|h| {
                     let u: u64 = h.into();
                     u as f32
                 })
@@ -475,8 +476,6 @@ fn get_dimensions(info: &Option<Box<ImageInfo>>, structure: Structure) -> (f32, 
 impl MessageContent {
     fn from_ui(value: &MsgLikeKind, state: &AppState) -> Self {
         let settings = state.settings();
-
-        let video_cache = state.video_cache().clone();
 
         let result = match value {
             MsgLikeKind::Message(msg) => match msg.msgtype() {
@@ -494,7 +493,10 @@ impl MessageContent {
                     data_size_unit: settings.data_size_unit.watch(),
                 },
                 MessageType::Image(image) => {
-                    let (width, height) = get_dimensions(&image.info, structure());
+                    let (width, height) = get_dimensions(
+                        image.info.as_ref().map(|i| (i.width, i.height)),
+                        structure(),
+                    );
                     let parameters = MediaRequestParameters {
                         source: image.source.clone(),
                         format: thumbnail_format(width as u64, height as u64),
@@ -558,35 +560,62 @@ impl MessageContent {
                         request.formatted.as_ref(),
                     ),
                 },
-                MessageType::Video(video) => MessageContent::Video {
-                    video: VideoMessage {
-                        caption: video.caption().map(|s| s.to_string()),
-                        formatted_caption: FormattedBody::new(
-                            video.caption(),
-                            video.formatted_caption(),
-                        ),
+                MessageType::Video(video) => {
+                    let (width, height) = get_dimensions(
+                        video.info.as_ref().map(|i| (i.width, i.height)),
+                        structure(),
+                    );
 
-                        blur_preview: video.info.as_ref().and_then(|info| {
-                            info.thumbhash
-                                .as_ref()
-                                .map(thumbhash_to_image)
-                                .unwrap_or_else(|| {
-                                    info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
-                                })
-                        }),
-
-                        filename: video.filename().to_string(),
+                    let parameters = MediaRequestParameters {
                         source: video.source.clone(),
-                        info: video.info.as_ref().map(|info| info.into()),
+                        format: matrix_sdk::media::MediaFormat::File,
+                    };
+                    let thumbnail_parameters = MediaRequestParameters {
+                        source: video.source.clone(),
+                        format: thumbnail_format(width as u64, height as u64),
+                    };
 
-                        video_cache: video_cache.clone(),
-                        video_states_for_hash: BTreeSet::new(),
-                        media_processor: state.media_processor(),
+                    MessageContent::Video {
+                        video: VideoMessage {
+                            caption: video.caption().map(|s| s.to_string()),
+                            formatted_caption: FormattedBody::new(
+                                video.caption(),
+                                video.formatted_caption(),
+                            ),
 
-                        data_size_unit: settings.data_size_unit.watch(),
-                    },
-                    is_hovered: false,
-                },
+                            blur_preview: video.info.as_ref().and_then(|info| {
+                                info.thumbhash
+                                    .as_ref()
+                                    .map(thumbhash_to_image)
+                                    .unwrap_or_else(|| {
+                                        info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
+                                    })
+                            }),
+                            thumbnail: state.thumbnail_cache().get(&thumbnail_parameters),
+
+                            is_encrypted: matches!(&video.source, MediaSource::Encrypted(_)),
+                            is_loaded: state.video_cache().extra().is_cached(
+                                &thumbnail_parameters.source,
+                                &parameters.source.unique_key(),
+                            ),
+
+                            media_processor: state.media_processor().clone(),
+                            parameters_key: parameters.unique_key(),
+
+                            video: state.video_cache().get(&parameters),
+
+                            filename: video.filename().to_string(),
+                            source: video.source.clone(),
+                            info: video.info.as_ref().map(|info| info.into()),
+
+                            width,
+                            height,
+
+                            data_size_unit: settings.data_size_unit.watch(),
+                        },
+                        is_hovered: false,
+                    }
+                }
                 other => MessageContent::Other {
                     event_type: Arc::new(other.msgtype().to_string()),
                 },

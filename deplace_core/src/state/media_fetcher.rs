@@ -827,12 +827,8 @@ impl MediaProcessor {
 
     /// Progress of the full-file download for the given media source, if one is
     /// running or has finished.
-    pub fn file_download_progress(&self, source: &MediaSource) -> Option<DownloadProgress> {
-        let request = MediaRequestParameters {
-            source: source.clone(),
-            format: MediaFormat::File,
-        };
-        lock(&self.downloads).get(&request.unique_key()).cloned()
+    pub fn file_download_progress(&self, key: &str) -> Option<DownloadProgress> {
+        lock(&self.downloads).get(key).cloned()
     }
 
     pub fn current_download(&self) -> Option<DownloadProgress> {

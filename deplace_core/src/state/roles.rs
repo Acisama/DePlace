@@ -4,11 +4,6 @@ impl IsActiveRoom for tokio::sync::watch::Receiver<Option<crate::DePlaceRoom>> {
 pub trait IsActiveServer {}
 impl IsActiveServer for tokio::sync::watch::Receiver<crate::state::ActiveServer> {}
 
-#[cfg(feature = "iced")]
-pub trait IsVideoCache {}
-#[cfg(feature = "iced")]
-impl IsVideoCache for crate::state::cache::VideoCache {}
-
 /// Implemented by `#[iced_cache]` structs that need to fold extra state into their
 /// `Hash` impl beyond their `#[hash]`-marked fields. Picked up automatically by the
 /// macro if implemented; no-op otherwise.

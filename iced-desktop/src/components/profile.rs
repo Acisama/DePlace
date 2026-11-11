@@ -74,7 +74,7 @@ pub fn render_avatar<'a, T: 'a>(
 ) -> Element<'a, T> {
     if let Some(avatar) = avatar {
         w::container(
-            render_thumbnail(avatar.best_fitting(size.into()))
+            render_thumbnail(avatar.best_fitting(size.into()), true)
                 .fallback(fallback)
                 .width(size)
                 .height(size)

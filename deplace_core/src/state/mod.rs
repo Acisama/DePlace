@@ -24,7 +24,10 @@ use tokio::sync::watch::{self, Receiver, Sender};
 use crate::{
     APP_NAME,
     audio::AudioThread,
-    cache::{ImageCache, ProfileAvatars, ThumbnailCache},
+    cache::{
+        ImageCache, ProfileAvatars, ThumbnailCache,
+        video::{VideoCache, VideoCacheExtra},
+    },
     call::CallRegistry,
     keybinds::Keybinds,
     matrix_api::{
@@ -103,12 +106,9 @@ pub struct UserDevice {
     pub device_id: OwnedDeviceId,
 }
 
-pub mod cache;
 pub mod local_file_encryption;
 pub mod media_fetcher;
 pub mod roles;
-#[cfg(feature = "iced")]
-pub mod video_stream;
 
 #[derive(Clone, Debug)]
 pub enum ActiveServer {
@@ -255,9 +255,7 @@ pub(crate) struct AppStateInner {
 
     thumbnail_cache: Arc<ThumbnailCache>,
     image_cache: Arc<ImageCache>,
-
-    #[cfg(feature = "iced_desktop")]
-    video_cache: cache::VideoCache,
+    video_cache: Arc<VideoCache>,
 }
 
 impl AppState {
@@ -288,7 +286,7 @@ impl AppState {
         let breadcrumbs_content = BreadcrumbsContent::fetch(&client).await;
         let last_server_order = ServerOrderContent::fetch(&client).await;
 
-        let better_thumbnail_cache = Arc::new(ThumbnailCache::new(client.clone()));
+        let better_thumbnail_cache = Arc::new(ThumbnailCache::new(client.clone(), ()));
 
         let profile_store = Arc::new(ProfileStore::new(&client, better_thumbnail_cache.clone()));
         let room_store = Arc::new(
@@ -370,15 +368,16 @@ impl AppState {
             inner: Arc::new(AppStateInner {
                 own_avatar: Sender::default(),
                 thumbnail_cache: better_thumbnail_cache,
-                image_cache: Arc::new(ImageCache::new(client.clone())),
+                image_cache: Arc::new(ImageCache::new(client.clone(), ())),
 
-                #[cfg(feature = "iced_desktop")]
-                video_cache: cache::VideoCache::new(
+                video_cache: Arc::new(VideoCache::new(
                     client.clone(),
-                    media_processor.clone(),
-                    video_store_key,
-                    important_paths.cache_dir.as_ref(),
-                ),
+                    VideoCacheExtra::new(
+                        media_processor.clone(),
+                        video_store_key,
+                        important_paths.cache_dir.as_ref(),
+                    ),
+                )),
 
                 media_processor,
                 profile_store,
@@ -435,8 +434,7 @@ impl AppState {
         self.inner.calls_tick.subscribe()
     }
 
-    #[cfg(feature = "iced_desktop")]
-    pub fn video_cache(&self) -> &cache::VideoCache {
+    pub fn video_cache(&self) -> &VideoCache {
         &self.inner.video_cache
     }
 

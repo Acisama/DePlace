@@ -129,34 +129,34 @@ fn init_gst_log_forwarding() {
 /// `ftyp`, followed by the `moov` box for faststart files), so the log
 /// output immediately shows whether the data fed to gstreamer is actually
 /// the video file, and if not, at which byte the corruption starts.
-fn log_decrypted_head(path: &Path, encryption: Option<&EncryptedFile>) {
-    const HEAD_LEN: usize = 512;
+fn log_decrypted_head(_path: &Path, _encryption: Option<&EncryptedFile>) {
+    //     const HEAD_LEN: usize = 512;
+    //
+    //     let mut head = [0u8; HEAD_LEN];
+    //     let head: Vec<u8> = match encryption {
+    //         Some(encrypted) => {
+    //             let Ok(mut plain) = std::fs::File::open(path) else {
+    //                 tracing::warn!(stream_head = "unreadable", "video stream head");
+    //                 return;
+    //             };
+    //             let Ok(mut decryptor) = matrix_sdk_base::crypto::AttachmentDecryptor::new(
+    //                 &mut plain,
+    //                 encrypted.clone().into(),
+    //             ) else {
+    //                 tracing::warn!(stream_head = "undecryptable", "video stream head");
+    //                 return;
+    //             };
+    //             if decryptor.read_exact(&mut head).is_err() {
+    //                 tracing::warn!(stream_head = "unreadable", "video stream head");
+    //                 return;
+    //             }
+    //             head.to_vec()
+    //         }
+    //         None => return,
+    //     };
 
-    let mut head = [0u8; HEAD_LEN];
-    let head: Vec<u8> = match encryption {
-        Some(encrypted) => {
-            let Ok(mut plain) = std::fs::File::open(path) else {
-                tracing::warn!(stream_head = "unreadable", "video stream head");
-                return;
-            };
-            let Ok(mut decryptor) = matrix_sdk_base::crypto::AttachmentDecryptor::new(
-                &mut plain,
-                encrypted.clone().into(),
-            ) else {
-                tracing::warn!(stream_head = "undecryptable", "video stream head");
-                return;
-            };
-            if decryptor.read_exact(&mut head).is_err() {
-                tracing::warn!(stream_head = "unreadable", "video stream head");
-                return;
-            }
-            head.to_vec()
-        }
-        None => return,
-    };
-
-    let hex: String = head.iter().map(|byte| format!("{byte:02x}")).collect();
-    tracing::info!(head_bytes = %hex, "decrypted video stream head");
+    // let hex: String = head.iter().map(|byte| format!("{byte:02x}")).collect();
+    // tracing::info!(head_bytes = %hex, "decrypted video stream head");
 }
 
 /// Opens a video from a file, decrypting it in-memory on the fly if it is a

@@ -12,7 +12,6 @@ use deplace_core::{
 };
 use iced::{Alignment, Length};
 use macros::iced_cache;
-use matrix_sdk::media::UniqueKey;
 
 #[derive(Debug, Clone, Hash)]
 pub enum OverlayMediaType {
@@ -22,7 +21,6 @@ pub enum OverlayMediaType {
 
 #[derive(Debug, Clone)]
 pub enum MediaOverlayMessage {
-    NeedsMedia(NeedsMedia),
     Close,
     HelpHover(Option<HelpKey>),
 }
@@ -34,7 +32,6 @@ impl HelpOverMessage for MediaOverlayMessage {
 }
 
 pub enum MediaOverlayAction {
-    NeedsMedia(NeedsMedia),
     Close,
     HelpHover(Option<HelpKey>),
 }
@@ -43,8 +40,6 @@ pub enum MediaOverlayAction {
 pub struct MediaOverlay {
     #[hash]
     media: OverlayMediaType,
-
-    video_cache: VideoCache,
 
     sender: Member,
     timestamp: SystemTime,
@@ -82,9 +77,6 @@ impl MediaOverlay {
         Self {
             media,
 
-            video_cache: state.video_cache().clone(),
-            video_states_for_hash: Default::default(),
-
             sender,
             timestamp,
             event_id,
@@ -103,15 +95,6 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
                 Some(MediaOverlayAction::HelpHover(help_key))
             }
             MediaOverlayMessage::Close => Some(MediaOverlayAction::Close),
-            MediaOverlayMessage::NeedsMedia(media) => {
-                match &media {
-                    NeedsMedia::Video { source } => {
-                        self.video_states_for_hash.insert(source.unique_key())
-                    }
-                    _ => return None,
-                };
-                Some(MediaOverlayAction::NeedsMedia(media))
-            }
         }
     }
 
