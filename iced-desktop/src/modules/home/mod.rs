@@ -708,8 +708,7 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                     message: msg,
                 }))
             }
-            None => w::container(lazy_view(self.empty_chat.clone(), HomeMessage::EmptyChat))
-                .padding(structure.gap),
+            None => w::container(lazy_view(self.empty_chat.clone(), HomeMessage::EmptyChat)),
         }
         .width(Fill)
         .height(Fill);

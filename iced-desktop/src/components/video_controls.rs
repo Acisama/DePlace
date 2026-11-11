@@ -900,12 +900,16 @@ where
                     {
                         state.phase = Phase::Pending;
                     }
+                    // Always fades, even for an already-on-disk video `is_loaded`
+                    // auto-starts: that only skips the "Download video" button
+                    // (and the `NotStarted` phase it belongs to) -- the load
+                    // itself still takes a moment once this widget is built, so
+                    // it still deserves the same crossfade a slower download
+                    // gets once it resolves. `state()`'s own cache-hit check is
+                    // what skips the fade for a cell that's *already* `Loaded`
+                    // by construction time.
                     Phase::Pending if video.is_some() => {
-                        if self.is_loaded {
-                            state.phase = Phase::Done;
-                        } else {
-                            state.phase = Phase::Fading(Instant::now());
-                        }
+                        state.phase = Phase::Fading(Instant::now());
                     }
                     Phase::Fading(started) if started.elapsed() >= FADE_DURATION => {
                         state.phase = Phase::Done;
@@ -914,6 +918,22 @@ where
                 }
             }
             let phase = tree.state.downcast_ref::<State>().phase;
+
+            // `download_status()` reflects `media_processor`'s own tracked
+            // progress, which deliberately keeps a `Completed`/`Failed` entry
+            // around forever once set (the header's own download indicator
+            // relies on that to keep showing the last outcome) -- so it never
+            // naturally goes back to `None` on its own. Once this video's own
+            // `Phase` is `Done` there's nothing left for *this* overlay to
+            // say regardless of what that still reports, so it's forced to
+            // `None` here rather than leaning on `status_alpha(Done) == 0.0`
+            // alone to hide it: this also stops `status.is_some()` below from
+            // keeping the redraw loop spinning forever once settled.
+            let status = if matches!(phase, Phase::Done) {
+                None
+            } else {
+                status
+            };
 
             self.rebuild_content(tree, renderer, size, phase);
             self.rebuild_not_started(tree, renderer, size, phase);

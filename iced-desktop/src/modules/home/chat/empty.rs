@@ -23,6 +23,21 @@ impl IcedWidget<EmptyChatMessage, EmptyChatAction> for EmptyChat {
     }
 
     fn view(&self) -> Element<'static, EmptyChatMessage> {
-        w::container("test").boxed()
+        let theme = theme();
+        let structure = structure();
+
+        floating_tile(
+            theme,
+            structure,
+            w::container(
+                w::text("Empty chat is not implemented yet, click any room to view it")
+                    .size(structure.font_size)
+                    .color(theme.colors.warning),
+            )
+            .width(Fill)
+            .height(Fill)
+            .center(Fill),
+        )
+        .boxed()
     }
 }
