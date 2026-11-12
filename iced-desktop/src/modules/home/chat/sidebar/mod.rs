@@ -261,6 +261,9 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
             return EMPTY_WIDGET.boxed();
         };
 
+        let theme = theme();
+        let structure = structure();
+
         let content: Element<'static, SidebarMessage> = match state {
             SidebarState::Member => {
                 lazy_view(self.dm_profile_card.clone(), SidebarMessage::DmProfileCard)
@@ -272,11 +275,17 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                     lazy_view(self.member_list.clone(), SidebarMessage::MemberList)
                 }
             }
-            _ => return w::container("test").boxed(),
+            // TODO: Implement
+            SidebarState::Pins => w::text("Pinned messages are not implemented yet")
+                .size(structure.font_size)
+                .color(theme.colors.warning)
+                .boxed(),
+            // TODO: Implement
+            SidebarState::Search => w::text("Search results are not implemented yet")
+                .size(structure.font_size)
+                .color(theme.colors.warning)
+                .boxed(),
         };
-
-        let theme = theme();
-        let structure = structure();
 
         help(
             help_state(),
