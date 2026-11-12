@@ -3713,7 +3713,6 @@ dependencies = [
 [[package]]
 name = "iced_video_player"
 version = "0.6.0"
-source = "git+https://codeberg.org/aosiuejhf/iced_video_player.git#ae93d7b6f0acaa9187ad27f4022e6fde34cfe171"
 dependencies = [
  "glib",
  "gstreamer",
@@ -8320,7 +8319,6 @@ dependencies = [
 [[package]]
 name = "sweeten"
 version = "0.15.0-dev"
-source = "git+https://codeberg.org/aosiuejhf/sweeten-fork.git?branch=master#f0f3a2ef7c78a62e8ef468f4912f18802a6bba7d"
 dependencies = [
  "iced_core",
  "iced_runtime",

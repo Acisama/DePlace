@@ -6,6 +6,11 @@ members = [
   "macros",
 ]
 
+exclude = [
+  "iced_video_player",
+  "sweeten",
+]
+
 default-members = ["iced-desktop"]
 
 [workspace.dependencies]
@@ -33,7 +38,7 @@ futures-util = "0.3"
 getrandom = { version = "0.4.0-rc.1" }
 gstreamer = "0.23"
 gstreamer-app = "0.23"
-iced_video_player = { git = "https://codeberg.org/aosiuejhf/iced_video_player.git" }
+iced_video_player = { path = "iced_video_player" }
 image = "0.25.10"
 imbl = "6.1.0"
 indexmap = "2.14.2"
@@ -64,7 +69,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11.0"
 smallvec = "1.15.2"
-sweeten = { git = "https://codeberg.org/aosiuejhf/sweeten-fork.git", branch = "master" }
+sweeten = { path = "sweeten" }
 thiserror = "2"
 thumbhash = "0.1.0"
 tokio = { version = "1", features = ["full"] }
@@ -90,3 +95,5 @@ features = ["advanced", "canvas", "crisp", "debug", "image", "svg", "time-travel
 # iced_core = { path = "../iced/core" }
 # iced_graphics = { path = "../iced/graphics" }
 # iced_wgpu = { path = "../iced/wgpu" }
+
+

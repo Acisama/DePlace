@@ -1,0 +1,287 @@
+//! Helper functions to create widgets.
+
+use crate::core;
+use crate::core::Element;
+use crate::overlay::menu;
+use crate::widget::MouseArea;
+use crate::widget::button::{self, Button};
+use crate::widget::checkbox::{self, Checkbox};
+use crate::widget::column::{self, Column};
+use crate::widget::list::{self, List};
+use crate::widget::pick_list::{self, PickList};
+use crate::widget::progress_bar::{self, ProgressBar};
+use crate::widget::radio::{self, Content, Group};
+use crate::widget::row::{self, Row};
+use crate::widget::table::{self, Table};
+#[cfg(feature = "broken")]
+use crate::widget::text_input::{self, TextInput};
+use crate::widget::toggler::{self, Toggler};
+use crate::widget::transition::{self, Transition};
+
+use std::borrow::Borrow;
+
+/// Creates a [`Column`] with the given children.
+///
+/// Columns distribute their children vertically.
+#[macro_export]
+macro_rules! column {
+    () => (
+        $crate::widget::Column::new()
+    );
+    ($($x:expr),+ $(,)?) => (
+        $crate::widget::Column::with_children([$($crate::core::Widget::_boxed($x)),+])
+    );
+}
+
+/// Creates a [`Row`] with the given children.
+///
+/// Rows distribute their children horizontally.
+#[macro_export]
+macro_rules! row {
+    () => (
+        $crate::widget::Row::new()
+    );
+    ($($x:expr),+ $(,)?) => (
+        $crate::widget::Row::with_children([$($crate::core::Widget::_boxed($x)),+])
+    );
+}
+
+/// Creates a new [`Row`] with the given children.
+pub fn row<'a, Message, Theme, Renderer>(
+    children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
+) -> Row<'a, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+    Theme: row::Catalog,
+{
+    Row::with_children(children)
+}
+
+/// Creates a new [`Column`] with the given children.
+pub fn column<'a, Message, Theme, Renderer>(
+    children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
+) -> Column<'a, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+    Theme: column::Catalog,
+{
+    Column::with_children(children)
+}
+
+/// Creates a new [`Button`] with the given content.
+///
+/// This is a sweetened version of [`iced`'s `button`] with support for
+/// [`on_focus`] and [`on_blur`] messages.
+///
+/// [`iced`'s `button`]: https://docs.iced.rs/iced/widget/button/index.html
+/// [`on_focus`]: Button::on_focus
+/// [`on_blur`]: Button::on_blur
+pub fn button<'a, Message, Theme, Renderer>(
+    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+) -> Button<'a, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+    Theme: button::Catalog,
+{
+    Button::new(content)
+}
+
+/// Creates a new [`TextInput`].
+///
+/// This is a sweetened version of [`iced`'s `text_input`] with support for
+/// [`on_focus`] and [`on_blur`] messages.
+///
+/// [`iced`'s `text_input`]: https://docs.iced.rs/iced/widget/text_input/index.html
+/// [`on_focus`]: TextInput::on_focus
+/// [`on_blur`]: TextInput::on_blur
+#[cfg(feature = "broken")]
+pub fn text_input<'a, Message, Theme, Renderer>(
+    placeholder: &str,
+    value: &str,
+) -> TextInput<'a, Message, Theme, Renderer>
+where
+    Message: Clone,
+    Theme: text_input::Catalog + 'a,
+    Renderer: core::text::Renderer,
+{
+    TextInput::new(placeholder, value)
+}
+
+/// Creates a new [`PickList`].
+///
+/// This is a sweetened version of [`iced`'s `pick_list`] with support for
+/// disabling items in the dropdown via [`disabled`], titled groups of
+/// options via [`group`] and the [`options!`] macro, and arbitrary
+/// widgets as option content — the view function may return a `String`
+/// or anything else that converts into a [`Content`], like an
+/// [`Element`].
+///
+/// [`iced`'s `pick_list`]: https://docs.iced.rs/iced/widget/pick_list/index.html
+/// [`disabled`]: PickList::disabled
+/// [`group`]: pick_list::group
+/// [`options!`]: crate::widget::pick_list::options!
+/// [`Content`]: pick_list::Content
+pub fn pick_list<'a, T, V, Message, Theme, Renderer, W>(
+    selected: Option<V>,
+    options: impl Into<pick_list::Options<'a, T, Theme, Renderer>>,
+    view: impl Fn(&T) -> W + 'a,
+) -> PickList<'a, T, V, Message, Theme, Renderer>
+where
+    T: PartialEq + Clone + 'a,
+    V: Borrow<T> + 'a,
+    Message: Clone,
+    Theme: pick_list::Catalog + menu::Catalog,
+    Renderer: core::text::Renderer,
+    W: Into<pick_list::Content<'a, Theme, Renderer>>,
+{
+    PickList::new(selected, options, view)
+}
+
+/// Creates a new [`MouseArea`] for capturing mouse events.
+///
+/// This is a sweetened version of [`iced`'s `MouseArea`] where all event
+/// handlers receive the cursor position as a [`Point`].
+///
+/// [`iced`'s `MouseArea`]: https://docs.iced.rs/iced/widget/struct.MouseArea.html
+/// [`Point`]: crate::core::Point
+pub fn mouse_area<'a, Message, Theme, Renderer>(
+    widget: impl Into<Element<'a, Message, Theme, Renderer>>,
+) -> MouseArea<'a, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+{
+    MouseArea::new(widget)
+}
+
+/// Creates a new [`Table`] with the given columns and rows.
+///
+/// Columns can be created using [`table::column`], while rows can be any
+/// iterator over some data type `T`.
+pub fn table<'a, 'b, T, Message, Theme, Renderer>(
+    columns: impl IntoIterator<
+        Item = table::Column<'a, 'b, T, Message, Theme, Renderer>,
+    >,
+    rows: impl IntoIterator<Item = T>,
+) -> Table<'a, Message, Theme, Renderer>
+where
+    T: Clone,
+    Message: 'a,
+    Theme: table::Catalog,
+    Renderer: core::Renderer,
+{
+    Table::new(columns, rows)
+}
+
+use std::hash::Hash;
+use std::rc::Rc;
+/// Creates a new virtualized [`List`] backed by `content`.
+///
+/// Only items visible in the current viewport are materialized into
+/// widgets, making this suitable for large or unbounded data sets.
+pub fn list<'a, S: Eq + Hash + Clone, T, Message, Theme, Renderer>(
+    content: list::Content<S, T>,
+    view_item: impl Fn(usize, S, Rc<T>) -> Element<'a, Message, Theme, Renderer>
+    + 'a,
+) -> List<'a, S, T, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+{
+    List::new(content, view_item)
+}
+
+/// Creates a new [`Checkbox`].
+///
+/// This is a sweetened version of [`iced`'s `checkbox`] with a smooth
+/// animation when toggling between states — the box's fill, border, and
+/// the checkmark itself fade and scale in unison.
+///
+/// [`iced`'s `checkbox`]: https://docs.iced.rs/iced/widget/checkbox/index.html
+pub fn checkbox<'a, Message, Theme, Renderer>(
+    is_checked: bool,
+) -> Checkbox<'a, Message, Theme, Renderer>
+where
+    Theme: checkbox::Catalog + 'a,
+    Renderer: core::text::Renderer,
+{
+    Checkbox::new(is_checked)
+}
+
+/// Creates a new focus-managed [`Group`] of radio buttons from the current
+/// `selected` value, the set of `options`, and a `view` function producing
+/// each option's label.
+///
+/// The group is a single tab stop (the WAI-ARIA "radiogroup"): the arrow
+/// keys rove between the enabled options while selection follows focus, and
+/// each button animates the selection dot smoothly instead of snapping.
+///
+/// The returned [`Group`] is disabled until [`on_select`] is called to set
+/// the message produced when an option is chosen; the `selected` value may
+/// be `None`, which is the usual state on init. For a lone button in a
+/// bespoke layout, reach for [`radio::single`](radio::single).
+///
+/// [`on_select`]: Group::on_select
+pub fn radio<'a, V, T, Message, Theme, Renderer>(
+    selected: Option<V>,
+    options: impl IntoIterator<Item = V>,
+    view: impl Fn(&V) -> T,
+) -> Group<'a, V, Message, Theme, Renderer>
+where
+    V: Eq + Clone,
+    T: Into<Content<'a, Theme, Renderer>>,
+    Theme: radio::Catalog + 'a,
+    Renderer: core::text::Renderer,
+{
+    Group::new(selected, options, view)
+}
+
+/// Creates a new [`Toggler`].
+///
+/// This is a sweetened version of [`iced`'s `toggler`] with a smooth
+/// animation when toggling between states.
+///
+/// [`iced`'s `toggler`]: https://docs.iced.rs/iced/widget/toggler/index.html
+pub fn toggler<'a, Message, Theme, Renderer>(
+    is_toggled: bool,
+) -> Toggler<'a, Message, Theme, Renderer>
+where
+    Theme: toggler::Catalog,
+    Renderer: core::text::Renderer,
+{
+    Toggler::new(is_toggled)
+}
+
+/// Creates a new [`ProgressBar`] over the given range with the given
+/// current value.
+///
+/// This is a sweetened version of [`iced`'s `progress_bar`] that owns
+/// its own value-easing animation: every render whose `value` differs
+/// from the currently-displayed value triggers a 150ms cubic-bezier
+/// ease toward the new target — the same `transition-all` default
+/// shadcn's `<Progress>` indicator inherits.
+///
+/// [`iced`'s `progress_bar`]: https://docs.iced.rs/iced/widget/progress_bar/index.html
+pub fn progress_bar<'a, Message, Theme>(
+    range: std::ops::RangeInclusive<f32>,
+    value: f32,
+) -> ProgressBar<'a, Message, Theme>
+where
+    Theme: progress_bar::Catalog,
+{
+    ProgressBar::new(range, value)
+}
+
+/// Creates a new [`Transition`] showing the given `value`, with `view` as the
+/// recipe for materializing an [`Element`] from any value of type `T`.
+///
+/// Whenever `value` changes (as detected by [`PartialEq`]), the widget
+/// animates a slide transition between the previous and new content.
+pub fn transition<'a, T, Message, Theme, Renderer>(
+    value: T,
+    view: impl Fn(&T) -> Element<'a, Message, Theme, Renderer> + 'a,
+) -> Transition<'a, T, Message, Theme, Renderer>
+where
+    T: Clone + PartialEq + 'static,
+    Renderer: core::Renderer,
+{
+    transition::Transition::new(value, view)
+}

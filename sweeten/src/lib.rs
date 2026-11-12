@@ -1,0 +1,129 @@
+// This crate contains modifications of widgets from [`iced`].
+//
+// [`iced`]: https://github.com/iced-rs/iced
+//
+// Copyright 2019 Héctor Ramón, Iced contributors
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
+// this software and associated documentation files (the "Software"), to deal in
+// the Software without restriction, including without limitation the rights to
+// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+// the Software, and to permit persons to whom the Software is furnished to do so,
+// subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+// FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+// COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+// IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+#![warn(missing_docs)]
+
+//! # sweeten
+//!
+//! `sweeten` provides enhanced versions of common [`iced`] widgets with
+//! additional functionality for more complex use cases. It aims to maintain
+//! the simplicity and elegance of `iced` while offering "sweetened" variants
+//! with extended capabilities.
+//!
+//! ## Widgets
+//!
+//! The following widgets are available in the [`widget`] module:
+//!
+//! - [`button`] — A button widget, with support for [`on_focus`][button_on_focus]
+//!   and [`on_blur`][button_on_blur] messages.
+//! - [`checkbox`] — A checkbox with smooth animation when toggling between
+//!   states.
+//! - [`column`] — Distribute content vertically, with support for drag-and-drop
+//!   reordering via [`on_drag`](widget::column::Column::on_drag).
+//! - [`list`] — A virtualized list that only materializes visible items,
+//!   suitable for large or unbounded data sets.
+//! - [`mouse_area`] — A container for capturing mouse events where all handlers
+//!   receive the cursor position as a [`Point`].
+//! - [`pick_list`] — A dropdown list of selectable options, with support for
+//!   disabling items, group labels and separators, arbitrary widgets as
+//!   option content, and keyboard navigation with typeahead.
+//! - [`progress_bar`] — A progress bar that self-animates between value
+//!   changes (150ms cubic-bezier ease).
+//! - [`radio`] — A focus-managed radio group (one tab stop, arrow-key
+//!   navigation, selection follows focus) with smooth animation when the
+//!   selection changes.
+//! - [`row`] — Distribute content horizontally, with support for drag-and-drop
+//!   reordering via [`on_drag`](widget::row::Row::on_drag).
+//! - [`table`] — A data table with optional column headers, sticky header,
+//!   header underline, and table border.
+//! - [`text_input`] — A text input field, with support for [`on_focus`] and
+//!   [`on_blur`] messages.
+//! - [`toggler`] — A toggler switch with smooth animation between states.
+//! - [`transition`] — A single-slot container that animates between
+//!   children when its value changes.
+//!
+//! ## Usage
+//!
+//! Import the widgets you need from `sweeten::widget`:
+//!
+//! ```no_run
+//! use sweeten::widget::{
+//!     button, column, mouse_area, pick_list, row, transition,
+//! };
+//! # fn main() {}
+//! ```
+//!
+//! The widgets are designed to be drop-in replacements for their `iced`
+//! counterparts, with additional methods for the extended functionality.
+//!
+//! [`iced`]: https://github.com/iced-rs/iced
+//! [`button`]: mod@widget::button
+//! [`checkbox`]: mod@widget::checkbox
+//! [`column`]: mod@widget::column
+//! [`list`]: mod@widget::list
+//! [`mouse_area`]: mod@widget::mouse_area
+//! [`pick_list`]: mod@widget::pick_list
+//! [`progress_bar`]: mod@widget::progress_bar
+//! [`radio`]: mod@widget::radio
+//! [`row`]: mod@widget::row
+//! [`table`]: mod@widget::table
+//! [`text_input`]: mod@widget::text_input
+//! [`toggler`]: mod@widget::toggler
+//! [`transition`]: mod@widget::transition
+//! [`Point`]: crate::core::Point
+//! [button_on_focus]: widget::button::Button::on_focus
+//! [button_on_blur]: widget::button::Button::on_blur
+//! [`on_focus`]: widget::text_input::TextInput::on_focus
+//! [`on_blur`]: widget::text_input::TextInput::on_blur
+
+mod animation;
+mod helpers;
+pub mod widget;
+
+pub use helpers::*;
+
+// Re-exports to mirror iced_widget structure (allows minimal diff for widgets)
+#[doc(hidden)]
+pub use iced_core as core;
+pub use iced_core::Theme;
+pub use iced_widget::Renderer;
+pub use iced_widget::{scrollable, text_editor};
+
+// Re-export widget modules at crate level (mirrors iced_widget's structure)
+#[doc(hidden)]
+pub use widget::button;
+#[doc(hidden)]
+pub use widget::checkbox;
+#[doc(hidden)]
+pub use widget::overlay;
+#[doc(hidden)]
+pub use widget::pick_list;
+#[doc(hidden)]
+pub use widget::radio;
+#[doc(hidden)]
+#[cfg(feature = "broken")]
+pub use widget::text_input;
+// Re-export iced_widget::text so toggler (and future widgets) can use
+// `crate::text::draw` / `crate::text::Style` with the same paths as iced.
+#[doc(hidden)]
+pub use iced_widget::text;
