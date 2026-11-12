@@ -739,7 +739,6 @@ impl MessageContent {
                         w::mouse_area(stack)
                             .on_enter(TimelineItemMessage::MediaMouseEnter)
                             .on_exit(TimelineItemMessage::MediaMouseLeave)
-                            .interaction(Interaction::Pointer)
                             .boxed(),
                     ),
                 )
@@ -932,10 +931,10 @@ impl VideoMessage {
                 },
                 self.media_processor.clone(),
                 self.parameters_key.clone(),
-                self.is_encrypted,
                 self.info.as_ref().and_then(|i| i.size),
-                self.is_loaded,
             )
+            .encrypted(self.is_encrypted)
+            .loaded(self.is_loaded)
             .radius(structure.inner_border_radius)
             .boxed(),
         )

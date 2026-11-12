@@ -19,6 +19,7 @@ use iced::advanced::shell::Bus;
 use iced::advanced::widget::{Meta, Operation, Tree, tree};
 use iced::advanced::{Layout, Renderer as _, Shell, Widget, layout, mouse, overlay, renderer};
 use iced::border::{self, Radius};
+use iced::mouse::Interaction;
 use iced::widget::Space;
 use iced::{Alignment, Border, widget as w};
 use iced::{
@@ -28,7 +29,7 @@ use iced::{
 use iced_video_player::{Video, VideoPlayer};
 
 use crate::common::{pie_progress, structure, theme};
-use crate::modules::home::DOWNLOAD_ICON;
+use crate::modules::home::{DOWNLOAD_ICON, EXIT_FULLSCREEN_ICON, FULLSCREEN_ICON};
 use crate::{EMPTY_WIDGET, MONO_FONT};
 
 use super::render_media::Fallback;
@@ -121,9 +122,7 @@ pub fn video_controls<'a, Message>(
     fallback: impl Fn(Radius, f32) -> Element<'a, Message> + 'a,
     media_processor: MediaProcessor,
     parameters_key: String,
-    is_encrypted: bool,
     info_total: Option<u64>,
-    is_loaded: bool,
 ) -> VideoControls<'a, Message>
 where
     Message: 'a,
@@ -138,9 +137,11 @@ where
         status_overlay: None,
         parameters_key,
         media_processor,
-        is_encrypted,
+        is_encrypted: false,
         info_total,
-        is_loaded,
+        is_loaded: false,
+        is_fullscreen: false,
+        on_fullscreen_toggle: None,
     }
 }
 
@@ -163,6 +164,9 @@ pub struct VideoControls<'a, Message> {
 
     info_total: Option<u64>,
     is_loaded: bool,
+
+    is_fullscreen: bool,
+    on_fullscreen_toggle: Option<Message>,
 }
 
 /// Where the cell is in its lifecycle, mirroring
@@ -184,6 +188,7 @@ enum Local {
     StartDownload,
     ToggleMute,
     SetVolume(f32),
+    ToggleFullscreen,
 }
 
 fn build_not_started(phase: Phase, theme: Theme, structure: Structure) -> Element<'static, Local> {
@@ -232,15 +237,29 @@ fn build_bar(
     progress: f32,
     muted: bool,
     volume: f32,
+    is_fullscreen: bool,
+    at_end: bool,
 ) -> Element<'static, Local> {
     let theme = theme();
     let structure = structure();
 
-    let play_icon = if paused {
-        phosphor_svgs::icon::play::FILL
+    let icon_size = structure.large_font_size;
+    let icon_color = theme.text.normal;
+
+    let (play_icon, overlay_icon) = if at_end {
+        (
+            phosphor_svgs::icon::arrow_clockwise::BOLD,
+            Some(phosphor_svgs::icon::arrow_clockwise::BOLD),
+        )
+    } else if paused {
+        (
+            phosphor_svgs::icon::play::FILL,
+            Some(phosphor_svgs::icon::play::FILL),
+        )
     } else {
-        phosphor_svgs::icon::pause::FILL
+        (phosphor_svgs::icon::pause::FILL, None)
     };
+
     let volume_icon = if muted || volume <= 0.0 {
         phosphor_svgs::icon::speaker_slash::FILL
     } else {
@@ -249,15 +268,11 @@ fn build_bar(
 
     let content = w::column![
         w::row![
-            default_button(
-                phosphor_icon(play_icon, structure.large_font_size).color(theme.text.normal)
-            )
-            .on_press(Local::TogglePause),
+            default_button(phosphor_icon(play_icon, icon_size).color(icon_color))
+                .on_press(Local::TogglePause),
             Space::new().width(Fill),
-            default_button(
-                phosphor_icon(volume_icon, structure.large_font_size).color(theme.text.normal)
-            )
-            .on_press(Local::ToggleMute),
+            default_button(phosphor_icon(volume_icon, icon_size).color(icon_color))
+                .on_press(Local::ToggleMute),
             w::slider(0.0..=1.0, volume, Local::SetVolume)
                 .step(0.01)
                 .width(80.0)
@@ -279,31 +294,48 @@ fn build_bar(
         ]
         .spacing(structure.gap)
         .align_y(Alignment::Center),
-        w::slider(0.0..=1.0, progress, Local::Seek)
-            .step(0.001)
-            .width(Fill)
-            .on_release(Local::SeekReleased)
-            .style(move |_, _| w::slider::Style {
-                rail: w::slider::Rail {
-                    backgrounds: (theme.accent.into(), theme.solid_hover_bg.into()),
-                    width: structure.font_size / 2.0,
-                    border: border::rounded(structure.font_size / 4.0),
-                },
-                handle: w::slider::Handle {
-                    shape: w::slider::HandleShape::Circle {
-                        radius: structure.font_size / 2.0
+        w::row![
+            w::slider(0.0..=1.0, progress, Local::Seek)
+                .step(0.001)
+                .width(Fill)
+                .on_release(Local::SeekReleased)
+                .style(move |_, _| w::slider::Style {
+                    rail: w::slider::Rail {
+                        backgrounds: (theme.accent.into(), theme.solid_hover_bg.into()),
+                        width: structure.font_size / 2.0,
+                        border: border::rounded(structure.font_size / 4.0),
                     },
-                    background: theme.accent.into(),
-                    border_color: Color::TRANSPARENT,
-                    border_width: 0.0,
-                },
-            }),
+                    handle: w::slider::Handle {
+                        shape: w::slider::HandleShape::Circle {
+                            radius: structure.font_size / 2.0
+                        },
+                        background: theme.accent.into(),
+                        border_color: Color::TRANSPARENT,
+                        border_width: 0.0,
+                    },
+                }),
+            default_button(
+                phosphor_icon(
+                    if is_fullscreen {
+                        EXIT_FULLSCREEN_ICON
+                    } else {
+                        FULLSCREEN_ICON
+                    },
+                    icon_size
+                )
+                .color(icon_color)
+            )
+            .on_press(Local::ToggleFullscreen)
+        ]
+        .spacing(structure.gap)
+        .align_y(Alignment::Center),
     ]
     .spacing(structure.small_gap);
 
-    w::column![
+    let content = w::column![
         w::mouse_area(w::container(EMPTY_WIDGET).width(Fill).height(Fill))
-            .on_press(Local::TogglePause),
+            .on_press(Local::TogglePause)
+            .interaction(Interaction::Pointer),
         w::container(content)
             .width(Fill)
             .colored_rounded(
@@ -314,7 +346,32 @@ fn build_bar(
             .align_x(Alignment::Center)
             .align_y(Alignment::Center)
     ]
-    .boxed()
+    .boxed();
+
+    if let Some(overlay_icon) = overlay_icon {
+        w::stack![
+            content,
+            w::container(
+                default_button(
+                    w::container(phosphor_icon(overlay_icon, icon_size * 2.0).color(icon_color))
+                        .padding(structure.gap)
+                        .colored_rounded_with_border(
+                            theme.solid_bg,
+                            icon_size + structure.gap,
+                            structure.border_thickness,
+                            theme.border
+                        )
+                )
+                .on_press(Local::TogglePause)
+            )
+            .width(Fill)
+            .height(Fill)
+            .center(Fill)
+        ]
+        .boxed()
+    } else {
+        content
+    }
 }
 
 fn build_status_overlay(status: Option<&VideoStatus>, alpha: f32) -> Element<'static, Local> {
@@ -380,6 +437,26 @@ where
             MediaState::Loaded((video, _feeder)) => Some(video.clone()),
             _ => None,
         }
+    }
+
+    pub fn on_fullscreen_toggle(mut self, on_fullscreen_toggle: Message) -> Self {
+        self.on_fullscreen_toggle = Some(on_fullscreen_toggle);
+        self
+    }
+
+    pub fn fullscreen(mut self) -> Self {
+        self.is_fullscreen = true;
+        self
+    }
+
+    pub fn encrypted(mut self, is_encrypted: bool) -> Self {
+        self.is_encrypted = is_encrypted;
+        self
+    }
+
+    pub fn loaded(mut self, is_loaded: bool) -> Self {
+        self.is_loaded = is_loaded;
+        self
     }
 
     fn content_for(&self, phase: Phase) -> Element<'a, Message> {
@@ -471,6 +548,8 @@ where
                 // `Local::ToggleMute`/`Local::SetVolume`.
                 false,
                 1.0,
+                self.is_fullscreen,
+                video.eos(),
             ),
             None => EMPTY_WIDGET.boxed(),
         }
@@ -496,8 +575,18 @@ where
         progress: f32,
         muted: bool,
         volume: f32,
+        is_fullscreen: bool,
+        at_end: bool,
     ) -> f32 {
-        let mut bar = build_bar(self.radius, paused, progress, muted, volume);
+        let mut bar = build_bar(
+            self.radius,
+            paused,
+            progress,
+            muted,
+            volume,
+            is_fullscreen,
+            at_end,
+        );
         tree.children[1].diff(&mut bar);
         bar.layout(
             &mut tree.children[1],
@@ -935,6 +1024,8 @@ where
                     progress,
                     false,
                     1.0,
+                    self.is_fullscreen,
+                    video.eos(),
                 );
                 tree.children[1].translation =
                     Vector::new(0.0, bounds.height - bar_height * amount);
@@ -993,6 +1084,8 @@ where
                     progress,
                     false,
                     1.0,
+                    self.is_fullscreen,
+                    video.eos(),
                 );
 
                 if let Some((bar_layout, bar_tree)) = layout.iter_mut(&mut tree.children).nth(1)
@@ -1067,6 +1160,11 @@ where
                     // which panics on this app's hand-built pipelines (see
                     // the note on `muted`/`volume` in `bar_for`) -- not
                     // calling it until that's fixed properly.
+                }
+                Local::ToggleFullscreen => {
+                    if let Some(message) = &self.on_fullscreen_toggle {
+                        shell.publish(message.clone());
+                    }
                 }
             }
         }

@@ -48,6 +48,9 @@ pub const CHECKMARK_ICON: &str = icons::check::BOLD;
 pub const SOURCE_ICON: &str = icons::code::BOLD;
 pub const DOWNLOAD_ICON: &str = icons::download_simple::BOLD;
 
+pub const FULLSCREEN_ICON: &str = icons::corners_out::BOLD;
+pub const EXIT_FULLSCREEN_ICON: &str = icons::corners_in::BOLD;
+
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
     Chat {
