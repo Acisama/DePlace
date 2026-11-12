@@ -21,6 +21,7 @@ use crate::{
 };
 use futures_util::StreamExt;
 use matrix_sdk::{Client, config::SyncSettings, ruma::presence::PresenceState, sync::SyncResponse};
+use tokio::sync::mpsc;
 
 use super::matrixrtc::{cleanup_ghost_calls, handle_call_member_change, handle_to_device_messages};
 use super::members::handle_member_event;
@@ -145,11 +146,39 @@ async fn run_sync_stream(client: Client, state: AppState) {
     loop {
         tracing::debug!(restarts, responses, "Starting the sync stream");
 
-        let sync_stream = client.sync_stream(sync_settings.clone()).await;
-        let mut sync_stream = pin!(sync_stream);
+        // The stream is pulled on its own detached task and the
+        // responses forwarded through a channel: if pulling ever wedges
+        // inside a poll (blocking call in the SDK), only the puller task
+        // dies unreachable -- this loop stays at an await on the channel
+        // receiver, so the fetch deadline below can still fire and
+        // rebuild the stream. Pulling on the loop's own task took that
+        // safety away: a wedged poll parks this loop's worker inside
+        // `next()`, no timer can reach it anymore, and the fetch
+        // deadline never fires -- the loop is dead without a trace
+        // while the watchdog keeps shouting into the void.
+        let (response_tx, mut response_rx) =
+            mpsc::channel::<matrix_sdk::Result<SyncResponse>>(1);
+        // Detached on purpose: the handle is never awaited, and the task
+        // stops itself once the channel receiver is replaced below.
+        // The stream borrows its `Client`, so it is created inside the
+        // task from a clone the task owns.
+        let puller_client = client.clone();
+        let puller_settings = sync_settings.clone();
+        let _puller = tokio::spawn(async move {
+            let sync_stream = puller_client.sync_stream(puller_settings).await;
+            let mut sync_stream = pin!(sync_stream);
+            while let Some(result) = sync_stream.next().await {
+                if response_tx.send(result).await.is_err() {
+                    // The loop dropped the receiver and moved on to a
+                    // fresh stream; stop pulling this one.
+                    break;
+                }
+            }
+        });
 
         loop {
-            let fetched = tokio::time::timeout(SYNC_FETCH_DEADLINE, sync_stream.next()).await;
+            let fetched =
+                tokio::time::timeout(SYNC_FETCH_DEADLINE, response_rx.recv()).await;
 
             let result = match fetched {
                 Ok(Some(result)) => result,
@@ -157,8 +186,7 @@ async fn run_sync_stream(client: Client, state: AppState) {
                     tracing::error!(
                         responses,
                         restarts = restarts + 1,
-                        "Sync stream ended after {responses} responses; \
-                         it is rebuilt so messages keep flowing"
+                        "Sync stream ended after {responses} responses; it is rebuilt so messages keep flowing"
                     );
                     break;
                 }
@@ -166,9 +194,7 @@ async fn run_sync_stream(client: Client, state: AppState) {
                     tracing::error!(
                         responses,
                         restarts = restarts + 1,
-                        "Sync stream stalled for \
-                         {SYNC_FETCH_DEADLINE:?} without a response, \
-                         rebuilding it to squash the dead sync bug"
+                        "Sync stream stalled for {SYNC_FETCH_DEADLINE:?} without a response, rebuilding it to squash the dead sync bug"
                     );
                     break;
                 }
@@ -176,22 +202,50 @@ async fn run_sync_stream(client: Client, state: AppState) {
 
             responses += 1;
 
+            // Handling runs on its own task, with only its completion
+            // awaited here: a response whose handling gets stuck in a
+            // sync call (lock wedged from the outside, blocking FFI like
+            // the LiveKit key provider) wedges or kills just the handler
+            // task, while this loop stays reachable by its timers --
+            // the fetch deadline keeps firing and message reception
+            // survives either way. The overnight log showed the failure
+            // this guards against: after the last response neither the
+            // fetch nor the handle deadline ever fired because the
+            // worker executing this loop was parked inside the handler,
+            // and no sync arrived for ten hours.
+            // A dropped `JoinHandle` doesn't cancel the handler, so an
+            // over-deadline task may still finish in the background;
+            // only its side effects arrive late, never lost.
             let handled = tokio::time::timeout(
                 SYNC_HANDLE_DEADLINE,
                 #[allow(clippy::useless_conversion)]
                 async {
-                    handle_sync_result(result.into(), &state).await;
+                    let state = state.clone();
+                    let result = result.into();
+                    tokio::spawn(async move { handle_sync_result(result, &state).await })
+                        .await
                 },
             )
             .await;
 
-            if let Err(_elapsed) = handled {
-                tracing::error!(
-                    responses,
-                    "Handling a sync response stalled for \
-                     {SYNC_HANDLE_DEADLINE:?}; it is dropped, but the \
-                     sync stream itself stays alive"
-                );
+            match handled {
+                Ok(Ok(())) => {}
+                Ok(Err(join_error)) => {
+                    tracing::error!(
+                        responses,
+                        "Handling a sync response panicked \
+                         ({join_error:?}); the handler task is the only \
+                         casualty, the sync stream itself stays alive"
+                    );
+                }
+                Err(_elapsed) => {
+                    tracing::error!(
+                        responses,
+                        "Handling a sync response stalled for \
+                         {SYNC_HANDLE_DEADLINE:?}; it is dropped, but the \
+                         sync stream itself stays alive"
+                    );
+                }
             }
 
             if !handler_attached {
