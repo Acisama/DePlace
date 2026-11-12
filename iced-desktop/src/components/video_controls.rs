@@ -301,16 +301,20 @@ fn build_bar(
     ]
     .spacing(structure.small_gap);
 
-    w::container(content)
-        .width(Fill)
-        .colored_rounded(
-            theme.backdrop,
-            Radius::default().bottom(radius.bottom_right),
-        )
-        .padding(structure.small_gap)
-        .align_x(Alignment::Center)
-        .align_y(Alignment::Center)
-        .boxed()
+    w::column![
+        w::mouse_area(w::container(EMPTY_WIDGET).width(Fill).height(Fill))
+            .on_press(Local::TogglePause),
+        w::container(content)
+            .width(Fill)
+            .colored_rounded(
+                theme.backdrop,
+                Radius::default().bottom(radius.bottom_right),
+            )
+            .padding(structure.small_gap)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+    ]
+    .boxed()
 }
 
 fn build_status_overlay(status: Option<&VideoStatus>, alpha: f32) -> Element<'static, Local> {

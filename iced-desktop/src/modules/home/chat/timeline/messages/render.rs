@@ -733,18 +733,6 @@ impl MessageContent {
                     )
                 }
 
-                let open_media = if let Some(event_id) = event_id {
-                    TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
-                        media: OverlayMediaType::Video(Arc::new(video.clone())),
-                        source: video.source.clone(),
-                        sender: sender.clone(),
-                        event_id: event_id.clone(),
-                        timestamp,
-                    })
-                } else {
-                    TimelineItemMessage::None
-                };
-
                 (
                     render_body(&video.formatted_caption),
                     Some(
@@ -752,7 +740,6 @@ impl MessageContent {
                             .on_enter(TimelineItemMessage::MediaMouseEnter)
                             .on_exit(TimelineItemMessage::MediaMouseLeave)
                             .interaction(Interaction::Pointer)
-                            .on_press(open_media)
                             .boxed(),
                     ),
                 )
