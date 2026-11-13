@@ -416,15 +416,16 @@ fn video_element<'a, Message: Clone + 'a>(
             .content_fit(iced::ContentFit::Cover)
             .radius(radius),
     )
-        .width(Fill)
-        .height(Fill)
-        .clip(true)
-        .style(move |_| {
-            w::container::Style::default()
-                .border(border::rounded(radius))
-                .background(Color::WHITE.scale_alpha(opacity))
-        })
-        .boxed()
+    .width(Fill)
+    .height(Fill)
+    .center(Fill)
+    .clip(true)
+    .style(move |_| {
+        w::container::Style::default()
+            .border(border::rounded(radius))
+            .background(Color::BLACK.scale_alpha(opacity))
+    })
+    .boxed()
 }
 
 impl<'a, Message> VideoControls<'a, Message>
@@ -448,8 +449,8 @@ where
         self
     }
 
-    pub fn fullscreen(mut self) -> Self {
-        self.is_fullscreen = true;
+    pub fn fullscreen(mut self, is_fullscreen: bool) -> Self {
+        self.is_fullscreen = is_fullscreen;
         self
     }
 

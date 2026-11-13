@@ -10,6 +10,7 @@ use iced::{
 };
 use macros::iced_cache;
 use matrix_sdk::ruma::events::room::MediaSource;
+use matrix_sdk_ui::timeline::TimelineEventItemId;
 use media::{MediaOverlay, MediaOverlayAction, MediaOverlayMessage};
 use modify_item::{ModifyItemAction, ModifyItemMessage};
 use profile::{OverlayProfile, ProfileAction, ProfileMessage};
@@ -34,8 +35,8 @@ pub struct MediaOverlayParams {
     pub media: OverlayMediaType,
     pub source: MediaSource,
     pub sender: Member,
-    pub event_id: OwnedEventId,
     pub timestamp: SystemTime,
+    pub identifier: TimelineEventItemId,
 }
 
 #[iced_cache(Clone)]
@@ -105,8 +106,10 @@ impl Overlay {
     }
 
     pub fn close(&mut self) -> Option<OverlayAction> {
+        let was_video =
+            matches!(&self.overlay_state, Some(OverlayState::Media(media)) if media.is_video());
         self.overlay_state = None;
-        None
+        was_video.then_some(OverlayAction::ExitFullscreen)
     }
 
     pub fn toggle_quick_select(&mut self) -> Option<Task<()>> {
@@ -152,7 +155,7 @@ impl Overlay {
             params.media,
             params.sender,
             params.timestamp,
-            params.event_id,
+            params.identifier,
         )));
     }
 }
@@ -172,6 +175,9 @@ pub enum OverlayAction {
         room_id: OwnedRoomId,
     },
     HelpHover(Option<HelpKey>),
+    /// A video media overlay just closed, so the window should drop out of
+    /// fullscreen again.
+    ExitFullscreen,
 }
 
 impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
@@ -301,6 +307,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                         MediaOverlayAction::HelpHover(help_key) => {
                             Some(OverlayAction::HelpHover(help_key))
                         }
+                        MediaOverlayAction::ExitFullscreenVideo => self.close(),
                     }
                 } else {
                     None

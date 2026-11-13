@@ -9,6 +9,7 @@ use deplace_core::{
 use iced::{
     Alignment, Background,
     Length::{self, Shrink},
+    border::Radius,
     gradient::Linear,
     never,
     widget::{
@@ -25,7 +26,7 @@ use matrix_sdk::ruma::{
     },
     room::JoinRule,
 };
-use matrix_sdk_ui::timeline::{MembershipChange, TimelineDetails};
+use matrix_sdk_ui::timeline::{MembershipChange, TimelineDetails, TimelineEventItemId};
 use phosphor_svgs::icon as icons;
 
 use crate::{
@@ -112,6 +113,7 @@ impl MessageEvent {
             &self.sender,
             &room_id,
             &self.event_id,
+            self.identifier.clone(),
             self.timestamp,
             self.is_edited,
         );
@@ -472,6 +474,7 @@ impl MessageContent {
         sender: &Member,
         room_id: &OwnedRoomId,
         event_id: &Option<OwnedEventId>,
+        identifier: TimelineEventItemId,
         timestamp: SystemTime,
         is_edited: bool,
     ) -> (
@@ -618,17 +621,13 @@ impl MessageContent {
                     )
                 }
 
-                let open_media = if let Some(event_id) = event_id {
-                    TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
-                        media: OverlayMediaType::Image(Arc::new(image.clone())),
-                        source: image.source.clone(),
-                        sender: sender.clone(),
-                        event_id: event_id.clone(),
-                        timestamp,
-                    })
-                } else {
-                    TimelineItemMessage::None
-                };
+                let open_media = TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
+                    media: OverlayMediaType::Image(Arc::new(image.clone())),
+                    source: image.source.clone(),
+                    sender: sender.clone(),
+                    identifier: identifier.clone(),
+                    timestamp,
+                });
 
                 (
                     render_body(&image.formatted_caption),
@@ -700,8 +699,19 @@ impl MessageContent {
                 (render_body(formatted_body), None)
             }
             MessageContent::Video { video, is_hovered } => {
+                let sender = sender.clone();
                 let mut stack = w::stack![w::lazy(video.clone(), move |video| {
-                    video.video_view(theme, structure)
+                    video.video_view(
+                        theme,
+                        structure,
+                        TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
+                            media: OverlayMediaType::Video(Arc::new(video.clone())),
+                            source: video.source.clone(),
+                            sender: sender.clone(),
+                            timestamp,
+                            identifier: identifier.clone(),
+                        }),
+                    )
                 })];
 
                 if *is_hovered {
@@ -864,49 +874,51 @@ impl ImageMessage {
 }
 
 impl VideoMessage {
+    pub fn fallback<'a, T: 'a>(&self, theme: Theme) -> Box<dyn Fn(Radius, f32) -> Element<'a, T>> {
+        let thumbnail = self.thumbnail.clone();
+        let blur_preview = self.blur_preview.clone();
+        let width = self.width;
+        let height = self.height;
+
+        Box::new(move |radius, opacity| {
+            render_thumbnail(thumbnail.clone(), false)
+                .width(width)
+                .height(height)
+                .radius(radius)
+                .opacity(opacity)
+                .fallback(if let Some(handle) = blur_preview.clone() {
+                    Box::new(move |radius, opacity| {
+                        w::image(handle.clone())
+                            .width(Fill)
+                            .height(Fill)
+                            .border_radius(radius)
+                            .opacity(opacity)
+                            .content_fit(iced::ContentFit::Fill)
+                            .boxed()
+                    })
+                } else {
+                    Box::new(move |radius, opacity| {
+                        w::container(EMPTY_WIDGET)
+                            .width(Fill)
+                            .height(Fill)
+                            .colored_rounded(theme.colors.offline.scale_alpha(opacity), radius)
+                            .boxed()
+                    })
+                })
+                .boxed()
+        })
+    }
+
     fn video_view(
         &self,
         theme: Theme,
         structure: Structure,
+        on_fullscreen_toggle: TimelineItemMessage,
     ) -> Element<'static, TimelineItemMessage> {
-        let width = self.width;
-        let height = self.height;
-        let thumbnail = self.thumbnail.clone();
-        let blur_preview = self.blur_preview.clone();
-
         w::container(
             video_controls(
                 self.video.clone(),
-                move |radius, opacity| {
-                    render_thumbnail(thumbnail.clone(), false)
-                        .width(width)
-                        .height(height)
-                        .radius(radius)
-                        .opacity(opacity)
-                        .fallback(if let Some(handle) = blur_preview.clone() {
-                            Box::new(move |radius, opacity| {
-                                w::image(handle.clone())
-                                    .width(Fill)
-                                    .height(Fill)
-                                    .border_radius(radius)
-                                    .opacity(opacity)
-                                    .content_fit(iced::ContentFit::Fill)
-                                    .boxed()
-                            })
-                        } else {
-                            Box::new(move |radius, opacity| {
-                                w::container(EMPTY_WIDGET)
-                                    .width(Fill)
-                                    .height(Fill)
-                                    .colored_rounded(
-                                        theme.colors.offline.scale_alpha(opacity),
-                                        radius,
-                                    )
-                                    .boxed()
-                            })
-                        })
-                        .boxed()
-                },
+                self.fallback(theme),
                 self.media_processor.clone(),
                 self.parameters_key.clone(),
                 self.info.as_ref().and_then(|i| i.size),
@@ -914,6 +926,7 @@ impl VideoMessage {
             .encrypted(self.is_encrypted)
             .loaded(self.is_loaded)
             .radius(structure.inner_border_radius)
+            .on_fullscreen_toggle(on_fullscreen_toggle)
             .boxed(),
         )
         .width(self.width)

@@ -20,7 +20,7 @@ use sidebar::{Sidebar, SidebarAction, SidebarMessage};
 
 pub mod overlay;
 
-use overlay::{Overlay, OverlayAction, OverlayMessage};
+use overlay::{Overlay, OverlayAction, OverlayMediaType, OverlayMessage};
 use phosphor_svgs::icon as icons;
 
 mod chat;
@@ -98,6 +98,9 @@ pub enum HomeAction {
         direction: PaginationDirection,
         task: Task<bool>,
     },
+    /// Requests that the OS window enter or exit fullscreen, driven by a
+    /// video media overlay opening or closing.
+    SetFullscreen(bool),
 }
 
 #[iced_cache(Clone)]
@@ -421,8 +424,9 @@ impl Home {
                 }
                 ChatAction::OpenMediaOverlay(params) => {
                     chat.clear_hover();
+                    let is_video = matches!(params.media, OverlayMediaType::Video(_));
                     self.overlay.open_media_overlay(params);
-                    None
+                    is_video.then_some(HomeAction::SetFullscreen(true))
                 }
             }
         } else {
@@ -440,6 +444,7 @@ impl Home {
                 Some(HomeAction::Perform(task.map(HomeMessage::Overlay)))
             }
             OverlayAction::Run(task) => Some(HomeAction::Run(task)),
+            OverlayAction::ExitFullscreen => Some(HomeAction::SetFullscreen(false)),
             OverlayAction::ChangeRoom(room) => self.set_active_room_task(room),
             OverlayAction::SetIsReplyingTo {
                 item_id,

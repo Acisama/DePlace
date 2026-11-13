@@ -1014,7 +1014,7 @@ pub struct VideoMessage {
     blur_preview: Option<ImageHandle>,
     thumbnail: DePlaceThumbnailShared,
 
-    video: DePlaceVideoShared,
+    pub video: DePlaceVideoShared,
 
     width: f32,
     height: f32,
@@ -1022,14 +1022,14 @@ pub struct VideoMessage {
     is_encrypted: bool,
     is_loaded: bool,
 
-    media_processor: MediaProcessor,
-    parameters_key: String,
+    pub media_processor: MediaProcessor,
+    pub parameters_key: String,
 
     #[hash]
     filename: String,
     source: MediaSource,
     #[hash]
-    info: Option<VisualInfo>,
+    pub info: Option<VisualInfo>,
 
     data_size_unit: Receiver<DataSizeUnit>,
 }

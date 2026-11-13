@@ -2,28 +2,29 @@ use std::time::SystemTime;
 
 use crate::{
     common::*,
-    components::{render_media::render_image, render_media_label},
-    modules::home::chat::ImageMessage,
+    components::{render_media::render_image, render_media_label, video_controls},
+    modules::home::chat::{ImageMessage, VideoMessage},
 };
 use chrono_tz::Tz;
 use deplace_core::{
-    cache::video::DePlaceVideoShared,
     formatting::format_message_long_date,
     settings::{DateFormat, HourFormat},
 };
 use iced::{Alignment, Length};
 use macros::iced_cache;
+use matrix_sdk_ui::timeline::TimelineEventItemId;
 
 #[derive(Debug, Clone, Hash)]
 pub enum OverlayMediaType {
     Image(Arc<ImageMessage>),
-    Video(DePlaceVideoShared),
+    Video(Arc<VideoMessage>),
 }
 
 #[derive(Debug, Clone)]
 pub enum MediaOverlayMessage {
     Close,
     HelpHover(Option<HelpKey>),
+    ExitFullscreenVideo,
 }
 
 impl HelpOverMessage for MediaOverlayMessage {
@@ -35,6 +36,7 @@ impl HelpOverMessage for MediaOverlayMessage {
 pub enum MediaOverlayAction {
     Close,
     HelpHover(Option<HelpKey>),
+    ExitFullscreenVideo,
 }
 
 #[iced_cache(Debug, Clone)]
@@ -45,12 +47,17 @@ pub struct MediaOverlay {
     sender: Member,
     timestamp: SystemTime,
 
-    #[hash]
-    event_id: OwnedEventId,
+    identifier: TimelineEventItemId,
 
     timezone: Receiver<Tz>,
     hour_format: Receiver<HourFormat>,
     date_format: Receiver<DateFormat>,
+}
+
+impl PartialEq for MediaOverlay {
+    fn eq(&self, other: &Self) -> bool {
+        self.identifier == other.identifier
+    }
 }
 
 impl ExtraHash for MediaOverlay {
@@ -61,37 +68,40 @@ impl ExtraHash for MediaOverlay {
     }
 }
 
-impl PartialEq for MediaOverlay {
-    fn eq(&self, other: &Self) -> bool {
-        self.event_id == other.event_id
-    }
-}
-
 impl MediaOverlay {
     pub fn new(
         state: &AppState,
         media: OverlayMediaType,
         sender: Member,
         timestamp: SystemTime,
-        event_id: OwnedEventId,
+        identifier: TimelineEventItemId,
     ) -> Self {
         Self {
             media,
 
             sender,
             timestamp,
-            event_id,
+            identifier,
 
             timezone: state.settings().timezone.watch(),
             hour_format: state.settings().hour_format.watch(),
             date_format: state.settings().date_format.watch(),
         }
     }
+
+    /// Whether the overlaid media is a video, so callers know to drive the
+    /// window's fullscreen state alongside opening/closing this overlay.
+    pub fn is_video(&self) -> bool {
+        matches!(self.media, OverlayMediaType::Video(_))
+    }
 }
 
 impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
     fn update(&mut self, message: MediaOverlayMessage) -> Option<MediaOverlayAction> {
         match message {
+            MediaOverlayMessage::ExitFullscreenVideo => {
+                Some(MediaOverlayAction::ExitFullscreenVideo)
+            }
             MediaOverlayMessage::HelpHover(help_key) => {
                 Some(MediaOverlayAction::HelpHover(help_key))
             }
@@ -99,17 +109,31 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
         }
     }
 
-    fn view(&self) -> iced::Element<'static, MediaOverlayMessage> {
+    fn view(&self) -> Element<'static, MediaOverlayMessage> {
         let theme = theme();
         let structure = structure();
 
         let header = structure.header;
 
-        let OverlayMediaType::Image(image) = &self.media else {
-            return w::space().boxed();
+        let image = match &self.media {
+            OverlayMediaType::Image(image) => image,
+            OverlayMediaType::Video(video) => {
+                return w::container(
+                    video_controls(
+                        video.video.clone(),
+                        video.fallback(theme),
+                        video.media_processor.clone(),
+                        video.parameters_key.clone(),
+                        video.info.as_ref().and_then(|i| i.size),
+                    )
+                    .fullscreen(true)
+                    .on_fullscreen_toggle(MediaOverlayMessage::ExitFullscreenVideo),
+                )
+                .width(Fill)
+                .height(Fill)
+                .boxed();
+            }
         };
-
-        // let help_view = HelpView::new(theme);
 
         w::column![
             floating_tile(

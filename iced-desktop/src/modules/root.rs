@@ -212,6 +212,16 @@ impl Root {
                             finished,
                         }))
                     })),
+                    HomeAction::SetFullscreen(fullscreen) => self.id.map(|id| {
+                        window::set_mode(
+                            id,
+                            if fullscreen {
+                                window::Mode::Fullscreen
+                            } else {
+                                window::Mode::Windowed
+                            },
+                        )
+                    }),
                 }
             }
             AppMessage::Discovery(msg) if let Screen::Discovery(discovery) = &mut self.screen => {
@@ -304,6 +314,16 @@ impl Root {
                                 finished,
                             }))
                         })),
+                        HomeAction::SetFullscreen(fullscreen) => self.id.map(|id| {
+                            window::set_mode(
+                                id,
+                                if fullscreen {
+                                    window::Mode::Fullscreen
+                                } else {
+                                    window::Mode::Windowed
+                                },
+                            )
+                        }),
                     }
                 } else {
                     None
