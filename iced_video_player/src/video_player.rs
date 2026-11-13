@@ -23,6 +23,7 @@ where
     content_fit: iced::ContentFit,
     width: iced::Length,
     height: iced::Length,
+    radius: iced::border::Radius,
     on_end_of_stream: Option<Message>,
     on_new_frame: Option<Message>,
     on_subtitle_text: Option<Box<dyn Fn(Option<String>) -> Message + 'a>>,
@@ -41,6 +42,7 @@ where
             content_fit: iced::ContentFit::default(),
             width: iced::Length::Shrink,
             height: iced::Length::Shrink,
+            radius: iced::border::Radius::default(),
             on_end_of_stream: None,
             on_new_frame: None,
             on_subtitle_text: None,
@@ -69,6 +71,14 @@ where
     pub fn content_fit(self, content_fit: iced::ContentFit) -> Self {
         VideoPlayer {
             content_fit,
+            ..self
+        }
+    }
+
+    /// Sets the corner radius used to clip the rendered video.
+    pub fn radius(self, radius: impl Into<iced::border::Radius>) -> Self {
+        VideoPlayer {
+            radius: radius.into(),
             ..self
         }
     }
@@ -161,7 +171,7 @@ where
         _style: &advanced::renderer::Style,
         layout: advanced::Layout,
         _cursor: advanced::mouse::Cursor,
-        _viewport: &iced::Rectangle,
+        viewport: &iced::Rectangle,
     ) {
         let mut inner = self.video.write();
 
@@ -208,15 +218,25 @@ where
                     Arc::clone(&inner.frame),
                     (inner.width as _, inner.height as _),
                     upload_frame,
+                    [
+                        self.radius.top_left,
+                        self.radius.top_right,
+                        self.radius.bottom_right,
+                        self.radius.bottom_left,
+                    ],
                 ),
             );
         };
 
-        if adjusted_fit.width > bounds.width || adjusted_fit.height > bounds.height {
-            renderer.with_layer(bounds, render);
-        } else {
-            render(renderer);
-        }
+        // The shader primitive bypasses the renderer's clip reduction, so
+        // without drawing it in a layer clipped to the widget bounds
+        // intersected with the enclosing viewport, a video in a scrollable
+        //  might draw over unrelated widgets, like the input bar or the
+        // header
+        let Some(clip) = bounds.intersection(viewport) else {
+            return;
+        };
+        renderer.with_layer(clip, render);
     }
 
     fn update(

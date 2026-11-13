@@ -13,8 +13,15 @@ use std::{
 #[repr(C)]
 struct Uniforms {
     rect: [f32; 4],
+    /// Corner radiusies (top left, top right, bottom right, bottom left) of the
+    /// drawn quad, in physical pixels
+    radius: [f32; 4],
+    /// Size of the drawn quad (width, height, paddings), in pixels,
+    /// the shader works out each fragment's pixel position from this and
+    /// its uv for the rounded corners.
+    size: [f32; 4],
     // because wgpu min_uniform_buffer_offset_alignment
-    _pad: [u8; 240],
+    _pad: [u8; 208],
 }
 
 /// Slots in each video's uniform ring buffer. Preparing wraps around this
@@ -77,7 +84,9 @@ impl Pipeline for VideoPipeline {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    // Fragment too, since the fragment shader reads the corner
+                    // radii and size for the rounded-corner clip.
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: true,
@@ -115,7 +124,11 @@ impl Pipeline for VideoPipeline {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: None,
+                    // Alpha blending so the shader's rounded corners can fade
+                    // out to transparency instead of clipping abruptly.
+                    // Let's see if this makes a meaningful difference,
+                    // otherwise i can remove it again
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
@@ -333,7 +346,14 @@ impl VideoPipeline {
         );
     }
 
-    fn prepare(&mut self, queue: &wgpu::Queue, video_id: u64, bounds: &iced::Rectangle) {
+    fn prepare(
+        &mut self,
+        queue: &wgpu::Queue,
+        video_id: u64,
+        bounds: &iced::Rectangle,
+        radius: &[f32; 4],
+        size: [f32; 2],
+    ) {
         if let Some(video) = self.videos.get_mut(&video_id) {
             let uniforms = Uniforms {
                 rect: [
@@ -342,7 +362,9 @@ impl VideoPipeline {
                     bounds.x + bounds.width,
                     bounds.y + bounds.height,
                 ],
-                _pad: [0; 240],
+                radius: *radius,
+                size: [size[0], size[1], 0.0, 0.0],
+                _pad: [0; 208],
             };
 
             // `prepare_index` counts prepares monotonically and the write
@@ -419,6 +441,7 @@ pub(crate) struct VideoPrimitive {
     frame: Arc<Mutex<Frame>>,
     size: (u32, u32),
     upload_frame: bool,
+    radius: [f32; 4],
 }
 
 impl VideoPrimitive {
@@ -428,6 +451,7 @@ impl VideoPrimitive {
         frame: Arc<Mutex<Frame>>,
         size: (u32, u32),
         upload_frame: bool,
+        radius: [f32; 4],
     ) -> Self {
         VideoPrimitive {
             video_id,
@@ -435,6 +459,7 @@ impl VideoPrimitive {
             frame,
             size,
             upload_frame,
+            radius,
         }
     }
 }
@@ -478,6 +503,11 @@ impl Primitive for VideoPrimitive {
                     viewport.logical_size().width as _,
                     viewport.logical_size().height as _,
                 )),
+            &self.radius,
+            // In pixels, unlike the rectangle above, the shader
+            // works out the rounded corner distances from the quad's pixel
+            // size.
+            [bounds.width, bounds.height],
         );
     }
 
@@ -489,5 +519,178 @@ impl Primitive for VideoPrimitive {
         clip_bounds: &iced::Rectangle<u32>,
     ) {
         pipeline.draw(target, encoder, clip_bounds, self.video_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::Transformation;
+
+    /// Renders the shader offscreen with a synthetic frame and reads the
+    /// pixels back, so the rounded-corner clip and output color can be
+    /// verified without a window or a real video.
+    #[test]
+    fn shader_renders_frame_with_rounded_corners() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                .expect("request adapter");
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .expect("request device");
+
+        let mut pipeline = VideoPipeline::new(&device, &queue, wgpu::TextureFormat::Rgba8Unorm);
+
+        // 64x64 synthetic frame: bright neutral luma and neutral chroma.
+        let (width, height) = (64u32, 64u32);
+        let mut frame = vec![200u8; (width * height) as usize];
+        frame.extend(vec![128u8; ((width / 2) * (height / 2) * 2) as usize]);
+        pipeline.upload(
+            &device,
+            &queue,
+            1,
+            &Arc::new(AtomicBool::new(true)),
+            (width, height),
+            &frame,
+            None,
+        );
+
+        // Same mapping VideoPrimitive::prepare applies to the widget bounds:
+        // NDC rectangle plus the logical pixel size for the corner clip.
+        let bounds = iced::Rectangle::new(iced::Point::ORIGIN, iced::Size::new(64.0, 64.0));
+        let ndc = bounds * Transformation::orthographic(64u32, 64u32);
+        pipeline.prepare(&queue, 1, &ndc, &[16.0; 4], [64.0, 64.0]);
+
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("iced_video_player test target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("iced_video_player test readback"),
+            // bytes_per_row must be a multiple of 256: 64 * 4 == 256.
+            size: (height * 256) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("iced_video_player test encoder"),
+        });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("iced_video_player test pass"),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target.create_view(&wgpu::TextureViewDescriptor::default()),
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        // Red so untouched pixels are easy to tell apart
+                        // from anything the shader produces.
+                        load: wgpu::LoadOp::Clear(wgpu::Color::RED),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+            });
+            pass.set_pipeline(&pipeline.pipeline);
+            pass.set_bind_group(0, &pipeline.videos[&1].bg0, &[0]);
+            pass.set_scissor_rect(0, 0, width, height);
+            pass.draw(0..6, 0..1);
+        }
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(256),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let _ = queue.submit([encoder.finish()]);
+        instance.poll_all(true);
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        readback.map_async(wgpu::MapMode::Read, .., move |result| {
+            sender.send(result).expect("send map result");
+        });
+        instance.poll_all(true);
+        receiver.recv().expect("map result").expect("map");
+
+        let mapped = readback.get_mapped_range(..).expect("get mapped range");
+        let pixel = |x: u32, y: u32| -> [u8; 4] {
+            let offset = (y * 256 + x * 4) as usize;
+            [
+                mapped[offset],
+                mapped[offset + 1],
+                mapped[offset + 2],
+                mapped[offset + 3],
+            ]
+        };
+        for (x, y) in [
+            (0, 0),
+            (2, 2),
+            (12, 12),
+            (16, 16),
+            (32, 32),
+            (60, 60),
+            (63, 63),
+        ] {
+            println!("pixel ({x},{y}) = {:?}", pixel(x, y));
+        }
+        // Center pixel: fully opaque video, and the raw texture color is
+
+        // Center pixel: fully opaque video, and the raw texture color is
+        // around 200/255 luma neutral gray, so all channels should be close.
+        let center = pixel(32, 32);
+        assert_eq!(center[3], 255, "center must be opaque, got {center:?}");
+        for channel in center {
+            assert!(
+                (150..=255).contains(&channel),
+                "center should be a neutral gray from the synthetic frame, got {center:?}"
+            );
+        }
+
+        // Corner pixel (2, 2) is outside the radius-16 rounded corner and
+        // must show the untouched clear color instead of the video.
+        let corner = pixel(2, 2);
+        assert_eq!(
+            corner,
+            [255, 0, 0, 255],
+            "corner must be clipped, got {corner:?}"
+        );
+
+        // Inside the corner circle radius near the corner the video shows.
+        let inset = pixel(12, 12);
+        assert_eq!(
+            inset[3], 255,
+            "inset near corner must be opaque, got {inset:?}"
+        );
     }
 }

@@ -6,28 +6,33 @@
 //!     then use it like any other Iced widget in your `view` function by creating a [`VideoPlayer`].
 //!
 //! Example:
-//! ```rust
+//! ```no_run
 //! use iced_video_player::{Video, VideoPlayer};
+//! use std::sync::Arc;
 //!
 //! fn main() -> iced::Result {
-//!     iced::run("Video Player", (), App::view)
+//!     iced::run(App::update, App::view)
 //! }
 //!
 //! struct App {
-//!     video: Video,
+//!     video: Arc<Video>,
 //! }
 //!
 //! impl Default for App {
 //!     fn default() -> Self {
 //!         App {
-//!             video: Video::new(&url::Url::parse("file:///C:/my_video.mp4").unwrap()).unwrap(),
+//!             video: Arc::new(
+//!                 Video::new(&url::Url::parse("file:///my_video.mp4").unwrap()).unwrap(),
+//!             ),
 //!         }
 //!     }
 //! }
 //!
 //! impl App {
+//!     fn update(&mut self, _message: ()) {}
+//!
 //!     fn view(&self) -> iced::Element<()> {
-//!         VideoPlayer::new(&self.video).into()
+//!         VideoPlayer::new(Arc::clone(&self.video)).into()
 //!     }
 //! }
 //! ```

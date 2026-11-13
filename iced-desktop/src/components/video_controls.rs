@@ -411,7 +411,11 @@ fn video_element<'a, Message: Clone + 'a>(
     radius: Radius,
     opacity: f32,
 ) -> Element<'a, Message> {
-    w::container(VideoPlayer::new(video).content_fit(iced::ContentFit::Cover))
+    w::container(
+        VideoPlayer::new(video)
+            .content_fit(iced::ContentFit::Cover)
+            .radius(radius),
+    )
         .width(Fill)
         .height(Fill)
         .clip(true)
