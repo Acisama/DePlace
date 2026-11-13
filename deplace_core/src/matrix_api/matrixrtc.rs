@@ -4,6 +4,7 @@
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose;
+use base64::engine::{DecodePaddingMode, GeneralPurposeConfig};
 use futures::StreamExt;
 use livekit::e2ee::EncryptionType;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
@@ -14,7 +15,7 @@ use matrix_sdk::deserialized_responses::{ProcessedToDeviceEvent, SyncOrStrippedS
 use matrix_sdk::event_handler::Ctx;
 use matrix_sdk::ruma::api::client::rtc::{LiveKitRtcTransport, RtcTransport};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 // use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -60,20 +61,29 @@ use tokio::sync::{Mutex, RwLock, watch};
 // use crate::{LogResultExt, TauriError};
 // use shared::api::call::{self, CallEvent};
 
-type PendingUpdates = HashMap<String, Vec<(String, EncryptionKeysEventContent)>>;
+/// Keys parked under the empty room id arrived in a dialect without room
+/// context and are applied to whichever call joins next.
+type PendingUpdates = HashMap<String, Vec<(String, ReceivedEncryptionKeys)>>;
 
 static PENDING_KEY_UPDATES: LazyLock<Mutex<PendingUpdates>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-// Perceptual loudness mapping: speech RMS almost never reaches full scale,
-// so we map dBFS between a noise floor and a realistic "loud speech" ceiling
-// instead of a linear amplitude range.
+/// Who was in each room's call when we last looked, so arrivals and
+/// departures can be told from sticky membership refreshes.
+static LAST_SEEN_CALL_ROSTERS: LazyLock<Mutex<HashMap<String, HashSet<(String, String, ruma::UInt)>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// How long our call key remains fresh enough to hand to an arrival
+/// without rotating; older keys are rotated instead.
+const KEY_STAYS_FRESH_FOR: Duration = Duration::from_secs(60);
+
+// Perceptual loudness mapping: speech RMS never reaches full scale, so we
+// map dBFS between a noise floor and a realistic "loud speech" ceiling.
 const VOLUME_FLOOR_DB: f64 = -50.0;
 const VOLUME_CEILING_DB: f64 = -12.0;
 
-/// Maps a linear RMS amplitude (`0.0..=1.0` scale) to perceptual loudness,
-/// normalized to `0.0..=1.0`, by converting to dBFS and scaling between
-/// [`VOLUME_FLOOR_DB`] and [`VOLUME_CEILING_DB`].
+/// Maps a linear RMS amplitude to perceptual loudness (`0.0..=1.0`),
+/// scaling dBFS between [`VOLUME_FLOOR_DB`] and [`VOLUME_CEILING_DB`].
 fn rms_to_volume(rms: f64) -> f32 {
     let db = 20.0 * rms.max(1e-5).log10();
     ((db - VOLUME_FLOOR_DB) / (VOLUME_CEILING_DB - VOLUME_FLOOR_DB)).clamp(0.0, 1.0) as f32
@@ -102,12 +112,8 @@ fn frame_volume(frame: &AudioFrame) -> f32 {
 const VOLUME_RELEASE: f32 = 0.85;
 const VOLUME_SILENCE_DECAY: f32 = 0.7;
 
-/// Forwards everything one remote call track says to the speakers. The
-/// task stops when the call is left or the track
-/// goes away, whichever happens first.
-///
-/// While pumping, it measures how loud the participant is from the audio
-/// actually received and reports that to the call
+/// Forwards everything one remote call track says to the speakers until the
+/// call is left or the track goes away, reporting the measured loudness.
 fn spawn_remote_audio_pump(
     track: RemoteAudioTrack,
     call: Arc<LivekitCall>,
@@ -184,10 +190,8 @@ fn spawn_remote_audio_pump(
 
 use livekit::Room as LiveKitRoom;
 
-/// Forwards everything the microphone hears into a LiveKit audio source until cancelled.
-///
-/// While pumping, it also reports how loud our own microphone is (gated
-/// to zero while muted) to the call
+/// Forwards everything the microphone hears into a LiveKit audio source
+/// until cancelled, reporting how loud we are (zero while muted).
 fn spawn_microphone_pump(
     microphone: Microphone,
     source: NativeAudioSource,
@@ -261,6 +265,12 @@ pub struct LiveKitRoomData {
     pub cancellation_token: CancellationToken,
     pub key_index: i32,
     pub call_id: Uuid,
+    /// Our current key and when it was minted; fresh arrivals get it
+    /// re-sent instead of a rotation, like Element X does.
+    pub current_key: Option<(String, std::time::Instant)>,
+    /// The newest key index we received per participant identity, so
+    /// freshly subscribed cryptors can be pointed at the right key.
+    pub latest_remote_key_indices: HashMap<String, i32>,
 }
 
 impl LiveKitRoomData {
@@ -270,24 +280,14 @@ impl LiveKitRoomData {
     }
 }
 
-/// Strips trailing slashes off a focus service url since every client joins
-/// through the focus as `focus_url + "/sfu/get"`, so a
-/// trailing slash in the foci we advertise turns into a double slash in
-/// theirs. This is horrible and kills other people
+/// Strips trailing slashes off a focus url: everyone joins through
+/// `focus_url + "/sfu/get"`, and a trailing slash doubles into a broken one.
 fn normalize_focus_url(url: &str) -> String {
     url.trim_end_matches('/').to_owned()
 }
 
-/// The LiveKit focus url the ongoing call in this room agreed on: the
-/// `foci_preferred` of its oldest active membership, which every
-/// `oldest_membership` client follows when joining. `None` when no call
-/// is ongoing or its memberships carry no LiveKit focus.
-///
-/// The focus decides which SFU is used for our jwt, and the SFU derives the
-/// LiveKit room from it. Joining through any other focus  lands us in a
-/// room of our own: silent to the whole call both ways, with everyone
-/// showing everyone else as waiting for media. The same foci we write
-/// into our own membership carry it on to whoever joins after us.
+/// The LiveKit focus url the ongoing call agreed on: the `foci_preferred`
+/// of its oldest active membership; any other focus lands us in our own room.
 async fn ongoing_call_focus(room: &Room) -> Option<String> {
     let events = room
         .get_state_events_static::<CallMemberEventContent>()
@@ -326,11 +326,8 @@ async fn ongoing_call_focus(room: &Room) -> Option<String> {
     oldest.map(|(_, url)| url)
 }
 
-/// Logs the LiveKit identity and room the SFU assigned us in its jwt.
-///
-/// Call problems between clients almost always come down to one side
-/// ending up under a different identity or room than the others expect,
-/// and this line is the first thing to compare between them.
+/// Logs the LiveKit identity and room the SFU assigned us: call problems
+/// almost always come down to a mismatch here between two clients.
 fn log_sfu_assignment(sfu_jwt: &str) {
     if let Some(claims) = sfu_jwt
         .split('.')
@@ -560,12 +557,8 @@ async fn join_call_in_steps(
     Ok(call)
 }
 
-/// Completes a joined call: rings the room, connects to the SFU, publishes
-/// the microphone and spawns the event loop driving the call handle.
-///
-/// Runs after our MatrixRTC membership is already flagged in the room,
-/// the caller is responsible for taking that membership back when joining
-/// fails from here on.
+/// Completes a joined call: rings, connects to the SFU, publishes the
+/// microphone and spawns the event loop; the membership must be taken back on failure.
 #[allow(clippy::too_many_arguments)]
 async fn finish_joining_call(
     dp_room: &DePlaceRoom,
@@ -639,6 +632,8 @@ async fn finish_joining_call(
     ));
 
     // set and send out encryption key after joining but before publishing a track
+    // remembered so later arrivals can get it re-sent while fresh
+    let mut current_call_key: Option<(String, std::time::Instant)> = None;
     if room.encryption_state().is_encrypted() {
         event!(Level::DEBUG, "Room is encrypted. Generating encryption key");
         let mut raw_key = [0u8; 16];
@@ -646,6 +641,7 @@ async fn finish_joining_call(
             .map_err(|e| anyhow!("Failed to generate cryptographic key: {}", e))?;
 
         let local_call_key = general_purpose::STANDARD.encode(raw_key);
+        current_call_key = Some((local_call_key.clone(), std::time::Instant::now()));
 
         let key_provider = livekit_room
             .e2ee_manager()
@@ -723,6 +719,8 @@ async fn finish_joining_call(
         cancellation_token: cancellationtoken_clone,
         key_index: 0,
         call_id,
+        latest_remote_key_indices: HashMap::new(),
+        current_key: current_call_key,
     };
 
     let mut room_manager_guard = livekit_room_manager.lock().await;
@@ -740,15 +738,15 @@ async fn finish_joining_call(
     );
     let pending_updates = {
         let mut pending_map = PENDING_KEY_UPDATES.lock().await;
-        pending_map
-            .remove(&room_id_str)
-            .or_else(|| pending_map.remove(&room_id_str))
+        let mut drained = pending_map.remove(&room_id_str).unwrap_or_default();
+        // Keys that arrived without room context belong to whichever call
+        // joined last.
+        drained.extend(pending_map.remove("").unwrap_or_default());
+        drained
     };
 
-    if let Some(pending_updates) = pending_updates {
-        for (sender, content) in pending_updates {
-            apply_remote_key(&sender, &content, &livekit_room_manager).await;
-        }
+    for (sender, content) in pending_updates {
+        apply_remote_key(&sender, &content, &livekit_room_manager).await;
     }
 
     // The call is live: hand the frontend its handle
@@ -767,11 +765,10 @@ async fn finish_joining_call(
     let call_loop = call.clone();
     let call_registry_loop = call_registry.clone();
     let room_call_loop = dp_room.call.clone();
+    let room_manager_loop = livekit_room_manager.clone();
     tokio::spawn(async move {
-        // One pump per remote audio track, so tracks can go away again
-        // without their audio playing forever, remembered together
-        // with whose voice it carries, so the measured volume clears
-        // when it goes
+        // One pump per remote audio track, so their audio and measured
+        // volume go away again when the track does
         let mut audio_pumps: HashMap<
             TrackSid,
             (CallParticipantHandle, tokio::task::JoinHandle<()>),
@@ -792,8 +789,7 @@ async fn finish_joining_call(
                     match maybe_ev {
                         Some(ev) => {
                             // Fold every event into the call state so the
-                            // frontend sees speaking, mute, join, leave
-                            // and encryption changes
+                            // frontend sees everything happen live
                             call_loop.handle_room_event(&ev);
 
                             if let RoomEvent::Disconnected { .. } = ev {
@@ -809,6 +805,36 @@ async fn finish_joining_call(
                                 let participant_id =
                                     CallParticipantId::from_identity(&participant.identity());
                                 let handle = call_loop.call_handle(&participant_id);
+
+                                // New cryptors start at key index 0: point them
+                                // at the newest key index we have for them.
+                                {
+                                    let guard = room_manager_loop.lock().await;
+                                    if let Some(call_data) = guard.get(&room_id_str) {
+                                        let livekit_id = participant.identity().to_string();
+                                        if let Some(key_index) = call_data
+                                            .latest_remote_key_indices
+                                            .get(&livekit_id)
+                                        {
+                                            call_data
+                                                .livekit_room
+                                                .e2ee_manager()
+                                                .frame_cryptors()
+                                                .iter()
+                                                .filter(|((id, _), _)| {
+                                                    *id == From::from(livekit_id.clone())
+                                                })
+                                                .for_each(|((id, _), frame_cryptor)| {
+                                                    frame_cryptor.set_key_index(*key_index);
+                                                    event!(
+                                                        Level::DEBUG,
+                                                        "Updated FrameCryptor key index for new track of {id} to {key_index}"
+                                                    );
+                                                });
+                                        }
+                                    }
+                                }
+
                                 let pump = spawn_remote_audio_pump(
                                     audio_track.clone(),
                                     call_loop.clone(),
@@ -867,31 +893,184 @@ async fn finish_joining_call(
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct EncryptionKeysEventContent {
-    pub keys: EncryptionKeysInfo,
-    pub member: CallMemberInfo,
-    pub room_id: String,
-    pub sent_ts: MilliSecondsSinceUnixEpoch,
-    pub session: CallSessionInfo,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct EncryptionKeysInfo {
-    pub index: i32,
-    pub key: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CallMemberInfo {
-    pub claimed_device_id: String,
-    pub id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CallSessionInfo {
     pub application: String,
     pub call_id: String,
     pub scope: String,
+}
+
+/// A call encryption key event as it arrived, in whichever dialect the
+/// sender speaks; see [`parse_encryption_keys_event`].
+#[derive(Debug, Clone)]
+struct ReceivedEncryptionKeys {
+    /// The media keys as they arrived: (index, base64 encoded key) pairs.
+    keys: Vec<(i32, String)>,
+    /// The sender's `member.claimed_device_id`, or the legacy `device_id`.
+    claimed_device_id: Option<String>,
+    /// The room the key belongs to; `None` in dialects without one.
+    room_id: Option<String>,
+}
+
+/// Reads the content of an `io.element.call.encryption_keys` to-device
+/// event in any of the dialects in the wild, or `None` if it matches none.
+fn parse_encryption_keys_event(
+    content: &serde_json::Value,
+) -> Option<ReceivedEncryptionKeys> {
+    /// Reads a single `{ index, key }` pair.
+    fn parse_key(value: &serde_json::Value) -> Option<(i32, String)> {
+        Some((
+            value.get("index")?.as_i64()? as i32,
+            value.get("key")?.as_str()?.to_owned(),
+        ))
+    }
+
+    let keys = match content.get("keys")? {
+        // A single key, the shape DePlace and Element Call send
+        serde_json::Value::Object(_) => vec![parse_key(content.get("keys")?)?],
+        // An array of keys, the shape Element X and older clients send
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(parse_key)
+            .collect::<Vec<(i32, String)>>(),
+        _ => return None,
+    };
+    if keys.is_empty() {
+        return None;
+    }
+
+    let claimed_device_id = content
+        .pointer("/member/claimed_device_id")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| content.get("device_id").and_then(serde_json::Value::as_str))
+        .map(str::to_owned);
+    let room_id = content
+        .get("room_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+
+    Some(ReceivedEncryptionKeys {
+        keys,
+        claimed_device_id,
+        room_id,
+    })
+}
+
+/// Decodes a media key: MSC4143 prescribes unpadded base64, Element's older
+/// dialects send padded, so accept both.
+fn decode_media_key(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    const MEDIA_KEY_BASE64: general_purpose::GeneralPurpose =
+        general_purpose::GeneralPurpose::new(
+            &base64::alphabet::STANDARD,
+            GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+        );
+    MEDIA_KEY_BASE64.decode(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_the_deplace_dialect() {
+        let content = serde_json::json!({
+            "keys": { "index": 4, "key": "cGFkZGVk" },
+            "member": { "claimed_device_id": "ABCDEF", "id": "call" },
+            "room_id": "!room:server",
+            "session": { "application": "m.call", "call_id": "", "scope": "m.room" },
+            "sent_ts": 123
+        });
+
+        let parsed = parse_encryption_keys_event(&content).expect("parses");
+        assert_eq!(
+            parsed.claimed_device_id.as_deref(),
+            Some("ABCDEF"),
+            "the member's device id is used"
+        );
+        assert_eq!(parsed.room_id.as_deref(), Some("!room:server"));
+        assert_eq!(parsed.keys, vec![(4, "cGFkZGVk".to_owned())]);
+    }
+
+    #[test]
+    fn parses_the_legacy_dialect_with_key_array_and_top_level_device() {
+        let content = serde_json::json!({
+            "keys": [
+                { "index": 0, "key": "dW5wYWRkZWQ" },
+                { "index": 1, "key": "cGFkZGVkMDA=" }
+            ],
+            "device_id": "GHIJKL",
+            "sent_ts": 456
+        });
+
+        let parsed = parse_encryption_keys_event(&content).expect("parses");
+        assert_eq!(
+            parsed.claimed_device_id.as_deref(),
+            Some("GHIJKL"),
+            "falls back to the top level device id"
+        );
+        assert_eq!(parsed.room_id, None, "the legacy dialect has no room");
+        assert_eq!(parsed.keys.len(), 2);
+        assert_eq!(parsed.keys[0], (0, "dW5wYWRkZWQ".to_owned()));
+
+        // Both arrive in the same message, so both encodings must decode:
+        // "dW5wYWRkZWQ" is "unpadded", "cGFkZGVkMDA=" is padded.
+        assert_eq!(
+            decode_media_key("dW5wYWRkZWQ").as_deref(),
+            Ok::<&[u8], &base64::DecodeError>(b"unpadded")
+        );
+        assert_eq!(
+            decode_media_key("cGFkZGVkMDA=").as_deref(),
+            Ok::<&[u8], &base64::DecodeError>(b"padded00")
+        );
+    }
+
+    #[test]
+    fn rejects_events_without_keys() {
+        assert!(parse_encryption_keys_event(&serde_json::json!({})).is_none());
+        assert!(
+            parse_encryption_keys_event(&serde_json::json!({ "keys": [] })).is_none(),
+            "an empty key array carries nothing to apply"
+        );
+        assert!(
+            parse_encryption_keys_event(&serde_json::json!({ "keys": "nonsense" })).is_none()
+        );
+    }
+
+    #[test]
+    fn the_outbound_payload_speaks_every_dialect() {
+        // "a mediation key" in padded base64
+        let key = "YSBtZWRpYXRpb24ga2V5";
+        let payload = build_encryption_keys_payload(
+            "@alice:example.io",
+            "V5cP8FErcB",
+            "!room:example.io",
+            key,
+            0,
+            Uuid::nil(),
+        );
+
+        // Our own reader understands it
+        let parsed = parse_encryption_keys_event(&payload).expect("parses");
+        assert_eq!(
+            parsed.claimed_device_id.as_deref(),
+            Some("V5cP8FErcB"),
+            "readers preferring the claimed device find it"
+        );
+        assert_eq!(parsed.room_id.as_deref(), Some("!room:example.io"));
+        assert_eq!(parsed.keys, vec![(0, key.to_owned())]);
+
+        // Readers binding the key to member.id, like Element X does, get a
+        // real LiveKit identity, not something meaningless like a call id
+        assert_eq!(
+            payload.pointer("/member/id").and_then(serde_json::Value::as_str),
+            Some("@alice:example.io:V5cP8FErcB")
+        );
+
+        // The pre-sticky dialects read the sender's device at the top level
+        assert_eq!(
+            payload.get("device_id").and_then(serde_json::Value::as_str),
+            Some("V5cP8FErcB")
+        );
+    }
 }
 
 impl Default for CallSessionInfo {
@@ -904,23 +1083,42 @@ impl Default for CallSessionInfo {
     }
 }
 
-/// Applies one call encryption key received from another participant to
-/// the LiveKit room: into the key provider and the sender's frame cryptors,
-/// so their audio can be decrypted.
-///
-/// When we are not in that room's call (yet), the key is parked in
-/// [`PENDING_KEY_UPDATES`] until joining drains it.
+/// Applies one received call encryption key to the LiveKit room's key
+/// provider and cryptors; parks it if we are not in that call (yet).
 async fn apply_remote_key(
     sender: &str,
-    content: &EncryptionKeysEventContent,
+    received: &ReceivedEncryptionKeys,
     livekit_room_manager: &LiveKitRoomManager,
 ) {
-    let livekit_id = format!("{}:{}", sender, content.member.claimed_device_id);
+    // Without a device to attribute the key to there is no LiveKit identity
+    // to file it under, so it is useless to us.
+    let Some(claimed_device_id) = received.claimed_device_id.as_deref() else {
+        event!(
+            Level::WARN,
+            "Received a call encryption key from {sender} without a device id, ignoring it"
+        );
+        return;
+    };
+
+    let livekit_id = format!("{}:{}", sender, claimed_device_id);
 
     {
-        let guard = livekit_room_manager.lock().await;
+        let mut guard = livekit_room_manager.lock().await;
 
-        if let Some(call_data) = guard.get(&content.room_id) {
+        // Dialects without room context are applied to every call we are
+        // in: a key under the wrong room is simply never used.
+        let mut applied = false;
+        let applicable_rooms: Vec<String> = match &received.room_id {
+            Some(room_id) => guard.contains_key(room_id).then(|| vec![room_id.clone()]).unwrap_or_default(),
+            None => guard.keys().cloned().collect(),
+        };
+
+        for room_id in applicable_rooms {
+            let Some(call_data) = guard.get_mut(&room_id) else {
+                continue;
+            };
+            applied = true;
+
             let e2ee_manager = call_data.livekit_room.e2ee_manager();
 
             let Some(key_provider) = e2ee_manager.key_provider() else {
@@ -928,52 +1126,94 @@ async fn apply_remote_key(
                     Level::WARN,
                     "No key provider found while applying a call key from {livekit_id}"
                 );
-                return;
+                continue;
             };
 
-            match general_purpose::STANDARD.decode(&content.keys.key) {
-                Ok(decoded_key) => {
-                    let key_index = content.keys.index;
-                    key_provider.set_key(&From::from(livekit_id.clone()), key_index, decoded_key);
-                    event!(
-                        Level::INFO,
-                        "Set updated LiveKit decryption key for {} with index {} in KeyProvider.",
-                        livekit_id,
-                        key_index
-                    );
+            for (key_index, key) in &received.keys {
+                match decode_media_key(key) {
+                    Ok(decoded_key) => {
+                        key_provider.set_key(
+                            &From::from(livekit_id.clone()),
+                            *key_index,
+                            decoded_key,
+                        );
+                        call_data
+                            .latest_remote_key_indices
+                            .insert(livekit_id.clone(), *key_index);
+                        event!(
+                            Level::INFO,
+                            "Set updated LiveKit decryption key for {} with index {} in KeyProvider.",
+                            livekit_id,
+                            key_index
+                        );
 
-                    e2ee_manager
-                        .frame_cryptors()
-                        .iter()
-                        .filter(|((id, _), _)| id == &From::from(livekit_id.clone()))
-                        .for_each(|((id, _), frame_cryptor)| {
-                            frame_cryptor.set_key_index(key_index);
-                            event!(Level::DEBUG, "Updated FrameCryptor key index for {id}");
-                        });
-                }
-                Err(e) => {
-                    event!(
-                        Level::WARN,
-                        "Failed to decode base64 key for participant {livekit_id}: {e}"
-                    );
+                        e2ee_manager
+                            .frame_cryptors()
+                            .iter()
+                            .filter(|((id, _), _)| id == &From::from(livekit_id.clone()))
+                            .for_each(|((id, _), frame_cryptor)| {
+                                frame_cryptor.set_key_index(*key_index);
+                                event!(Level::DEBUG, "Updated FrameCryptor key index for {id}");
+                            });
+                    }
+                    Err(e) => {
+                        event!(
+                            Level::WARN,
+                            "Failed to decode base64 key for participant {livekit_id}: {e}"
+                        );
+                    }
                 }
             }
+        }
 
+        // Every call the key could belong to was handled; when the key
+        // could not be applied anywhere, park it below.
+        if applied {
             return;
         }
     }
 
     event!(
         Level::INFO,
-        "Received a call encryption key from {livekit_id} but there is no call in {} yet; parking it",
-        content.room_id
+        "Received a call encryption key from {livekit_id} but there is no call for it yet; parking it"
     );
     PENDING_KEY_UPDATES
         .lock()
         .await
-        .entry(content.room_id.clone())
+        .entry(received.room_id.clone().unwrap_or_default())
         .or_default()
-        .push((sender.to_string(), content.clone()));
+        .push((sender.to_string(), received.clone()));
+}
+
+/// Builds our call key to-device content in Element Call's dialect, with
+/// `member.id` as the LiveKit id (`user:device`) everyone parseable binds to.
+fn build_encryption_keys_payload(
+    own_user_id: &str,
+    own_device_id: &str,
+    room_id: &str,
+    key: &str,
+    index: i32,
+    call_id: Uuid,
+) -> serde_json::Value {
+    serde_json::json!({
+        "room_id": room_id,
+        "member": {
+            "claimed_device_id": own_device_id,
+            "id": format!("{}:{}", own_user_id, own_device_id),
+        },
+        // The pre-sticky dialects read the device here instead
+        "device_id": own_device_id,
+        "keys": {
+            "index": index,
+            "key": key,
+        },
+        "session": CallSessionInfo {
+            application: "m.call".to_string(),
+            call_id: call_id.to_string(),
+            scope: "m.room".to_string(),
+        },
+        "sent_ts": MilliSecondsSinceUnixEpoch::now().get(),
+    })
 }
 
 /// Sends one of our call encryption keys to every other device in the call
@@ -1035,19 +1275,16 @@ async fn send_encryption_keys(
         return Ok(());
     }
 
-    let payload = EncryptionKeysEventContent {
-        room_id: room.room_id().to_string(),
-        member: CallMemberInfo {
-            claimed_device_id: own_device.device_id.to_string(),
-            id: call_id.to_string(),
-        },
-        keys: EncryptionKeysInfo {
-            index,
-            key: key.to_string(),
-        },
-        session: CallSessionInfo::default(),
-        sent_ts: MilliSecondsSinceUnixEpoch::now(),
-    };
+    // The shape of Element Call's current dialect, which every reader in the
+    // wild parses, see [`build_encryption_keys_payload`].
+    let payload = build_encryption_keys_payload(
+        &own_device.user_id.to_string(),
+        &own_device.device_id.to_string(),
+        &room.room_id().to_string(),
+        key,
+        index,
+        call_id,
+    );
 
     let raw_payload: Raw<AnyToDeviceEventContent> =
         serde_json::from_str(&serde_json::to_string(&payload)?)?;
@@ -1080,10 +1317,8 @@ async fn send_encryption_keys(
     Ok(())
 }
 
-/// Applies the call encryption keys from a sync batch's to-device events.
-///
-/// The keys arrive as per-device encrypted `io.element.call.encryption_keys`
-/// events
+/// Applies the call encryption keys from a sync batch's per-device
+/// encrypted `io.element.call.encryption_keys` to-device events.
 pub async fn handle_to_device_messages(
     events: Vec<ProcessedToDeviceEvent>,
     livekit_room_manager: LiveKitRoomManager,
@@ -1115,12 +1350,20 @@ pub async fn handle_to_device_messages(
             .deserialize_as::<serde_json::Value>()
             .ok()
             .and_then(|value| value.get("content").cloned())
-            .and_then(|content| serde_json::from_value::<EncryptionKeysEventContent>(content).ok())
         else {
             event!(
                 Level::WARN,
-                "Received an undecodable call encryption key event"
+                "Received a call key event without content, ignoring it"
             );
+            continue;
+        };
+
+        let Some(content) = parse_encryption_keys_event(&content) else {
+            event!(
+                Level::WARN,
+                "Received a call encryption key event in a dialect we don't know"
+            );
+            event!(Level::DEBUG, "Its content: {content}");
             continue;
         };
 
@@ -1128,11 +1371,43 @@ pub async fn handle_to_device_messages(
     }
 }
 
-/// Rolls our call encryption key and distributes the new one whenever the
-/// call's members change and we are in the call of an encrypted room.
-///
-/// Late joiners have missed the key we sent when joining, so this is the
-/// only way they ever get to hear us.
+/// Every device currently in a room's call, as (user id, device id, when
+/// the membership was created); the timestamp tells joins from refreshes.
+async fn call_roster(room: &matrix_sdk::Room) -> anyhow::Result<HashSet<(String, String, ruma::UInt)>> {
+    let state_events = room
+        .get_state_events_static::<CallMemberEventContent>()
+        .await?;
+
+    let mut roster = HashSet::new();
+
+    for raw in state_events {
+        let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
+            continue;
+        };
+        let SyncStateEvent::Original(ev) = ev else {
+            continue;
+        };
+
+        for membership in ev.content.active_memberships(Some(ev.origin_server_ts)) {
+            // created_ts is carried over on refreshes and new on joins;
+            // a missing one falls back to the event's own timestamp.
+            let created_ts = membership
+                .created_ts()
+                .unwrap_or(ev.origin_server_ts)
+                .get();
+            roster.insert((
+                ev.state_key.user_id().to_string(),
+                membership.device_id().to_string(),
+                created_ts,
+            ));
+        }
+    }
+
+    Ok(roster)
+}
+
+/// Rolls and distributes our call key when the roster changes and we are
+/// in the call of an encrypted room; unchanged rosters are absorbed.
 pub async fn handle_call_member_change(
     _ev: OriginalSyncStateEvent<CallMemberEventContent>,
     room: matrix_sdk::Room,
@@ -1143,6 +1418,96 @@ pub async fn handle_call_member_change(
     }
 
     let livekit_room_manager = state.livekit_room_manager();
+
+    // A departure rotates the key, an arrival gets the current one
+    // re-sent; the first look at a call only establishes the baseline.
+    let (arrivals, departures) = {
+        let Ok(roster) = call_roster(&room).await else {
+            event!(
+                Level::WARN,
+                "Could not read the call roster, not touching the call key"
+            );
+            return;
+        };
+
+        let mut last_rosters = LAST_SEEN_CALL_ROSTERS.lock().await;
+        let previous = last_rosters.insert(room.room_id().to_string(), roster.clone());
+        match previous {
+            None => {
+                event!(
+                    Level::DEBUG,
+                    "Taking the current call roster as the baseline, not touching the call key"
+                );
+                (Vec::new(), Vec::new())
+            }
+            Some(previous) => {
+                let arrivals: Vec<_> = roster.difference(&previous).cloned().collect();
+                let departures: Vec<_> = previous.difference(&roster).cloned().collect();
+                (arrivals, departures)
+            }
+        }
+    };
+
+    if arrivals.is_empty() && departures.is_empty() {
+        event!(
+            Level::DEBUG,
+            "The call roster did not change, not touching the call key"
+        );
+        return;
+    }
+
+    // A pure arrival with a fresh key just gets it re-sent, like
+    // Element X; departures and stale keys fall back to rotating.
+    let mut resend_current_key = false;
+    if departures.is_empty() {
+        let guard = livekit_room_manager.lock().await;
+        if let Some(call_data) = guard.get(room.room_id().as_str()) {
+            if let Some((_, generated_at)) = &call_data.current_key {
+                if generated_at.elapsed() < KEY_STAYS_FRESH_FOR {
+                    resend_current_key = true;
+                } else {
+                    event!(
+                        Level::DEBUG,
+                        "Arrival with an old call key: rotating instead of re-sending"
+                    );
+                }
+            }
+        }
+        // No call data or no current key: fall through to the rotation path,
+        // which re-reads everything under lock and handles absence.
+        if resend_current_key {
+            drop(guard);
+
+            let (key, key_index, call_id) = {
+                let mut guard = livekit_room_manager.lock().await;
+                let Some(call_data) = guard.get(room.room_id().as_str()) else {
+                    return;
+                };
+                let Some((key, _)) = call_data.current_key.clone() else {
+                    return;
+                };
+                (key, call_data.key_index, call_data.call_id)
+            };
+
+            event!(
+                Level::DEBUG,
+                "Someone joined the call, re-sending the current call encryption key"
+            );
+            let client = state.client();
+            if let Err(e) = send_encryption_keys(
+                &room,
+                &state.inner.own_device,
+                &key,
+                key_index,
+                call_id,
+            )
+            .await
+            {
+                event!(Level::ERROR, "Could not re-send the call encryption key: {e}");
+            }
+            return;
+        }
+    }
 
     let (client, key, key_index, call_id) = {
         let mut guard = livekit_room_manager.lock().await;
@@ -1160,6 +1525,7 @@ pub async fn handle_call_member_change(
         let key = general_purpose::STANDARD.encode(raw_key);
 
         call_data.key_index += 1;
+        call_data.current_key = Some((key.clone(), std::time::Instant::now()));
         let key_index = call_data.key_index;
 
         let Some(key_provider) = call_data.livekit_room.e2ee_manager().key_provider() else {
@@ -1245,10 +1611,8 @@ pub async fn leave_matrixrtc_call(
         room_data.close_event_stream().await;
         room_data.livekit_room.close().await?;
     } else {
-        // No connected call on this device. Our MatrixRTC membership may
-        // still be flagged in the room, a leftover of a call that ended
-        // without cleanup or a failed join,  and withdrawing it is the
-        // only way the user can stop appearing in the call.
+        // No connected call on this device: our leftover membership is
+        // still flagging us into the call, so withdraw it.
         event!(
             Level::WARN,
             "No connected call in {room_id} to close, withdrawing the membership anyway"
