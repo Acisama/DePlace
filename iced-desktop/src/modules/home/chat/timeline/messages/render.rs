@@ -34,7 +34,7 @@ use crate::{
     components::{
         PushElement, bounds_button::bounds_button, help_mode::MessageHelpKey, link::link,
         phosphor_icon, profile::render_row_of_icons, render_media::render_thumbnail,
-        video_controls::video_controls,
+        render_media_label, video_controls::video_controls,
     },
     modules::home::overlay::{MediaOverlayParams, OverlayMediaType},
 };
@@ -588,11 +588,13 @@ impl MessageContent {
                 if *is_hovered {
                     stack = stack.push_element(
                         w::container(
-                            w::container(
-                                w::text(image.label())
-                                    .size(structure.chat.text_size)
-                                    .color(theme.text.normal),
-                            )
+                            w::container(render_media_label(
+                                image.filename.clone(),
+                                image.info.as_ref().and_then(|i| i.size),
+                                *image.data_size_unit.borrow(),
+                                theme,
+                                text_size,
+                            ))
                             .style(move |_| ContainerStyle {
                                 background: Some(theme.solid_bg.into()),
                                 border: Border {
@@ -705,11 +707,13 @@ impl MessageContent {
                 if *is_hovered {
                     stack = stack.push_element(
                         w::container(
-                            w::container(
-                                w::text(video.label())
-                                    .size(structure.chat.text_size)
-                                    .color(theme.text.normal),
-                            )
+                            w::container(render_media_label(
+                                video.filename.clone(),
+                                video.info.as_ref().and_then(|i| i.size),
+                                *video.data_size_unit.borrow(),
+                                theme,
+                                structure.font_size,
+                            ))
                             .style(move |_| ContainerStyle {
                                 background: Some(theme.solid_bg.into()),
                                 border: Border {
@@ -811,19 +815,6 @@ fn render_edit_box(
 }
 
 impl ImageMessage {
-    pub fn label(&self) -> String {
-        format!(
-            "{}{}",
-            self.filename,
-            self.info
-                .as_ref()
-                .and_then(|i| i
-                    .size
-                    .map(|s| format!(" ({})", format_bytes(s, *self.data_size_unit.borrow()))))
-                .unwrap_or_default()
-        )
-    }
-
     fn image_view(
         &self,
         theme: Theme,
@@ -873,19 +864,6 @@ impl ImageMessage {
 }
 
 impl VideoMessage {
-    pub fn label(&self) -> String {
-        format!(
-            "{}{}",
-            self.filename,
-            self.info
-                .as_ref()
-                .and_then(|i| i
-                    .size
-                    .map(|s| format!(" ({})", format_bytes(s, *self.data_size_unit.borrow()))))
-                .unwrap_or_default()
-        )
-    }
-
     fn video_view(
         &self,
         theme: Theme,

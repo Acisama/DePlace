@@ -13,9 +13,6 @@ resolver = "2"
 license = "MIT OR Apache-2.0"
 exclude = [".media/test.mp4"]
 
-[dev-dependencies]
-pollster = "0.4"
-
 [package.metadata.docs.rs]
 rustc-args = ["--cfg", "docsrs"]
 rustdoc-args = ["--cfg", "docsrs"]
@@ -32,3 +29,6 @@ iced_wgpu = { git = "https://github.com/acisama/iced", version = "0.15.0-dev" }
 log = "0.4"
 thiserror = "1"
 url = "2"  # media uri
+
+[dev-dependencies]
+pollster = "0.4"

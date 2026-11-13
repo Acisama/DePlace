@@ -2,11 +2,12 @@ use std::time::SystemTime;
 
 use crate::{
     common::*,
-    components::render_media::render_image,
-    modules::home::chat::{ImageMessage, VideoMessage},
+    components::{render_media::render_image, render_media_label},
+    modules::home::chat::ImageMessage,
 };
 use chrono_tz::Tz;
 use deplace_core::{
+    cache::video::DePlaceVideoShared,
     formatting::format_message_long_date,
     settings::{DateFormat, HourFormat},
 };
@@ -16,7 +17,7 @@ use macros::iced_cache;
 #[derive(Debug, Clone, Hash)]
 pub enum OverlayMediaType {
     Image(Arc<ImageMessage>),
-    Video(Arc<VideoMessage>),
+    Video(DePlaceVideoShared),
 }
 
 #[derive(Debug, Clone)]
@@ -135,13 +136,13 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
                         .spacing(structure.small_gap)
                     )
                     .width(Length::FillPortion(1)),
-                    w::container(
-                        w::text(image.label())
-                            .width(Fill)
-                            .color(theme.text.normal)
-                            .size(structure.font_size)
-                            .center()
-                    )
+                    w::container(render_media_label(
+                        image.filename.clone(),
+                        image.info.as_ref().and_then(|i| i.size),
+                        *image.data_size_unit.borrow(),
+                        theme,
+                        structure.font_size
+                    ))
                     .width(Length::FillPortion(1)),
                     w::row![
                         Space::new().width(Fill),

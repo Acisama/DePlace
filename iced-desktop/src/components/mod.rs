@@ -1,16 +1,19 @@
 use std::hash::Hash;
 
 use deplace_core::{
+    formatting::format_bytes,
     helpers::DisplayString,
+    settings::DataSizeUnit,
     structure::Structure,
     theme::{Colors, Theme},
 };
 use iced::{
-    Background, Border, Color, Element, Fill, Font, Point, Renderer, Size, Widget as _,
+    Background, Border, Color, Element, Fill, Font, Pixels, Point, Renderer, Size, Widget as _,
     advanced::{Widget, layout, svg::Renderer as SvgRenderer, widget::Meta},
     border::{self, Radius},
     font::{Family, Weight},
     gradient::ColorStop,
+    never,
     widget::{
         self as w, Button, Canvas, Column, Container, Row, Scrollable, Stack,
         canvas::{self, Frame, Path, Stroke},
@@ -706,4 +709,29 @@ pub fn default_button<'a, Message: 'a, Content: 'a>(
             background: None,
             ..Default::default()
         })
+}
+
+/// Renders a media label with a caption and optional size.
+pub fn render_media_label<'a, T: 'a>(
+    name: String,
+    size: Option<u64>,
+    size_unit: DataSizeUnit,
+    theme: Theme,
+    text_size: impl Into<Pixels>,
+) -> Element<'a, T> {
+    let text_size = text_size.into();
+    let mut spans = vec![span(name).color(theme.text.normal).size(text_size)];
+
+    if let Some(size) = size {
+        spans.push(
+            span(format!("  ({})", format_bytes(size, size_unit)))
+                .color(theme.text.dim)
+                .size(text_size),
+        );
+    }
+
+    w::rich_text(spans)
+        .on_link_click(never)
+        .wrapping(w::text::Wrapping::WordOrGlyph)
+        .boxed()
 }

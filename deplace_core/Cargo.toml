@@ -3,10 +3,13 @@ name = "deplace_core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+iced_desktop = ["iced"]
+
 [dependencies]
+aes.workspace = true
 anyhow.workspace = true
 arc-swap.workspace = true
-aes.workspace = true
 base64.workspace = true
 blurhash.workspace = true
 bytes.workspace = true
@@ -47,17 +50,17 @@ mime_guess.workspace = true
 notify-rust = "4.18.0"
 phosphor-svgs.workspace = true
 reqwest.workspace = true
-rodio.workspace = true
 rfd.workspace = true
+rodio.workspace = true
 ruma.workspace = true
 ruma-html.workspace = true
 scraper = "0.27.0"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-thiserror.workspace = true
 toml_edit.workspace = true
 tracing.workspace = true
 url.workspace = true
@@ -77,11 +80,7 @@ apple-native-keyring-store = { version = "1.0", features = ["keychain"] }
 [target."cfg(windows)".dependencies]
 windows-native-keyring-store = "1.0"
 
-[features]
-iced_desktop = ["iced"]
-
 [lints.clippy]
-missing_docs_in_private_items = "warn"
 exit = "warn"
 let_underscore_must_use = "warn"
 panic_in_result_fn = "warn"
@@ -91,6 +90,3 @@ unchecked_time_subtraction = "warn"
 unimplemented = "warn"
 unreachable = "warn"
 unwrap_used = "warn"
-
-[lints.rust]
-missing_docs = "warn"

@@ -30,7 +30,7 @@ mod timeline;
 pub use sidebar::render_member_numbers;
 pub use timeline::{
     TimelineMessage,
-    messages::{ImageMessage, MessageEvent, TimelineItemMessage, VideoMessage},
+    messages::{ImageMessage, MessageEvent, TimelineItemMessage},
 };
 
 use super::overlay::{ContextMenu, MediaOverlayParams, ModifyItem};
