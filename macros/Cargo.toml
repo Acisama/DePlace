@@ -11,3 +11,6 @@ proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = { version = "3.0.3", features = ["full"] }
 # deplace_core.workspace = true
+
+[lints.rust]
+missing_docs = "warn"

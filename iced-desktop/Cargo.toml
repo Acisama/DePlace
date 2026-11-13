@@ -63,6 +63,7 @@ naga = "27"
 embed-resource = "3.0"
 
 [lints.clippy]
+missing_docs_in_private_items = "warn"
 exit = "warn"
 let_underscore_must_use = "warn"
 panic_in_result_fn = "warn"
@@ -72,3 +73,6 @@ unchecked_time_subtraction = "warn"
 unimplemented = "warn"
 unreachable = "warn"
 unwrap_used = "warn"
+
+[lints.rust]
+missing_docs = "warn"
