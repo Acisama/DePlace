@@ -201,7 +201,13 @@ pub fn convert_settings(mut item: ItemStruct, namespace: &str) -> TokenStream {
                 });
 
                 let cloud_name = quote! {
-                    ::const_format::formatcp!("{APP_MATRIX_NAME}.{}.{}", #namespace, #type_name)
+                    {
+                        static CLOUD_NAME: ::std::sync::OnceLock<::std::string::String> =
+                            ::std::sync::OnceLock::new();
+                        CLOUD_NAME
+                            .get_or_init(|| ::std::format!("{}.{}.{}", APP_MATRIX_NAME, #namespace, #type_name))
+                            .as_str()
+                    }
                 };
 
                 let uses_cloud_expr = match uses_cloud {
