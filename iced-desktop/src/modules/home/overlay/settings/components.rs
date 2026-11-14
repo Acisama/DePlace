@@ -29,7 +29,7 @@ section!(
 
 section!(
     AppearanceSection,
-    [name_decoration: deplace_core::settings::NameDecoration]
+    [name_decoration: deplace_core::settings::NameDecoration, show_fps_counter: bool]
 );
 
 section!(AudioSection, []);

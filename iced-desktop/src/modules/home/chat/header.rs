@@ -49,6 +49,7 @@ pub struct Header {
     room: DePlaceRoom,
 
     name_decoration: Receiver<NameDecoration>,
+    show_fps_counter: Receiver<bool>,
 
     media_processor: MediaProcessor,
 }
@@ -56,6 +57,7 @@ pub struct Header {
 impl ExtraHash for Header {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name_decoration.borrow().hash(state);
+        self.show_fps_counter.borrow().hash(state);
 
         self.media_processor.current_download().hash(state);
         self.media_processor.current_compression().hash(state);
@@ -66,10 +68,18 @@ impl ExtraHash for Header {
 
 impl Header {
     pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
-        Self {
-            sidebar_state: EnumSet::new(),
+        let mut sidebar_state = EnumSet::new();
+        if !room.is_dm() {
+            sidebar_state.insert(SidebarState::MemberList);
+        }
 
-            name_decoration: state.settings().name_decoration.watch(),
+        let settings = state.settings();
+
+        Self {
+            sidebar_state,
+
+            name_decoration: settings.name_decoration.watch(),
+            show_fps_counter: settings.show_fps_counter.watch(),
 
             room: room.clone(),
 
@@ -121,13 +131,17 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
         let icon_size = structure.header.icon_size;
         let button_size = structure.header.button_size;
 
-        let render_icon = |color, hover_color, icon, message, tooltip| {
+        let render_icon = |color, active_color, active, icon, message, tooltip| {
             themed_tooltip_text(
                 animated_button(phosphor_icon(icon, button_size))
                     .on_press(message)
                     .style(move |_, status| ButtonStyle {
                         background: None,
-                        text_color: if status.active() { hover_color } else { color },
+                        text_color: if status.active() || active {
+                            active_color
+                        } else {
+                            color
+                        },
                         ..Default::default()
                     })
                     .padding(0),
@@ -141,6 +155,8 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
 
         let download = self.media_processor.current_download();
         let compression = self.media_processor.current_compression();
+
+        let show_fps_counter = *self.show_fps_counter.borrow();
 
         let content =
             floating_tile(
@@ -185,7 +201,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                     .align_y(Alignment::Center)
                     .spacing(structure.small_gap),
                     Space::new().width(Fill),
-                    fps_counter(theme.colors.success, Fill, structure.font_size),
+                    show_fps_counter.then(|| fps_counter(theme.colors.success, Fill, structure.font_size)),
                     Space::new().width(Fill),
                     download.map(|progress| {
                         let color = theme.accent;
@@ -217,6 +233,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                             } else {
                                 theme.colors.green.into()
                             },
+                            false,
                             if is_in_call {
                                 DISCONNECT
                             } else {
@@ -235,11 +252,12 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         )
                     ).radius(button_size * 0.25),
                     help_view.call(
-                        HelpKey::Header(HeaderHelpKey::OpenPins),
+                        HeaderHelpKey::OpenPins,
                         "Button to toggle pins in the current room",
                         render_icon(
                             theme.text.dim.into(),
                             theme.colors.pins.into(),
+                            self.sidebar_state.contains(SidebarState::Pins),
                             if self.sidebar_state.contains(SidebarState::Pins) {
                                 phosphor_svgs::icon::push_pin::FILL
                             } else {
@@ -250,11 +268,28 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         )
                     ).radius(button_size * 0.25),
                     help_view.call(
-                        HelpKey::Header(HeaderHelpKey::OpenMemberList),
+                        HeaderHelpKey::OpenSearch,
+                        "Button to toggle search in the current room",
+                        render_icon(
+                            theme.text.dim.into(),
+                            theme.accent.into(),
+                            self.sidebar_state.contains(SidebarState::Search),
+                            if self.sidebar_state.contains(SidebarState::Search) {
+                                phosphor_svgs::icon::magnifying_glass::FILL
+                            } else {
+                                phosphor_svgs::icon::magnifying_glass::REGULAR
+                            },
+                            HeaderMessage::ToggleSearch,
+                            "Toggle Search"
+                        )
+                    ).radius(button_size * 0.25),
+                    help_view.call(
+                        HeaderHelpKey::OpenMemberList,
                         "Button to toggle the member list in the current room or the other user's profile if in a DM",
                         render_icon(
                             theme.text.dim.into(),
                             theme.colors.green.into(),
+                            self.sidebar_state.contains(SidebarState::MemberList),
                             if self.sidebar_state.contains(SidebarState::MemberList) {
                                 if self.room.is_dm() {
                                     phosphor_svgs::icon::user_circle::FILL
@@ -277,11 +312,12 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         )
                     ).radius(button_size * 0.25),
                     help_view.call(
-                        HelpKey::Header(HeaderHelpKey::HelpButton),
+                        HeaderHelpKey::HelpButton,
                         "Help button, press to open this menu",
                         render_icon(
                             theme.text.dim.into(),
                             theme.accent.into(),
+                            false,
                             phosphor_svgs::icon::question::REGULAR,
                             HeaderMessage::OpenHelpMenu,
                             "Open Help Menu"

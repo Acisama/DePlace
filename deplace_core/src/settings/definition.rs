@@ -461,4 +461,12 @@ pub struct Settings {
         default = NameDecoration::Gradient
     )]
     pub name_decoration: NameDecoration,
+    #[setting(
+        name = "Show FPS counter",
+        description = "Whether to show the FPS counter",
+        section = SettingsSection::Appearance,
+        uses_cloud = Some(true),
+        default = false
+    )]
+    pub show_fps_counter: bool,
 }

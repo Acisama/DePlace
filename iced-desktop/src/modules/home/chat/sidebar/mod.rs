@@ -276,15 +276,21 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
                 }
             }
             // TODO: Implement
-            SidebarState::Pins => w::text("Pinned messages are not implemented yet")
-                .size(structure.font_size)
-                .color(theme.colors.warning)
-                .boxed(),
+            SidebarState::Pins => w::container(
+                w::text("Pinned messages are not implemented yet")
+                    .size(structure.font_size)
+                    .color(theme.colors.warning),
+            )
+            .padding(structure.small_gap)
+            .boxed(),
             // TODO: Implement
-            SidebarState::Search => w::text("Search results are not implemented yet")
-                .size(structure.font_size)
-                .color(theme.colors.warning)
-                .boxed(),
+            SidebarState::Search => w::container(
+                w::text("Search results are not implemented yet")
+                    .size(structure.font_size)
+                    .color(theme.colors.warning),
+            )
+            .padding(structure.small_gap)
+            .boxed(),
         };
 
         help(

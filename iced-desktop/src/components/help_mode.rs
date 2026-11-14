@@ -898,6 +898,7 @@ pub enum HeaderHelpKey {
     HeaderName,
     CallButton,
     OpenPins,
+    OpenSearch,
     OpenMemberList,
     SearchInput,
     HelpButton,

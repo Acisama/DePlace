@@ -552,8 +552,8 @@ impl AppState {
     }
 
     /// Retrieves the `Settings` of the app
-    pub fn settings(&self) -> Settings {
-        self.inner.settings.clone()
+    pub fn settings(&self) -> &Settings {
+        &self.inner.settings
     }
 
     pub fn own_device(&self) -> Arc<UserDevice> {
