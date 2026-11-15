@@ -70,8 +70,9 @@ static PENDING_KEY_UPDATES: LazyLock<Mutex<PendingUpdates>> =
 
 /// Who was in each room's call when we last looked, so arrivals and
 /// departures can be told from sticky membership refreshes.
-static LAST_SEEN_CALL_ROSTERS: LazyLock<Mutex<HashMap<String, HashSet<(String, String, ruma::UInt)>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static LAST_SEEN_CALL_ROSTERS: LazyLock<
+    Mutex<HashMap<String, HashSet<(String, String, ruma::UInt)>>>,
+> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// How long our call key remains fresh enough to hand to an arrival
 /// without rotating; older keys are rotated instead.
@@ -913,9 +914,7 @@ struct ReceivedEncryptionKeys {
 
 /// Reads the content of an `io.element.call.encryption_keys` to-device
 /// event in any of the dialects in the wild, or `None` if it matches none.
-fn parse_encryption_keys_event(
-    content: &serde_json::Value,
-) -> Option<ReceivedEncryptionKeys> {
+fn parse_encryption_keys_event(content: &serde_json::Value) -> Option<ReceivedEncryptionKeys> {
     /// Reads a single `{ index, key }` pair.
     fn parse_key(value: &serde_json::Value) -> Option<(i32, String)> {
         Some((
@@ -958,119 +957,11 @@ fn parse_encryption_keys_event(
 /// Decodes a media key: MSC4143 prescribes unpadded base64, Element's older
 /// dialects send padded, so accept both.
 fn decode_media_key(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
-    const MEDIA_KEY_BASE64: general_purpose::GeneralPurpose =
-        general_purpose::GeneralPurpose::new(
-            &base64::alphabet::STANDARD,
-            GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
-        );
+    const MEDIA_KEY_BASE64: general_purpose::GeneralPurpose = general_purpose::GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    );
     MEDIA_KEY_BASE64.decode(value)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_the_deplace_dialect() {
-        let content = serde_json::json!({
-            "keys": { "index": 4, "key": "cGFkZGVk" },
-            "member": { "claimed_device_id": "ABCDEF", "id": "call" },
-            "room_id": "!room:server",
-            "session": { "application": "m.call", "call_id": "", "scope": "m.room" },
-            "sent_ts": 123
-        });
-
-        let parsed = parse_encryption_keys_event(&content).expect("parses");
-        assert_eq!(
-            parsed.claimed_device_id.as_deref(),
-            Some("ABCDEF"),
-            "the member's device id is used"
-        );
-        assert_eq!(parsed.room_id.as_deref(), Some("!room:server"));
-        assert_eq!(parsed.keys, vec![(4, "cGFkZGVk".to_owned())]);
-    }
-
-    #[test]
-    fn parses_the_legacy_dialect_with_key_array_and_top_level_device() {
-        let content = serde_json::json!({
-            "keys": [
-                { "index": 0, "key": "dW5wYWRkZWQ" },
-                { "index": 1, "key": "cGFkZGVkMDA=" }
-            ],
-            "device_id": "GHIJKL",
-            "sent_ts": 456
-        });
-
-        let parsed = parse_encryption_keys_event(&content).expect("parses");
-        assert_eq!(
-            parsed.claimed_device_id.as_deref(),
-            Some("GHIJKL"),
-            "falls back to the top level device id"
-        );
-        assert_eq!(parsed.room_id, None, "the legacy dialect has no room");
-        assert_eq!(parsed.keys.len(), 2);
-        assert_eq!(parsed.keys[0], (0, "dW5wYWRkZWQ".to_owned()));
-
-        // Both arrive in the same message, so both encodings must decode:
-        // "dW5wYWRkZWQ" is "unpadded", "cGFkZGVkMDA=" is padded.
-        assert_eq!(
-            decode_media_key("dW5wYWRkZWQ").as_deref(),
-            Ok::<&[u8], &base64::DecodeError>(b"unpadded")
-        );
-        assert_eq!(
-            decode_media_key("cGFkZGVkMDA=").as_deref(),
-            Ok::<&[u8], &base64::DecodeError>(b"padded00")
-        );
-    }
-
-    #[test]
-    fn rejects_events_without_keys() {
-        assert!(parse_encryption_keys_event(&serde_json::json!({})).is_none());
-        assert!(
-            parse_encryption_keys_event(&serde_json::json!({ "keys": [] })).is_none(),
-            "an empty key array carries nothing to apply"
-        );
-        assert!(
-            parse_encryption_keys_event(&serde_json::json!({ "keys": "nonsense" })).is_none()
-        );
-    }
-
-    #[test]
-    fn the_outbound_payload_speaks_every_dialect() {
-        // "a mediation key" in padded base64
-        let key = "YSBtZWRpYXRpb24ga2V5";
-        let payload = build_encryption_keys_payload(
-            "@alice:example.io",
-            "V5cP8FErcB",
-            "!room:example.io",
-            key,
-            0,
-            Uuid::nil(),
-        );
-
-        // Our own reader understands it
-        let parsed = parse_encryption_keys_event(&payload).expect("parses");
-        assert_eq!(
-            parsed.claimed_device_id.as_deref(),
-            Some("V5cP8FErcB"),
-            "readers preferring the claimed device find it"
-        );
-        assert_eq!(parsed.room_id.as_deref(), Some("!room:example.io"));
-        assert_eq!(parsed.keys, vec![(0, key.to_owned())]);
-
-        // Readers binding the key to member.id, like Element X does, get a
-        // real LiveKit identity, not something meaningless like a call id
-        assert_eq!(
-            payload.pointer("/member/id").and_then(serde_json::Value::as_str),
-            Some("@alice:example.io:V5cP8FErcB")
-        );
-
-        // The pre-sticky dialects read the sender's device at the top level
-        assert_eq!(
-            payload.get("device_id").and_then(serde_json::Value::as_str),
-            Some("V5cP8FErcB")
-        );
-    }
 }
 
 impl Default for CallSessionInfo {
@@ -1109,7 +1000,13 @@ async fn apply_remote_key(
         // in: a key under the wrong room is simply never used.
         let mut applied = false;
         let applicable_rooms: Vec<String> = match &received.room_id {
-            Some(room_id) => guard.contains_key(room_id).then(|| vec![room_id.clone()]).unwrap_or_default(),
+            Some(room_id) => {
+                if guard.contains_key(room_id) {
+                    vec![room_id.clone()]
+                } else {
+                    Default::default()
+                }
+            }
             None => guard.keys().cloned().collect(),
         };
 
@@ -1278,9 +1175,9 @@ async fn send_encryption_keys(
     // The shape of Element Call's current dialect, which every reader in the
     // wild parses, see [`build_encryption_keys_payload`].
     let payload = build_encryption_keys_payload(
-        &own_device.user_id.to_string(),
-        &own_device.device_id.to_string(),
-        &room.room_id().to_string(),
+        own_device.user_id.as_ref(),
+        own_device.device_id.as_ref(),
+        room.room_id().as_ref(),
         key,
         index,
         call_id,
@@ -1373,7 +1270,9 @@ pub async fn handle_to_device_messages(
 
 /// Every device currently in a room's call, as (user id, device id, when
 /// the membership was created); the timestamp tells joins from refreshes.
-async fn call_roster(room: &matrix_sdk::Room) -> anyhow::Result<HashSet<(String, String, ruma::UInt)>> {
+async fn call_roster(
+    room: &matrix_sdk::Room,
+) -> anyhow::Result<HashSet<(String, String, ruma::UInt)>> {
     let state_events = room
         .get_state_events_static::<CallMemberEventContent>()
         .await?;
@@ -1391,10 +1290,7 @@ async fn call_roster(room: &matrix_sdk::Room) -> anyhow::Result<HashSet<(String,
         for membership in ev.content.active_memberships(Some(ev.origin_server_ts)) {
             // created_ts is carried over on refreshes and new on joins;
             // a missing one falls back to the event's own timestamp.
-            let created_ts = membership
-                .created_ts()
-                .unwrap_or(ev.origin_server_ts)
-                .get();
+            let created_ts = membership.created_ts().unwrap_or(ev.origin_server_ts).get();
             roster.insert((
                 ev.state_key.user_id().to_string(),
                 membership.device_id().to_string(),
@@ -1461,16 +1357,16 @@ pub async fn handle_call_member_change(
     let mut resend_current_key = false;
     if departures.is_empty() {
         let guard = livekit_room_manager.lock().await;
-        if let Some(call_data) = guard.get(room.room_id().as_str()) {
-            if let Some((_, generated_at)) = &call_data.current_key {
-                if generated_at.elapsed() < KEY_STAYS_FRESH_FOR {
-                    resend_current_key = true;
-                } else {
-                    event!(
-                        Level::DEBUG,
-                        "Arrival with an old call key: rotating instead of re-sending"
-                    );
-                }
+        if let Some(call_data) = guard.get(room.room_id().as_str())
+            && let Some((_, generated_at)) = &call_data.current_key
+        {
+            if generated_at.elapsed() < KEY_STAYS_FRESH_FOR {
+                resend_current_key = true;
+            } else {
+                event!(
+                    Level::DEBUG,
+                    "Arrival with an old call key: rotating instead of re-sending"
+                );
             }
         }
         // No call data or no current key: fall through to the rotation path,
@@ -1494,16 +1390,13 @@ pub async fn handle_call_member_change(
                 "Someone joined the call, re-sending the current call encryption key"
             );
             let client = state.client();
-            if let Err(e) = send_encryption_keys(
-                &room,
-                &state.inner.own_device,
-                &key,
-                key_index,
-                call_id,
-            )
-            .await
+            if let Err(e) =
+                send_encryption_keys(&room, &state.inner.own_device, &key, key_index, call_id).await
             {
-                event!(Level::ERROR, "Could not re-send the call encryption key: {e}");
+                event!(
+                    Level::ERROR,
+                    "Could not re-send the call encryption key: {e}"
+                );
             }
             return;
         }
@@ -1660,5 +1553,112 @@ pub async fn cleanup_ghost_calls(client: &matrix_sdk::Client) {
                 tracing::error!("Failed to send state event: {}", e);
             };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_the_deplace_dialect() {
+        let content = serde_json::json!({
+            "keys": { "index": 4, "key": "cGFkZGVk" },
+            "member": { "claimed_device_id": "ABCDEF", "id": "call" },
+            "room_id": "!room:server",
+            "session": { "application": "m.call", "call_id": "", "scope": "m.room" },
+            "sent_ts": 123
+        });
+
+        let parsed = parse_encryption_keys_event(&content).expect("parses");
+        assert_eq!(
+            parsed.claimed_device_id.as_deref(),
+            Some("ABCDEF"),
+            "the member's device id is used"
+        );
+        assert_eq!(parsed.room_id.as_deref(), Some("!room:server"));
+        assert_eq!(parsed.keys, vec![(4, "cGFkZGVk".to_owned())]);
+    }
+
+    #[test]
+    fn parses_the_legacy_dialect_with_key_array_and_top_level_device() {
+        let content = serde_json::json!({
+            "keys": [
+                { "index": 0, "key": "dW5wYWRkZWQ" },
+                { "index": 1, "key": "cGFkZGVkMDA=" }
+            ],
+            "device_id": "GHIJKL",
+            "sent_ts": 456
+        });
+
+        let parsed = parse_encryption_keys_event(&content).expect("parses");
+        assert_eq!(
+            parsed.claimed_device_id.as_deref(),
+            Some("GHIJKL"),
+            "falls back to the top level device id"
+        );
+        assert_eq!(parsed.room_id, None, "the legacy dialect has no room");
+        assert_eq!(parsed.keys.len(), 2);
+        assert_eq!(parsed.keys[0], (0, "dW5wYWRkZWQ".to_owned()));
+
+        // Both arrive in the same message, so both encodings must decode:
+        // "dW5wYWRkZWQ" is "unpadded", "cGFkZGVkMDA=" is padded.
+        assert_eq!(
+            decode_media_key("dW5wYWRkZWQ").as_deref(),
+            Ok::<&[u8], &base64::DecodeError>(b"unpadded")
+        );
+        assert_eq!(
+            decode_media_key("cGFkZGVkMDA=").as_deref(),
+            Ok::<&[u8], &base64::DecodeError>(b"padded00")
+        );
+    }
+
+    #[test]
+    fn rejects_events_without_keys() {
+        assert!(parse_encryption_keys_event(&serde_json::json!({})).is_none());
+        assert!(
+            parse_encryption_keys_event(&serde_json::json!({ "keys": [] })).is_none(),
+            "an empty key array carries nothing to apply"
+        );
+        assert!(parse_encryption_keys_event(&serde_json::json!({ "keys": "nonsense" })).is_none());
+    }
+
+    #[test]
+    fn the_outbound_payload_speaks_every_dialect() {
+        // "a mediation key" in padded base64
+        let key = "YSBtZWRpYXRpb24ga2V5";
+        let payload = build_encryption_keys_payload(
+            "@alice:example.io",
+            "V5cP8FErcB",
+            "!room:example.io",
+            key,
+            0,
+            Uuid::nil(),
+        );
+
+        // Our own reader understands it
+        let parsed = parse_encryption_keys_event(&payload).expect("parses");
+        assert_eq!(
+            parsed.claimed_device_id.as_deref(),
+            Some("V5cP8FErcB"),
+            "readers preferring the claimed device find it"
+        );
+        assert_eq!(parsed.room_id.as_deref(), Some("!room:example.io"));
+        assert_eq!(parsed.keys, vec![(0, key.to_owned())]);
+
+        // Readers binding the key to member.id, like Element X does, get a
+        // real LiveKit identity, not something meaningless like a call id
+        assert_eq!(
+            payload
+                .pointer("/member/id")
+                .and_then(serde_json::Value::as_str),
+            Some("@alice:example.io:V5cP8FErcB")
+        );
+
+        // The pre-sticky dialects read the sender's device at the top level
+        assert_eq!(
+            payload.get("device_id").and_then(serde_json::Value::as_str),
+            Some("V5cP8FErcB")
+        );
     }
 }

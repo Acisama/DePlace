@@ -393,7 +393,7 @@ pub fn themed_scrollable<'a, T: 'a, W>(
     w::scrollable(content)
         .style(move |_, status| {
             let border = Border {
-                color: theme.border.into(),
+                color: Color::TRANSPARENT,
                 width: structure.border_thickness,
                 radius: structure.inner_border_radius.into(),
             };
@@ -418,7 +418,11 @@ pub fn themed_scrollable<'a, T: 'a, W>(
                 container: w::container::Style::default(),
                 auto_scroll: w::scrollable::AutoScroll {
                     background: theme.solid_hover_bg.into(),
-                    border,
+                    border: Border {
+                        color: theme.border.into(),
+                        width: structure.border_thickness,
+                        radius: structure.inner_border_radius.into(),
+                    },
                     shadow: Default::default(),
                     icon: theme.accent.into(),
                 },
