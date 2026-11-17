@@ -7,29 +7,35 @@ use deplace_core::matrix_api::attachments::download_file_to_picked;
 use deplace_core::matrix_api::messages::RoomSendingExt;
 use deplace_core::settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType};
 use enumset::EnumSet;
-use iced::Vector;
-use iced::advanced::widget::operate;
-use iced::advanced::widget::operation::scrollable::{RelativeOffset, snap_to};
-use iced::keyboard::Key::Character;
-use iced::widget::operation;
-use iced::widget::operation::scrollable::scroll_to_reveal;
+use iced::{
+    Vector,
+    advanced::widget::{
+        operate,
+        operation::scrollable::{RelativeOffset, snap_to},
+    },
+    keyboard::Key::Character,
+    widget::operation::{self, scrollable::scroll_to_reveal},
+};
 use macros::iced_cache;
 use matrix_sdk::ruma::{
     events::{MessageLikeEventType, StateEventType, room::power_levels::RoomPowerLevels},
     room_version_rules::AuthorizationRules,
 };
-use matrix_sdk_ui::timeline::TimelineEventItemId;
-use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff};
+use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineEventItemId};
 use messages::{MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::widget::list;
 
-use crate::components::track_bounds::track_bounds;
-use crate::components::{PushElement, fills_parent, phosphor_icon};
-use crate::modules::home::overlay::{ContextMenu, ContextMenuKind, MediaOverlayParams, ModifyItem};
-use crate::modules::home::{
-    COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, SOURCE_ICON, UNPIN_ICON,
+use crate::{
+    common::*,
+    components::{
+        PushElement, fills_parent, phosphor_icon, skeleton, track_bounds::track_bounds,
+        track_scroll::track_scroll,
+    },
+    modules::home::{
+        COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, SOURCE_ICON, UNPIN_ICON,
+        overlay::{ContextMenu, ContextMenuKind, MediaOverlayParams, ModifyItem},
+    },
 };
-use crate::{common::*, components::track_scroll::track_scroll};
 
 pub mod messages;
 
@@ -280,7 +286,7 @@ impl ChatTimeline {
             previous_pinned_event_ids: initial_pinned_event_ids,
 
             reached_top: false,
-            reached_bottom: false,
+            reached_bottom: true,
             loading_top: false,
             loading_bottom: false,
 
@@ -1244,10 +1250,6 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
     }
 
     fn view(&self) -> iced::Element<'static, TimelineMessage> {
-        let Some(timeline) = self.timeline.clone() else {
-            return Space::new().width(Fill).height(Fill).boxed();
-        };
-
         let theme = theme();
         let structure = structure();
 
@@ -1267,65 +1269,68 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
         let length = self.content.len();
 
+        let skeleton_row =
+            |padding: Padding| w::container(skeleton(structure, theme.text.dim)).padding(padding);
+
+        let mut column = w::Column::new();
+
+        if !reached_top {
+            column = column.push_element(skeleton_row(padding::bottom(structure.small_gap)));
+        }
+
+        column = column.push_element(fills_parent(
+            list(self.content.clone(), move |index, id, item| {
+                let is_focused = focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
+                let room = room.clone();
+                let row_id = id.clone();
+                let content =
+                    lazy_editing((item.clone(), is_focused), move |(item, is_focused)| {
+                        let id = id.clone();
+                        item.view(theme, structure, *is_focused, help_state, index, &room)
+                            .map_el(move |msg| TimelineMessage::Item {
+                                id: id.clone(),
+                                message: msg,
+                            })
+                    });
+                // Bottom padding on the last row, so the newest
+                // message isn't flush against the input box. The
+                // wrapper must keep the same widget type whether
+                // or not the row is last because of the virtualized list
+                //  tree, and swapping container
+                // for bare content changes the tree shape.
+                let row = w::container(content)
+                    .padding(if index == length - 1 {
+                        padding::bottom(structure.gap * 3.0)
+                    } else {
+                        iced::Padding::ZERO
+                    })
+                    .boxed();
+
+                // Only the newest message from someone else reports
+                // being rendered; the others report a harmless no-op.
+                let message = if last_remote_id.as_ref().as_deref() == Some(row_id.as_str()) {
+                    TimelineMessage::LastMessageRendered { id: row_id }
+                } else {
+                    TimelineMessage::None
+                };
+                crate::components::on_appear(row, message).into()
+            })
+            .id(LIST_ID),
+            || TimelineMessage::FillsParentNot,
+        ));
+
+        if !reached_bottom {
+            column = column.push_element(skeleton_row(padding::top(structure.small_gap)));
+        }
+
         let mut stack = w::stack![
             w::container(track_scroll(
                 themed_scrollable(
-                    w::container(fills_parent(
-                        list(self.content.clone(), move |index, id, item| {
-                            let is_focused = focused_id.as_ref().as_ref().is_some_and(|i| *i == id);
-                            let room = room.clone();
-                            let row_id = id.clone();
-                            let content = lazy_editing(
-                                (item.clone(), is_focused),
-                                move |(item, is_focused)| {
-                                    let id = id.clone();
-                                    item.view(
-                                        theme,
-                                        structure,
-                                        *is_focused,
-                                        help_state,
-                                        index,
-                                        &room,
-                                    )
-                                    .map_el(move |msg| {
-                                        TimelineMessage::Item {
-                                            id: id.clone(),
-                                            message: msg,
-                                        }
-                                    })
-                                },
-                            );
-                            // Bottom padding on the last row, so the newest
-                            // message isn't flush against the input box. The
-                            // wrapper must keep the same widget type whether
-                            // or not the row is last because of the virtualized list
-                            //  tree, and swapping container
-                            // for bare content changes the tree shape.
-                            let row = w::container(content)
-                                .padding(if index == length - 1 {
-                                    padding::bottom(structure.gap * 3.0)
-                                } else {
-                                    iced::Padding::ZERO
-                                })
-                                .boxed();
-
-                            // Only the newest message from someone else reports
-                            // being rendered; the others report a harmless no-op.
-                            let message =
-                                if last_remote_id.as_ref().as_deref() == Some(row_id.as_str()) {
-                                    TimelineMessage::LastMessageRendered { id: row_id }
-                                } else {
-                                    TimelineMessage::None
-                                };
-                            crate::components::on_appear(row, message).into()
-                        })
-                        .id(LIST_ID),
-                        || TimelineMessage::FillsParentNot,
-                    ))
-                    .clip(true)
-                    .width(Fill)
-                    .height(Fill)
-                    .align_bottom(Fill),
+                    w::container(column)
+                        .clip(true)
+                        .width(Fill)
+                        .height(Fill)
+                        .align_bottom(Fill),
                     theme,
                     structure,
                 )
@@ -1367,7 +1372,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         ]
         .height(Fill);
 
-        if let Some((hovered_item_id, bounds)) = self.hovered_item.clone()
+        if let Some(timeline) = self.timeline.clone()
+            && let Some((hovered_item_id, bounds)) = self.hovered_item.clone()
             && let Some((
                 Some(identifier),
                 event_id,

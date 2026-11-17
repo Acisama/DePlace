@@ -68,8 +68,7 @@ pub enum HomeMessage {
         finished: bool,
     },
     SettingsChanged,
-    /// The window regained focus -- the frontend may now mark the open
-    /// room as read if its newest message was rendered earlier.
+
     WindowFocused,
     /// Notify of updated call state
     CallTick,

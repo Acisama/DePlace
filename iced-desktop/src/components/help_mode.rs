@@ -953,6 +953,8 @@ pub enum SidebarHelpKey {
     SettingsButton,
     AccountIcon,
     AccountName,
+
+    SendLogs,
 }
 
 impl IntoHelpKey for SidebarHelpKey {

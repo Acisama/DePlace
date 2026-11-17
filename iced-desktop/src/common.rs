@@ -2,6 +2,7 @@ pub use crate::EMPTY_WIDGET;
 pub use crate::components::{
     ColoredRounded, CornerContent, Explainable, GenericState, IcedColorExt, IcedWidget,
     MapElementExt, StatusExt, UI_FONT,
+    animated_background::animated_background,
     animated_button::animated_button,
     close_button, corner_badge, elapsed_time,
     help_mode::HelpKey,

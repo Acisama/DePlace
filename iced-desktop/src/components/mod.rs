@@ -24,6 +24,7 @@ use iced::{
 };
 use matrix_sdk::ruma::{OwnedUserId, serde::Base64};
 
+pub mod animated_background;
 pub mod animated_button;
 pub mod animation_clock;
 pub mod bounds_button;
@@ -43,6 +44,7 @@ pub mod profile;
 pub mod render_media;
 pub mod right_click;
 pub mod shader;
+pub mod skeleton;
 pub mod static_checkbox;
 pub mod tile_background;
 pub mod tooltip;
@@ -54,6 +56,7 @@ pub mod volume_bar;
 pub use call_grid::call_grid;
 pub use corner_badge::{CornerContent, corner_badge};
 pub use elapsed_time::elapsed_time;
+pub use skeleton::skeleton;
 pub use fills_parent::fills_parent;
 pub use on_appear::on_appear;
 pub use pan::pan;
