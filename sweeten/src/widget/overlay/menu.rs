@@ -330,15 +330,20 @@ where
 {
     layout: Layout,
     list_layout: Layout,
-    window: Size,
     tree: &'a mut Tree,
-    list: Scrollable<'a, Message, List<'a, 'b, T, Message, Theme, Renderer>, Theme>,
+    list: Scrollable<
+        'a,
+        Message,
+        List<'a, 'b, T, Message, Theme, Renderer>,
+        Theme,
+    >,
     id: Id,
     target_radius: Option<border::Radius>,
     class: &'a <Theme as Catalog>::Class<'b>,
 }
 
-impl<'a, 'b, T, Message, Theme, Renderer> Overlay<'a, 'b, T, Message, Theme, Renderer>
+impl<'a, 'b, T, Message, Theme, Renderer>
+    Overlay<'a, 'b, T, Message, Theme, Renderer>
 where
     T: Clone,
     Message: 'a,
@@ -668,7 +673,6 @@ where
         Self {
             layout,
             list_layout,
-            window,
             tree: &mut state.tree,
             list,
             id,

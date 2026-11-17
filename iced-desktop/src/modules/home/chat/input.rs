@@ -3,15 +3,18 @@ use deplace_core::{
     matrix_api::{attachments::MatrixAttachment, messages::RoomSendingExt},
 };
 use iced::{
-    Length,
+    Alignment, Length,
     border::{Radius, radius},
-    widget::{Id, operation, text_editor},
+    widget::{Id, operation, text::LineHeight, text_editor},
 };
 use image::ImageReader;
-use macros::iced_cache;
+use macros::{iced_cache, iced_icon};
 use matrix_sdk_ui::Timeline;
-use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -184,6 +187,9 @@ pub struct ChatInput {
 
     id: Id,
 
+    #[hash]
+    hovered_files: BTreeSet<PathBuf>,
+
     /// The `[crate::components::IcedWidget]` crate requires 'static lifetimes for caching, but `text_editor` requires a reference to the content since it stores the data internally.
     content: *mut text_editor::Content,
     #[hash]
@@ -215,6 +221,8 @@ impl ChatInput {
 
             room: room.clone(),
 
+            hovered_files: BTreeSet::new(),
+
             id: Id::unique(),
             content: Box::leak(Box::new(text_editor::Content::new())),
             replying_to: None,
@@ -226,6 +234,30 @@ impl ChatInput {
 
             keybinds: state.keybinds(),
         }
+    }
+
+    pub fn add_hovered_file(&mut self, path: PathBuf) {
+        self.hovered_files.insert(path);
+    }
+
+    pub fn clear_hovered_files(&mut self) {
+        self.hovered_files.clear();
+    }
+
+    pub fn commit_hovered_file(&mut self, path: PathBuf) -> Task<InputMessage> {
+        self.hovered_files.remove(&path);
+        let state = self.state.clone();
+        Task::future(async move {
+            let display_path = path.clone();
+            match MatrixAttachment::from_path(path, state).await {
+                Ok(attachment) => Some(attachment),
+                Err(e) => {
+                    tracing::error!("Failed to attach {}: {e}", display_path.display());
+                    None
+                }
+            }
+        })
+        .then(attachment_task)
     }
 
     pub fn set_replies_to(&mut self, message: Arc<MessageEvent>, event_id: OwnedEventId) {
@@ -563,17 +595,17 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
             None
         };
         let is_replying_to = self.replying_to.is_some();
-        let has_attachments = !self.attachments.is_empty();
+        let has_attachments = !self.attachments.is_empty() || !self.hovered_files.is_empty();
 
         let attachment_banner: Option<Element<'static, InputMessage>> =
             has_attachments.then(|| {
+                let size = structure.chat.attachment_preview_size;
+
                 let children = self
                     .attachments
                     .iter()
                     .enumerate()
                     .map(|(index, attachment)| {
-                        let size = structure.chat.attachment_preview_size;
-
                         let image: Element<'static, InputMessage> = match attachment
                             .thumbnail
                             .clone()
@@ -626,9 +658,11 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                         .on_middle_press(InputMessage::RemoveAttachment(index)),
                                     pan(w::text(attachment.attachment.filename.clone())
                                         .size(structure.chat.text_size)
-                                        .color(theme.text.normal))
+                                        .color(theme.text.normal)
+                                        .line_height(LineHeight::Relative(1.0)))
                                     .width(size)
-                                ],
+                                ]
+                                .spacing(structure.small_gap / 2.0),
                             )
                             .radius(radius(structure.semi_large_border_radius()).bottom(0.0))
                             .boxed()
@@ -641,6 +675,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         w::container(themed_scrollable(
                             w::Row::with_children(children)
                                 .width(Fill)
+                                .height(size + structure.chat.text_size + 2.5 * structure.small_gap)
                                 .padding(structure.small_gap)
                                 .spacing(structure.small_gap),
                             theme,
@@ -720,7 +755,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 .into()
         });
 
-        help_view
+        let content = help_view
             .call(
                 HelpKey::Chat(ChatHelpKey::Input),
                 "The chat input, you can write messages here",
@@ -828,6 +863,38 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 .width(Fill),
             )
             .radius(structure.inner_border_radius)
-            .into()
+            .boxed();
+
+        if self.hovered_files.is_empty() {
+            content
+        } else {
+            w::stack![
+                content,
+                w::container(
+                    w::column![
+                        iced_icon!(
+                            upload_simple,
+                            BOLD,
+                            structure.chat.text_size * 2.0,
+                            theme.accent
+                        ),
+                        weighted_text("Drop to upload", Weight::Bold)
+                            .size(structure.chat.text_size * 1.3)
+                            .color(theme.accent)
+                    ]
+                    .align_x(Alignment::Center)
+                )
+                .colored_rounded_with_border(
+                    theme.accent.scale_alpha(0.3),
+                    structure.inner_border_radius,
+                    structure.divider_width,
+                    theme.accent
+                )
+                .width(Fill)
+                .height(Fill)
+                .center(Fill)
+            ]
+            .boxed()
+        }
     }
 }

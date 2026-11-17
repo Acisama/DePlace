@@ -74,6 +74,21 @@ impl MatrixAttachment {
         ))
     }
 
+    /// Builds an attachment from an arbitrary path, e.g. a dropped file.
+    /// Directories are zipped the same way `compressed_from_folder_picker` does.
+    pub async fn from_path(path: std::path::PathBuf, state: AppState) -> Result<Self> {
+        if path.is_dir() {
+            return Self::compress_folder(path, state).await;
+        }
+        let data = tokio::fs::read(&path).await?;
+        let mime_type = mime_guess::from_path(&path).first_or_octet_stream();
+        Ok(Self::from_bytes(
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
+            mime_type,
+            data,
+        ))
+    }
+
     pub async fn from_files_picker() -> Vec<MatrixAttachment> {
         let Some(file_handles) = AsyncFileDialog::new()
             .set_title("Select files")
@@ -108,7 +123,16 @@ impl MatrixAttachment {
             return None;
         };
 
-        let folder_path = folder_handle.path().to_path_buf();
+        match Self::compress_folder(folder_handle.path().to_path_buf(), state).await {
+            Ok(attachment) => Some(attachment),
+            Err(e) => {
+                tracing::error!("Failed to compress folder: {}", e);
+                None
+            }
+        }
+    }
+
+    async fn compress_folder(folder_path: std::path::PathBuf, state: AppState) -> Result<Self> {
         let folder_name = folder_path
             .file_name()
             .and_then(|n| n.to_str())
@@ -140,14 +164,13 @@ impl MatrixAttachment {
                 data
             }
             Ok(Err(e)) => {
-                tracing::error!("Failed to compress folder: {}", e);
                 media_processor.fail_compression(folder_path, started_at, Arc::new(e.to_string()));
-                return None;
+                return Err(e);
             }
             Err(e) => {
-                tracing::error!("Compression task failed: {}", e);
-                media_processor.fail_compression(folder_path, started_at, Arc::new(e.to_string()));
-                return None;
+                let msg = e.to_string();
+                media_processor.fail_compression(folder_path, started_at, Arc::new(msg.clone()));
+                anyhow::bail!("Compression task failed: {msg}");
             }
         };
 
@@ -158,7 +181,7 @@ impl MatrixAttachment {
             started_at.elapsed()
         );
 
-        Some(Self::from_bytes(
+        Ok(Self::from_bytes(
             &format!("{folder_name}.zip"),
             "application/zip".parse().expect("valid mime type"),
             data,

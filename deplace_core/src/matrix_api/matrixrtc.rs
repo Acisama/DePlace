@@ -68,11 +68,12 @@ type PendingUpdates = HashMap<String, Vec<(String, ReceivedEncryptionKeys)>>;
 static PENDING_KEY_UPDATES: LazyLock<Mutex<PendingUpdates>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+type LastSeenCallRoster = HashMap<String, HashSet<(String, String, ruma::UInt)>>;
+
 /// Who was in each room's call when we last looked, so arrivals and
 /// departures can be told from sticky membership refreshes.
-static LAST_SEEN_CALL_ROSTERS: LazyLock<
-    Mutex<HashMap<String, HashSet<(String, String, ruma::UInt)>>>,
-> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static LAST_SEEN_CALL_ROSTERS: LazyLock<Mutex<LastSeenCallRoster>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// How long our call key remains fresh enough to hand to an arrival
 /// without rotating; older keys are rotated instead.

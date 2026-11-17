@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::future;
+use std::path::PathBuf;
 
 use call::render_call_members;
 use deplace_core::PaginationDirection;
@@ -351,6 +352,18 @@ impl Chat {
 
     pub fn clear_hover(&mut self) {
         self.timeline.clear_hover();
+    }
+
+    pub fn add_hovered_file(&mut self, path: PathBuf) {
+        self.input.add_hovered_file(path);
+    }
+
+    pub fn clear_hovered_files(&mut self) {
+        self.input.clear_hovered_files();
+    }
+
+    pub fn commit_hovered_file(&mut self, path: PathBuf) -> Task<ChatMessage> {
+        self.input.commit_hovered_file(path).map(ChatMessage::Input)
     }
 
     fn handle_timeline_message(&mut self, message: TimelineMessage) -> Option<ChatAction> {

@@ -1,4 +1,4 @@
-use std::process::exit;
+use std::{path::PathBuf, process::exit};
 
 use crate::common::*;
 use chat::{
@@ -68,6 +68,10 @@ pub enum HomeMessage {
         finished: bool,
     },
     SettingsChanged,
+
+    FileHovered(PathBuf),
+    FileDropped(PathBuf),
+    FileHoverLeft,
 
     WindowFocused,
     /// Notify of updated call state
@@ -371,6 +375,12 @@ impl Home {
         }
     }
 
+    fn active_chat(&mut self) -> Option<&mut Chat> {
+        self.active_room_id
+            .as_ref()
+            .and_then(|id| self.chats.get_mut(id))
+    }
+
     fn dispatch_to_chat(&mut self, room_id: OwnedRoomId, msg: ChatMessage) -> Option<HomeAction> {
         let Some(chat) = self.chats.get_mut(&room_id) else {
             tracing::warn!(
@@ -547,6 +557,31 @@ fn leave_call(state: &AppState, room: &DePlaceRoom) -> Option<HomeAction> {
 impl IcedWidget<HomeMessage, HomeAction> for Home {
     fn update(&mut self, message: HomeMessage) -> Option<HomeAction> {
         match message {
+            HomeMessage::FileHovered(path) => {
+                tracing::debug!("FileHovered: {:?}", path);
+                if let Some(chat) = self.active_chat() {
+                    chat.add_hovered_file(path);
+                }
+                None
+            }
+            HomeMessage::FileDropped(path) => {
+                tracing::debug!("FileDropped: {:?}", path);
+                self.active_chat().map(|chat| {
+                    let room_id = chat.room_id.clone();
+                    let task = chat.commit_hovered_file(path);
+                    HomeAction::Perform(task.map(move |message| HomeMessage::Chat {
+                        room_id: room_id.clone(),
+                        message,
+                    }))
+                })
+            }
+            HomeMessage::FileHoverLeft => {
+                tracing::debug!("FileHoverLeft");
+                if let Some(chat) = self.active_chat() {
+                    chat.clear_hovered_files();
+                }
+                None
+            }
             HomeMessage::Sidebar(msg) => match self.sidebar.update(msg)? {
                 SidebarAction::JoinCall(room) => join_call(&self.state, room),
                 SidebarAction::ParticipantMenu(menu) => {

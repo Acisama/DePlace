@@ -350,12 +350,24 @@ impl Root {
                 }
             }),
             iced::event::listen_with(|event, _, _| match event {
-                iced::Event::Window(window::Event::Focused) => {
-                    Some(AppMessage::WindowFocus { focused: true })
-                }
-                iced::Event::Window(window::Event::Unfocused) => {
-                    Some(AppMessage::WindowFocus { focused: false })
-                }
+                iced::Event::Window(event) => match event {
+                    iced::window::Event::Focused => {
+                        Some(AppMessage::Home(Box::new(HomeMessage::WindowFocused)))
+                    }
+                    iced::window::Event::Unfocused => {
+                        Some(AppMessage::Home(Box::new(HomeMessage::WindowFocused)))
+                    }
+                    iced::window::Event::FileHovered(path) => {
+                        Some(AppMessage::Home(Box::new(HomeMessage::FileHovered(path))))
+                    }
+                    iced::window::Event::FileDropped(path) => {
+                        Some(AppMessage::Home(Box::new(HomeMessage::FileDropped(path))))
+                    }
+                    iced::window::Event::FilesHoveredLeft => {
+                        Some(AppMessage::Home(Box::new(HomeMessage::FileHoverLeft)))
+                    }
+                    _ => None,
+                },
                 _ => None,
             }),
             iced::keyboard::listen().filter_map(|event| match event {
