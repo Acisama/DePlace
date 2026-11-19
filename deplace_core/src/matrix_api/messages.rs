@@ -6,7 +6,9 @@ use ego_tree::NodeRef;
 use image::ImageReader;
 use matrix_sdk::{
     Room,
-    attachment::{AttachmentConfig, AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo},
+    attachment::{
+        AttachmentConfig, AttachmentInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
+    },
     room::{
         edit::EditedContent,
         reply::{EnforceThread, Reply},
@@ -14,7 +16,7 @@ use matrix_sdk::{
 };
 use mime_guess::mime;
 use ruma::{
-    OwnedEventId, OwnedUserId,
+    OwnedEventId, OwnedTransactionId, OwnedUserId,
     events::{
         AnyMessageLikeEventContent, Mentions,
         room::message::{
@@ -37,7 +39,8 @@ pub trait RoomSendingExt {
         &self,
         attachment: MatrixAttachment,
         replies_to: Option<OwnedEventId>,
-    ) -> impl Future<Output = Result<()>>;
+        txn_id: Option<OwnedTransactionId>,
+    ) -> impl Future<Output = Result<OwnedTransactionId>>;
     fn edit_message(&self, message: OwnedEventId, html: String)
     -> impl Future<Output = Result<()>>;
 }
@@ -78,7 +81,8 @@ impl RoomSendingExt for Room {
         &self,
         attachment: MatrixAttachment,
         replies_to: Option<OwnedEventId>,
-    ) -> Result<()> {
+        txn_id: Option<OwnedTransactionId>,
+    ) -> Result<OwnedTransactionId> {
         let queue = self.send_queue();
 
         let size = attachment.data.len() as u32;
@@ -86,7 +90,8 @@ impl RoomSendingExt for Room {
         // thread is driving this task, same as everywhere else that touches image data.
         let mime_type = attachment.mime_type.clone();
         let data = attachment.data.clone();
-        let info = tokio::task::spawn_blocking(move || match mime_type.type_() {
+        let probe_start = std::time::Instant::now();
+        let (info, thumbnail) = tokio::task::spawn_blocking(move || match mime_type.type_() {
             mime::IMAGE => {
                 let img = ImageReader::new(Cursor::new(&data))
                     .with_guessed_format()
@@ -109,29 +114,61 @@ impl RoomSendingExt for Room {
                     is_animated: None,
                 };
 
-                AttachmentInfo::Image(info)
+                (AttachmentInfo::Image(info), None)
             }
             mime::VIDEO => {
+                let metadata =
+                    super::video_info::probe_video(&data, &format!(".{}", mime_type.subtype()));
+
+                let thumbnail = metadata.thumbnail_jpeg.map(|jpeg| {
+                    (
+                        jpeg,
+                        metadata.thumbnail_width.unwrap_or_default().into(),
+                        metadata.thumbnail_height.unwrap_or_default().into(),
+                    )
+                });
+
                 let info = BaseVideoInfo {
-                    height: None,
-                    width: None,
-                    size: None,
-                    blurhash: None,
-                    duration: None,
+                    height: metadata.height.map(Into::into),
+                    width: metadata.width.map(Into::into),
+                    size: Some(size.into()),
+                    blurhash: metadata.blurhash,
+                    duration: metadata.duration,
                 };
 
-                AttachmentInfo::Video(info)
+                (AttachmentInfo::Video(info), thumbnail)
             }
-            _ => AttachmentInfo::File(BaseFileInfo {
-                size: Some(size.into()),
-            }),
+            _ => (
+                AttachmentInfo::File(BaseFileInfo {
+                    size: Some(size.into()),
+                }),
+                None,
+            ),
         })
         .await?;
 
+        tracing::info!(
+            filename = %attachment.filename,
+            size,
+            probe_ms = probe_start.elapsed().as_millis() as u64,
+            has_thumbnail = thumbnail.is_some(),
+            "attachment metadata prepared"
+        );
+
+        let thumbnail = thumbnail.map(|(data, width, height)| Thumbnail {
+            size: u32::try_from(data.len()).unwrap_or(u32::MAX).into(),
+            data,
+            content_type: mime::IMAGE_JPEG,
+            width,
+            height,
+        });
+
+        let txn_id = txn_id.unwrap_or_else(ruma::TransactionId::new);
+
         let config = AttachmentConfig {
-            txn_id: None,
+            txn_id: Some(txn_id.clone()),
             info: Some(info),
-            thumbnail: None,
+            thumbnail,
             caption: None,
             reply: replies_to.map(|event_id| Reply {
                 event_id,
@@ -142,6 +179,8 @@ impl RoomSendingExt for Room {
             extra_content: None,
         };
 
+        let queue_start = std::time::Instant::now();
+        let filename = attachment.filename.clone();
         queue
             .send_attachment(
                 attachment.filename,
@@ -150,8 +189,14 @@ impl RoomSendingExt for Room {
                 config,
             )
             .await?;
+        tracing::info!(
+            filename = %filename,
+            size,
+            queue_ms = queue_start.elapsed().as_millis() as u64,
+            "attachment handed to send queue"
+        );
 
-        Ok(())
+        Ok(txn_id)
     }
 
     async fn edit_message(&self, message: OwnedEventId, html: String) -> Result<()> {
@@ -206,11 +251,13 @@ impl RoomSendingExt for Timeline {
         &self,
         attachment: MatrixAttachment,
         replies_to: Option<OwnedEventId>,
-    ) -> Result<()> {
+        txn_id: Option<OwnedTransactionId>,
+    ) -> Result<OwnedTransactionId> {
         let size = attachment.data.len() as u32;
         let mime_type = attachment.mime_type.clone();
         let data = attachment.data.clone();
-        let info = tokio::task::spawn_blocking(move || match mime_type.type_() {
+        let probe_start = std::time::Instant::now();
+        let (info, thumbnail) = tokio::task::spawn_blocking(move || match mime_type.type_() {
             mime::IMAGE => {
                 let img = ImageReader::new(Cursor::new(&data))
                     .with_guessed_format()
@@ -233,29 +280,61 @@ impl RoomSendingExt for Timeline {
                     is_animated: None,
                 };
 
-                AttachmentInfo::Image(info)
+                (AttachmentInfo::Image(info), None)
             }
             mime::VIDEO => {
+                let metadata =
+                    super::video_info::probe_video(&data, &format!(".{}", mime_type.subtype()));
+
+                let thumbnail = metadata.thumbnail_jpeg.map(|jpeg| {
+                    (
+                        jpeg,
+                        metadata.thumbnail_width.unwrap_or_default().into(),
+                        metadata.thumbnail_height.unwrap_or_default().into(),
+                    )
+                });
+
                 let info = BaseVideoInfo {
-                    height: None,
-                    width: None,
-                    size: None,
-                    blurhash: None,
-                    duration: None,
+                    height: metadata.height.map(Into::into),
+                    width: metadata.width.map(Into::into),
+                    size: Some(size.into()),
+                    blurhash: metadata.blurhash,
+                    duration: metadata.duration,
                 };
 
-                AttachmentInfo::Video(info)
+                (AttachmentInfo::Video(info), thumbnail)
             }
-            _ => AttachmentInfo::File(BaseFileInfo {
-                size: Some(size.into()),
-            }),
+            _ => (
+                AttachmentInfo::File(BaseFileInfo {
+                    size: Some(size.into()),
+                }),
+                None,
+            ),
         })
         .await?;
 
+        tracing::info!(
+            filename = %attachment.filename,
+            size,
+            probe_ms = probe_start.elapsed().as_millis() as u64,
+            has_thumbnail = thumbnail.is_some(),
+            "attachment metadata prepared"
+        );
+
+        let thumbnail = thumbnail.map(|(data, width, height)| Thumbnail {
+            size: u32::try_from(data.len()).unwrap_or(u32::MAX).into(),
+            data,
+            content_type: mime::IMAGE_JPEG,
+            width,
+            height,
+        });
+
+        let txn_id = txn_id.unwrap_or_else(ruma::TransactionId::new);
+
         let config = matrix_sdk_ui::timeline::AttachmentConfig {
-            txn_id: None,
+            txn_id: Some(txn_id.clone()),
             info: Some(info),
-            thumbnail: None,
+            thumbnail,
             caption: None,
             in_reply_to: replies_to,
             mentions: None,
@@ -264,6 +343,13 @@ impl RoomSendingExt for Timeline {
 
         tracing::debug!(filename = %attachment.filename, size, "queuing attachment for upload");
 
+        // Media upload progress must be opted in client-wide.
+        self.room()
+            .client()
+            .send_queue()
+            .enable_upload_progress(true);
+
+        let queue_start = std::time::Instant::now();
         self.send_attachment(
             AttachmentSource::Data {
                 bytes: attachment.data.into(),
@@ -275,9 +361,13 @@ impl RoomSendingExt for Timeline {
         .use_send_queue()
         .await?;
 
-        tracing::debug!("attachment queued successfully");
+        tracing::info!(
+            size,
+            queue_ms = queue_start.elapsed().as_millis() as u64,
+            "attachment queued successfully"
+        );
 
-        Ok(())
+        Ok(txn_id)
     }
 
     async fn edit_message(&self, message: OwnedEventId, html: String) -> Result<()> {

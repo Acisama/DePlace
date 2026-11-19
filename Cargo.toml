@@ -38,6 +38,7 @@ futures-util = "0.3"
 getrandom = { version = "0.4.0-rc.1" }
 gstreamer = "0.23"
 gstreamer-app = "0.23"
+gstreamer-video = "0.23"
 iced_video_player = { path = "iced_video_player" }
 image = "0.25.10"
 imbl = "6.1.0"

@@ -20,6 +20,7 @@ mod members;
 pub mod messages;
 pub mod profile_data;
 pub mod sync;
+pub mod video_info;
 
 use crate::{
     DEVICE_DISPLAY_NAME,

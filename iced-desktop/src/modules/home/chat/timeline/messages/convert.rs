@@ -570,10 +570,21 @@ impl MessageContent {
                         source: video.source.clone(),
                         format: matrix_sdk::media::MediaFormat::File,
                     };
-                    let thumbnail_parameters = MediaRequestParameters {
-                        source: video.source.clone(),
-                        format: thumbnail_format(width as u64, height as u64),
-                    };
+                    // The event's own thumbnail is uploaded before the event is
+                    // sent, so it is always available, unlike a server-side
+                    // thumbnail of the video mxc
+                    let thumbnail_parameters = video
+                        .info
+                        .as_ref()
+                        .and_then(|info| info.thumbnail_source.clone())
+                        .map(|source| MediaRequestParameters {
+                            source,
+                            format: matrix_sdk::media::MediaFormat::File,
+                        })
+                        .unwrap_or_else(|| MediaRequestParameters {
+                            source: video.source.clone(),
+                            format: thumbnail_format(width as u64, height as u64),
+                        });
 
                     MessageContent::Video {
                         video: VideoMessage {

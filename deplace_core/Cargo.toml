@@ -28,6 +28,7 @@ futures-util.workspace = true
 getrandom.workspace = true
 gstreamer.workspace = true
 gstreamer-app.workspace = true
+gstreamer-video.workspace = true
 hex = "0.4.3"
 iana-time-zone = "0.1.65"
 iced = { workspace = true, optional = true }

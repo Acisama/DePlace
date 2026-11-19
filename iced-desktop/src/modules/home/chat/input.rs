@@ -5,16 +5,19 @@ use deplace_core::{
 use iced::{
     Alignment, Length,
     border::{Radius, radius},
+    futures::SinkExt,
     widget::{Id, operation, text::LineHeight, text_editor},
 };
 use image::ImageReader;
 use macros::{iced_cache, iced_icon};
+use matrix_sdk::send_queue::RoomSendQueueUpdate;
 use matrix_sdk_ui::Timeline;
-use std::io::Cursor;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io::Cursor,
     path::PathBuf,
 };
+use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
 use crate::{
@@ -22,7 +25,7 @@ use crate::{
     components::{InsetShadow, help_mode::ChatHelpKey, phosphor_icon},
 };
 
-use super::timeline::messages::MessageEvent;
+use super::{ChatMessage, timeline::messages::MessageEvent};
 
 #[derive(Debug, Clone)]
 pub enum ThumbnailType {
@@ -35,16 +38,25 @@ pub struct Attachment {
     id: Uuid,
     thumbnail: ThumbnailType,
     attachment: MatrixAttachment,
-    // True while the real attachment bytes (e.g. a clipboard image still being
-    // PNG-encoded in the background) aren't ready yet. The thumbnail is already
-    // shown, but a pending attachment must not be sent until this clears.
+    /// Set while the bytes are still being encoded (a clipboard image, say):
+    /// the chip already shows, but sending waits for this to clear.
     pending: bool,
+    /// Set while the attachment is in the send queue, so its chip can show
+    /// upload progress and leave once the upload finished.
+    upload: Option<UploadState>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct UploadState {
+    current: usize,
+    total: usize,
 }
 
 impl Hash for Attachment {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
         self.pending.hash(state);
+        self.upload.map(|u| (u.current, u.total)).hash(state);
         self.attachment.filename.hash(state);
         self.attachment.mime_type.hash(state);
     }
@@ -69,16 +81,18 @@ impl From<MatrixAttachment> for Attachment {
             thumbnail,
             attachment,
             pending: false,
+            upload: None,
         }
     }
 }
 
-// Uploading a full-resolution decode straight to the GPU just to draw a small
-// preview square is what stalled the window when picking large images: the
-// texture upload runs synchronously on the render thread during `view()`.
+/// Longest side of a chip preview: decoding at full size stalls the window,
+/// because the texture upload runs on the render thread in `view()`.
 const ATTACHMENT_THUMBNAIL_SIZE: u32 = 256;
 
 fn generate_thumbnail(data: &[u8], mime_type: &mime::Mime) -> Option<ImageHandle> {
+    // Videos are probed in the background and at send time, so decoding one
+    // here would hold the chip back for seconds.
     if mime_type.type_() != mime::IMAGE {
         return None;
     }
@@ -98,8 +112,7 @@ fn generate_thumbnail(data: &[u8], mime_type: &mime::Mime) -> Option<ImageHandle
     ))
 }
 
-// Same idea as `generate_thumbnail`, but for raw pixels (e.g. straight off the
-// clipboard) instead of encoded bytes that need decoding first.
+/// The same downscale as [`generate_thumbnail`], for raw pixels off the clipboard.
 fn downscale_thumbnail(width: u32, height: u32, rgba: &[u8]) -> Option<ImageHandle> {
     let img = image::RgbaImage::from_raw(width, height, rgba.to_vec())?;
     let thumb = image::DynamicImage::ImageRgba8(img)
@@ -113,21 +126,152 @@ fn downscale_thumbnail(width: u32, height: u32, rgba: &[u8]) -> Option<ImageHand
     ))
 }
 
-// Each attachment gets its own blocking task so decoding thumbnails for
-// several files happens in parallel, and each attachment shows up in the
-// input bar as soon as it is ready instead of all at once.
+/// Gives every attachment its own blocking task, so thumbnails decode in
+/// parallel and each chip appears as soon as its own file is ready.
 fn attachments_task(attachments: Vec<MatrixAttachment>) -> Task<InputMessage> {
     Task::batch(attachments.into_iter().map(|attachment| {
         Task::future(async move {
             match tokio::task::spawn_blocking(move || attachment.into()).await {
-                Ok(attachment) => InputMessage::AttachmentAdded(vec![Arc::new(attachment)]),
+                Ok(attachment) => Some(attachment),
                 Err(e) => {
                     tracing::error!("Failed to build attachment: {}", e);
-                    InputMessage::None
+                    None
                 }
             }
         })
+        .then(|built| {
+            let preview = built
+                .as_ref()
+                .map(video_preview_task)
+                .unwrap_or_else(|| Task::done(InputMessage::None));
+            let added = Task::done(InputMessage::AttachmentAdded(
+                built.map(|a| vec![Arc::new(a)]).unwrap_or_default(),
+            ));
+            Task::batch([added, preview])
+        })
     }))
+}
+
+/// Pastes the clipboard image as a PNG attachment.
+///
+/// The chip shows up at once with a downscaled preview and the full-size encode
+/// follows; with no image on the clipboard the text fallback is pasted.
+fn image_paste_task(fallback: Option<Arc<String>>) -> Task<InputMessage> {
+    iced::clipboard::read_image().then(move |result| match result {
+        Ok(image) => {
+            let id = Uuid::now_v7();
+
+            // Downscaling still goes through spawn_blocking so large images
+            // cause no freezes
+            let show_now = Task::future({
+                let image = image.clone();
+                async move {
+                    let thumbnail = tokio::task::spawn_blocking(move || {
+                        downscale_thumbnail(image.size.width, image.size.height, &image.rgba)
+                    })
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(ThumbnailType::Image)
+                    .unwrap_or_else(|| ThumbnailType::Extention("IMG".to_string()));
+
+                    InputMessage::AttachmentAdded(vec![Arc::new(Attachment {
+                        id,
+                        thumbnail,
+                        attachment: MatrixAttachment::from_bytes(
+                            "pasted-image.png",
+                            mime::IMAGE_PNG,
+                            Vec::new(),
+                        ),
+                        pending: true,
+                        upload: None,
+                    })])
+                }
+            });
+
+            let encode = Task::future(async move {
+                match tokio::task::spawn_blocking(move || {
+                    MatrixAttachment::from_rgba(
+                        "pasted-image.png",
+                        image.size.width,
+                        image.size.height,
+                        &image.rgba,
+                    )
+                })
+                .await
+                {
+                    Ok(Ok(attachment)) => InputMessage::AttachmentReady(id, attachment),
+                    Ok(Err(e)) => {
+                        tracing::error!("Failed to encode clipboard image: {}", e);
+                        InputMessage::AttachmentFailed(id)
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to encode clipboard image: {}", e);
+                        InputMessage::AttachmentFailed(id)
+                    }
+                }
+            });
+
+            Task::batch([show_now, encode])
+        }
+        // Nothing on the clipboard but maybe text so paste it.
+        Err(_) => fallback
+            .clone()
+            .map(|text| {
+                Task::done(InputMessage::TextAction(text_editor::Action::Edit(
+                    text_editor::Edit::Paste(text),
+                )))
+            })
+            .unwrap_or_else(|| Task::done(InputMessage::None)),
+    })
+}
+
+/// Swaps a video chip's extension badge for a decoded frame once probing
+/// finishes, the chip itself shows immediately, badge and all.
+fn video_preview_task(attachment: &Attachment) -> Task<InputMessage> {
+    if attachment.attachment.mime_type.type_() != mime::VIDEO {
+        return Task::done(InputMessage::None);
+    }
+
+    let id = attachment.id;
+    let data = attachment.attachment.data.clone();
+    let mime_type = attachment.attachment.mime_type.clone();
+
+    Task::future(async move {
+        let probe_start = std::time::Instant::now();
+        let handle = tokio::task::spawn_blocking(move || {
+            deplace_core::matrix_api::video_info::probe_video(
+                &data,
+                &format!(".{}", mime_type.subtype()),
+            )
+            .thumbnail_jpeg
+            .and_then(|jpeg| {
+                ImageReader::new(Cursor::new(jpeg))
+                    .decode()
+                    .ok()
+                    .map(|img| {
+                        img.thumbnail(ATTACHMENT_THUMBNAIL_SIZE, ATTACHMENT_THUMBNAIL_SIZE)
+                            .to_rgba8()
+                    })
+            })
+            .map(|img| ImageHandle::from_rgba(img.width(), img.height(), img.into_raw()))
+        })
+        .await
+        .ok()
+        .flatten();
+
+        tracing::info!(
+            id = %id,
+            probe_ms = probe_start.elapsed().as_millis() as u64,
+            has_preview = handle.is_some(),
+            "video preview probed"
+        );
+
+        match handle {
+            Some(handle) => InputMessage::AttachmentPreview(id, handle),
+            None => InputMessage::None,
+        }
+    })
 }
 
 fn attachment_task(attachment: Option<MatrixAttachment>) -> Task<InputMessage> {
@@ -135,16 +279,144 @@ fn attachment_task(attachment: Option<MatrixAttachment>) -> Task<InputMessage> {
         match attachment {
             Some(attachment) => {
                 match tokio::task::spawn_blocking(move || attachment.into()).await {
-                    Ok(attachment) => InputMessage::AttachmentAdded(vec![Arc::new(attachment)]),
+                    Ok(attachment) => Some(attachment),
                     Err(e) => {
                         tracing::error!("Failed to build attachment: {}", e);
-                        InputMessage::None
+                        None
                     }
                 }
             }
-            None => InputMessage::None,
+            None => None,
         }
     })
+    .then(|built| {
+        let preview = built
+            .as_ref()
+            .map(video_preview_task)
+            .unwrap_or_else(|| Task::done(InputMessage::None));
+        let added = Task::done(InputMessage::AttachmentAdded(
+            built.map(|a| vec![Arc::new(a)]).unwrap_or_default(),
+        ));
+        Task::batch([added, preview])
+    })
+}
+
+/// Queues one attachment and streams its upload progress into the input bar.
+///
+/// Subscribing happens before queueing, so a tiny upload cannot finish in
+/// between and leave its chip stuck forever.
+fn attachment_upload_task(
+    timeline: Arc<Timeline>,
+    id: Uuid,
+    attachment: MatrixAttachment,
+    replies_to: Option<OwnedEventId>,
+) -> Task<InputMessage> {
+    Task::stream(iced::stream::channel::<InputMessage>(
+        64,
+        move |mut output: iced::futures::channel::mpsc::Sender<InputMessage>| async move {
+            macro_rules! emit {
+                ($msg:expr) => {
+                    if output.send($msg).await.is_err() {
+                        return;
+                    }
+                };
+            }
+
+            let queue = timeline.room().send_queue();
+
+            let started = std::time::Instant::now();
+            let (_echoes, mut rx) = match queue.subscribe().await {
+                Ok(subscribed) => subscribed,
+                Err(e) => {
+                    tracing::warn!("Failed to subscribe to send queue: {}", e);
+                    emit!(InputMessage::UploadFailed(id));
+                    return;
+                }
+            };
+
+            let txn_id = match timeline
+                .send_deplace_attachment(attachment, replies_to, None)
+                .await
+            {
+                Ok(txn_id) => txn_id,
+                Err(e) => {
+                    tracing::warn!("Failed to queue attachment: {}", e);
+                    emit!(InputMessage::UploadFailed(id));
+                    return;
+                }
+            };
+            tracing::info!(
+                id = %id,
+                queue_ms = started.elapsed().as_millis() as u64,
+                "attachment queued, waiting for upload progress"
+            );
+
+            loop {
+                match rx.recv().await {
+                    Ok(RoomSendQueueUpdate::MediaUpload {
+                        related_to,
+                        progress,
+                        ..
+                    }) if related_to == txn_id => {
+                        tracing::info!(
+                            id = %id,
+                            elapsed_ms = started.elapsed().as_millis() as u64,
+                            current = progress.current,
+                            total = progress.total,
+                            "media upload progress"
+                        );
+                        emit!(InputMessage::UploadProgress(
+                            id,
+                            progress.current,
+                            progress.total,
+                        ));
+
+                        // The send queue uploads first and sends the event right
+                        // after, so full progress means the chip can leave now.
+                        if progress.total > 0 && progress.current >= progress.total {
+                            emit!(InputMessage::UploadDone(id));
+                            return;
+                        }
+                    }
+                    Ok(RoomSendQueueUpdate::SentEvent { transaction_id, .. })
+                        if transaction_id == txn_id =>
+                    {
+                        tracing::info!(
+                            id = %id,
+                            elapsed_ms = started.elapsed().as_millis() as u64,
+                            "attachment upload sent"
+                        );
+                        emit!(InputMessage::UploadDone(id));
+                        return;
+                    }
+                    Ok(RoomSendQueueUpdate::SendError {
+                        transaction_id,
+                        error,
+                        ..
+                    }) if transaction_id == txn_id => {
+                        tracing::warn!(
+                            id = %id,
+                            elapsed_ms = started.elapsed().as_millis() as u64,
+                            "Attachment upload failed: {}",
+                            error
+                        );
+                        emit!(InputMessage::UploadFailed(id));
+                        return;
+                    }
+                    Ok(_) => {}
+                    Err(RecvError::Lagged(n)) => {
+                        tracing::warn!("Missed {n} send queue updates for an upload");
+                        // Keep going; only completion matters now, and progress
+                        // will be corrected by the next MediaUpload update.
+                    }
+                    Err(_) => {
+                        emit!(InputMessage::UploadFailed(id));
+                        return;
+                    }
+                }
+            }
+        },
+    ))
 }
 
 #[derive(Debug, Clone)]
@@ -159,9 +431,13 @@ pub enum InputMessage {
     OpenAttachmentPicker,
     OpenCompressedAttachmentPicker,
     AttachmentAdded(Vec<Arc<Attachment>>),
+    AttachmentPreview(Uuid, ImageHandle),
     Paste,
     AttachmentReady(Uuid, MatrixAttachment),
     AttachmentFailed(Uuid),
+    UploadProgress(Uuid, usize, usize),
+    UploadDone(Uuid),
+    UploadFailed(Uuid),
     RemoveAttachment(usize),
 }
 
@@ -172,7 +448,9 @@ impl HelpOverMessage for InputMessage {
 }
 
 pub enum InputAction {
-    SendMessage(Task<()>),
+    /// The send was accepted. The task yields follow-up messages (upload
+    /// progress, ...) that must be fed back into this widget.
+    SendMessage(Task<ChatMessage>),
     RemoveReplying,
     HelpOver(Option<HelpKey>),
     Perform(Task<InputMessage>),
@@ -196,11 +474,9 @@ pub struct ChatInput {
     replying_to: Option<(Arc<MessageEvent>, OwnedEventId)>,
 
     #[hash]
-    attachments: Vec<Arc<Attachment>>,
+    attachments: Vec<Attachment>,
 
-    // Attachments can become unsendable if AttachmentReady or Failed is delivered
-    // before AttachmentAdded,
-    // so hold the outcome until the preview arrives instead.
+    /// An outcome that arrived before its chip, held until the chip shows up.
     ready_attachments: BTreeMap<Uuid, MatrixAttachment>,
     failed_attachments: BTreeSet<Uuid>,
 
@@ -306,10 +582,11 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             thumbnail,
                             attachment: ready,
                             pending: false,
+                            upload: None,
                         });
                     }
 
-                    self.attachments.push(attachment);
+                    self.attachments.push(Arc::unwrap_or_clone(attachment));
                 }
                 Some(InputAction::Perform(self.focus()))
             }
@@ -329,85 +606,58 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 ))
             }
             InputMessage::Paste => {
-                let task = iced::clipboard::read_image().then(|result| match result {
-                    Ok(image) => {
-                        let id = Uuid::now_v7();
-
-                        // Downscaling still goes through spawn_blocking: uploading the
-                        // clipboard image's full resolution straight to the GPU for a
-                        // small preview box is what caused the freeze with large images.
-                        let show_now = Task::future({
-                            let image = image.clone();
-                            async move {
-                                let thumbnail = tokio::task::spawn_blocking(move || {
-                                    downscale_thumbnail(
-                                        image.size.width,
-                                        image.size.height,
-                                        &image.rgba,
-                                    )
-                                })
-                                .await
-                                .ok()
-                                .flatten()
-                                .map(ThumbnailType::Image)
-                                .unwrap_or_else(|| ThumbnailType::Extention("IMG".to_string()));
-
-                                InputMessage::AttachmentAdded(vec![Arc::new(Attachment {
-                                    id,
-                                    thumbnail,
-                                    attachment: MatrixAttachment::from_bytes(
-                                        "pasted-image.png",
-                                        mime::IMAGE_PNG,
-                                        Vec::new(),
-                                    ),
-                                    pending: true,
-                                })])
-                            }
-                        });
-
-                        let encode = Task::future(async move {
-                            match tokio::task::spawn_blocking(move || {
-                                MatrixAttachment::from_rgba(
-                                    "pasted-image.png",
-                                    image.size.width,
-                                    image.size.height,
-                                    &image.rgba,
-                                )
-                            })
-                            .await
-                            {
-                                Ok(Ok(attachment)) => InputMessage::AttachmentReady(id, attachment),
-                                Ok(Err(e)) => {
-                                    tracing::error!("Failed to encode clipboard image: {}", e);
-                                    InputMessage::AttachmentFailed(id)
+                // Paste order: text carrying file:// URIs, then files, then an
+                // image, and plain text only when there is nothing else.
+                tracing::debug!("Paste: starting the clipboard chain");
+                let task = iced::clipboard::read_text().then(|result| {
+                    tracing::debug!(?result, "Paste: text read");
+                    let text = result.ok().filter(|text| !text.is_empty());
+                    match text {
+                        Some(ref text) if text.contains("file://") => {
+                            // File managers copy files as file:// URIs rather
+                            // than text, e.g. a video pasted from a file browser.
+                            tracing::debug!("Paste: text carries file URIs, attaching");
+                            Task::future(MatrixAttachment::from_clipboard_file_list(
+                                text.to_string(),
+                            ))
+                            .then(attachments_task)
+                        }
+                        text => iced::clipboard::read_files().then(move |result| {
+                            tracing::debug!(?result, "Paste: file list read");
+                            match result {
+                                Ok(files) if !files.is_empty() => {
+                                    tracing::debug!(count = files.len(), "Paste: attaching files",);
+                                    Task::future(MatrixAttachment::from_clipboard_file_list(
+                                        files
+                                            .iter()
+                                            .map(|path| path.to_string_lossy().into_owned())
+                                            .collect::<Vec<_>>()
+                                            .join("\n"),
+                                    ))
+                                    .then(attachments_task)
                                 }
-                                Err(e) => {
-                                    tracing::error!("Failed to encode clipboard image: {}", e);
-                                    InputMessage::AttachmentFailed(id)
+                                // No file list: image paste with the text as
+                                // the last-resort fallback.
+                                _ => {
+                                    tracing::debug!("Paste: falling back to the image read");
+                                    image_paste_task(text.clone())
                                 }
                             }
-                        });
-
-                        Task::batch([show_now, encode])
+                        }),
                     }
-                    Err(_) => iced::clipboard::read_text().then(|result| match result {
-                        Ok(text) => Task::done(InputMessage::TextAction(
-                            text_editor::Action::Edit(text_editor::Edit::Paste(text)),
-                        )),
-                        Err(_) => Task::done(InputMessage::None),
-                    }),
                 });
 
                 Some(InputAction::Perform(task))
             }
             InputMessage::AttachmentReady(id, attachment) => {
                 if let Some(existing) = self.attachments.iter_mut().find(|a| a.id == id) {
-                    *existing = Arc::new(Attachment {
+                    *existing = Attachment {
                         id,
                         thumbnail: existing.thumbnail.clone(),
                         attachment,
                         pending: false,
-                    });
+                        upload: None,
+                    };
                 } else {
                     // hold the result until the matching `AttachmentAdded`
                     // arrives.
@@ -421,6 +671,43 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                     self.failed_attachments.insert(id);
                 }
                 self.attachments.retain(|a| a.id != id);
+                None
+            }
+            InputMessage::UploadProgress(id, current, total) => {
+                if let Some(attachment) = self.attachments.iter_mut().find(|a| a.id == id) {
+                    // Progress never goes backwards (e.g. a thumbnail whose
+                    // bytes land after the file finished).
+                    let previous = match attachment.upload {
+                        Some(state) => state.current,
+                        None => 0,
+                    };
+                    attachment.upload = Some(UploadState {
+                        current: current.max(previous),
+                        total,
+                    });
+                }
+                None
+            }
+            InputMessage::UploadDone(id) => {
+                self.attachments.retain(|a| a.id != id);
+                Some(InputAction::Perform(self.focus()))
+            }
+            InputMessage::UploadFailed(id) => {
+                // Keep the chip so the user can retry with another Enter.
+                if let Some(attachment) = self.attachments.iter_mut().find(|a| a.id == id) {
+                    attachment.upload = None;
+                }
+                None
+            }
+            InputMessage::AttachmentPreview(id, handle) => {
+                for attachment in &mut self.attachments {
+                    if attachment.id == id
+                        && matches!(attachment.thumbnail, ThumbnailType::Extention(_))
+                    {
+                        attachment.thumbnail = ThumbnailType::Image(handle.clone());
+                        break;
+                    }
+                }
                 None
             }
             InputMessage::HelpOver(help) => Some(InputAction::HelpOver(help)),
@@ -461,44 +748,47 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 content.perform(text_editor::Action::Edit(text_editor::Edit::Backspace));
                 self.replying_to = None;
 
-                // Attachments still being encoded (e.g. a clipboard image) aren't sendable
-                // yet; leave them in place so they go out with the next send instead of
-                // being sent with no data. `MatrixAttachment::data` is `Bytes`, so cloning
-                // it here is a cheap refcount bump, not a copy of the file.
-                let still_pending: Vec<_> = self
-                    .attachments
-                    .iter()
-                    .filter(|a| a.pending)
-                    .cloned()
-                    .collect();
-
-                let attachments: Vec<MatrixAttachment> = self
-                    .attachments
-                    .iter()
-                    .filter(|a| !a.pending)
-                    .map(|attachment| attachment.attachment.clone())
-                    .collect();
-                self.attachments = still_pending;
-
-                Some(InputAction::SendMessage(Task::future(async move {
-                    let mut next_replying_to = None;
-                    if let Some(text) = text {
-                        if let Err(e) = timeline.send_message(text, replying_to).await {
-                            tracing::warn!("Failed to send message: {}", e);
-                        }
-                        next_replying_to = None;
+                // Encoding attachments stay, uploading ones are in the send
+                // queue, the rest are queued here and keep their chips until done.
+                let mut upload_tasks = Vec::new();
+                // Only the first outgoing item carries the
+                // reply, same as before.
+                let mut first_reply = text.is_none().then(|| replying_to.clone()).flatten();
+                self.attachments.retain_mut(|attachment| {
+                    if attachment.pending || attachment.upload.is_some() {
+                        return true;
                     }
 
-                    for attachment in attachments {
-                        if let Err(e) = timeline
-                            .send_deplace_attachment(attachment, next_replying_to)
-                            .await
-                        {
-                            tracing::warn!("Failed to send message: {}", e);
+                    let total = attachment.attachment.data.len();
+                    let id = attachment.id;
+                    let to_send = attachment.attachment.clone();
+                    let replies_to = first_reply.take();
+                    attachment.upload = Some(UploadState { current: 0, total });
+
+                    upload_tasks.push(attachment_upload_task(
+                        timeline.clone(),
+                        id,
+                        to_send,
+                        replies_to,
+                    ));
+                    true
+                });
+
+                let text_task = Task::future({
+                    let timeline = timeline.clone();
+                    async move {
+                        if let Some(text) = text {
+                            if let Err(e) = timeline.send_message(text, replying_to).await {
+                                tracing::warn!("Failed to send message: {}", e);
+                            }
                         }
-                        next_replying_to = None;
                     }
-                })))
+                });
+
+                Some(InputAction::SendMessage(Task::batch([
+                    text_task.map(|()| ChatMessage::None),
+                    Task::batch(upload_tasks).map(ChatMessage::Input),
+                ])))
             }
             InputMessage::BackspacePressed { ctrl } => {
                 let iced::advanced::text::Position { line, index } =
@@ -647,6 +937,59 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                 .clip(true)
                                 .boxed()
                             }
+                        };
+
+                        // While uploading, dim the chip and pin an upload
+                        // progress bar to its bottom edge.
+                        let image: Element<'static, InputMessage> = match attachment.upload {
+                            Some(upload) => {
+                                let ratio = if upload.total > 0 {
+                                    (upload.current as f32 / upload.total as f32).clamp(0.0, 1.0)
+                                } else {
+                                    0.0
+                                };
+
+                                w::stack![
+                                    image,
+                                    w::container(
+                                        w::progress_bar(0.0..=1.0, ratio).girth(4.0).style(
+                                            move |_| {
+                                                w::progress_bar::Style {
+                                                    background: theme.solid_bg.to_iced().into(),
+                                                    bar: theme.accent.to_iced().into(),
+                                                    border: Border::default(),
+                                                }
+                                            }
+                                        ),
+                                    )
+                                    .width(size)
+                                    .height(size)
+                                    .padding(iced::Padding {
+                                        top: 0.0,
+                                        right: 4.0,
+                                        bottom: 4.0,
+                                        left: 4.0,
+                                    })
+                                    .align_y(iced::alignment::Vertical::Bottom)
+                                    .style(move |_| {
+                                        w::container::Style {
+                                            background: Some(
+                                                theme.solid_bg.set_alpha(0.75).to_iced().into(),
+                                            ),
+                                            border: Border {
+                                                radius: structure.semi_large_border_radius().into(),
+                                                ..Default::default()
+                                            },
+                                            ..Default::default()
+                                        }
+                                    }),
+                                ]
+                                .clip(true)
+                                .width(size)
+                                .height(size)
+                                .boxed()
+                            }
+                            None => image,
                         };
 
                         help_view

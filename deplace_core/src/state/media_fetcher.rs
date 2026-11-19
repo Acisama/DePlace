@@ -31,6 +31,14 @@ use ruma::{
     exports::http,
 };
 use sha2::{Digest, Sha256};
+
+/// Error text the homeserver returns while the media is not uploaded yet.
+const MEDIA_NOT_UPLOADED: &str = "Media not found (not yet uploaded)";
+
+/// Retries for a download whose media is not on the server yet, 2s apart.
+const MEDIA_NOT_UPLOADED_RETRIES: usize = 12;
+/// How long between retries.
+const MEDIA_NOT_UPLOADED_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 use std::sync::Mutex;
 use tokio::sync::watch::{self, Receiver, Sender};
 
@@ -738,19 +746,47 @@ impl MediaProcessor {
             "video cache file download started"
         );
 
-        let result = self
-            .stream_to_file(
-                http_req,
-                &progress,
-                dest,
-                encrypt,
-                expected_ciphertext_hash(source),
-            )
-            .await;
+        // A download clicked on own not-yet-uploaded media (the send
+        // queue is still uploading it) gets 404
+        let mut result = Err(MEDIA_NOT_UPLOADED.into());
+        for attempt in 0..=MEDIA_NOT_UPLOADED_RETRIES {
+            result = self
+                .stream_to_file(
+                    http_req.clone(),
+                    &progress,
+                    dest,
+                    encrypt,
+                    expected_ciphertext_hash(source),
+                )
+                .await;
+            match &result {
+                Err(e) if e == MEDIA_NOT_UPLOADED && attempt < MEDIA_NOT_UPLOADED_RETRIES => {
+                    tracing::debug!(
+                        media_key = %source.unique_key(),
+                        attempt,
+                        "media not uploaded yet, retrying download"
+                    );
+                    tokio::time::sleep(MEDIA_NOT_UPLOADED_RETRY_DELAY).await;
+                }
+                _ => break,
+            }
+        }
 
         tracing::info!(
             media_key = %source.unique_key(),
             elapsed_ms = started_at.elapsed().unwrap_or_default().as_millis() as u64,
+            downloaded_bytes = match &progress {
+                DownloadProgress::Downloading { downloaded_bytes, .. } => {
+                    downloaded_bytes.load(std::sync::atomic::Ordering::Relaxed)
+                }
+                _ => 0,
+            },
+            total_bytes = match &progress {
+                DownloadProgress::Downloading { total_bytes, .. } => {
+                    total_bytes.load(std::sync::atomic::Ordering::Relaxed)
+                }
+                _ => 0,
+            },
             successful = result.is_ok(),
             "video cache file download finished"
         );
@@ -801,12 +837,11 @@ impl MediaProcessor {
             }
         }
 
-        let response = reqwest_builder
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?;
+        let response = reqwest_builder.send().await.map_err(|e| e.to_string())?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(MEDIA_NOT_UPLOADED.into());
+        }
+        let response = response.error_for_status().map_err(|e| e.to_string())?;
 
         if let Some(total) = response.content_length() {
             progress.set_total_bytes(total);

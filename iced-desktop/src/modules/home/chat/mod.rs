@@ -437,7 +437,7 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             ChatMessage::Input(msg) => match self.input.update(msg)? {
                 InputAction::SendMessage(task) => {
                     self.timeline.remove_replying();
-                    Some(ChatAction::Run(task))
+                    Some(ChatAction::Perform(task))
                 }
                 InputAction::RemoveReplying => {
                     self.timeline.remove_replying();

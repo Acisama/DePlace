@@ -1915,6 +1915,7 @@ dependencies = [
  "getrandom 0.4.3",
  "gstreamer",
  "gstreamer-app",
+ "gstreamer-video",
  "hex",
  "iana-time-zone",
  "iced",

@@ -113,6 +113,48 @@ impl MatrixAttachment {
         array
     }
 
+    /// Attaches every `file://` URI in the given clipboard text
+    /// Text without file URIs yields no attachments.
+    pub async fn from_clipboard_file_list(text: String) -> Vec<MatrixAttachment> {
+        // Each line is either a `file://` URI or a plain
+        // filesystem path
+        let paths: Vec<std::path::PathBuf> = text
+            .lines()
+            .map(|line| line.trim())
+            .filter(|line| !line.is_empty())
+            .filter_map(|line| match url::Url::parse(line) {
+                Ok(url) if url.scheme() == "file" => url.to_file_path().ok(),
+                Ok(_) => {
+                    tracing::debug!("Skipping non-file clipboard URI: {line}");
+                    None
+                }
+                Err(_) => Some(std::path::PathBuf::from(line)),
+            })
+            .collect();
+        if paths.is_empty() {
+            tracing::debug!("No usable clipboard file paths/URIs in: {text:?}");
+        }
+
+        let mut array = Vec::new();
+        for path in paths {
+            let data = match tokio::fs::read(&path).await {
+                Ok(data) => data,
+                Err(e) => {
+                    tracing::error!("Failed to read clipboard file {}: {}", path.display(), e);
+                    continue;
+                }
+            };
+            let mime_type = mime_guess::from_path(&path).first_or_octet_stream();
+            array.push(Self::from_bytes(
+                path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
+                mime_type,
+                data,
+            ));
+        }
+
+        array
+    }
+
     pub async fn compressed_from_folder_picker(state: AppState) -> Option<MatrixAttachment> {
         let Some(folder_handle) = AsyncFileDialog::new()
             .set_title("Select folder to compress")
@@ -274,5 +316,87 @@ pub async fn download_file_to_picked(source: MediaSource, file_name: String, sta
 
     if let Err(e) = file.write_all(&content).await {
         tracing::error!("Failed to write file: {}", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Writes a few bytes to a uniquely named temp file for the clipboard
+    /// paste tests, cleaning it up at the end.
+    struct TempFile(std::path::PathBuf);
+
+    impl TempFile {
+        fn with_bytes(name: &str, contents: &[u8]) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "deplace-paste-test-{}-{name}",
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::write(&path, contents).expect("temp file should be writable");
+            Self(path)
+        }
+
+        fn file_url(&self) -> String {
+            url::Url::from_file_path(&self.0)
+                .expect("path should become a URL")
+                .to_string()
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    /// A `file://` URI pasted as clipboard text must attach.
+    #[tokio::test]
+    async fn paste_of_a_file_uri_becomes_an_attachment() {
+        let file = TempFile::with_bytes("screencast.webm", b"not really webm");
+        let attachments = MatrixAttachment::from_clipboard_file_list(file.file_url()).await;
+        assert_eq!(attachments.len(), 1, "the video should attach");
+        assert_eq!(
+            attachments[0].filename,
+            file.0.file_name().unwrap().to_str().unwrap()
+        );
+        assert_eq!(attachments[0].mime_type, "video/webm");
+    }
+
+    /// Plain paths from `read_files` used to be dropped by `Url::parse`.
+    #[tokio::test]
+    async fn paste_of_a_plain_path_becomes_an_attachment() {
+        let file = TempFile::with_bytes("screencast.webm", b"not really webm");
+        let text = file.0.to_string_lossy().into_owned();
+        let attachments = MatrixAttachment::from_clipboard_file_list(text).await;
+        assert_eq!(attachments.len(), 1, "a bare path must attach");
+        assert_eq!(
+            attachments[0].filename,
+            file.0.file_name().unwrap().to_str().unwrap()
+        );
+        assert_eq!(attachments[0].mime_type, "video/webm");
+    }
+
+    /// A mixed list, one URI and one plain path on separate lines, the
+    /// shape a multiline clipboard paste produces, yields both files.
+    #[tokio::test]
+    async fn paste_of_mixed_paths_yields_all_attachments() {
+        let a = TempFile::with_bytes("one.webm", b"a");
+        let b = TempFile::with_bytes("two.png", b"b");
+        let text = format!("{}\n{}", a.file_url(), b.0.to_string_lossy());
+        let attachments = MatrixAttachment::from_clipboard_file_list(text).await;
+        assert_eq!(attachments.len(), 2, "both files should attach");
+        let names: Vec<&str> = attachments.iter().map(|a| a.filename.as_str()).collect();
+        assert!(names.contains(&a.0.file_name().unwrap().to_str().unwrap()));
+        assert!(names.contains(&b.0.file_name().unwrap().to_str().unwrap()));
+    }
+
+    /// A path that does not exist is skipped with a log line, never a
+    /// panic or an empty-but-silent paste.
+    #[tokio::test]
+    async fn paste_of_a_missing_path_is_skipped() {
+        let text = "/nonexistent/deplace-paste-test-missing.webm".to_string();
+        let attachments = MatrixAttachment::from_clipboard_file_list(text).await;
+        assert!(attachments.is_empty());
     }
 }
