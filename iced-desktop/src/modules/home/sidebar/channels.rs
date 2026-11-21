@@ -216,7 +216,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
 
         let (whole_key, name_key) = if active_server.is_dms() {
             (
-                "An view of your direct message conversations",
+                "A view of your direct message conversations and rooms not in a server",
                 "You are in direct messages",
             )
         } else {
