@@ -30,7 +30,7 @@ use crate::{
 use super::{
     ColoredRounded, CopyTextExt, IcedColorExt, PushElement, copy_button,
     corner_badge::{notch_circle, positioned},
-    link, phosphor_icon,
+    link, pan, phosphor_icon,
     polyicon::polyicon,
     render_media::{Fallback, render_thumbnail},
     weighted_text,
@@ -295,12 +295,12 @@ impl RoomRenderExt for DePlaceRoom {
 }
 
 pub fn render_name<'a, T: 'a>(name: String, size: f32, color: Color) -> Element<'a, T> {
-    weighted_text(name, Weight::Bold)
+    pan(weighted_text(name, Weight::Bold)
         .size(size)
         .color(color)
         .line_height(LineHeight::Relative(1.0))
-        .align_y(Alignment::End)
-        .boxed()
+        .align_y(Alignment::End))
+    .boxed()
 }
 
 pub fn render_unknown_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
@@ -318,7 +318,7 @@ pub fn render_name_decorated<'a, T: 'a>(
     text_color: Color,
     decoration_color: Color,
 ) -> Element<'a, T> {
-    match decoration {
+    let name = match decoration {
         NameDecoration::None => w::text(name).size(size).color(text_color).boxed(),
         NameDecoration::FirstLetter => {
             let mut chars = name.chars();
@@ -353,7 +353,9 @@ pub fn render_name_decorated<'a, T: 'a>(
             .on_link_click(never)
             .boxed()
         }
-    }
+    };
+
+    pan(name).boxed()
 }
 
 pub fn render_unknown_name_decorated<'a, T: Clone + 'a>(

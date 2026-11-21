@@ -396,8 +396,6 @@ fn render_channel(
 
     let is_space = room.room_type().is_space();
 
-    let name = room.render_name_decorated(structure.font_size, name_decoration, text_color);
-
     let id_ref = room.room_id();
     let id = id_ref.to_owned();
 
@@ -416,8 +414,25 @@ fn render_channel(
         } else {
             room.render_icon_maybe_with_presence(icon_size, theme, structure, bg)
         },
-        name,
-    ];
+        room.render_name_decorated(structure.font_size, name_decoration, text_color),
+        Space::new().width(Fill),
+        themed_tooltip_text(
+            room.is_dm().then(move || {
+                phosphor_icon(
+                    phosphor_svgs::icon::chats_circle::BOLD,
+                    structure.font_size * 1.3,
+                )
+                .color(room.color())
+            }),
+            "This is a DM room",
+            structure,
+            theme
+        )
+    ]
+    .spacing(structure.gap)
+    .width(Fill)
+    .align_y(Alignment::Center)
+    .padding(padding::vertical(structure.small_gap * 0.75).horizontal(structure.small_gap));
 
     if let Some(connection) = room.call_connection() {
         name_row = name_row.push_element(themed_tooltip_text(
@@ -434,13 +449,7 @@ fn render_channel(
                 .call(
                     HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
                     "Channel",
-                    name_row
-                        .spacing(structure.gap)
-                        .width(Fill)
-                        .align_y(Alignment::Center)
-                        .padding(
-                            padding::vertical(structure.small_gap * 0.75).left(structure.small_gap),
-                        ),
+                    name_row,
                 )
                 .radius(structure.inner_border_radius),
         )

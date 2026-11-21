@@ -250,7 +250,12 @@ impl RoomStore {
             .client
             .rooms()
             .into_iter()
-            .filter(|room| matches!(room.state(), RoomState::Joined | RoomState::Invited))
+            .filter(|room| {
+                matches!(
+                    room.state(),
+                    RoomState::Joined | RoomState::Invited | RoomState::Knocked
+                )
+            })
             .filter(|room| !room.is_space())
             .filter_map(|room| {
                 let has_parent = hierarchy.child_to_parents.contains_key(room.room_id());
