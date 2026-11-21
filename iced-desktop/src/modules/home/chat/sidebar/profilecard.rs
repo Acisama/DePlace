@@ -1,18 +1,18 @@
 use crate::{
     common::*,
-    components::{CopyUserIdExt, profile::render_banner_column},
+    components::{CopyTextExt, profile::render_banner_column},
 };
 use macros::iced_cache;
 
 #[derive(Debug, Clone)]
 pub enum ProfileCardMessage {
-    CopyUserId(OwnedUserId),
+    CopyUserId(String),
     UserIdCopied,
 }
 
-impl CopyUserIdExt for ProfileCardMessage {
-    fn copy_user_id(id: OwnedUserId) -> Self {
-        ProfileCardMessage::CopyUserId(id)
+impl CopyTextExt for ProfileCardMessage {
+    fn copy_text(text: String) -> Self {
+        ProfileCardMessage::CopyUserId(text)
     }
 }
 

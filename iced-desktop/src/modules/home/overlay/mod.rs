@@ -290,12 +290,15 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
             OverlayMessage::Profile(message) => {
                 if let Some(profile) = &mut self.profile {
                     match profile.update(message)? {
-                        ProfileAction::CopyUserId(user_id) => Some(OverlayAction::Perform(
+                        ProfileAction::CopyUserId(user_id) => Some(OverlayAction::Run(
                             iced::clipboard::write(user_id.to_string())
                                 .map_err(|_| tracing::error!("Failed to copy to clipboard"))
-                                .map(|_| OverlayMessage::Profile(ProfileMessage::UserIdCopied)),
+                                .map(|_| ()),
                         )),
-                        ProfileAction::Run(task) => Some(OverlayAction::Run(task)),
+                        ProfileAction::CloseOverlayWithTask(task) => {
+                            self.close();
+                            Some(OverlayAction::Run(task))
+                        }
                     }
                 } else {
                     None

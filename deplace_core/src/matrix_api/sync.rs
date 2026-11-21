@@ -156,8 +156,7 @@ async fn run_sync_stream(client: Client, state: AppState) {
         // `next()`, no timer can reach it anymore, and the fetch
         // deadline never fires -- the loop is dead without a trace
         // while the watchdog keeps shouting into the void.
-        let (response_tx, mut response_rx) =
-            mpsc::channel::<matrix_sdk::Result<SyncResponse>>(1);
+        let (response_tx, mut response_rx) = mpsc::channel::<matrix_sdk::Result<SyncResponse>>(1);
         // Detached on purpose: the handle is never awaited, and the task
         // stops itself once the channel receiver is replaced below.
         // The stream borrows its `Client`, so it is created inside the
@@ -177,8 +176,7 @@ async fn run_sync_stream(client: Client, state: AppState) {
         });
 
         loop {
-            let fetched =
-                tokio::time::timeout(SYNC_FETCH_DEADLINE, response_rx.recv()).await;
+            let fetched = tokio::time::timeout(SYNC_FETCH_DEADLINE, response_rx.recv()).await;
 
             let result = match fetched {
                 Ok(Some(result)) => result,
@@ -222,8 +220,7 @@ async fn run_sync_stream(client: Client, state: AppState) {
                 async {
                     let state = state.clone();
                     let result = result.into();
-                    tokio::spawn(async move { handle_sync_result(result, &state).await })
-                        .await
+                    tokio::spawn(async move { handle_sync_result(result, &state).await }).await
                 },
             )
             .await;

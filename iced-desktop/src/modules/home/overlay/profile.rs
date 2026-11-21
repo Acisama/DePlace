@@ -3,25 +3,24 @@ use macros::{iced_cache, iced_icon};
 
 use crate::{
     common::*,
-    components::{CopyUserIdExt, PushElement, profile::render_banner_column},
+    components::{CopyTextExt, PushElement, profile::render_banner_column},
 };
 
 #[derive(Debug, Clone)]
 pub enum ProfileMessage {
-    CopyUserId(OwnedUserId),
-    UserIdCopied,
+    CopyUserId(String),
     CreateDm(OwnedUserId),
 }
 
-impl CopyUserIdExt for ProfileMessage {
-    fn copy_user_id(id: OwnedUserId) -> Self {
-        Self::CopyUserId(id)
+impl CopyTextExt for ProfileMessage {
+    fn copy_text(text: String) -> Self {
+        Self::CopyUserId(text)
     }
 }
 
 pub enum ProfileAction {
-    CopyUserId(OwnedUserId),
-    Run(Task<()>),
+    CopyUserId(String),
+    CloseOverlayWithTask(Task<()>),
 }
 
 #[iced_cache(Clone, Debug)]
@@ -48,12 +47,13 @@ impl IcedWidget<ProfileMessage, ProfileAction> for OverlayProfile {
     fn update(&mut self, message: ProfileMessage) -> Option<ProfileAction> {
         match message {
             ProfileMessage::CopyUserId(id) => Some(ProfileAction::CopyUserId(id)),
-            ProfileMessage::UserIdCopied => None,
             ProfileMessage::CreateDm(id) => {
                 let state = self.state.clone();
-                Some(ProfileAction::Run(Task::future(async move {
-                    state.change_or_create_dm(&id).await;
-                })))
+                Some(ProfileAction::CloseOverlayWithTask(Task::future(
+                    async move {
+                        state.change_or_create_dm(&id).await;
+                    },
+                )))
             }
         }
     }

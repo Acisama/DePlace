@@ -23,13 +23,12 @@ use iced::{
 };
 
 use crate::{
-    common::animated_button,
     helpers::blend_color,
     modules::home::{DEFAULT_ROOM_ICON, SCREENSHARING_ICON, SPACE_ICON, SPEAKER_ICON},
 };
 
 use super::{
-    ColoredRounded, CopyUserIdExt, IcedColorExt, PushElement, StatusExt,
+    ColoredRounded, CopyTextExt, IcedColorExt, PushElement, copy_button,
     corner_badge::{notch_circle, positioned},
     link, phosphor_icon,
     polyicon::polyicon,
@@ -229,12 +228,9 @@ impl MemberRenderExt for Member {
     ) -> Element<'a, T> {
         let member = self.clone();
 
-        link::link(
-            self.render_name(text_size),
-            self.name_color().to_iced(),
-            move |bounds| T::open_profile(member.clone(), bounds),
-        )
-        .into()
+        link::link(self.render_name(text_size), self.name_color().to_iced())
+            .on_press(move |bounds| T::open_profile(member.clone(), bounds))
+            .into()
     }
 }
 
@@ -434,7 +430,7 @@ pub fn render_presence_badge<'a, T: 'a>(
     .boxed()
 }
 
-pub fn render_banner_column<'a, T: CopyUserIdExt + Clone + 'a>(
+pub fn render_banner_column<'a, T: CopyTextExt + Clone + 'a>(
     member: &Member,
     theme: Theme,
     structure: Structure,
@@ -446,7 +442,7 @@ pub fn render_banner_column<'a, T: CopyUserIdExt + Clone + 'a>(
     let icon_gap = structure.icon_gap_ratio * icon_size;
     let bg_icon_size = icon_size + icon_gap;
 
-    let id = member.user_id().to_owned();
+    let id = member.user_id().to_string();
 
     w::stack![
         w::column![
@@ -466,21 +462,13 @@ pub fn render_banner_column<'a, T: CopyUserIdExt + Clone + 'a>(
             w::column![
                 member.render_name(structure.large_font_size),
                 Space::new().height(structure.small_gap),
-                animated_button(
-                    w::text(id.to_string())
-                        .color(theme.text.dim)
-                        .size(structure.font_size)
+                copy_button(
+                    id.clone(),
+                    id,
+                    theme.text.dim,
+                    theme.text.normal,
+                    structure.font_size
                 )
-                .on_press(T::copy_user_id(id))
-                .style(move |status| w::button::Style {
-                    background: None,
-                    text_color: if status.active() {
-                        theme.text.normal.into()
-                    } else {
-                        theme.text.dim.into()
-                    },
-                    ..Default::default()
-                })
             ]
             .padding(padding::left(structure.gap))
         ],

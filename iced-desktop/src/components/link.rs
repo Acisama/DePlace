@@ -19,18 +19,24 @@ use crate::common::DePlaceWidget;
 pub struct Link<Message, Content: DePlaceWidget<Message>> {
     content: Content,
     underline_color: Color,
-    on_press: Box<dyn Fn(Rectangle) -> Message + 'static>,
+    on_press: Option<Box<dyn Fn(Rectangle) -> Message + 'static>>,
+}
+
+impl<Message, Content: DePlaceWidget<Message>> Link<Message, Content> {
+    pub fn on_press(mut self, on_press: impl Fn(Rectangle) -> Message + 'static) -> Self {
+        self.on_press = Some(Box::new(on_press));
+        self
+    }
 }
 
 pub fn link<Message, Content: DePlaceWidget<Message>>(
     content: Content,
     underline_color: Color,
-    on_press: impl Fn(Rectangle) -> Message + 'static,
 ) -> Link<Message, Content> {
     Link {
         content,
         underline_color,
-        on_press: Box::new(on_press),
+        on_press: None,
     }
 }
 
@@ -77,10 +83,11 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, iced::Theme, Rend
             return;
         }
 
-        if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
+        if let Some(on_press) = &self.on_press
+            && let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
             && cursor.is_over(layout.bounds())
         {
-            shell.publish((self.on_press)(layout.bounds()));
+            shell.publish(on_press(layout.bounds()));
             shell.capture_event();
         }
     }

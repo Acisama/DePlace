@@ -23,7 +23,7 @@ use iced::{
         text::{IntoFragment, Rich},
     },
 };
-use matrix_sdk::ruma::{OwnedUserId, serde::Base64};
+use matrix_sdk::ruma::serde::Base64;
 
 pub mod animated_background;
 pub mod animated_button;
@@ -31,6 +31,7 @@ pub mod animated_number;
 pub mod animation_clock;
 pub mod bounds_button;
 pub mod call_grid;
+pub mod copy_button;
 pub mod corner_badge;
 pub mod elapsed_time;
 pub mod equal_width;
@@ -57,6 +58,7 @@ pub mod volume_bar;
 
 pub use animated_number::animated_number;
 pub use call_grid::call_grid;
+pub use copy_button::copy_button;
 pub use corner_badge::{CornerContent, corner_badge};
 pub use elapsed_time::elapsed_time;
 pub use fills_parent::fills_parent;
@@ -438,8 +440,8 @@ pub fn themed_scrollable<'a, T: 'a, W>(
         .auto_scroll(true)
 }
 
-pub trait CopyUserIdExt {
-    fn copy_user_id(id: OwnedUserId) -> Self;
+pub trait CopyTextExt {
+    fn copy_text(text: String) -> Self;
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq)]

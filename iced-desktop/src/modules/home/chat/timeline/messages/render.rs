@@ -314,12 +314,6 @@ impl MessageEvent {
                                         weight: Weight::Bold,
                                         ..MONO_FONT
                                     }),
-                                    // w::rich_text![span(length.to_string()).font(Font {
-                                    //     weight: Weight::Bold,
-                                    //     ..MONO_FONT
-                                    // })]
-                                    // .on_link_click(never)
-                                    // .size(text_size),
                                     stack
                                 ]
                                 .align_y(Alignment::Center)
@@ -556,12 +550,14 @@ impl MessageContent {
                                 w::column![
                                     link(
                                         w::text(filename.clone()).color(theme.accent),
-                                        theme.accent.into(),
-                                        move |_| TimelineItemMessage::DownloadFile {
+                                        theme.accent.into()
+                                    )
+                                    .on_press(move |_| {
+                                        TimelineItemMessage::DownloadFile {
                                             source: source.clone(),
                                             file_name: filename.clone(),
                                         }
-                                    ),
+                                    }),
                                     info.as_ref().and_then(|i| i.size).map(|s| {
                                         w::text(format_bytes(s.into(), *data_size_unit.borrow()))
                                             .size(structure.chat.small_text_size)

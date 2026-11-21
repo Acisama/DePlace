@@ -833,53 +833,56 @@ fn render_call_participant(
     let menu_member = member.clone();
     let is_own = menu_member.is_own(own_device);
 
-    w::row![link(
-        right_click(
-            w::mouse_area(
-                w::container(
-                    w::Row::with_children(view_row)
-                        .spacing(structure.small_gap)
-                        .align_y(Alignment::Center)
-                        .width(Fill),
-                )
-                .padding(
-                    padding::vertical(structure.small_gap / 2.0).horizontal(structure.small_gap),
-                )
-                .style(move |_| ContainerStyle {
-                    background: is_hovered.then_some(theme.solid_hover_bg.into()),
-                    border: Border {
-                        color: if is_hovered {
-                            theme.border.into()
-                        } else {
-                            Color::TRANSPARENT
+    w::row![
+        link(
+            right_click(
+                w::mouse_area(
+                    w::container(
+                        w::Row::with_children(view_row)
+                            .spacing(structure.small_gap)
+                            .align_y(Alignment::Center)
+                            .width(Fill),
+                    )
+                    .padding(
+                        padding::vertical(structure.small_gap / 2.0)
+                            .horizontal(structure.small_gap),
+                    )
+                    .style(move |_| ContainerStyle {
+                        background: is_hovered.then_some(theme.solid_hover_bg.into()),
+                        border: Border {
+                            color: if is_hovered {
+                                theme.border.into()
+                            } else {
+                                Color::TRANSPARENT
+                            },
+                            width: structure.border_thickness,
+                            radius: structure.inner_border_radius.into(),
                         },
-                        width: structure.border_thickness,
-                        radius: structure.inner_border_radius.into(),
-                    },
-                    ..Default::default()
-                }),
-            )
-            .on_enter(ChannelsMessage::CallParticipantHovered {
-                room_id: hover_room_id.clone(),
-                participant: member.clone(),
-            })
-            .on_exit(ChannelsMessage::CallParticipantUnhovered {
-                room_id: hover_room_id,
-                participant: member.clone(),
-            }),
-            move |position| {
-                ChannelsMessage::ParticipantMenu(ContextMenu {
-                    position,
-                    kind: ContextMenuKind::call_participant(
-                        room.clone(),
-                        menu_member.clone(),
-                        is_own,
-                    ),
+                        ..Default::default()
+                    }),
+                )
+                .on_enter(ChannelsMessage::CallParticipantHovered {
+                    room_id: hover_room_id.clone(),
+                    participant: member.clone(),
                 })
-            },
-        ),
-        Color::TRANSPARENT,
-        move |bounds| ChannelsMessage::open_profile(member.member.clone(), bounds),
-    )]
+                .on_exit(ChannelsMessage::CallParticipantUnhovered {
+                    room_id: hover_room_id,
+                    participant: member.clone(),
+                }),
+                move |position| {
+                    ChannelsMessage::ParticipantMenu(ContextMenu {
+                        position,
+                        kind: ContextMenuKind::call_participant(
+                            room.clone(),
+                            menu_member.clone(),
+                            is_own,
+                        ),
+                    })
+                },
+            ),
+            Color::TRANSPARENT,
+        )
+        .on_press(move |bounds| ChannelsMessage::open_profile(member.member.clone(), bounds))
+    ]
     .boxed()
 }

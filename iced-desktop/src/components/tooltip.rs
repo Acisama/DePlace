@@ -1,6 +1,6 @@
 use deplace_core::{structure::Structure, theme::Theme};
 use iced::{
-    Border, Pixels, padding,
+    Border, Pixels,
     widget::{self as w, Container, Text, text::IntoFragment},
 };
 
