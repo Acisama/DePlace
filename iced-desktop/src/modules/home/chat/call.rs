@@ -72,6 +72,7 @@ pub fn render_call_members(
             .size(structure.font_size)
             .color(theme.text.normal),
             animated_button("Join Call")
+                .padding(one_and_half_padding(structure.small_gap))
                 .on_press(ChatMessage::JoinCall)
                 .style(move |status| ButtonStyle {
                     background: if status.active() {
@@ -114,6 +115,7 @@ pub fn render_call_members(
             own_in_call.then(|| {
                 w::row![
                     animated_button("Leave Call")
+                        .padding(one_and_half_padding(structure.small_gap))
                         .on_press(ChatMessage::LeaveCall)
                         .style(move |status| ButtonStyle {
                             background: if status.active() {

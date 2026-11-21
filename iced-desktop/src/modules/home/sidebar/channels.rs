@@ -293,7 +293,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                                         "Quickselect button, press to open quickselect",
                                         themed_tooltip_text(
                                             animated_button(iced_icon!(
-                                                compass_rose,
+                                                compass,
                                                 fill,
                                                 structure.header.height - structure.small_gap * 3.0
                                             ))
