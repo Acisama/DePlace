@@ -179,7 +179,7 @@ impl MessageEvent {
                                 self.sender.render_icon(size),
                             )
                             .radius(size / 2.0)
-                            .into(),
+                            .boxed(),
                     ),
                     Some(
                         w::row![
@@ -456,7 +456,7 @@ impl MessageEvent {
                 },
             )
             .radius(structure.inner_border_radius)
-            .into()
+            .boxed()
     }
 }
 

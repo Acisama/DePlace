@@ -772,6 +772,6 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
             HomeMessage::HelpHover,
             HomeMessage::HelpExit,
         )
-        .into()
+        .boxed()
     }
 }

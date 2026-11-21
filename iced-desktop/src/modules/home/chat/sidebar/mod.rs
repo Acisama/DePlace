@@ -124,6 +124,10 @@ impl Sidebar {
         self.calculate_currently_visible();
     }
 
+    pub fn is_visible(&self) -> bool {
+        !self.visual_state.is_empty()
+    }
+
     pub fn toggle_pins(&mut self) {
         if self.visual_state.contains(SidebarState::Pins) {
             self.visual_state.remove(SidebarState::Pins);

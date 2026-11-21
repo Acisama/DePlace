@@ -1517,7 +1517,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 );
         }
 
-        track_bounds(stack, TimelineMessage::ChatAreaBounds).into()
+        track_bounds(stack, TimelineMessage::ChatAreaBounds).boxed()
     }
 }
 

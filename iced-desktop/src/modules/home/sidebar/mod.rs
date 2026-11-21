@@ -115,7 +115,7 @@ impl IcedWidget<SidebarMessage, SidebarAction> for Sidebar {
             SidebarMessage::HelpHover,
         )
         .radius(structure.outer_border_radius)
-        .into()
+        .boxed()
     }
 }
 

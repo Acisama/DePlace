@@ -1,5 +1,5 @@
 use iced::{
-    Element, Event, Length, Rectangle, Renderer, Size, Theme, Vector, Widget as _,
+    Event, Length, Rectangle, Renderer, Size, Theme, Vector,
     advanced::{
         Layout, Shell, Widget, layout, mouse, overlay, renderer,
         widget::{
@@ -204,16 +204,5 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
             translation,
             window,
         )
-    }
-}
-
-impl<'a, Message, Content> From<TrackScroll<Message, Content>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Content: 'a + DePlaceWidget<Message>,
-{
-    fn from(widget: TrackScroll<Message, Content>) -> Self {
-        widget.boxed()
     }
 }

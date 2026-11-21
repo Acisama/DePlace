@@ -17,8 +17,8 @@ use iced::advanced::{Renderer as _, overlay};
 use iced::advanced::{Shell, Widget};
 use iced::border::Radius;
 use iced::{
-    Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Renderer, Size, Theme, Vector,
-    Widget as _, alignment, keyboard, mouse, touch,
+    Border, Color, Event, Length, Pixels, Point, Rectangle, Renderer, Size, Theme, Vector,
+    alignment, keyboard, mouse, touch,
 };
 
 use crate::common::{DePlaceWidget, help_state};
@@ -322,17 +322,6 @@ where
         }
 
         overlays
-    }
-}
-
-impl<'a, Message, Content> From<HelpTarget<'a, Message, Content>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Content: DePlaceWidget<Message> + 'a,
-{
-    fn from(w: HelpTarget<'a, Message, Content>) -> Self {
-        w.boxed()
     }
 }
 
@@ -793,17 +782,6 @@ impl<Message: Clone, Content: DePlaceWidget<Message>> Widget<Message, Theme, Ren
             translation,
             window,
         )
-    }
-}
-
-impl<'a, Message, Content> From<HelpRoot<Message, Content>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: Clone + 'a,
-    Content: DePlaceWidget<Message> + 'a,
-{
-    fn from(w: HelpRoot<Message, Content>) -> Self {
-        w.boxed()
     }
 }
 

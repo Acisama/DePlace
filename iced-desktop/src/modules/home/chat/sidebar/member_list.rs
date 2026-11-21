@@ -180,7 +180,7 @@ impl IcedWidget<MemberListMessage, MemberListAction> for MemberList {
                             .padding(structure.divider_width),
                         )
                         .radius(structure.inner_border_radius)
-                        .into(),
+                        .boxed(),
                 );
             };
 

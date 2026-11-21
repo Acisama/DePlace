@@ -156,7 +156,8 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Dms))
                         .on_exit(ServerColumnMessage::ServerHoverEnded(ActiveServerId::Dms)),
                 )
-                .radius(icon_size / 2.0),
+                .radius(icon_size / 2.0)
+                .boxed(),
         );
 
         let dm_notification_pills: Vec<Element<'static, ServerColumnMessage>> = self
@@ -352,7 +353,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     }),
             )
             .radius(structure.outer_border_radius)
-            .into()
+            .boxed()
     }
 }
 
@@ -496,7 +497,7 @@ fn render_server_icon(
             badge,
         )
         .radius(icon_size * room.icon_border_radius_ratio())
-        .into();
+        .boxed();
 
     (target, content)
 }
@@ -513,16 +514,15 @@ fn pill_target(structure: Structure, active: bool, hovered: bool, has_messages: 
     }
 }
 
-fn pill(
+fn pill<M: 'static>(
     theme: Theme,
     structure: Structure,
     active: bool,
     hovered: bool,
     has_messages: bool,
-    content: impl Into<Element<'static, ServerColumnMessage>>,
-) -> Element<'static, ServerColumnMessage> {
+    content: impl DePlaceWidget<M> + 'static,
+) -> Element<'static, M> {
     let target = pill_target(structure, active, hovered, has_messages);
-    let content = content.into();
 
     // `content` must stay the base layer (first `.push`) so it drives the
     // Stack's size -- pushing the canvas first shrinks the whole pill down

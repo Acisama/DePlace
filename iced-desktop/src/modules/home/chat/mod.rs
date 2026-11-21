@@ -546,7 +546,18 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
             )
             .radius(structure.outer_border_radius);
 
-        let sidebar = lazy_view(self.sidebar.clone(), ChatMessage::Sidebar);
+        let sidebar = self
+            .sidebar
+            .is_visible()
+            .then(|| lazy_view(self.sidebar.clone(), ChatMessage::Sidebar));
+
+        let mut main_row = w::row![main_content]
+            .height(Fill)
+            .spacing(structure.small_gap);
+
+        if let Some(sidebar) = sidebar {
+            main_row = main_row.push(sidebar);
+        }
 
         help_view
             .call(
@@ -554,14 +565,12 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
                 "The chat in the active room",
                 w::column![
                     lazy_view(self.header.clone(), ChatMessage::Header),
-                    w::row![main_content, sidebar]
-                        .height(Fill)
-                        .spacing(structure.small_gap)
+                    main_row
                 ]
                 .height(Fill)
                 .spacing(structure.small_gap),
             )
             .radius(structure.outer_border_radius)
-            .into()
+            .boxed()
     }
 }

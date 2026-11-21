@@ -340,7 +340,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                 content,
             )
             .radius(structure.outer_border_radius)
-            .into()
+            .boxed()
     }
 }
 

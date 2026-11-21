@@ -693,7 +693,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                         }),
                     )
                     .radius(radius(structure.inner_border_radius).bottom(0.0))
-                    .into()
+                    .boxed()
             });
 
         let replying_banner: Option<Element<'static, InputMessage>> = replies_to.map(|msg| {
@@ -752,7 +752,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                     }),
                 )
                 .radius(radius)
-                .into()
+                .boxed()
         });
 
         let content = help_view

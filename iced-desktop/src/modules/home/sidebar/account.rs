@@ -146,6 +146,6 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
                 content,
             )
             .radius(structure.outer_border_radius)
-            .into()
+            .boxed()
     }
 }

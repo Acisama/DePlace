@@ -338,6 +338,6 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                 content,
             )
             .radius(structure.outer_border_radius)
-            .into()
+            .boxed()
     }
 }

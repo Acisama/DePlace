@@ -1,5 +1,5 @@
 use iced::{
-    Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector, Widget as _,
+    Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector,
     advanced::{
         Layout, Shell, Widget, layout, mouse, overlay, renderer,
         widget::{Operation, Tree, tree},
@@ -155,16 +155,5 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
             translation,
             window,
         )
-    }
-}
-
-impl<'a, Message, Content> From<RightClickArea<Message, Content>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Content: DePlaceWidget<Message> + 'a,
-{
-    fn from(widget: RightClickArea<Message, Content>) -> Self {
-        widget.boxed()
     }
 }
