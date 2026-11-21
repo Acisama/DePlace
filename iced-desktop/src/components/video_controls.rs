@@ -29,6 +29,7 @@ use iced::{
 use iced_video_player::{Video, VideoPlayer};
 
 use crate::common::{animated_button, pie_progress, structure, theme};
+use crate::helpers::{one_and_half_padding, smoothstep};
 use crate::modules::home::{DOWNLOAD_ICON, EXIT_FULLSCREEN_ICON, FULLSCREEN_ICON};
 use crate::{EMPTY_WIDGET, MONO_FONT};
 
@@ -202,6 +203,7 @@ fn build_not_started(phase: Phase, theme: Theme, structure: Structure) -> Elemen
                 .align_y(Alignment::Center)
                 .spacing(structure.small_gap),
             )
+            .padding(one_and_half_padding(structure.small_gap))
             .style(move |status| w::button::Style {
                 background: if status.active() {
                     Some(theme.solid_hover_bg.into())
@@ -750,10 +752,6 @@ impl State {
             _ => target,
         }
     }
-}
-
-fn smoothstep(t: f32) -> f32 {
-    t * t * (3.0 - 2.0 * t)
 }
 
 impl<'a, Message> Meta for VideoControls<'a, Message> {}

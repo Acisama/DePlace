@@ -9,7 +9,7 @@ use iced::{
 };
 
 use crate::common::DePlaceWidget;
-use crate::helpers::{blend_background, blend_border, blend_color};
+use crate::helpers::{blend_background, blend_border, blend_color, smoothstep};
 
 /// A [`button`](iced::widget::button) that eases its background and text
 /// color across [`Status`] changes instead of snapping to them.
@@ -347,10 +347,6 @@ where
         self.content
             .overlay(tree, layout, renderer, viewport, translation, window)
     }
-}
-
-fn smoothstep(t: f32) -> f32 {
-    t * t * (3.0 - 2.0 * t)
 }
 
 impl<'a, Message, Content> From<AnimatedButton<Message, Content>> for Element<'a, Message>

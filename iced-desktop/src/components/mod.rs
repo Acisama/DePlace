@@ -27,6 +27,7 @@ use matrix_sdk::ruma::{OwnedUserId, serde::Base64};
 
 pub mod animated_background;
 pub mod animated_button;
+pub mod animated_number;
 pub mod animation_clock;
 pub mod bounds_button;
 pub mod call_grid;
@@ -54,6 +55,7 @@ pub mod track_scroll;
 pub mod video_controls;
 pub mod volume_bar;
 
+pub use animated_number::animated_number;
 pub use call_grid::call_grid;
 pub use corner_badge::{CornerContent, corner_badge};
 pub use elapsed_time::elapsed_time;

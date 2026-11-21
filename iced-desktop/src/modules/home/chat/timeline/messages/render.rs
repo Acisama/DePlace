@@ -33,8 +33,8 @@ use crate::{
     EMOJI_FONT, MONO_FONT,
     common::*,
     components::{
-        PushElement, bounds_button::bounds_button, help_mode::MessageHelpKey, link::link,
-        phosphor_icon, profile::render_row_of_icons, render_media::render_thumbnail,
+        PushElement, animated_number, bounds_button::bounds_button, help_mode::MessageHelpKey,
+        link::link, phosphor_icon, profile::render_row_of_icons, render_media::render_thumbnail,
         render_media_label, video_controls::video_controls,
     },
     modules::home::overlay::{MediaOverlayParams, OverlayMediaType},
@@ -310,12 +310,16 @@ impl MessageEvent {
                             animated_button(
                                 w::row![
                                     w::text(reaction.clone()).font(EMOJI_FONT).size(text_size),
-                                    w::rich_text![span(length.to_string()).font(Font {
+                                    animated_number(length as i64).size(text_size).font(Font {
                                         weight: Weight::Bold,
                                         ..MONO_FONT
-                                    })]
-                                    .on_link_click(never)
-                                    .size(text_size),
+                                    }),
+                                    // w::rich_text![span(length.to_string()).font(Font {
+                                    //     weight: Weight::Bold,
+                                    //     ..MONO_FONT
+                                    // })]
+                                    // .on_link_click(never)
+                                    // .size(text_size),
                                     stack
                                 ]
                                 .align_y(Alignment::Center)
@@ -1248,10 +1252,7 @@ impl SystemMessage {
                     border: border::rounded(structure.semi_large_border_radius()),
                     ..Default::default()
                 })
-                .padding(
-                    padding::horizontal(structure.small_gap / 2.0)
-                        .vertical(structure.small_gap / 4.0),
-                ),
+                .padding(one_and_half_padding(structure.small_gap / 2.0)),
             );
         }
 

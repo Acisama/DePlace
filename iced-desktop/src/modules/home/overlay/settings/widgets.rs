@@ -207,9 +207,7 @@ where
                     ..Default::default()
                 })
                 .on_press(on_change(*val))
-                .padding(
-                    padding::horizontal(structure.small_gap).vertical(structure.small_gap / 2.0),
-                ),
+                .padding(one_and_half_padding(structure.small_gap)),
                 *desc,
                 structure,
                 theme,

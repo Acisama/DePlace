@@ -20,6 +20,7 @@ pub use crate::components::{
     tooltip::{themed_tooltip_content, themed_tooltip_text},
     weighted_text,
 };
+pub use crate::helpers::one_and_half_padding;
 pub use deplace_core::{
     ProfileLike,
     colors::DePlaceColor,

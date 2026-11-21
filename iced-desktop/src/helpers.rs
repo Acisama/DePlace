@@ -1,4 +1,4 @@
-use iced::{Background, Border, Color, Size, Vector, border::Radius};
+use iced::{Background, Border, Color, Padding, Size, Vector, border::Radius, padding};
 
 pub fn blend_color(from: Color, to: Color, t: f32) -> Color {
     let t = t.clamp(0.0, 1.0);
@@ -62,4 +62,13 @@ pub fn lerp_size(from: Size, to: Size, t: f32) -> Size {
         from.width + (to.width - from.width) * t,
         from.height + (to.height - from.height) * t,
     )
+}
+
+pub fn smoothstep(t: f32) -> f32 {
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Creates a padding with horizontal padding equal to the given value and vertical padding equal to half.
+pub fn one_and_half_padding(padding: f32) -> Padding {
+    padding::horizontal(padding).vertical(padding / 2.0)
 }

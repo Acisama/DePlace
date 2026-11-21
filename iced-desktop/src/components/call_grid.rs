@@ -37,7 +37,7 @@ use iced::{
 };
 
 use crate::common::DePlaceWidget;
-use crate::helpers::{lerp_size, lerp_vector};
+use crate::helpers::{lerp_size, lerp_vector, smoothstep};
 
 pub struct CallGrid<T, Key, Message, Content> {
     items: Vec<T>,
@@ -176,10 +176,6 @@ impl<Key, T> State<Key, T> {
                 .iter()
                 .any(|l| l.started.elapsed() < transition_duration)
     }
-}
-
-fn smoothstep(t: f32) -> f32 {
-    t * t * (3.0 - 2.0 * t)
 }
 
 fn progress(started: Instant, duration: Duration) -> f32 {

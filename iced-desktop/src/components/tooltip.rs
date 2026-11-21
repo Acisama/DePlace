@@ -4,6 +4,8 @@ use iced::{
     widget::{self as w, Container, Text, text::IntoFragment},
 };
 
+use crate::helpers::one_and_half_padding;
+
 pub fn themed_tooltip_text<'a, W>(
     content: W,
     tooltip: impl IntoFragment<'a>,
@@ -30,8 +32,7 @@ pub fn themed_tooltip_content<'a, W, V>(
 ) -> w::tooltip::Tooltip<'a, W, Container<'a, V>> {
     w::tooltip(
         content,
-        w::container(tooltip_content)
-            .padding(padding::horizontal(structure.small_gap).vertical(structure.small_gap / 2.0)),
+        w::container(tooltip_content).padding(one_and_half_padding(structure.small_gap)),
         position,
     )
     .gap(gap)
