@@ -7,6 +7,8 @@ use iced::{
     Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Widget as _, mouse,
 };
 
+use crate::helpers::blend_color;
+
 /// Which way the level last moved, so callers can e.g. animate attack/decay
 /// differently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -222,7 +224,7 @@ impl<Message> canvas::Program<Message> for VolumeBar {
                 ),
             };
 
-            let end_color = lerp_color(self.start_color, self.end_color, volume);
+            let end_color = blend_color(self.start_color, self.end_color, volume);
 
             frame.fill(
                 &fill,
@@ -242,16 +244,6 @@ impl<Message> canvas::Program<Message> for VolumeBar {
         }
 
         vec![frame.into_geometry()]
-    }
-}
-
-fn lerp_color(start: Color, end: Color, t: f32) -> Color {
-    let t = t.clamp(0.0, 1.0);
-    Color {
-        r: start.r + (end.r - start.r) * t,
-        g: start.g + (end.g - start.g) * t,
-        b: start.b + (end.b - start.b) * t,
-        a: start.a + (end.a - start.a) * t,
     }
 }
 

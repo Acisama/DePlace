@@ -7,6 +7,7 @@ use matrix_sdk_ui::{Timeline, timeline::TimelineEventItemId};
 
 use crate::common::*;
 
+use crate::components::animated_button::AnimatedButton;
 use crate::components::equal_width::equal_width;
 use crate::components::phosphor_icon;
 use crate::modules::home::{COPY_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, SOURCE_ICON, UNPIN_ICON};
@@ -185,8 +186,8 @@ fn render_context_menu_button(
     icon: &'static str,
     label: &'static str,
     message: MessageMessage,
-) -> w::Button<'static, MessageMessage, Row<Element<'static, MessageMessage>>> {
-    w::button(
+) -> AnimatedButton<MessageMessage, Row<Element<'static, MessageMessage>>> {
+    animated_button(
         w::row![
             phosphor_icon(icon, structure.font_size),
             w::text(label).size(structure.font_size)
@@ -195,7 +196,7 @@ fn render_context_menu_button(
         .align_y(Alignment::Center),
     )
     .padding(structure.small_gap)
-    .style(move |_, status| ButtonStyle {
+    .style(move |status| ButtonStyle {
         background: status.active().then_some(hover_bg_color.into()),
         text_color: if status.active() {
             hover_text_color.into()

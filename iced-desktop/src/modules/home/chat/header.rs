@@ -135,7 +135,7 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
             themed_tooltip_text(
                 animated_button(phosphor_icon(icon, button_size))
                     .on_press(message)
-                    .style(move |_, status| ButtonStyle {
+                    .style(move |status| ButtonStyle {
                         background: None,
                         text_color: if status.active() || active {
                             active_color

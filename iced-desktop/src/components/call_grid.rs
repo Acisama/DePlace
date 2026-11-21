@@ -37,6 +37,7 @@ use iced::{
 };
 
 use crate::common::DePlaceWidget;
+use crate::helpers::{lerp_size, lerp_vector};
 
 pub struct CallGrid<T, Key, Message, Content> {
     items: Vec<T>,
@@ -183,17 +184,6 @@ fn smoothstep(t: f32) -> f32 {
 
 fn progress(started: Instant, duration: Duration) -> f32 {
     smoothstep((started.elapsed().as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 1.0))
-}
-
-fn lerp_vector(from: Vector, to: Vector, t: f32) -> Vector {
-    Vector::new(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)
-}
-
-fn lerp_size(from: Size, to: Size, t: f32) -> Size {
-    Size::new(
-        from.width + (to.width - from.width) * t,
-        from.height + (to.height - from.height) * t,
-    )
 }
 
 fn center_of(position: Vector, size: Size) -> Vector {

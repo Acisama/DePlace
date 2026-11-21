@@ -18,7 +18,7 @@ use matrix_sdk::{
     },
 };
 use media_fetcher::MediaProcessor;
-use ruma::{OwnedMxcUri, RoomId};
+use ruma::{OwnedMxcUri, RoomId, UserId};
 use tokio::sync::watch::{self, Receiver, Sender};
 
 use crate::{
@@ -755,6 +755,20 @@ impl AppState {
             self.active_server().borrow().clone(),
         )) {
             tracing::error!("Failed to send window title: {}", e);
+        }
+    }
+
+    /// Creates a DM room or changes the active room to an existing DM room with `user_id`.
+    pub async fn change_or_create_dm(&self, user_id: &UserId) {
+        let room = if let Some(room) = self.inner.room_store.get_dm_room(user_id) {
+            Some(room)
+        } else {
+            self.inner.room_store.create_dm(user_id).await
+        };
+
+        if let Some(room) = room {
+            self.set_active_server(ActiveServer::Dms, false).await;
+            self.set_active_room(Some(room)).await;
         }
     }
 }

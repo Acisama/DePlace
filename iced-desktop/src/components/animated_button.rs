@@ -2,13 +2,14 @@ use std::time::{Duration, Instant};
 
 use iced::advanced::widget::{Meta, Operation, Tree, tree};
 use iced::advanced::{Layout, Renderer as _, Shell, Widget, layout, mouse, overlay, renderer};
-use iced::widget::button::{self, Catalog, Status, Style, StyleFn};
+use iced::widget::button::{Catalog, Status, Style, StyleFn};
 use iced::{
     Background, Color, Element, Event, Length, Padding, Rectangle, Renderer, Size, Vector,
     Widget as _, touch, window,
 };
 
 use crate::common::DePlaceWidget;
+use crate::helpers::{blend_background, blend_border, blend_color};
 
 /// A [`button`](iced::widget::button) that eases its background and text
 /// color across [`Status`] changes instead of snapping to them.
@@ -40,7 +41,7 @@ where
             on_press: None,
             width: Length::Fit,
             height: Length::Fit,
-            padding: button::DEFAULT_PADDING,
+            padding: 0.0.into(),
             duration: Duration::from_millis(100),
             class: iced::Theme::default(),
         }
@@ -48,6 +49,11 @@ where
 
     pub fn on_press(mut self, message: Message) -> Self {
         self.on_press = Some(message);
+        self
+    }
+
+    pub fn on_press_maybe(mut self, message: Option<Message>) -> Self {
+        self.on_press = message;
         self
     }
 
@@ -73,8 +79,9 @@ where
     }
 
     #[must_use]
-    pub fn style(mut self, style: impl Fn(&iced::Theme, Status) -> Style + 'static) -> Self {
-        self.class = Box::new(style) as StyleFn<'static, iced::Theme>;
+    pub fn style(mut self, style: impl Fn(Status) -> Style + 'static) -> Self {
+        self.class =
+            Box::new(move |_: &iced::Theme, status| style(status)) as StyleFn<'static, iced::Theme>;
         self
     }
 }
@@ -269,8 +276,9 @@ where
                 let from_style = theme.style(&self.class, from_status);
 
                 Style {
-                    background: lerp_background(from_style.background, target_style.background, t),
-                    text_color: lerp_color(from_style.text_color, target_style.text_color, t),
+                    background: blend_background(from_style.background, target_style.background, t),
+                    text_color: blend_color(from_style.text_color, target_style.text_color, t),
+                    border: blend_border(from_style.border, target_style.border, t),
                     ..target_style
                 }
             }
@@ -343,40 +351,6 @@ where
 
 fn smoothstep(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
-}
-
-fn lerp_color(from: Color, to: Color, t: f32) -> Color {
-    Color {
-        r: from.r + (to.r - from.r) * t,
-        g: from.g + (to.g - from.g) * t,
-        b: from.b + (to.b - from.b) * t,
-        a: from.a + (to.a - from.a) * t,
-    }
-}
-
-/// Lerps solid-color backgrounds channel-wise, treating `None` as fully
-/// transparent so fading in/out a background looks like a fade rather than a
-/// pop. Gradients aren't interpolable this way, so a transition into or out
-/// of one just snaps halfway through instead.
-fn lerp_background(from: Option<Background>, to: Option<Background>, t: f32) -> Option<Background> {
-    match (from, to) {
-        (Some(Background::Color(from)), Some(Background::Color(to))) => {
-            Some(Background::Color(lerp_color(from, to, t)))
-        }
-        (None, Some(Background::Color(to))) => {
-            Some(Background::Color(lerp_color(Color::TRANSPARENT, to, t)))
-        }
-        (Some(Background::Color(from)), None) => {
-            Some(Background::Color(lerp_color(from, Color::TRANSPARENT, t)))
-        }
-        (from, to) => {
-            if t < 0.5 {
-                from
-            } else {
-                to
-            }
-        }
-    }
 }
 
 impl<'a, Message, Content> From<AnimatedButton<Message, Content>> for Element<'a, Message>

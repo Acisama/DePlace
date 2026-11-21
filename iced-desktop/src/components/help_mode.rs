@@ -22,6 +22,7 @@ use iced::{
 };
 
 use crate::common::{DePlaceWidget, help_state};
+use crate::helpers::blend_color;
 
 /// `K` identifies a target. It must be unique per element: all targets whose
 /// key equals `hovered` are highlighted, so give each message its own key,
@@ -74,16 +75,6 @@ const DIM: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.6);
 /// a chain keeps; the rest is `offline_color`.
 const BASE_OUTLINE_SATURATION: f32 = 0.35;
 const BORDER_WIDTH: f32 = 2.0;
-
-fn blend(a: Color, b: Color, t: f32) -> Color {
-    let t = t.clamp(0.0, 1.0);
-    Color {
-        r: a.r + (b.r - a.r) * t,
-        g: a.g + (b.g - a.g) * t,
-        b: a.b + (b.b - a.b) * t,
-        a: a.a + (b.a - a.a) * t,
-    }
-}
 
 // ---------------------------------------------------------------- HelpTarget
 
@@ -488,7 +479,7 @@ impl HelpOverlay<'_> {
             let fade = (max_depth as f32 + 1.0) / (self.position as f32 + 1.0);
             (BASE_OUTLINE_SATURATION * fade).min(1.0)
         };
-        let outline_color = blend(self.offline_color, self.accent, saturation);
+        let outline_color = blend_color(self.offline_color, self.accent, saturation);
         renderer.fill_quad(
             renderer::Quad {
                 bounds: hole,

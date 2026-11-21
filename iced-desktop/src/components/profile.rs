@@ -22,7 +22,11 @@ use iced::{
     },
 };
 
-use crate::modules::home::{DEFAULT_ROOM_ICON, SCREENSHARING_ICON, SPACE_ICON, SPEAKER_ICON};
+use crate::{
+    common::animated_button,
+    helpers::blend_color,
+    modules::home::{DEFAULT_ROOM_ICON, SCREENSHARING_ICON, SPACE_ICON, SPEAKER_ICON},
+};
 
 use super::{
     ColoredRounded, CopyUserIdExt, IcedColorExt, PushElement, StatusExt,
@@ -288,17 +292,6 @@ pub fn render_loading_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Elemen
     render_name("Loading...".to_string(), size, theme.colors.offline.into())
 }
 
-pub fn blend_colors(color_a: Color, color_b: Color, factor: f32) -> Color {
-    let t = factor.clamp(0.0, 1.0);
-
-    Color {
-        r: color_a.r + (color_b.r - color_a.r) * t,
-        g: color_a.g + (color_b.g - color_a.g) * t,
-        b: color_a.b + (color_b.b - color_a.b) * t,
-        a: color_a.a + (color_b.a - color_a.a) * t,
-    }
-}
-
 pub fn render_name_decorated<'a, T: 'a>(
     name: String,
     size: f32,
@@ -334,7 +327,7 @@ pub fn render_name_decorated<'a, T: 'a>(
 
                         iced::advanced::text::Span::new(c)
                             .size(size)
-                            .color(blend_colors(decoration_color, text_color, factor))
+                            .color(blend_color(decoration_color, text_color, factor))
                     })
                     .collect::<Vec<_>>(),
             )
@@ -473,14 +466,13 @@ pub fn render_banner_column<'a, T: CopyUserIdExt + Clone + 'a>(
             w::column![
                 member.render_name(structure.large_font_size),
                 Space::new().height(structure.small_gap),
-                w::button(
+                animated_button(
                     w::text(id.to_string())
                         .color(theme.text.dim)
                         .size(structure.font_size)
                 )
-                .padding(0.0)
                 .on_press(T::copy_user_id(id))
-                .style(move |_, status| w::button::Style {
+                .style(move |status| w::button::Style {
                     background: None,
                     text_color: if status.active() {
                         theme.text.normal.into()
@@ -490,7 +482,7 @@ pub fn render_banner_column<'a, T: CopyUserIdExt + Clone + 'a>(
                     ..Default::default()
                 })
             ]
-            .padding(padding::left(structure.small_gap * 2.0))
+            .padding(padding::left(structure.gap))
         ],
         w::row![
             Space::new().width(structure.small_gap * 2.0 - icon_gap / 2.0),

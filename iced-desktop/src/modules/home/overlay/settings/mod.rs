@@ -245,7 +245,7 @@ fn render_section(
 ) -> Element<'static, SettingsMessage> {
     let is_selected = active_section == section;
 
-    w::button(
+    animated_button(
         w::row![
             phosphor_icon(icon, structure.font_size * 1.2),
             w::text(section.display_name())
@@ -259,7 +259,7 @@ fn render_section(
         None
     })
     .padding(structure.small_gap)
-    .style(move |_, status| {
+    .style(move |status| {
         let is_active = status.active();
         ButtonStyle {
             text_color: if is_selected || status.active() {
@@ -311,7 +311,7 @@ fn render_profile_section(
         )
     });
 
-    w::button(
+    animated_button(
         w::row![
             render_avatar(
                 structure.server_column.icon_size,
@@ -338,7 +338,7 @@ fn render_profile_section(
         None
     })
     .padding(structure.small_gap)
-    .style(move |_, status| {
+    .style(move |status| {
         let is_active = status.active();
         ButtonStyle {
             text_color: if is_selected || status.active() {

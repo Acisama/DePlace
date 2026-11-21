@@ -4,7 +4,8 @@ use dashmap::{DashMap, mapref::entry::Entry};
 use futures::{StreamExt, future::join_all};
 use matrix_sdk::{Client, Room, RoomState, room::ParentSpace};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId, events::space::child::SpaceChildEventContent,
+    MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId, UserId,
+    events::space::child::SpaceChildEventContent,
 };
 use tokio::sync::watch;
 
@@ -119,7 +120,6 @@ impl RoomStore {
         );
     }
 
-    #[cfg(feature = "iced")]
     fn spawn_room_load(&self, dp_room: DePlaceRoom) {
         let hierarchy = self.hierarchy.clone();
         let room = dp_room.room.clone();
@@ -151,12 +151,28 @@ impl RoomStore {
         }
 
         let sdk_room = self.client.get_room(room_id)?;
+        let (room, created) = self.insert_sdk_room(&sdk_room);
 
-        let (room, created) = match self.room_map.entry(room_id.to_owned()) {
+        if created {
+            self.spawn_room_load(room.clone());
+        }
+
+        Some((room, created))
+    }
+
+    /// Inserts an already-resolved SDK `Room` into the map, without going
+    /// through `client.get_room`. Used when a caller (e.g. `create_dm`)
+    /// already has the `Room` in hand and a re-lookup would be redundant.
+    fn insert_sdk_room(&self, sdk_room: &Room) -> (DePlaceRoom, bool) {
+        if let Some(room) = self.room_map.get(sdk_room.room_id()) {
+            return (room.clone(), false);
+        }
+
+        match self.room_map.entry(sdk_room.room_id().to_owned()) {
             Entry::Occupied(e) => (e.get().clone(), false),
             Entry::Vacant(e) => {
                 let room = DePlaceRoom::new(
-                    &sdk_room,
+                    sdk_room,
                     &self.profile_store,
                     self.own_device.clone(),
                     self.own_handle.clone(),
@@ -166,14 +182,51 @@ impl RoomStore {
                 e.insert(room.clone());
                 (room, true)
             }
-        };
+        }
+    }
 
-        #[cfg(feature = "iced")]
+    pub async fn create_dm(&self, user_id: &UserId) -> Option<DePlaceRoom> {
+        let sdk_room = match self.client.create_dm(user_id).await {
+            Ok(room) => room,
+            Err(e) => {
+                tracing::error!("Failed to create DM: {e}");
+                return None;
+            }
+        };
+        let (room, created) = self.insert_sdk_room(&sdk_room);
+
         if created {
+            self.profile_store.load_room_members(&sdk_room).await;
+
+            // The invitee's m.room.member event may not have synced into the
+            // local store yet (we just sent the invite), so `load_room_members`
+            // above can come back without them. Seed a stub for the invited
+            // user ourselves -- we already know their id -- so `other_dm_member`
+            // has someone to show right away; the real profile fills in once
+            // the background load in `get_member` resolves.
+            self.profile_store.get_member(sdk_room.room_id(), user_id);
+            self.profile_store
+                .get_members(sdk_room.room_id())
+                .recalculate();
+
+            self.recompute_dms();
+
             self.spawn_room_load(room.clone());
         }
 
-        Some((room, created))
+        Some(room)
+    }
+
+    /// Returns the existing DM room with `user_id`, if any
+    pub fn get_dm_room(&self, user_id: &UserId) -> Option<DePlaceRoom> {
+        self.dms
+            .get()
+            .iter()
+            .find(|room| {
+                room.other_dm_member()
+                    .is_some_and(|m| m.user_id() == user_id)
+            })
+            .cloned()
     }
 
     pub fn get_all_rooms(&self) -> Vec<DePlaceRoom> {

@@ -1,5 +1,6 @@
 use std::hash::Hash;
 
+use animated_button::animated_button;
 use deplace_core::{
     formatting::format_bytes,
     helpers::DisplayString,
@@ -56,10 +57,10 @@ pub mod volume_bar;
 pub use call_grid::call_grid;
 pub use corner_badge::{CornerContent, corner_badge};
 pub use elapsed_time::elapsed_time;
-pub use skeleton::skeleton;
 pub use fills_parent::fills_parent;
 pub use on_appear::on_appear;
 pub use pan::pan;
+pub use skeleton::skeleton;
 pub use video_controls::video_controls;
 pub use volume_bar::volume_bar;
 
@@ -523,12 +524,12 @@ pub fn close_button<'a, T: Clone + 'a>(
     on_press: T,
 ) -> Element<'a, T> {
     w::container(
-        w::button(phosphor_icon(
+        animated_button(phosphor_icon(
             phosphor_svgs::icon::x::BOLD,
             structure.chat.text_size,
         ))
         .padding(structure.small_gap / 2.0)
-        .style(move |_, status| w::button::Style {
+        .style(move |status| w::button::Style {
             background: if status.active() {
                 Some(theme.solid_hover_bg.into())
             } else {

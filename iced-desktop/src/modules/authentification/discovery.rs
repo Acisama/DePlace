@@ -149,9 +149,9 @@ impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
             self.state
                 .text("Homeserver is valid", "", &theme.colors, &structure);
 
-        let continue_button = w::button(w::text("Continue").width(Fill).center())
+        let continue_button = animated_button(w::text("Continue").width(Fill).center())
             .width(Fill)
-            .style(move |_, status| w::button::Style {
+            .style(move |status| w::button::Style {
                 background: Some(match status {
                     Status::Disabled => theme.colors.muted.into(),
                     Status::Active => theme.accent.into(),

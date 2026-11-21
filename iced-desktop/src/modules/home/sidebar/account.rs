@@ -116,8 +116,8 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
                     help_view.call(
                         HelpKey::Sidebar(SidebarHelpKey::SettingsButton),
                         "Settings button, press to open settings",
-                        w::button(iced_icon!(gear, regular, button_size))
-                            .style(move |_, status| ButtonStyle {
+                        animated_button(iced_icon!(gear, regular, button_size))
+                            .style(move |status| ButtonStyle {
                                 background: None,
                                 text_color: if status.active() {
                                     theme.text.normal.into()

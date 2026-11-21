@@ -307,7 +307,7 @@ impl MessageEvent {
                         },
                         "A reaction to the message",
                         themed_tooltip_content(
-                            w::button(
+                            animated_button(
                                 w::row![
                                     w::text(reaction.clone()).font(EMOJI_FONT).size(text_size),
                                     w::rich_text![span(length.to_string()).font(Font {
@@ -321,7 +321,7 @@ impl MessageEvent {
                                 .align_y(Alignment::Center)
                                 .spacing(structure.small_gap / 2.0),
                             )
-                            .style(move |_, _| ButtonStyle {
+                            .style(move |_| ButtonStyle {
                                 background: Some(bg_color.into()),
                                 text_color: theme.text.normal.into(),
                                 border: Border {
@@ -1274,7 +1274,7 @@ impl SystemMessage {
             row = row.push_element(
                 animated_button("Join call")
                     .padding(structure.small_gap)
-                    .style(move |_, status| ButtonStyle {
+                    .style(move |status| ButtonStyle {
                         background: if status.active() {
                             Some(theme.colors.success.into())
                         } else {

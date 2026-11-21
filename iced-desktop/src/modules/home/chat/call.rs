@@ -73,7 +73,7 @@ pub fn render_call_members(
             .color(theme.text.normal),
             animated_button("Join Call")
                 .on_press(ChatMessage::JoinCall)
-                .style(move |_, status| ButtonStyle {
+                .style(move |status| ButtonStyle {
                     background: if status.active() {
                         Some(theme.colors.success.into())
                     } else {
@@ -115,7 +115,7 @@ pub fn render_call_members(
                 w::row![
                     animated_button("Leave Call")
                         .on_press(ChatMessage::LeaveCall)
-                        .style(move |_, status| ButtonStyle {
+                        .style(move |status| ButtonStyle {
                             background: if status.active() {
                                 Some(theme.colors.error.into())
                             } else {

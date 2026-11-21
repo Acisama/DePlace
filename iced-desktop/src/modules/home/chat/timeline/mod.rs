@@ -1551,7 +1551,7 @@ fn render_timeline_item_buttons(
         animated_button(phosphor_icon(icon, button_size))
             .padding(structure.small_gap / 2.0)
             .on_press(convert_message(message))
-            .style(move |_: &IcedTheme, status| ButtonStyle {
+            .style(move |status| ButtonStyle {
                 background: if status.active() {
                     Some(hover_bg.into())
                 } else {

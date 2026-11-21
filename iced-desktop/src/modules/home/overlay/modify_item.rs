@@ -236,7 +236,7 @@ fn render_dialogue_button<'a, Message: Clone + 'a>(
     border_color: DePlaceColor,
 ) -> AnimatedButton<Message, Text<'a>> {
     animated_button(w::text(label).width(Fill).center())
-        .style(move |_, status| ButtonStyle {
+        .style(move |status| ButtonStyle {
             background: if status.active() {
                 Some(hover_bg_color.into())
             } else {

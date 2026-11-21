@@ -172,9 +172,9 @@ impl IcedWidget<LoginMessage, LoginAction> for Login {
                     move |_| LoginMessage::BackToDiscovery(client.clone())
                 });
 
-        let login_button = w::button(w::text("Log in").width(Fill).center())
+        let login_button = animated_button(w::text("Log in").width(Fill).center())
             .width(Fill)
-            .style(move |_, status| w::button::Style {
+            .style(move |status| w::button::Style {
                 background: Some(match status {
                     Status::Disabled => theme.colors.muted.into(),
                     Status::Active => theme.accent.into(),

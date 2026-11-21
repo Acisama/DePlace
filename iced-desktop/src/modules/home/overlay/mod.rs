@@ -137,7 +137,7 @@ impl Overlay {
     pub fn open_profile(&mut self, member: Member, bounds: Rectangle) {
         tracing::trace!("Opening profile for {:?}", member.user_id());
         self.overlay_state = Some(OverlayState::Profile);
-        self.profile = Some(OverlayProfile::new(&self.state, member, bounds));
+        self.profile = Some(OverlayProfile::new(self.state.clone(), member, bounds));
     }
 
     pub fn open_context_menu(&mut self, menu: ContextMenu) {
@@ -295,6 +295,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                                 .map_err(|_| tracing::error!("Failed to copy to clipboard"))
                                 .map(|_| OverlayMessage::Profile(ProfileMessage::UserIdCopied)),
                         )),
+                        ProfileAction::Run(task) => Some(OverlayAction::Run(task)),
                     }
                 } else {
                     None

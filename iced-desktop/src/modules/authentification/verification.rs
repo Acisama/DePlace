@@ -132,9 +132,9 @@ impl IcedWidget<VerificationMessage, VerificationAction> for Verification {
             &structure,
         );
 
-        let recovery_button = w::button(w::text("Log in").width(Fill).center())
+        let recovery_button = animated_button(w::text("Log in").width(Fill).center())
             .width(Fill)
-            .style(move |_, status| w::button::Style {
+            .style(move |status| w::button::Style {
                 background: Some(match status {
                     Status::Disabled => theme.colors.muted.into(),
                     Status::Active => theme.accent.into(),

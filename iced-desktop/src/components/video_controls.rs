@@ -28,7 +28,7 @@ use iced::{
 };
 use iced_video_player::{Video, VideoPlayer};
 
-use crate::common::{pie_progress, structure, theme};
+use crate::common::{animated_button, pie_progress, structure, theme};
 use crate::modules::home::{DOWNLOAD_ICON, EXIT_FULLSCREEN_ICON, FULLSCREEN_ICON};
 use crate::{EMPTY_WIDGET, MONO_FONT};
 
@@ -194,7 +194,7 @@ enum Local {
 fn build_not_started(phase: Phase, theme: Theme, structure: Structure) -> Element<'static, Local> {
     match phase {
         Phase::NotStarted => w::container(
-            w::button(
+            animated_button(
                 w::row![
                     phosphor_icon(DOWNLOAD_ICON, structure.font_size * 1.1),
                     w::text("Download video").size(structure.font_size),
@@ -202,7 +202,7 @@ fn build_not_started(phase: Phase, theme: Theme, structure: Structure) -> Elemen
                 .align_y(Alignment::Center)
                 .spacing(structure.small_gap),
             )
-            .style(move |_, status| w::button::Style {
+            .style(move |status| w::button::Style {
                 background: if status.active() {
                     Some(theme.solid_hover_bg.into())
                 } else {

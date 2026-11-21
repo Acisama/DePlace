@@ -192,16 +192,12 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         HelpKey::Sidebar(SidebarHelpKey::DmsWithNotifications),
                         "Direct messages with unread notifications or ongoing calls",
                         w::mouse_area(
-                            w::button(room.render_simple_icon(
+                            animated_button(room.render_simple_icon(
                                 icon_size,
                                 theme,
                                 structure,
                                 theme.solid_bg.into(),
                             ))
-                            .padding(0.0)
-                            .style(move |_, _| ButtonStyle {
-                                ..Default::default()
-                            })
                             .on_press(ServerColumnMessage::ChangeToDm(room.clone())),
                         )
                         .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(

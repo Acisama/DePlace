@@ -41,6 +41,7 @@ use crate::modules::{
 
 pub mod common;
 pub mod components;
+pub mod helpers;
 pub mod modules;
 
 #[derive(Debug, Clone)]

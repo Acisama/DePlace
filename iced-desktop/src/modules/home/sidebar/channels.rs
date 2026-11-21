@@ -290,7 +290,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
                                                 fill,
                                                 structure.header.height - structure.small_gap * 3.0
                                             ))
-                                            .style(move |_, status| ButtonStyle {
+                                            .style(move |status| ButtonStyle {
                                                 background: status
                                                     .active()
                                                     .then_some(theme.solid_hover_bg.into()),
@@ -419,7 +419,7 @@ fn render_channel(
     }
 
     let area = w::mouse_area(
-        w::button(
+        animated_button(
             help_view
                 .call(
                     HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
@@ -446,8 +446,7 @@ fn render_channel(
         } else {
             None
         })
-        .padding(0.0)
-        .style(move |_, status| ButtonStyle {
+        .style(move |status| ButtonStyle {
             background: is_active.then_some(theme.solid_hover_bg.into()),
             border: Border {
                 color: if status.active() || is_active {

@@ -179,12 +179,12 @@ where
             let is_active = val == &active_value;
 
             themed_tooltip_text(
-                w::button(
+                animated_button(
                     w::text::<iced::Theme>(*name)
                         .size(structure.small_font_size)
                         .center(),
                 )
-                .style(move |_: &iced::Theme, status| ButtonStyle {
+                .style(move |status| ButtonStyle {
                     text_color: if status.active() {
                         theme.text.normal.into()
                     } else if is_active {
@@ -227,14 +227,14 @@ where
                 new_value.insert(variant);
             }
 
-            w::button(
+            animated_button(
                 w::text::<iced::Theme>(label)
                     .size(structure.font_size)
                     .center(),
             )
             .padding(structure.small_gap)
             .on_press(on_change(new_value))
-            .style(move |_: &iced::Theme, status| ButtonStyle {
+            .style(move |status| ButtonStyle {
                 text_color: if status.active() {
                     theme.text.normal.into()
                 } else if is_active {
@@ -297,9 +297,8 @@ fn cloud_button<Message: 'static + Clone + ToggleCloudExt>(
     };
 
     themed_tooltip_text(
-        w::button(phosphor_icon(icon, structure.font_size * 1.2))
-            .padding(0.0)
-            .style(move |_, status| ButtonStyle {
+        animated_button(phosphor_icon(icon, structure.font_size * 1.2))
+            .style(move |status| ButtonStyle {
                 text_color: if let Some(hover_color) = hover_color
                     && status.active()
                 {
@@ -362,7 +361,7 @@ pub fn render_subsection<Message: Clone + 'static>(
     structure: Structure,
     content: Element<'static, Message>,
 ) -> Element<'static, Message> {
-    let header = w::button(
+    let header = animated_button(
         w::row![
             weighted_text(title, Weight::Bold)
                 .size(structure.font_size * 1.1)
@@ -387,7 +386,7 @@ pub fn render_subsection<Message: Clone + 'static>(
     .on_press(toggle)
     .padding(structure.small_gap / 2.0)
     .width(Fill)
-    .style(move |_, status| ButtonStyle {
+    .style(move |status| ButtonStyle {
         text_color: if status.active() {
             theme.text.normal.into()
         } else {
