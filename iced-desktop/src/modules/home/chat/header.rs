@@ -1,6 +1,9 @@
 use deplace_core::{
     settings::NameDecoration,
-    state::media_fetcher::{MediaProcessor, ProgressCompleteness},
+    state::{
+        ActiveServer,
+        media_fetcher::{MediaProcessor, ProgressCompleteness},
+    },
 };
 use enumset::EnumSet;
 use iced::Alignment;
@@ -47,6 +50,7 @@ pub struct Header {
     sidebar_state: EnumSet<SidebarState>,
 
     room: DePlaceRoom,
+    active_server: Receiver<ActiveServer>,
 
     name_decoration: Receiver<NameDecoration>,
     show_fps_counter: Receiver<bool>,
@@ -77,6 +81,7 @@ impl Header {
 
         Self {
             sidebar_state,
+            active_server: state.active_server(),
 
             name_decoration: settings.name_decoration.watch(),
             show_fps_counter: settings.show_fps_counter.watch(),
@@ -167,16 +172,20 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         w::container(help_view.call(
                             HelpKey::Header(HeaderHelpKey::HeaderIcon),
                             "The icon of the active room, shows other user's icon in dms",
-                            self.room.render_simple_icon(
-                                if self.room.is_dm() {
-                                    button_size
-                                } else {
-                                    icon_size
-                                },
-                                theme,
-                                structure,
-                                theme.solid_bg.into(),
-                            )
+                            if self.active_server.borrow().is_home() {
+                                self.room.render_icon(button_size)
+                            } else {
+                                self.room.render_simple_icon(
+                                    if self.room.is_dm() {
+                                        button_size
+                                    } else {
+                                        icon_size
+                                    },
+                                    theme,
+                                    structure,
+                                    theme.solid_bg.into(),
+                                )
+                            }
                         ).radius(if self.room.is_dm() { button_size * 0.5 } else {icon_size * 0.25 }))
                         .style(move |_| ContainerStyle {
                             text_color: Some(theme.text.normal.into()),

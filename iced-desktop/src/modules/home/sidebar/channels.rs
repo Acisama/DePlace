@@ -214,7 +214,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         let name_decoration = *self.name_decoration.borrow();
         let help_view = HelpView::new(theme);
 
-        let (whole_key, name_key) = if active_server.is_dms() {
+        let (whole_key, name_key) = if active_server.is_home() {
             (
                 "A view of your direct message conversations and rooms not in a server",
                 "You are in direct messages",
@@ -228,7 +228,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
 
         let own_device = &self.room_store.own_device();
 
-        let in_server = !active_server.is_dms();
+        let in_server = !active_server.is_home();
 
         let room_list = themed_scrollable(
             w::Column::with_children(channels.iter().enumerate().map(|(i, r)| {
@@ -414,8 +414,8 @@ fn render_channel(
         } else {
             room.render_icon_maybe_with_presence(icon_size, theme, structure, bg)
         },
-        room.render_name_decorated(structure.font_size, name_decoration, text_color),
-        Space::new().width(Fill),
+        w::row![room.render_name_decorated(structure.font_size, name_decoration, text_color),]
+            .width(Fill),
         themed_tooltip_text(
             room.is_dm().then(move || {
                 phosphor_icon(

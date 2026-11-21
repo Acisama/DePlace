@@ -133,7 +133,7 @@ impl ActiveServer {
         }
     }
 
-    pub fn is_dms(&self) -> bool {
+    pub fn is_home(&self) -> bool {
         matches!(self, ActiveServer::Home)
     }
 

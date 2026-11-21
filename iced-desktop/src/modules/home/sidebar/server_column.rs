@@ -140,7 +140,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
         let home_icon = pill(
             theme,
             structure,
-            active_server.is_dms(),
+            active_server.is_home(),
             hovered_server
                 .as_ref()
                 .map(|id| id.is_dms())
