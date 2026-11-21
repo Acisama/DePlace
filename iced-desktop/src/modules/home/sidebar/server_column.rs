@@ -152,7 +152,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                     "Go to your direct messages",
                     w::mouse_area(svg(icon_handle).width(icon_size).height(icon_size))
                         .interaction(Interaction::Pointer)
-                        .on_press(ServerColumnMessage::ChangeActiveServer(ActiveServer::Dms))
+                        .on_press(ServerColumnMessage::ChangeActiveServer(ActiveServer::Home))
                         .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Dms))
                         .on_exit(ServerColumnMessage::ServerHoverEnded(ActiveServerId::Dms)),
                 )

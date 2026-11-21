@@ -244,19 +244,21 @@ impl RoomStore {
     /// no longer drives room discovery: `get_room` inserts (and spawns a load
     /// for) any room that isn't in the map yet.
     pub fn recompute_dms(&self) {
+        let hierarchy = self.hierarchy.read();
+
         let mut dms: Vec<(DePlaceRoom, Option<MilliSecondsSinceUnixEpoch>)> = self
             .client
             .rooms()
             .into_iter()
             .filter(|room| matches!(room.state(), RoomState::Joined | RoomState::Invited))
+            .filter(|room| !room.is_space())
             .filter_map(|room| {
-                let is_dm = room.is_dm();
-                let dp_room = self.get_room(room.room_id())?;
-
-                if !is_dm {
+                let has_parent = hierarchy.child_to_parents.contains_key(room.room_id());
+                if !room.is_dm() && has_parent {
                     return None;
                 }
 
+                let dp_room = self.get_room(room.room_id())?;
                 Some((dp_room, room.latest_event_timestamp()))
             })
             .collect();

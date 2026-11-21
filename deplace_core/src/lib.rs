@@ -250,35 +250,35 @@ impl ProfileLike for ActiveServer {
 
     fn displayname(&self) -> String {
         match self {
-            ActiveServer::Dms => "Direct Messages".into(),
+            ActiveServer::Home => "Home".into(),
             ActiveServer::Server(room) => room.displayname(),
         }
     }
 
     fn initial(&self) -> String {
         match self {
-            ActiveServer::Dms => "D".into(),
+            ActiveServer::Home => "H".into(),
             ActiveServer::Server(room) => room.initial(),
         }
     }
 
     fn avatars(&self) -> Option<ProfileAvatars> {
         match self {
-            ActiveServer::Dms => None,
+            ActiveServer::Home => None,
             ActiveServer::Server(room) => room.avatars(),
         }
     }
 
     fn icon(&self) -> PolyIcon {
         match self {
-            ActiveServer::Dms => PolyIcon::from("dms"),
+            ActiveServer::Home => PolyIcon::from("dms"),
             ActiveServer::Server(room) => room.icon(),
         }
     }
 
     fn color(&self) -> DePlaceColor {
         match self {
-            ActiveServer::Dms => DePlaceColor::from_hsla(0.0, 0.0, 0.0, 1.0),
+            ActiveServer::Home => DePlaceColor::from_hsla(0.0, 0.0, 0.0, 1.0),
             ActiveServer::Server(room) => room.color(),
         }
     }

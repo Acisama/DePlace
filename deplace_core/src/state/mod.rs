@@ -112,7 +112,7 @@ pub mod roles;
 
 #[derive(Clone, Debug)]
 pub enum ActiveServer {
-    Dms,
+    Home,
     Server(DePlaceRoom),
 }
 
@@ -120,7 +120,7 @@ impl From<Option<DePlaceRoom>> for ActiveServer {
     fn from(room: Option<DePlaceRoom>) -> Self {
         match room {
             Some(room) => ActiveServer::Server(room),
-            None => ActiveServer::Dms,
+            None => ActiveServer::Home,
         }
     }
 }
@@ -128,13 +128,13 @@ impl From<Option<DePlaceRoom>> for ActiveServer {
 impl ActiveServer {
     pub fn id(&self) -> ActiveServerId {
         match self {
-            ActiveServer::Dms => ActiveServerId::Dms,
+            ActiveServer::Home => ActiveServerId::Dms,
             ActiveServer::Server(room) => ActiveServerId::Server(room.room_id().to_owned()),
         }
     }
 
     pub fn is_dms(&self) -> bool {
-        matches!(self, ActiveServer::Dms)
+        matches!(self, ActiveServer::Home)
     }
 
     pub fn is_server(&self, server_id: &RoomId) -> bool {
@@ -144,7 +144,7 @@ impl ActiveServer {
     pub fn as_server(&self) -> Option<&DePlaceRoom> {
         match self {
             ActiveServer::Server(room) => Some(room),
-            ActiveServer::Dms => None,
+            ActiveServer::Home => None,
         }
     }
 }
@@ -152,7 +152,7 @@ impl ActiveServer {
 impl std::hash::Hash for ActiveServer {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            ActiveServer::Dms => 0.hash(state),
+            ActiveServer::Home => 0.hash(state),
             ActiveServer::Server(server) => server.room_id().hash(state),
         }
     }
@@ -161,7 +161,7 @@ impl std::hash::Hash for ActiveServer {
 impl PartialEq for ActiveServer {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (ActiveServer::Dms, ActiveServer::Dms) => true,
+            (ActiveServer::Home, ActiveServer::Home) => true,
             (ActiveServer::Server(room1), ActiveServer::Server(room2)) => {
                 room1.room_id() == room2.room_id()
             }
@@ -323,7 +323,7 @@ impl AppState {
         {
             ActiveServer::Server(server)
         } else {
-            ActiveServer::Dms
+            ActiveServer::Home
         };
 
         let active_room = last_room_id.and_then(|id| room_store.get_room(&id));
@@ -668,7 +668,7 @@ impl AppState {
         );
 
         let mut room_changed = false;
-        let mut new_server = ActiveServer::Dms;
+        let mut new_server = ActiveServer::Home;
 
         self.inner.active_room.send_if_modified(|cur| {
             let changed = cur.as_ref().map(|r| r.room_id()) != room.as_ref().map(|r| r.room_id());
@@ -715,7 +715,7 @@ impl AppState {
                 breadcrumbs.recent_rooms.truncate(25);
 
                 match active_server {
-                    ActiveServer::Dms => {
+                    ActiveServer::Home => {
                         breadcrumbs.last_dm_id = Some(room_id);
                         breadcrumbs.dms_last = true;
                     }
@@ -767,7 +767,7 @@ impl AppState {
         };
 
         if let Some(room) = room {
-            self.set_active_server(ActiveServer::Dms, false).await;
+            self.set_active_server(ActiveServer::Home, false).await;
             self.set_active_room(Some(room)).await;
         }
     }

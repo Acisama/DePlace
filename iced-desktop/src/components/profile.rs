@@ -148,6 +148,15 @@ pub trait RoomRenderExt {
         structure: Structure,
         background_color: Color,
     ) -> Element<'a, T>;
+
+    /// Renders the icon with the user's presence indicator, if this room is a dm.
+    fn render_icon_maybe_with_presence<'a, T: 'a>(
+        &self,
+        size: f32,
+        theme: Theme,
+        structure: Structure,
+        background_color: Color,
+    ) -> Element<'a, T>;
 }
 
 impl<Profile: ProfileLike> ProfileRenderExt for Profile {
@@ -267,6 +276,20 @@ impl RoomRenderExt for DePlaceRoom {
             DePlaceRoomType::Standard | DePlaceRoomType::Direct => {
                 phosphor_icon(DEFAULT_ROOM_ICON, size).into()
             }
+        }
+    }
+
+    fn render_icon_maybe_with_presence<'a, T: 'a>(
+        &self,
+        size: f32,
+        theme: Theme,
+        structure: Structure,
+        background_color: Color,
+    ) -> Element<'a, T> {
+        if let Some(member) = self.other_dm_member() {
+            member.render_icon_with_presence(size, theme, structure, background_color)
+        } else {
+            self.render_icon(size)
         }
     }
 }

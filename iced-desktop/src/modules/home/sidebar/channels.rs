@@ -202,7 +202,7 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
         let hovered_call_participant = self.hovered_call_participant.clone();
 
         let channels: Arc<Vec<_>> = match &active_server {
-            ActiveServer::Dms => self.room_store.dm_rooms(),
+            ActiveServer::Home => self.room_store.dm_rooms(),
             ActiveServer::Server(server) => Arc::new(
                 self.room_store
                     .get_children(server.room_id())
@@ -228,30 +228,37 @@ impl IcedWidget<ChannelsMessage, ChannelsAction> for ServerChannels {
 
         let own_device = &self.room_store.own_device();
 
-        let room_list = Column::with_children(channels.iter().enumerate().map(|(i, r)| {
-            render_channel(
-                theme,
-                structure,
-                &active_room_id,
-                &hovered_room_id,
-                &hovered_call_participant,
-                r,
-                room_store,
-                &self.collapsed_categories,
-                name_decoration,
-                if r.is_dm() {
-                    structure.sidebar.dm_icon_height
-                } else {
-                    structure.sidebar.channel_icon_height
-                },
-                &help_view,
-                i,
-                own_device,
-            )
-        }))
-        .spacing(structure.divider_width)
-        .height(Fill)
-        .padding(structure.small_gap);
+        let in_server = !active_server.is_dms();
+
+        let room_list = themed_scrollable(
+            w::Column::with_children(channels.iter().enumerate().map(|(i, r)| {
+                render_channel(
+                    theme,
+                    structure,
+                    &active_room_id,
+                    &hovered_room_id,
+                    &hovered_call_participant,
+                    r,
+                    room_store,
+                    &self.collapsed_categories,
+                    name_decoration,
+                    if r.is_dm() || !in_server {
+                        structure.sidebar.dm_icon_height
+                    } else {
+                        structure.sidebar.channel_icon_height
+                    },
+                    &help_view,
+                    i,
+                    own_device,
+                    in_server,
+                )
+            }))
+            .spacing(structure.divider_width)
+            .height(Fill)
+            .padding(structure.small_gap),
+            theme,
+            structure,
+        );
 
         let active_server_name = active_server.displayname();
 
@@ -359,6 +366,7 @@ fn render_channel(
     help_view: &HelpView<ChannelsMessage>,
     index: usize,
     own_device: &UserDevice,
+    in_server: bool,
 ) -> Element<'static, ChannelsMessage> {
     let is_active = active_room_id
         .as_ref()
@@ -403,8 +411,10 @@ fn render_channel(
             } else {
                 iced_icon!(caret_right, bold, icon_size).into()
             }
-        } else {
+        } else if in_server {
             room.render_simple_icon(icon_size, theme, structure, bg)
+        } else {
+            room.render_icon_maybe_with_presence(icon_size, theme, structure, bg)
         },
         name,
     ];
@@ -554,6 +564,7 @@ fn render_channel(
                                 help_view,
                                 usize::MAX,
                                 own_device,
+                                in_server,
                             )
                         ]
                     }))
@@ -596,6 +607,7 @@ fn render_channel(
                             help_view,
                             usize::MAX,
                             own_device,
+                            in_server,
                         )
                     ],
                     w::container(
