@@ -32,7 +32,7 @@ pub struct RoomStore {
 
     room_map: RoomMap,
 
-    dms: Arc<Shared<Vec<DePlaceRoom>>>,
+    home_rooms: Arc<Shared<Vec<DePlaceRoom>>>,
     hierarchy: Arc<Shared<SpaceHierarchy>>,
     pub(crate) changed: watch::Sender<()>,
 }
@@ -78,7 +78,7 @@ impl RoomStore {
             own_device,
             own_handle,
             cache,
-            dms: Arc::new(Shared::new(Vec::new())),
+            home_rooms: Arc::new(Shared::new(Vec::new())),
             hierarchy: Arc::new(Shared::new(SpaceHierarchy::new(last_server_order))),
             changed: watch::channel(()).0,
         };
@@ -94,7 +94,7 @@ impl RoomStore {
         )
         .await;
 
-        store.recompute_dms();
+        store.recompute_home();
         store
     }
 
@@ -209,7 +209,7 @@ impl RoomStore {
                 .get_members(sdk_room.room_id())
                 .recalculate();
 
-            self.recompute_dms();
+            self.recompute_home();
 
             self.spawn_room_load(room.clone());
         }
@@ -219,7 +219,7 @@ impl RoomStore {
 
     /// Returns the existing DM room with `user_id`, if any
     pub fn get_dm_room(&self, user_id: &UserId) -> Option<DePlaceRoom> {
-        self.dms
+        self.home_rooms
             .get()
             .iter()
             .find(|room| {
@@ -236,41 +236,53 @@ impl RoomStore {
     }
 
     pub fn dm_rooms(&self) -> Arc<Vec<DePlaceRoom>> {
-        self.dms.get()
+        self.home_rooms.get()
+    }
+
+    /// Whether `room` should be part of the cached DM list: either an actual
+    /// DM, or an orphaned room that isn't in any space (and isn't a space
+    /// itself). Shared with the sync handlers, which need the same check to
+    /// decide whether an incoming update requires a `recompute_dms`.
+    pub(crate) fn belongs_in_home_list(&self, room: &Room) -> bool {
+        if !matches!(
+            room.state(),
+            RoomState::Joined | RoomState::Invited | RoomState::Knocked
+        ) {
+            return false;
+        }
+
+        if room.is_space() {
+            return false;
+        }
+
+        room.is_dm()
+            || !self
+                .hierarchy
+                .read()
+                .child_to_parents
+                .contains_key(room.room_id())
     }
 
     /// Re-scans every room the client knows about and rebuilds the cached DM
     /// list. Also doubles as the seeding mechanism now that `RoomListService`
     /// no longer drives room discovery: `get_room` inserts (and spawns a load
     /// for) any room that isn't in the map yet.
-    pub fn recompute_dms(&self) {
-        let hierarchy = self.hierarchy.read();
-
-        let mut dms: Vec<(DePlaceRoom, Option<MilliSecondsSinceUnixEpoch>)> = self
+    pub fn recompute_home(&self) {
+        let mut dms: Vec<(DePlaceRoom, bool, Option<MilliSecondsSinceUnixEpoch>)> = self
             .client
             .rooms()
             .into_iter()
-            .filter(|room| {
-                matches!(
-                    room.state(),
-                    RoomState::Joined | RoomState::Invited | RoomState::Knocked
-                )
-            })
-            .filter(|room| !room.is_space())
+            .filter(|room| self.belongs_in_home_list(room))
             .filter_map(|room| {
-                let has_parent = hierarchy.child_to_parents.contains_key(room.room_id());
-                if !room.is_dm() && has_parent {
-                    return None;
-                }
-
                 let dp_room = self.get_room(room.room_id())?;
-                Some((dp_room, room.latest_event_timestamp()))
+                let is_invite = dp_room.is_invite();
+                Some((dp_room, is_invite, room.latest_event_timestamp()))
             })
             .collect();
-        dms.sort_by_key(|(_, timestamp)| Reverse(*timestamp));
+        dms.sort_by_key(|(_, invited, timestamp)| Reverse((*invited, *timestamp)));
 
-        self.dms
-            .set(dms.into_iter().map(|(room, _)| room).collect());
+        self.home_rooms
+            .set(dms.into_iter().map(|(room, _, _)| room).collect());
     }
 
     pub fn servers(&self) -> Arc<Vec<OwnedRoomId>> {
@@ -285,7 +297,7 @@ impl RoomStore {
 
     /// Bumps whenever the cached DM list is recomputed.
     pub fn dms_version(&self) -> u64 {
-        self.dms.version()
+        self.home_rooms.version()
     }
 
     pub fn get_server_of(&self, room_id: &RoomId) -> Option<DePlaceRoom> {

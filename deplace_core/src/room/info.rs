@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use matrix_sdk::Room;
+use matrix_sdk::{Room, RoomState};
 use ruma::{OwnedMxcUri, OwnedRoomId};
 
 use crate::{
@@ -18,6 +18,8 @@ pub struct RoomInfo {
 
     pub(crate) avatar_url: Option<OwnedMxcUri>,
     pub(crate) color: DePlaceColor,
+
+    pub(crate) room_state: RoomState,
 
     avatars: Option<ProfileAvatars>,
 }
@@ -49,6 +51,8 @@ impl RoomInfo {
 
             avatar_url: room.avatar_url(),
             avatars,
+
+            room_state: room.state(),
 
             color: DePlaceColor::from(room_id.as_str()),
         };
@@ -94,5 +98,9 @@ impl RoomInfo {
 
     pub fn color(&self) -> DePlaceColor {
         self.color
+    }
+
+    pub fn room_state(&self) -> RoomState {
+        self.room_state
     }
 }

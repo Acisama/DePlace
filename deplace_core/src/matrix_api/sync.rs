@@ -167,7 +167,8 @@ async fn run_sync_stream(client: Client, state: AppState) {
             let sync_stream = puller_client.sync_stream(puller_settings).await;
             let mut sync_stream = pin!(sync_stream);
             while let Some(result) = sync_stream.next().await {
-                if response_tx.send(result).await.is_err() {
+                #[allow(clippy::useless_conversion)]
+                if response_tx.send(result.into()).await.is_err() {
                     // The loop dropped the receiver and moved on to a
                     // fresh stream; stop pulling this one.
                     break;
@@ -377,9 +378,11 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
             // it fresh - nothing to sync yet. But if it is a DM it has to
             // enter the list right away
             if created {
-                let is_dm = client.get_room(&room_id).is_some_and(|room| room.is_dm());
-                if is_dm {
-                    state.room_store_ref().recompute_dms();
+                let belongs_in_dm_list = client
+                    .get_room(&room_id)
+                    .is_some_and(|room| state.room_store_ref().belongs_in_home_list(&room));
+                if belongs_in_dm_list {
+                    state.room_store_ref().recompute_home();
                 }
                 continue;
             }
@@ -411,8 +414,8 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
             // RECENCYSTAMP is presumably only set by the new sliding sync
             // which we don't use yet, so until then we have to stay with
             // our old logic
-            if room.is_dm() {
-                state.room_store_ref().recompute_dms();
+            if state.room_store_ref().belongs_in_home_list(&room) {
+                state.room_store_ref().recompute_home();
             }
 
             let notifications = room.unread_notification_counts().into();

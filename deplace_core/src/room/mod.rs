@@ -5,7 +5,7 @@ use std::{
 };
 
 use live::RoomLive;
-use matrix_sdk::Room;
+use matrix_sdk::{Room, RoomState};
 use ruma::{OwnedRoomId, RoomId, UserId};
 use tokio::sync::OnceCell;
 
@@ -282,5 +282,9 @@ impl DePlaceRoom {
             .as_ref()
             .as_ref()
             .map(|r| *r.own_connection())
+    }
+
+    pub fn is_invite(&self) -> bool {
+        matches!(self.info.read().room_state, RoomState::Invited)
     }
 }

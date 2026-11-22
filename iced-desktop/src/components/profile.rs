@@ -295,12 +295,12 @@ impl RoomRenderExt for DePlaceRoom {
 }
 
 pub fn render_name<'a, T: 'a>(name: String, size: f32, color: Color) -> Element<'a, T> {
-    pan(weighted_text(name, Weight::Bold)
+    weighted_text(name, Weight::Bold)
         .size(size)
         .color(color)
         .line_height(LineHeight::Relative(1.0))
-        .align_y(Alignment::End))
-    .boxed()
+        .align_y(Alignment::Center)
+        .boxed()
 }
 
 pub fn render_unknown_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
