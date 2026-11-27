@@ -22,7 +22,7 @@ use crate::{
         volume_bar::{self, volume_bar},
     },
     modules::home::{
-        INVITE_ICON, MUTE_ICON,
+        INVITE_ICON, MUTE_ICON, SPEAKER_ICON,
         overlay::{ContextMenu, ContextMenuKind},
     },
 };
@@ -407,6 +407,7 @@ fn render_channel(
     };
 
     let in_call = room.call().own_user_device_is_in_call();
+    let has_call = room.has_call();
 
     let name_row = w::row![
         if is_space {
@@ -420,8 +421,15 @@ fn render_channel(
         } else {
             room.render_icon_maybe_with_presence(icon_size, theme, structure, bg)
         },
-        w::container(room.render_name_decorated(structure.font_size, name_decoration, text_color))
-            .width(Fill),
+        w::row![
+            room.render_name_decorated(structure.font_size, name_decoration, text_color),
+            (room.is_dm() && has_call).then(|| {
+                phosphor_icon(SPEAKER_ICON, structure.sidebar.channel_icon_height)
+                    .color(theme.colors.success)
+            }),
+        ]
+        .spacing(structure.small_gap)
+        .width(Fill),
         room.call_started_at().map(|start_time| {
             elapsed_time(start_time)
                 .color(theme.colors.success)
@@ -630,7 +638,7 @@ fn render_channel(
     } else {
         let own_join_step = room.call().join_progress();
 
-        if room.has_call() || own_join_step.is_some() {
+        if (!room.is_dm() && room.has_call()) || own_join_step.is_some() {
             let speaking_ring_padding = 1.5 * structure.icon_gap_ratio * icon_size;
             let item_height = icon_size + speaking_ring_padding + structure.small_gap;
 
