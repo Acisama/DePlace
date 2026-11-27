@@ -3533,7 +3533,7 @@ dependencies = [
 
 [[package]]
 name = "iced-desktop"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "blurhash",
