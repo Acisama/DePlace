@@ -403,8 +403,16 @@ fn render_channel(
     let is_active = active_room_id.as_ref().is_some_and(|id| id == id_ref);
 
     let room_color = room.color();
+    let mentions = if room.is_dm() {
+        let total = notifications.total();
+        if total > 0 { Some(total) } else { None }
+    } else {
+        notifications.highlights()
+    };
 
-    let mut name_row = w::row![
+    let in_call = room.call().own_user_device_is_in_call();
+
+    let name_row = w::row![
         if is_space {
             if expanded {
                 iced_icon!(caret_down, bold, icon_size).into()
@@ -416,40 +424,50 @@ fn render_channel(
         } else {
             room.render_icon_maybe_with_presence(icon_size, theme, structure, bg)
         },
-        w::row![room.render_name_decorated(structure.font_size, name_decoration, text_color),]
+        w::container(room.render_name_decorated(structure.font_size, name_decoration, text_color))
             .width(Fill),
-        themed_tooltip_text(
-            if room.is_invite() {
-                Some(phosphor_icon(INVITE_ICON, structure.font_size * 1.3).color(room_color))
-            } else if room.is_dm() {
-                Some(
-                    phosphor_icon(
-                        phosphor_svgs::icon::chats_circle::REGULAR,
-                        structure.font_size * 1.3,
-                    )
-                    .color(room_color),
+        room.call_started_at().map(|start_time| {
+            elapsed_time(start_time)
+                .color(theme.colors.success)
+                .size(structure.semi_small_font_size())
+                .mode(elapsed_time::Mode::Hms)
+                .font(MONO_FONT)
+        }),
+        room.call_connection().map(|con| {
+            themed_tooltip_text(
+                phosphor_icon(con.icon(), structure.font_size).color(con.color(theme)),
+                con.tooltip(),
+                structure,
+                theme,
+            )
+        }),
+        if room.is_invite() {
+            Some(themed_tooltip_text(
+                phosphor_icon(INVITE_ICON, structure.font_size * 1.3).color(room_color),
+                "This is an invite",
+                structure,
+                theme,
+            ))
+        } else if room.is_dm() && !in_call {
+            Some(themed_tooltip_text(
+                phosphor_icon(
+                    phosphor_svgs::icon::chats_circle::REGULAR,
+                    structure.font_size * 1.3,
                 )
-            } else {
-                None
-            },
-            "This is a DM room",
-            structure,
-            theme
-        )
+                .color(room_color),
+                "This is a DM room",
+                structure,
+                theme,
+            ))
+        } else {
+            None
+        },
+        mentions.map(|mentions| render_mention_badge(mentions, theme, structure)),
     ]
     .spacing(structure.gap)
     .width(Fill)
     .align_y(Alignment::Center)
     .padding(padding::vertical(structure.small_gap * 0.75).horizontal(structure.small_gap));
-
-    if let Some(connection) = room.call_connection() {
-        name_row = name_row.push_element(themed_tooltip_text(
-            phosphor_icon(connection.icon(), structure.font_size).color(connection.color(theme)),
-            connection.tooltip(),
-            structure,
-            theme,
-        ));
-    }
 
     let area = w::mouse_area(
         animated_button(
@@ -492,42 +510,12 @@ fn render_channel(
     .on_exit(ChannelsMessage::RoomUnhovered(id.clone()))
     .on_double_click(ChannelsMessage::JoinCall(room.clone()));
 
-    let mentions = if room.is_dm() {
-        let total = notifications.total();
-        if total > 0 { Some(total) } else { None }
-    } else {
-        notifications.highlights()
-    };
-
-    let mut extra_row = w::row![]
-        .height(Fill)
-        .width(Fill)
-        .spacing(structure.small_gap)
-        .align_y(Alignment::Center)
-        .padding(padding::right(structure.small_gap));
-
-    extra_row = extra_row.push_element(Space::new().width(Fill));
-
-    if let Some(start_time) = room.call_started_at() {
-        extra_row = extra_row.push_element(
-            elapsed_time(start_time)
-                .color(theme.colors.success)
-                .size(structure.semi_small_font_size())
-                .mode(elapsed_time::Mode::Hms)
-                .font(MONO_FONT),
-        );
-    }
-
-    if let Some(mentions) = mentions {
-        extra_row = extra_row.push_element(render_mention_badge(mentions, theme, structure));
-    }
-
     let mut items = vec![
         help_view
             .call(
                 HelpKey::Sidebar(SidebarHelpKey::Channel(index)),
                 if room.is_dm() { "A dm" } else { "A channel" },
-                w::stack![area.boxed(), extra_row],
+                area,
             )
             .radius(structure.inner_border_radius)
             .boxed(),
