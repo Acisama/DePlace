@@ -79,6 +79,10 @@ static LAST_SEEN_CALL_ROSTERS: LazyLock<Mutex<LastSeenCallRoster>> =
 /// without rotating; older keys are rotated instead.
 const KEY_STAYS_FRESH_FOR: Duration = Duration::from_secs(60);
 
+/// MSC4143 prescribes 32-byte media keys, and Element X silently drops
+/// 16-byte ones, so our media would never decrypt there.
+const MEDIA_KEY_BYTES: usize = 32;
+
 // Perceptual loudness mapping: speech RMS never reaches full scale, so we
 // map dBFS between a noise floor and a realistic "loud speech" ceiling.
 const VOLUME_FLOOR_DB: f64 = -50.0;
@@ -336,12 +340,18 @@ async fn ongoing_call_focus(room: &Room) -> Option<String> {
             continue;
         };
 
-        let focus_url = session.foci_preferred.iter().find_map(|focus| match focus {
-            Focus::Livekit(LivekitFocus {
-                url: Some(service_url),
-                ..
-            }) => Some(normalize_focus_url(service_url)),
-            _ => None,
+        // Element Call names the JWT service, ruma's own shape names the SFU
+        let focus_url = session.foci_preferred.iter().find_map(|focus| {
+            #[allow(deprecated)]
+            let info = match focus {
+                Focus::Livekit(info) => info,
+                Focus::LegacyLivekit(info) => info,
+                _ => return None,
+            };
+            info.service_url
+                .as_deref()
+                .or(info.url.as_deref())
+                .map(normalize_focus_url)
         });
 
         // The oldest membership decides, and its own created_ts is often
@@ -524,6 +534,13 @@ async fn join_call_in_steps(
     let canonical_room_id = room_id.to_string();
     let canonical_room = room_id.to_owned();
 
+    // The focus Element Call writes, not ruma's `m.livekit` one: peers pick the
+    // SFU participant identity from `livekit_service_url`, and ours is `user:device`.
+    #[allow(deprecated)]
+    let focus = Focus::LegacyLivekit(LivekitFocus::with_service_url(
+        livekit_focus_info.url.to_string(),
+    ));
+
     let call_content = CallMemberEventContent::new(
         Application::Call(CallApplicationContent::new(
             "".to_string(),
@@ -534,9 +551,7 @@ async fn join_call_in_steps(
             .ok_or(anyhow!("No DeviceId"))?
             .into(),
         matrix_sdk::ruma::events::call::member::ActiveFocus::Livekit(ActiveLivekitFocus::new()),
-        vec![Focus::Livekit(LivekitFocus::new(
-            livekit_focus_info.url.to_string(),
-        ))],
+        vec![focus],
         None,
         None,
     );
@@ -652,6 +667,18 @@ async fn finish_joining_call(
         livekit::Room::connect(&service_url, &jwt, room_options).await?;
     event!(Level::INFO, "Connected to LiveKit room: {:?}", livekit_room);
 
+    // Diagnostic: the SFU already knows these, even if our matrix state has not synced
+    let remote_identities: Vec<String> = livekit_room
+        .remote_participants()
+        .keys()
+        .map(|identity| identity.to_string())
+        .collect();
+    event!(
+        Level::DEBUG,
+        "LiveKit reports {} other participant(s) at connect: {remote_identities:?}",
+        remote_identities.len()
+    );
+
     // The connection is there, keys and microphone next
     report_join_step(dp_room, &state_wake, CallJoinStep::Preparing);
 
@@ -674,7 +701,7 @@ async fn finish_joining_call(
     let mut current_call_key: Option<(String, std::time::Instant)> = None;
     if room.encryption_state().is_encrypted() {
         event!(Level::DEBUG, "Room is encrypted. Generating encryption key");
-        let mut raw_key = [0u8; 16];
+        let mut raw_key = [0u8; MEDIA_KEY_BYTES];
         getrandom::fill(&mut raw_key)
             .map_err(|e| anyhow!("Failed to generate cryptographic key: {}", e))?;
 
@@ -732,6 +759,11 @@ async fn finish_joining_call(
             match publish.await {
                 Ok(_) => {
                     event!(Level::INFO, "Published the microphone track");
+                    log_local_encryption_state(
+                        &livekit_room,
+                        current_call_key.as_ref().map(|(key, _)| key.as_str()),
+                        0,
+                    );
                     call.set_microphone(microphone_track);
                     spawn_microphone_pump(
                         microphone,
@@ -1117,6 +1149,34 @@ async fn apply_remote_key(
         .push((sender.to_string(), received.clone()));
 }
 
+/// Diagnostic: what the local cryptors actually encrypt with, since a key
+/// that never lands in them is a call nobody hears.
+fn log_local_encryption_state(livekit_room: &LiveKitRoom, sent_key: Option<&str>, index: i32) {
+    let e2ee = livekit_room.e2ee_manager();
+    let own_identity = livekit_room.local_participant().identity();
+    let in_provider = e2ee
+        .key_provider()
+        .and_then(|provider| provider.get_key(&own_identity, index))
+        .map(|key| general_purpose::STANDARD.encode(key))
+        == sent_key.map(str::to_owned);
+
+    event!(
+        Level::DEBUG,
+        "Call encryption state: enabled={}, type={:?}, our key at index {index} in the key provider={in_provider}",
+        e2ee.enabled(),
+        e2ee.encryption_type()
+    );
+
+    for ((id, track), cryptor) in e2ee.frame_cryptors() {
+        event!(
+            Level::DEBUG,
+            "Call encryption state: cryptor for {id} on {track}: enabled={}, key index={}",
+            cryptor.enabled(),
+            cryptor.key_index()
+        );
+    }
+}
+
 /// Builds our call key to-device content in Element Call's dialect, with
 /// `member.id` as the LiveKit id (`user:device`) everyone parseable binds to.
 fn build_encryption_keys_payload(
@@ -1166,16 +1226,48 @@ async fn send_encryption_keys(
         .get_state_events_static::<CallMemberEventContent>()
         .await?;
 
+    // Diagnostic: how much call membership our matrix state actually holds
+    event!(
+        Level::DEBUG,
+        "Call key distribution: {} m.call.member state event(s) in the store",
+        state_events.len()
+    );
+
     let mut recipients = Vec::new();
     let client = room.client();
 
     for raw in state_events {
         let Ok(SyncOrStrippedState::Sync(ev)) = raw.deserialize() else {
+            event!(
+                Level::DEBUG,
+                "Call key distribution: skipping a call member event that does not deserialize"
+            );
             continue;
         };
         let SyncStateEvent::Original(ev) = ev else {
+            event!(
+                Level::DEBUG,
+                "Call key distribution: skipping a redacted call member event"
+            );
             continue;
         };
+
+        let all_memberships = ev.content.memberships().len();
+        let active: Vec<_> = ev
+            .content
+            .active_memberships(Some(ev.origin_server_ts))
+            .into_iter()
+            .collect();
+
+        event!(
+            Level::DEBUG,
+            "Call key distribution: {} has {}/{} active membership(s), state key {:?}, ts {}",
+            ev.state_key.user_id(),
+            active.len(),
+            all_memberships,
+            ev.state_key,
+            ev.origin_server_ts.get()
+        );
 
         for membership in ev.content.active_memberships(Some(ev.origin_server_ts)) {
             let user = ev.state_key.user_id();
@@ -1198,6 +1290,17 @@ async fn send_encryption_keys(
             }
         }
     }
+
+    event!(
+        Level::DEBUG,
+        "Call key distribution: {} recipient device(s) resolved: {:?}, sending index {}",
+        recipients.len(),
+        recipients
+            .iter()
+            .map(|device| format!("{}:{}", device.user_id(), device.device_id()))
+            .collect::<Vec<_>>(),
+        index
+    );
 
     if recipients.is_empty() {
         event!(
@@ -1340,7 +1443,7 @@ async fn call_roster(
 /// Rolls and distributes our call key when the roster changes and we are
 /// in the call of an encrypted room; unchanged rosters are absorbed.
 pub async fn handle_call_member_change(
-    _ev: OriginalSyncStateEvent<CallMemberEventContent>,
+    ev: OriginalSyncStateEvent<CallMemberEventContent>,
     room: matrix_sdk::Room,
     state: Ctx<AppState>,
 ) {
@@ -1366,14 +1469,24 @@ pub async fn handle_call_member_change(
         match previous {
             None => {
                 event!(
-                    Level::DEBUG,
-                    "Taking the current call roster as the baseline, not touching the call key"
+                    Level::INFO,
+                    "Taking the current call roster as the baseline ({} member(s)), not touching the call key",
+                    roster.len()
                 );
                 (Vec::new(), Vec::new())
             }
             Some(previous) => {
                 let arrivals: Vec<_> = roster.difference(&previous).cloned().collect();
                 let departures: Vec<_> = previous.difference(&roster).cloned().collect();
+
+                // Diagnostic: what this synced membership changed about the roster
+                event!(
+                    Level::DEBUG,
+                    "Call roster change from {}: {} member(s) now, arrivals {arrivals:?}, departures {departures:?}",
+                    ev.state_key.user_id(),
+                    roster.len()
+                );
+
                 (arrivals, departures)
             }
         }
@@ -1445,7 +1558,7 @@ pub async fn handle_call_member_change(
             return;
         };
 
-        let mut raw_key = [0u8; 16];
+        let mut raw_key = [0u8; MEDIA_KEY_BYTES];
         if let Err(e) = getrandom::fill(&mut raw_key) {
             event!(Level::ERROR, "Could not roll the call encryption key: {e}");
             return;
