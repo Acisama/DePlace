@@ -638,7 +638,7 @@ fn render_channel(
     } else {
         let own_join_step = room.call().join_progress();
 
-        if (!room.is_dm() && room.has_call()) || own_join_step.is_some() {
+        if !room.is_dm() && (room.has_call() || own_join_step.is_some()) {
             let speaking_ring_padding = 1.5 * structure.icon_gap_ratio * icon_size;
             let item_height = icon_size + speaking_ring_padding + structure.small_gap;
 
