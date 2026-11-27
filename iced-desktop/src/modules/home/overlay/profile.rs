@@ -3,7 +3,7 @@ use macros::{iced_cache, iced_icon};
 
 use crate::{
     common::*,
-    components::{CopyTextExt, PushElement, profile::render_banner_column},
+    components::{CopyTextExt, PushElement},
 };
 
 #[derive(Debug, Clone)]
@@ -67,8 +67,7 @@ impl IcedWidget<ProfileMessage, ProfileAction> for OverlayProfile {
         let is_own_user = self.is_own_user;
 
         let content_column = move || {
-            let col = w::column![render_banner_column(&member, theme, structure)]
-                .spacing(structure.small_gap);
+            let col = w::column![member.render_banner_column()].spacing(structure.small_gap);
 
             if !is_own_user {
                 col.push_element(

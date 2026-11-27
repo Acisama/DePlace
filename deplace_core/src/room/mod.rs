@@ -73,7 +73,7 @@ pub struct DePlaceRoom {
     pub room: Room,
     pub(crate) room_id: Arc<OwnedRoomId>,
     pub(crate) polyicon: PolyIcon,
-    room_type: DePlaceRoomType,
+    room_type: Arc<Shared<DePlaceRoomType>>,
     pub(crate) info: Arc<Shared<RoomInfo>>,
     pub(crate) live: Arc<Shared<RoomLive>>,
     pub(crate) members: Arc<RoomMembers>,
@@ -87,7 +87,7 @@ impl std::fmt::Debug for DePlaceRoom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DePlaceRoom")
             .field("room_id", &self.room_id)
-            .field("room_type", &self.room_type)
+            .field("room_type", &*self.room_type.read())
             .finish()
     }
 }
@@ -108,7 +108,7 @@ impl DePlaceRoom {
             polyicon: PolyIcon::from(room_id.as_str()),
             room_id: Arc::new(room_id.to_owned()),
             room: room.clone(),
-            room_type: DePlaceRoomType::new(room),
+            room_type: Arc::new(Shared::new(DePlaceRoomType::new(room))),
             info: Arc::new(Shared::new(RoomInfo::new(room, cache, eagerly_load))),
             live: Arc::new(Shared::new(RoomLive::new(room))),
             members,
@@ -212,14 +212,21 @@ impl DePlaceRoom {
     /// than cached at room-creation time - members load in asynchronously,
     /// so a one-shot snapshot would almost always see an empty list.
     pub fn other_dm_member(&self) -> Option<Member> {
-        if !self.room_type.is_direct() {
+        if !self.room_type.read().is_direct() {
             return None;
         }
         self.members.get_first_other(self.room.own_user_id())
     }
 
     pub fn room_type(&self) -> DePlaceRoomType {
-        self.room_type
+        *self.room_type.read().clone()
+    }
+
+    /// Corrects the room's cached type once we have enough information to
+    /// know for sure (e.g. an invite's stripped member event has been
+    /// fetched, which `DePlaceRoomType::new`'s sync check can miss).
+    pub(crate) fn set_room_type(&self, room_type: DePlaceRoomType) {
+        self.room_type.set_if_modified(room_type);
     }
 
     pub fn avatars(&self) -> Option<ProfileAvatars> {
@@ -228,7 +235,7 @@ impl DePlaceRoom {
 
     pub fn get_input_placeholder(&self) -> String {
         let name = self.info.data.load().display_string();
-        if self.room_type.is_direct() {
+        if self.room_type.read().is_direct() {
             format!("@{name}")
         } else {
             format!("#{name}")
@@ -236,7 +243,7 @@ impl DePlaceRoom {
     }
 
     pub fn is_dm(&self) -> bool {
-        self.room_type.is_direct()
+        self.room_type.read().is_direct()
     }
 
     pub(crate) fn raw_displaystring_lowercase(&self) -> Option<String> {

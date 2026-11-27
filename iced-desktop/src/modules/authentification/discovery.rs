@@ -146,8 +146,7 @@ impl IcedWidget<DiscoveryMessage, DiscoveryAction> for Discovery {
         .on_submit_maybe(self.state.success().map(DiscoveryMessage::ClientSelected));
 
         let status: iced::widget::text::Rich<'static, (), DiscoveryMessage> =
-            self.state
-                .text("Homeserver is valid", "", &theme.colors, &structure);
+            self.state.text("Homeserver is valid", "");
 
         let continue_button = animated_button(w::text("Continue").width(Fill).center())
             .width(Fill)

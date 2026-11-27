@@ -718,7 +718,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             .width(Fill)
                             .padding(padding::left(structure.small_gap))
                             .center_y(reply_bar_size),
-                            close_button(theme, structure, InputMessage::RemoveReplying)
+                            close_button(InputMessage::RemoveReplying)
                         ]
                         .width(Fill),
                         w::container(Space::new())

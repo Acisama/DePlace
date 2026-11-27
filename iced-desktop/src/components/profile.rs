@@ -23,6 +23,7 @@ use iced::{
 };
 
 use crate::{
+    common::{structure, theme},
     helpers::blend_color,
     modules::home::{DEFAULT_ROOM_ICON, SCREENSHARING_ICON, SPACE_ICON, SPEAKER_ICON},
 };
@@ -124,20 +125,14 @@ pub trait MemberRenderExt {
         background_color: Color,
     ) -> Element<'a, T>;
 
-    /// Renders the profile's small avatar icon with the user's presence indicator.
-    fn render_small_icon_with_presence<'a, T: 'a>(
-        &self,
-        size: f32,
-        theme: Theme,
-        structure: Structure,
-        background_color: Color,
-    ) -> Element<'a, T>;
-
     /// Render the name, but open the profile on click.
     fn render_name_with_overlay<'a, T: OpenProfileOverlayExt + 'a>(
         &self,
         text_size: f32,
     ) -> Element<'a, T>;
+
+    /// Renders the banner column for the profile.
+    fn render_banner_column<'a, T: CopyTextExt + Clone + 'a>(&self) -> Element<'a, T>;
 }
 
 pub trait RoomRenderExt {
@@ -215,22 +210,6 @@ impl MemberRenderExt for Member {
         )
     }
 
-    fn render_small_icon_with_presence<'a, T: 'a>(
-        &self,
-        size: f32,
-        theme: Theme,
-        structure: Structure,
-        background_color: Color,
-    ) -> Element<'a, T> {
-        render_presence_badge(
-            self.render_icon(size),
-            self.presence(),
-            theme,
-            structure,
-            background_color,
-        )
-    }
-
     fn render_name_with_overlay<'a, T: OpenProfileOverlayExt + 'a>(
         &self,
         text_size: f32,
@@ -240,6 +219,84 @@ impl MemberRenderExt for Member {
         link::link(self.render_name(text_size), self.name_color().to_iced())
             .on_press(move |bounds| T::open_profile(member.clone(), bounds))
             .into()
+    }
+
+    fn render_banner_column<'a, T: CopyTextExt + Clone + 'a>(&self) -> Element<'a, T> {
+        let theme = theme();
+        let structure = structure();
+
+        let color = self.name_color().to_iced();
+        let sidebar = structure.chat.sidebar;
+
+        let icon_size = sidebar.large_icon_size;
+        let icon_gap = structure.icon_gap_ratio * icon_size;
+        let bg_icon_size = icon_size + icon_gap;
+
+        let id = self.user_id().to_string();
+
+        w::stack![
+            w::column![
+                w::container("")
+                    .style(move |_| w::container::Style {
+                        background: Some(color.into()),
+                        border: border::rounded(Radius {
+                            top_left: structure.outer_border_radius,
+                            top_right: structure.outer_border_radius,
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    })
+                    .width(Fill)
+                    .height(sidebar.banner_height),
+                Space::new().height(icon_size / 2.0),
+                w::column![
+                    self.render_name(structure.large_font_size),
+                    Space::new().height(structure.small_gap),
+                    copy_button(
+                        id.clone(),
+                        id,
+                        theme.text.dim,
+                        theme.text.normal,
+                        structure.font_size
+                    )
+                ]
+                .padding(padding::left(structure.gap))
+            ],
+            w::row![
+                Space::new().width(structure.small_gap * 2.0 - icon_gap / 2.0),
+                w::column![
+                    Space::new().height(sidebar.banner_height - 2.0 / 3.0 * bg_icon_size),
+                    w::stack![
+                        w::container(
+                            w::container("")
+                                .width(bg_icon_size)
+                                .height(bg_icon_size)
+                                .style(move |_| w::container::Style {
+                                    background: Some(theme.solid_bg.into()),
+                                    border: border::rounded(bg_icon_size / 2.0),
+                                    ..Default::default()
+                                })
+                        ),
+                        w::row![
+                            Space::new().width(icon_gap / 2.0),
+                            w::column![
+                                Space::new().height(icon_gap / 2.0),
+                                self.render_icon_with_presence(
+                                    icon_size,
+                                    theme,
+                                    structure,
+                                    theme.solid_bg.into()
+                                )
+                            ]
+                        ]
+                    ]
+                    .width(Fill)
+                ]
+                .width(Fill)
+            ]
+        ]
+        .width(sidebar.width.member)
+        .boxed()
     }
 }
 
@@ -358,36 +415,6 @@ pub fn render_name_decorated<'a, T: 'a>(
     pan(name).boxed()
 }
 
-pub fn render_unknown_name_decorated<'a, T: Clone + 'a>(
-    size: f32,
-    decoration: NameDecoration,
-    text_color: Color,
-    theme: Theme,
-) -> Element<'a, T> {
-    render_name_decorated(
-        "Unknown".to_string(),
-        size,
-        decoration,
-        text_color,
-        theme.colors.error.into(),
-    )
-}
-
-pub fn render_loading_name_decorated<'a, T: Clone + 'a>(
-    size: f32,
-    decoration: NameDecoration,
-    text_color: Color,
-    theme: Theme,
-) -> Element<'a, T> {
-    render_name_decorated(
-        "Loading...".to_string(),
-        size,
-        decoration,
-        text_color,
-        theme.colors.offline.into(),
-    )
-}
-
 pub fn render_presence_badge<'a, T: 'a>(
     icon: Element<'a, T>,
     presence: Presence,
@@ -452,85 +479,6 @@ pub fn render_presence_badge<'a, T: 'a>(
                 ))
         })
     ]
-    .boxed()
-}
-
-pub fn render_banner_column<'a, T: CopyTextExt + Clone + 'a>(
-    member: &Member,
-    theme: Theme,
-    structure: Structure,
-) -> Element<'a, T> {
-    let color = member.name_color().to_iced();
-    let sidebar = structure.chat.sidebar;
-
-    let icon_size = sidebar.large_icon_size;
-    let icon_gap = structure.icon_gap_ratio * icon_size;
-    let bg_icon_size = icon_size + icon_gap;
-
-    let id = member.user_id().to_string();
-
-    w::stack![
-        w::column![
-            w::container("")
-                .style(move |_| w::container::Style {
-                    background: Some(color.into()),
-                    border: border::rounded(Radius {
-                        top_left: structure.outer_border_radius,
-                        top_right: structure.outer_border_radius,
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                })
-                .width(Fill)
-                .height(sidebar.banner_height),
-            Space::new().height(icon_size / 2.0),
-            w::column![
-                member.render_name(structure.large_font_size),
-                Space::new().height(structure.small_gap),
-                copy_button(
-                    id.clone(),
-                    id,
-                    theme.text.dim,
-                    theme.text.normal,
-                    structure.font_size
-                )
-            ]
-            .padding(padding::left(structure.gap))
-        ],
-        w::row![
-            Space::new().width(structure.small_gap * 2.0 - icon_gap / 2.0),
-            w::column![
-                Space::new().height(sidebar.banner_height - 2.0 / 3.0 * bg_icon_size),
-                w::stack![
-                    w::container(
-                        w::container("")
-                            .width(bg_icon_size)
-                            .height(bg_icon_size)
-                            .style(move |_| w::container::Style {
-                                background: Some(theme.solid_bg.into()),
-                                border: border::rounded(bg_icon_size / 2.0),
-                                ..Default::default()
-                            })
-                    ),
-                    w::row![
-                        Space::new().width(icon_gap / 2.0),
-                        w::column![
-                            Space::new().height(icon_gap / 2.0),
-                            member.render_icon_with_presence(
-                                icon_size,
-                                theme,
-                                structure,
-                                theme.solid_bg.into()
-                            )
-                        ]
-                    ]
-                ]
-                .width(Fill)
-            ]
-            .width(Fill)
-        ]
-    ]
-    .width(sidebar.width.member)
     .boxed()
 }
 

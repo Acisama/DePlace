@@ -402,6 +402,8 @@ fn render_channel(
     let expanded = !collapsed_categories.contains(room.room_id());
     let is_active = active_room_id.as_ref().is_some_and(|id| id == id_ref);
 
+    let room_color = room.color();
+
     let mut name_row = w::row![
         if is_space {
             if expanded {
@@ -417,13 +419,25 @@ fn render_channel(
         w::row![room.render_name_decorated(structure.font_size, name_decoration, text_color),]
             .width(Fill),
         themed_tooltip_text(
-            room.is_dm().then(move || {
-                phosphor_icon(
-                    phosphor_svgs::icon::chats_circle::BOLD,
-                    structure.font_size * 1.3,
+            if room.is_invite() {
+                Some(
+                    phosphor_icon(
+                        phosphor_svgs::icon::envelope::FILL,
+                        structure.font_size * 1.3,
+                    )
+                    .color(room_color),
                 )
-                .color(room.color())
-            }),
+            } else if room.is_dm() {
+                Some(
+                    phosphor_icon(
+                        phosphor_svgs::icon::chats_circle::REGULAR,
+                        structure.font_size * 1.3,
+                    )
+                    .color(room_color),
+                )
+            } else {
+                None
+            },
             "This is a DM room",
             structure,
             theme

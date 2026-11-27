@@ -11,6 +11,7 @@ use iced::Length;
 use iced::futures::{StreamExt, stream};
 use iced::widget::text_editor;
 use input::{ChatInput, InputAction, InputMessage};
+use invited::render_room_chat_invited;
 use macros::iced_cache;
 use matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels;
 use matrix_sdk_ui::Timeline;
@@ -25,6 +26,7 @@ mod call;
 pub(super) mod empty;
 mod header;
 mod input;
+mod invited;
 mod sidebar;
 mod timeline;
 
@@ -185,23 +187,6 @@ impl Chat {
                 room_id_clone,
                 initial.len()
             );
-
-            if initial.len() < 100 {
-                match timeline.paginate_backwards(30).await {
-                    Ok(reached_start) => tracing::debug!(
-                        "Paginated room {} backwards (reached_start={})",
-                        room_id_clone,
-                        reached_start
-                    ),
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to paginate room {} backwards: {:?}",
-                            room_id_clone,
-                            e
-                        )
-                    }
-                }
-            }
 
             let power_levels = Arc::new(sdk_room.power_levels_or_default().await);
 
@@ -475,18 +460,23 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
 
         let help_view = HelpView::new(theme);
 
-        let timeline_with_input = w::column![
-            lazy_view(self.timeline.clone(), ChatMessage::Timeline),
-            lazy_view(self.input.clone(), ChatMessage::Input)
-        ]
-        .padding(Padding {
-            top: structure.border_thickness,
-            left: structure.small_gap,
-            right: structure.small_gap,
-            bottom: structure.small_gap + structure.border_thickness,
-        })
-        .height(Fill)
-        .width(Fill);
+        let timeline_with_input = if self.room.is_invite() {
+            render_room_chat_invited(self.room.clone(), theme, structure)
+        } else {
+            w::column![
+                lazy_view(self.timeline.clone(), ChatMessage::Timeline),
+                lazy_view(self.input.clone(), ChatMessage::Input)
+            ]
+            .padding(Padding {
+                top: structure.border_thickness,
+                left: structure.small_gap,
+                right: structure.small_gap,
+                bottom: structure.small_gap + structure.border_thickness,
+            })
+            .height(Fill)
+            .width(Fill)
+            .boxed()
+        };
 
         let main_content = floating_tile(
             theme,

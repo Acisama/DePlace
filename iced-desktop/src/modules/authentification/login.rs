@@ -156,12 +156,8 @@ impl IcedWidget<LoginMessage, LoginAction> for Login {
                 .on_input(LoginMessage::PasswordChanged)
                 .on_submit(LoginMessage::Submit);
 
-        let status: iced::widget::text::Rich<'static, (), LoginMessage> = self.state.text(
-            "Successfully logged in",
-            "Ready to log in",
-            &theme.colors,
-            &structure,
-        );
+        let status: iced::widget::text::Rich<'static, (), LoginMessage> =
+            self.state.text("Successfully logged in", "Ready to log in");
 
         let back_button: iced::widget::text::Rich<'static, (), LoginMessage> =
             w::rich_text([w::span("← back").link(())])

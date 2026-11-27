@@ -125,12 +125,9 @@ impl IcedWidget<VerificationMessage, VerificationAction> for Verification {
                 .on_input(VerificationMessage::RecoveryKeyChanged)
                 .on_submit(VerificationMessage::Submit);
 
-        let status: iced::widget::text::Rich<'static, (), VerificationMessage> = self.state.text(
-            "Successfully verified",
-            "Key is formatted correctly",
-            &theme.colors,
-            &structure,
-        );
+        let status: iced::widget::text::Rich<'static, (), VerificationMessage> = self
+            .state
+            .text("Successfully verified", "Key is formatted correctly");
 
         let recovery_button = animated_button(w::text("Log in").width(Fill).center())
             .width(Fill)

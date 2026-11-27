@@ -164,13 +164,12 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
                         image.filename.clone(),
                         image.info.as_ref().and_then(|i| i.size),
                         *image.data_size_unit.borrow(),
-                        theme,
                         structure.font_size
                     ))
                     .width(Length::FillPortion(1)),
                     w::row![
                         Space::new().width(Fill),
-                        close_button(theme, structure, MediaOverlayMessage::Close)
+                        close_button(MediaOverlayMessage::Close)
                     ]
                     .width(Length::FillPortion(1))
                 ]

@@ -1,7 +1,4 @@
-use crate::{
-    common::*,
-    components::{CopyTextExt, profile::render_banner_column},
-};
+use crate::{common::*, components::CopyTextExt};
 use macros::iced_cache;
 
 #[derive(Debug, Clone)]
@@ -62,9 +59,6 @@ impl IcedWidget<ProfileCardMessage, ProfileCardAction> for ProfileCard {
             return w::container("No other member present").boxed();
         };
 
-        let theme = theme();
-        let structure = structure();
-
-        render_banner_column(member, theme, structure)
+        member.render_banner_column()
     }
 }

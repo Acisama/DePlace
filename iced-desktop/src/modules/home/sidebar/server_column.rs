@@ -445,7 +445,7 @@ fn render_server_icon(
     ))
     .interaction(Interaction::Pointer)
     .on_release(ServerColumnMessage::ChangeActiveServer(
-        ActiveServer::Server(room.clone()),
+        ActiveServer::Server(Box::new(room.clone())),
     ))
     .on_enter(ServerColumnMessage::ServerHovered(ActiveServerId::Server(
         id.clone(),

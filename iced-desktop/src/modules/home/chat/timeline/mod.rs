@@ -627,7 +627,6 @@ impl ChatTimeline {
                 .map_err(|e| {
                     tracing::error!("Failed to paginate: {}", e);
                 })
-                // Treat failure to paginate like hitting the end
                 .unwrap_or(true)
             }),
         })
@@ -653,13 +652,6 @@ impl ChatTimeline {
         self.refresh_all_previous_linkage();
         self.refresh_all_datedividers();
         self.messages_version += 1;
-
-        if length < 50 {
-            // Not enough content yet to meaningfully snap to
-            // `scroll_position` -- deferred to `Diffs`, once the
-            // top-up below actually lands.
-            return self.pagination_task(PaginationDirection::Backward, 50 - length as u16);
-        }
 
         self.restored_scroll = true;
         Some(TimelineAction::Run(self.restore_scroll_task()))

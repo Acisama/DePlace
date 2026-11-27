@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    DePlaceRoom,
+    DePlaceRoom, DePlaceRoomType,
     hierarchy::{ChildOrder, SpaceHierarchy},
 };
 
@@ -69,6 +69,11 @@ impl RoomStore {
             .collect();
 
         let dm_rooms: Vec<Room> = rooms.iter().filter(|r| r.is_dm()).cloned().collect();
+        let invited_rooms: Vec<Room> = rooms
+            .iter()
+            .filter(|r| r.state() == RoomState::Invited)
+            .cloned()
+            .collect();
 
         let store = Self {
             client: client.clone(),
@@ -82,6 +87,10 @@ impl RoomStore {
             hierarchy: Arc::new(Shared::new(SpaceHierarchy::new(last_server_order))),
             changed: watch::channel(()).0,
         };
+        for room in invited_rooms {
+            store.spawn_room_type_fix(room);
+        }
+
         store.load_hierarchy(rooms).await;
 
         // Awaited so DMs have their other member (name, avatar) ready before
@@ -118,6 +127,29 @@ impl RoomStore {
             "Loaded hierarchy for {room_count} rooms in {:?}",
             start.elapsed()
         );
+    }
+
+    /// `Room::is_dm()` only reflects the `m.direct` account data, which isn't
+    /// populated yet for a fresh invite -- it's wrong until the invite's
+    /// stripped member event (with its own `is_direct` flag) has been
+    /// fetched. Recompute it properly in the background so invite UI (e.g.
+    /// "start a chat with" vs "join") settles once that's known.
+    fn spawn_room_type_fix(&self, sdk_room: Room) {
+        if sdk_room.state() != RoomState::Invited {
+            return;
+        }
+        let Some(dp_room) = self.room_map.get(sdk_room.room_id()).map(|e| e.value().clone())
+        else {
+            return;
+        };
+        let changed = self.changed.clone();
+
+        self.handle.spawn(async move {
+            if sdk_room.compute_is_dm().await.unwrap_or(false) {
+                dp_room.set_room_type(DePlaceRoomType::Direct);
+                changed.send_modify(|_| ());
+            }
+        });
     }
 
     fn spawn_room_load(&self, dp_room: DePlaceRoom) {
@@ -168,7 +200,7 @@ impl RoomStore {
             return (room.clone(), false);
         }
 
-        match self.room_map.entry(sdk_room.room_id().to_owned()) {
+        let (room, created) = match self.room_map.entry(sdk_room.room_id().to_owned()) {
             Entry::Occupied(e) => (e.get().clone(), false),
             Entry::Vacant(e) => {
                 let room = DePlaceRoom::new(
@@ -182,7 +214,13 @@ impl RoomStore {
                 e.insert(room.clone());
                 (room, true)
             }
+        };
+
+        if created {
+            self.spawn_room_type_fix(sdk_room.clone());
         }
+
+        (room, created)
     }
 
     pub async fn create_dm(&self, user_id: &UserId) -> Option<DePlaceRoom> {

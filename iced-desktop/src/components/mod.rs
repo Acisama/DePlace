@@ -2,21 +2,18 @@ use std::hash::Hash;
 
 use animated_button::animated_button;
 use deplace_core::{
-    formatting::format_bytes,
-    helpers::DisplayString,
-    settings::DataSizeUnit,
-    structure::Structure,
-    theme::{Colors, Theme},
+    formatting::format_bytes, helpers::DisplayString, settings::DataSizeUnit, structure::Structure,
+    theme::Theme,
 };
 use iced::{
-    Background, Border, Color, Element, Fill, Font, Pixels, Point, Renderer, Size, Widget as _,
+    Background, Border, Color, Element, Font, Pixels, Point, Renderer, Size, Widget as _,
     advanced::{Widget, layout, svg::Renderer as SvgRenderer, widget::Meta},
     border::{self, Radius},
-    font::{Family, Weight},
+    font::Family,
     gradient::ColorStop,
     never,
     widget::{
-        self as w, Button, Canvas, Column, Container, Row, Scrollable, Stack,
+        self as w, Button, Column, Container, Row, Scrollable, Stack,
         canvas::{self, Frame, Path, Stroke},
         image::Handle as ImageHandle,
         rich_text, span, svg,
@@ -68,7 +65,7 @@ pub use skeleton::skeleton;
 pub use video_controls::video_controls;
 pub use volume_bar::volume_bar;
 
-use crate::common::DePlaceWidget;
+use crate::common::{DePlaceWidget, structure, theme};
 
 pub enum GenericState<T: Clone> {
     Ready,
@@ -114,13 +111,9 @@ impl<T: Clone> GenericState<T> {
         matches!(self, GenericState::Ready)
     }
 
-    pub fn text<V>(
-        &self,
-        success: &str,
-        ready: &str,
-        colors: &Colors,
-        structure: &Structure,
-    ) -> Rich<'static, (), V> {
+    pub fn text<V>(&self, success: &str, ready: &str) -> Rich<'static, (), V> {
+        let colors = theme().colors;
+
         let (text, color) = match self {
             GenericState::Ready => (ready.to_string(), colors.success),
             GenericState::Success(_) => (success.to_string(), colors.success),
@@ -130,7 +123,7 @@ impl<T: Clone> GenericState<T> {
 
         weighted_text(text, iced::font::Weight::Semibold)
             .color(color)
-            .size(structure.font_size)
+            .size(structure().font_size)
     }
 }
 
@@ -459,48 +452,6 @@ impl DisplayString for MediaType {
     }
 }
 
-pub fn render_media_failed_to_load<'a, T: Clone + 'a>(
-    theme: Theme,
-    structure: Structure,
-    width: f32,
-    height: f32,
-    kind: MediaType,
-) -> Element<'a, T> {
-    w::stack![
-        w::container(
-            weighted_text(
-                format!("{} failed to load", kind.display_string()),
-                Weight::Bold
-            )
-            .size(structure.chat.text_size * 1.5)
-            .width(Fill)
-            .height(Fill)
-            .center(),
-        )
-        .width(width)
-        .height(height)
-        .style(move |_| w::container::Style {
-            background: Some(theme.error_blended().into()),
-            text_color: Some(theme.colors.error.into()),
-            border: Border {
-                color: theme.colors.error.into(),
-                width: 0.0,
-                radius: 0.0.into(),
-            },
-            ..Default::default()
-        }),
-        Canvas::new(InsetShadow::new(
-            structure.inner_border_radius,
-            theme.colors.error,
-            structure.chat.text_size / 2.0,
-            8,
-        ))
-        .width(width)
-        .height(height),
-    ]
-    .boxed()
-}
-
 pub trait Explainable<'a, Message, Entity, Theme, Renderer>
 where
     Message: 'a,
@@ -522,11 +473,10 @@ where
     }
 }
 
-pub fn close_button<'a, T: Clone + 'a>(
-    theme: Theme,
-    structure: Structure,
-    on_press: T,
-) -> Element<'a, T> {
+pub fn close_button<'a, T: Clone + 'a>(on_press: T) -> Element<'a, T> {
+    let theme = theme();
+    let structure = structure();
+
     w::container(
         animated_button(phosphor_icon(
             phosphor_svgs::icon::x::BOLD,
@@ -728,9 +678,9 @@ pub fn render_media_label<'a, T: 'a>(
     name: String,
     size: Option<u64>,
     size_unit: DataSizeUnit,
-    theme: Theme,
     text_size: impl Into<Pixels>,
 ) -> Element<'a, T> {
+    let theme = theme();
     let text_size = text_size.into();
     let mut spans = vec![span(name).color(theme.text.normal).size(text_size)];
 

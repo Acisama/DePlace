@@ -113,13 +113,13 @@ pub mod roles;
 #[derive(Clone, Debug)]
 pub enum ActiveServer {
     Home,
-    Server(DePlaceRoom),
+    Server(Box<DePlaceRoom>),
 }
 
 impl From<Option<DePlaceRoom>> for ActiveServer {
     fn from(room: Option<DePlaceRoom>) -> Self {
         match room {
-            Some(room) => ActiveServer::Server(room),
+            Some(room) => ActiveServer::Server(Box::new(room)),
             None => ActiveServer::Home,
         }
     }
@@ -321,7 +321,7 @@ impl AppState {
             && let Some(room_id) = &last_room_id
             && let Some(server) = room_store.get_server_of(room_id)
         {
-            ActiveServer::Server(server)
+            ActiveServer::Server(Box::new(server))
         } else {
             ActiveServer::Home
         };

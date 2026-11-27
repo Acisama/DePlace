@@ -202,8 +202,6 @@ impl ParticipantContextMenu {
                         static_checkbox(
                             muted,
                             theme.colors.error,
-                            theme,
-                            structure,
                             structure.font_size * 1.1,
                             self.muted_hovered
                         )

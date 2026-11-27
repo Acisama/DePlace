@@ -192,7 +192,10 @@ enum Local {
     ToggleFullscreen,
 }
 
-fn build_not_started(phase: Phase, theme: Theme, structure: Structure) -> Element<'static, Local> {
+fn build_not_started(phase: Phase) -> Element<'static, Local> {
+    let theme = theme();
+    let structure = structure();
+
     match phase {
         Phase::NotStarted => w::container(
             animated_button(
@@ -515,7 +518,7 @@ where
 
     fn ensure_not_started(&mut self, phase: Phase) -> &mut Element<'a, Local> {
         if self.not_started.is_none() {
-            self.not_started = Some(build_not_started(phase, theme(), structure()));
+            self.not_started = Some(build_not_started(phase));
         }
         #[allow(clippy::unwrap_used)]
         self.not_started.as_mut().unwrap()
@@ -528,7 +531,7 @@ where
         size: Size,
         phase: Phase,
     ) {
-        let mut not_started = build_not_started(phase, theme(), structure());
+        let mut not_started = build_not_started(phase);
         tree.children[3].diff(&mut not_started);
         not_started.layout(
             &mut tree.children[3],

@@ -595,7 +595,6 @@ impl MessageContent {
                                 image.filename.clone(),
                                 image.info.as_ref().and_then(|i| i.size),
                                 *image.data_size_unit.borrow(),
-                                theme,
                                 text_size,
                             ))
                             .style(move |_| ContainerStyle {
@@ -721,7 +720,6 @@ impl MessageContent {
                                 video.filename.clone(),
                                 video.info.as_ref().and_then(|i| i.size),
                                 *video.data_size_unit.borrow(),
-                                theme,
                                 structure.font_size,
                             ))
                             .style(move |_| ContainerStyle {
