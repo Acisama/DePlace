@@ -22,7 +22,7 @@ use std::{
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
-use iced_video_player::Video;
+use iced_video_player::{Video, VolumeState};
 use ruma::events::room::EncryptedFile;
 
 /// How much data the appsrc queue may hold before push blocks. Sizing this
@@ -206,9 +206,27 @@ pub fn open_stream(
     // change, so the actual sinks (autoaudiosink is a wrapper bin, the
     // property must be set on the inner element) get `async=false`.
     let audio_bin = gst::parse::bin_from_description(
-        &format!("queue ! audioconvert ! audioresample ! {audio_sink}"),
+        &format!("queue ! audioconvert ! volume name=deplace_video_volume ! audioresample ! {audio_sink}"),
         true,
     )?;
+    // The UI writes this volume state and the audio chain applies it below, so
+    // playback always follows the newest slider value without a pipeline lock.
+    let volume_state = VolumeState::default();
+    let volume_element = audio_bin
+        .by_name("deplace_video_volume")
+        .ok_or(VideoStreamError::Cast)?;
+    let probe_state = volume_state.clone();
+    let probe_element = volume_element.clone();
+    volume_element
+        .static_pad("sink")
+        .ok_or(VideoStreamError::Cast)?
+        .add_probe(gst::PadProbeType::BUFFER, move |_, _| {
+            let level = probe_state.effective();
+            if probe_element.property::<f64>("volume") != level {
+                probe_element.set_property("volume", level);
+            }
+            gst::PadProbeReturn::Ok
+        });
     for element in audio_bin.iterate_recurse() {
         let Ok(element) = element else {
             continue;
@@ -337,7 +355,7 @@ pub fn open_stream(
 
     // Keep the bus for the failure diagnostics below.
     let bus = pipeline.bus().ok_or(VideoStreamError::Cast)?;
-    let video = match Video::from_gst_pipeline(pipeline, video_appsink, None) {
+    let video = match Video::from_gst_pipeline(pipeline, video_appsink, None, volume_state) {
         Ok(video) => video,
         Err(e) => {
             // The player only reports "failed to change state"; the bus

@@ -544,23 +544,18 @@ where
 
     fn bar_for(&self, video: Option<&Arc<Video>>) -> Element<'static, Local> {
         match video {
-            Some(video) => build_bar(
-                self.radius,
-                video.paused(),
-                self.progress(None),
-                // `Video::muted`/`set_muted` and `volume`/`set_volume`
-                // read/write GStreamer's "mute"/"volume" properties
-                // directly on the pipeline, which panics here: this app's
-                // video pipelines are hand-built in
-                // `video_stream::open_stream` (not a `playbin`), so there's
-                // no such properties on them at all. Both hardcoded until
-                // that's addressed -- see the matching notes by
-                // `Local::ToggleMute`/`Local::SetVolume`.
-                false,
-                1.0,
-                self.is_fullscreen,
-                video.eos(),
-            ),
+            Some(video) => {
+                let volume = video.volume_state();
+                build_bar(
+                    self.radius,
+                    video.paused(),
+                    self.progress(None),
+                    volume.muted(),
+                    volume.volume(),
+                    self.is_fullscreen,
+                    video.eos(),
+                )
+            }
             None => EMPTY_WIDGET.boxed(),
         }
     }
@@ -1021,6 +1016,7 @@ where
                     )
                 };
 
+                let volume = video.volume_state();
                 let bar_height = self.rebuild_bar(
                     tree,
                     renderer,
@@ -1028,8 +1024,8 @@ where
                     bounds.height,
                     paused,
                     progress,
-                    false,
-                    1.0,
+                    volume.muted(),
+                    volume.volume(),
                     self.is_fullscreen,
                     video.eos(),
                 );
@@ -1080,6 +1076,7 @@ where
             if amount >= 0.5 {
                 let paused = video.paused();
                 let progress = self.progress(tree.state.downcast_ref::<State>().dragging);
+                let volume = video.volume_state();
 
                 self.rebuild_bar(
                     tree,
@@ -1088,8 +1085,8 @@ where
                     bounds.height,
                     paused,
                     progress,
-                    false,
-                    1.0,
+                    volume.muted(),
+                    volume.volume(),
                     self.is_fullscreen,
                     video.eos(),
                 );
@@ -1153,19 +1150,22 @@ where
                     shell.request_redraw();
                 }
                 Local::ToggleMute => {
-                    // Deliberately a no-op: `Video::set_muted` sets
-                    // GStreamer's "mute" property directly on the
-                    // pipeline, which panics on this app's hand-built
-                    // pipelines (see the note on `muted` in `bar_for`) --
-                    // not calling it until that's fixed properly.
+                    if let Some(video) = self.video() {
+                        let volume = video.volume_state();
+                        volume.set_muted(!volume.muted());
+                        shell.request_redraw();
+                    }
                 }
-                Local::SetVolume(_value) => {
-                    // Deliberately a no-op: `Video::set_volume` sets
-                    // GStreamer's "volume" property directly on the
-                    // pipeline (and internally calls `set_muted` too),
-                    // which panics on this app's hand-built pipelines (see
-                    // the note on `muted`/`volume` in `bar_for`) -- not
-                    // calling it until that's fixed properly.
+                Local::SetVolume(value) => {
+                    if let Some(video) = self.video() {
+                        let volume = video.volume_state();
+                        volume.set_volume(value);
+                        // A drag away from zero is clearly meant to be heard.
+                        if value > 0.0 {
+                            volume.set_muted(false);
+                        }
+                        shell.request_redraw();
+                    }
                 }
                 Local::ToggleFullscreen => {
                     if let Some(message) = &self.on_fullscreen_toggle {

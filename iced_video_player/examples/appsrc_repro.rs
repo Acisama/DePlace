@@ -12,7 +12,7 @@
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
-use iced_video_player::Video;
+use iced_video_player::{Video, VolumeState};
 
 use std::{
     borrow::Cow,
@@ -121,7 +121,7 @@ fn main() {
         .unwrap();
 
     let start = std::time::Instant::now();
-    match Video::from_gst_pipeline(pipeline, video_appsink, None) {
+    match Video::from_gst_pipeline(pipeline, video_appsink, None, VolumeState::default()) {
         Ok(video) => println!("OK in {:?}: size {:?}", start.elapsed(), video.size()),
         Err(e) => {
             println!("FAILED in {:?}: {e}", start.elapsed());

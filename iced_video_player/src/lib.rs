@@ -48,6 +48,7 @@ use thiserror::Error;
 
 pub use video::Position;
 pub use video::Video;
+pub use video::VolumeState;
 pub use video_player::VideoPlayer;
 
 #[derive(Debug, Error)]

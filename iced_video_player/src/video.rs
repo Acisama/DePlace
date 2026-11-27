@@ -6,7 +6,7 @@ use gstreamer_video::VideoMeta;
 use iced::widget::image as img;
 use std::num::NonZeroU8;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -126,6 +126,8 @@ pub(crate) struct Internal {
 
     pub(crate) subtitle_text: Arc<Mutex<Option<String>>>,
     pub(crate) upload_text: Arc<AtomicBool>,
+
+    pub(crate) volume: VolumeState,
 }
 
 impl Internal {
@@ -235,6 +237,54 @@ impl Internal {
     }
 }
 
+/// The audio volume of one video, shared between the UI and the audio chain.
+///
+/// The UI only stores into these atomics and the audio chain reads the newest
+/// value per buffer, so dragging the slider never locks or races anything.
+#[derive(Clone, Debug)]
+pub struct VolumeState {
+    /// Volume as `f32` bits, so the atomic can hold a fraction.
+    volume: Arc<AtomicU32>,
+    muted: Arc<AtomicBool>,
+}
+
+impl Default for VolumeState {
+    fn default() -> Self {
+        Self {
+            volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+            muted: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl VolumeState {
+    /// Sets the multiplier: `0.0` is silent, `1.0` is the file's own level.
+    pub fn set_volume(&self, volume: f32) {
+        let volume = volume.clamp(0.0, 1.0);
+        self.volume.store(volume.to_bits(), Ordering::Relaxed);
+    }
+
+    /// Reads back the multiplier last written by [`Self::set_volume`].
+    pub fn volume(&self) -> f32 {
+        f32::from_bits(self.volume.load(Ordering::Relaxed))
+    }
+
+    /// Sets whether the audio is muted, without touching the volume.
+    pub fn set_muted(&self, muted: bool) {
+        self.muted.store(muted, Ordering::Relaxed);
+    }
+
+    /// Reads back whether the audio is muted.
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
+    }
+
+    /// The multiplier a playback chain should apply right now: `0.0` if muted.
+    pub fn effective(&self) -> f64 {
+        if self.muted() { 0.0 } else { f64::from(self.volume()) }
+    }
+}
+
 /// A multimedia video loaded from a URI (e.g., a local file path or HTTP stream).
 #[derive(Debug)]
 pub struct Video(pub(crate) RwLock<Internal>);
@@ -288,7 +338,7 @@ impl Video {
         let text_sink: gst::Element = pipeline.property("text-sink");
         let text_sink = text_sink.downcast::<gst_app::AppSink>().unwrap();
 
-        Self::from_gst_pipeline(pipeline, video_sink, Some(text_sink))
+        Self::from_gst_pipeline(pipeline, video_sink, Some(text_sink), VolumeState::default())
     }
 
     /// Creates a new video based on an existing GStreamer pipeline and appsink.
@@ -297,12 +347,16 @@ impl Video {
     /// An optional `text_sink` can be provided, which enables subtitle messages
     /// to be emitted.
     ///
+    /// The `volume` state is applied by the worker when the pipeline itself has
+    /// a `volume` property; custom pipelines apply it in their audio chain.
+    ///
     /// **Note:** Many functions of [`Video`] assume a `playbin` pipeline.
     /// Non-`playbin` pipelines given here may not have full functionality.
     pub fn from_gst_pipeline(
         pipeline: gst::Pipeline,
         video_sink: gst_app::AppSink,
         text_sink: Option<gst_app::AppSink>,
+        volume: VolumeState,
     ) -> Result<Self, Error> {
         gst::init()?;
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -399,12 +453,22 @@ impl Video {
         let subtitle_text_ref = Arc::clone(&subtitle_text);
         let upload_text_ref = Arc::clone(&upload_text);
 
+        let volume_ref = volume.clone();
         let pipeline_ref = pipeline.clone();
 
         let worker = std::thread::spawn(move || {
             let mut clear_subtitles_at = None;
+            let mut applied_volume = None;
 
             while alive_ref.load(Ordering::Acquire) {
+                // hand-built pipelines apply it in their own
+                // audio chain instead, so this is only a fallback.
+                let wanted = volume_ref.effective();
+                if applied_volume != Some(wanted) && pipeline_ref.has_property("volume", None) {
+                    pipeline_ref.set_property("volume", wanted);
+                    applied_volume = Some(wanted);
+                }
+
                 let pull_result = (|| -> Result<(), gst::FlowError> {
                     let sample =
                         if pipeline_ref.state(gst::ClockTime::ZERO).1 != gst::State::Playing {
@@ -504,6 +568,8 @@ impl Video {
 
             subtitle_text,
             upload_text,
+
+            volume,
         })))
     }
 
@@ -532,28 +598,34 @@ impl Video {
         self.read().framerate
     }
 
+    /// The shared atomics the UI writes to change this video's volume.
+    ///
+    /// Whatever plays the audio reads them, so writes never lock the pipeline.
+    pub fn volume_state(&self) -> VolumeState {
+        self.read().volume.clone()
+    }
+
     /// Set the volume multiplier of the audio.
     /// `0.0` = 0% volume, `1.0` = 100% volume.
     ///
     /// This uses a linear scale, for example `0.5` is perceived as half as loud.
-    pub fn set_volume(&self, volume: f64) {
-        self.write().source.set_property("volume", volume);
-        self.set_muted(self.muted()); // for some reason gstreamer unmutes when changing volume?
+    pub fn set_volume(&self, volume: f32) {
+        self.read().volume.set_volume(volume);
     }
 
     /// Get the volume multiplier of the audio.
-    pub fn volume(&self) -> f64 {
-        self.read().source.property("volume")
+    pub fn volume(&self) -> f32 {
+        self.read().volume.volume()
     }
 
     /// Set if the audio is muted or not, without changing the volume.
     pub fn set_muted(&self, muted: bool) {
-        self.write().source.set_property("mute", muted);
+        self.read().volume.set_muted(muted);
     }
 
     /// Get if the audio is muted or not.
     pub fn muted(&self) -> bool {
-        self.read().source.property("mute")
+        self.read().volume.muted()
     }
 
     /// Get if the stream ended or not.
