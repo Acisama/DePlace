@@ -38,6 +38,9 @@ use super::{ColoredRounded, StatusExt, default_button, phosphor_icon};
 
 /// How long the bar takes to slide fully in or out.
 const SLIDE_DURATION: Duration = Duration::from_millis(200);
+/// How close together two clicks on the video count as a double click.
+/// This here matches iced's own `mouse::Click`
+const DOUBLE_CLICK: Duration = Duration::from_millis(300);
 /// How long the real video takes to crossfade in over `fallback` once the
 /// cell resolves to `Loaded` -- mirrors `RenderMedia`'s own fade duration.
 const FADE_DURATION: Duration = Duration::from_millis(250);
@@ -183,6 +186,8 @@ enum Phase {
 
 #[derive(Clone, Copy, Debug)]
 enum Local {
+    /// A click on the video itself pauses, or goes fullscreen on a double click.
+    VideoPressed,
     TogglePause,
     Seek(f32),
     SeekReleased,
@@ -339,7 +344,7 @@ fn build_bar(
 
     let content = w::column![
         w::mouse_area(w::container(EMPTY_WIDGET).width(Fill).height(Fill))
-            .on_press(Local::TogglePause)
+            .on_press(Local::VideoPressed)
             .interaction(Interaction::Pointer),
         w::container(content)
             .width(Fill)
@@ -367,7 +372,7 @@ fn build_bar(
                             theme.border
                         )
                 )
-                .on_press(Local::TogglePause)
+                .on_press(Local::VideoPressed)
             )
             .width(Fill)
             .height(Fill)
@@ -719,6 +724,7 @@ struct State {
     dragging: Option<f32>,
     resume_after_drag: bool,
     last_seeked: Option<f32>,
+    last_video_press: Option<Instant>,
 }
 
 impl State {
@@ -730,6 +736,7 @@ impl State {
             dragging: None,
             resume_after_drag: false,
             last_seeked: None,
+            last_video_press: None,
         }
     }
 
@@ -1120,6 +1127,21 @@ where
         let state = tree.state.downcast_mut::<State>();
         for (message, _receipt) in local_bus.drain() {
             match message {
+                Local::VideoPressed => {
+                    if let Some(video) = self.video() {
+                        // The two clicks of a double click cancel each other
+                        // out, so all that is left is the fullscreen toggle.
+                        let double = state
+                            .last_video_press
+                            .is_some_and(|at| at.elapsed() < DOUBLE_CLICK);
+                        state.last_video_press = if double { None } else { Some(Instant::now()) };
+                        video.set_paused(!video.paused());
+
+                        if double && let Some(message) = &self.on_fullscreen_toggle {
+                            shell.publish(message.clone());
+                        }
+                    }
+                }
                 Local::TogglePause => {
                     if let Some(video) = self.video() {
                         video.set_paused(!video.paused());
@@ -1271,9 +1293,7 @@ where
             && let Some((bar_layout, bar_tree)) = layout.iter(&tree.children).nth(1)
         {
             renderer.with_layer(clip, |renderer| {
-                bar.draw(
-                    bar_tree, renderer, theme, style, bar_layout, cursor, &clip,
-                );
+                bar.draw(bar_tree, renderer, theme, style, bar_layout, cursor, &clip);
             });
         }
 
