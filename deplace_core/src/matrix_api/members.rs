@@ -10,13 +10,15 @@ pub(crate) async fn handle_member_event(
 ) {
     let room_id = room.room_id();
 
-    let member = state.profile_store_ref().get_member(room_id, &ev.sender);
+    let user_id = &ev.state_key;
+
+    let member = state.profile_store_ref().get_member(room_id, user_id);
 
     let new_displayname = &ev.content.displayname;
     let new_avatar_url = &ev.content.avatar_url;
     let new_membership = &ev.content.membership;
     let new_power_level = room
-        .get_user_power_level(&ev.sender)
+        .get_user_power_level(user_id)
         .await
         .map_err(|e| tracing::error!("Failed to get powerlevels in room {}: {e}", room_id))
         .ok();
@@ -49,5 +51,5 @@ pub(crate) async fn handle_member_event(
 
     state
         .profile_store_ref()
-        .update_room_profile(room_id, &ev.sender, update_fn);
+        .update_room_profile(room_id, user_id, update_fn);
 }
