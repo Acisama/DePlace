@@ -477,6 +477,31 @@ impl MediaProcessor {
         Ok(bytes)
     }
 
+    async fn execute(
+        &self,
+        client: &Client,
+        http_request: http::Request<Vec<u8>>,
+        progress: &DownloadProgress,
+        request_config: Option<matrix_sdk::config::RequestConfig>,
+    ) -> matrix_sdk::Result<Vec<u8>, matrix_sdk::Error> {
+        let Some(request_config) = request_config else {
+            return self.execute_and_stream(http_request, progress).await;
+        };
+
+        let http_request = http_request.map(bytes::Bytes::from);
+        let bytes = client
+            .http_client()
+            .send_raw(http_request, Some(request_config))
+            .await
+            .map_err(matrix_sdk::Error::from)?;
+
+        progress.set_total_bytes(bytes.len() as u64);
+        progress.add_to_downloaded_bytes(bytes.len() as u64);
+        self.bump_tick();
+
+        Ok(bytes)
+    }
+
     /// Does the actual network fetch (and decryption, if needed) for a single media
     /// request. Only ever called once per key at a time - see `fetch_media_content`,
     /// which de-duplicates concurrent requests for the same key before this runs.
@@ -485,6 +510,7 @@ impl MediaProcessor {
         client: Client,
         request: MediaRequestParameters,
         progress: &DownloadProgress,
+        request_config: Option<matrix_sdk::config::RequestConfig>,
     ) -> matrix_sdk::Result<Vec<u8>, matrix_sdk::Error> {
         let supported_versions = client.supported_versions().await?;
         let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
@@ -517,7 +543,9 @@ impl MediaProcessor {
                 };
 
                 let fetch_started = std::time::Instant::now();
-                let content = self.execute_and_stream(http_req, progress).await?;
+                let content = self
+                    .execute(&client, http_req, progress, request_config)
+                    .await?;
                 tracing::info!(
                     media_key = %request.source.unique_key(),
                     compressed_bytes = content.len(),
@@ -602,7 +630,9 @@ impl MediaProcessor {
                 };
 
                 let fetch_started = std::time::Instant::now();
-                let content = self.execute_and_stream(http_req, progress).await?;
+                let content = self
+                    .execute(&client, http_req, progress, request_config)
+                    .await?;
                 tracing::info!(
                     media_key = %request.source.unique_key(),
                     bytes = content.len(),
@@ -856,11 +886,28 @@ impl matrix_sdk::media::MediaFetcher for MediaProcessor {
         client: &'a Client,
         request: &'a matrix_sdk::media::MediaRequestParameters,
     ) -> matrix_sdk::BoxFuture<'a, matrix_sdk::Result<Vec<u8>, matrix_sdk::Error>> {
+        self.fetch(client, request, None)
+    }
+
+    fn fetch_media_content_with_config<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+        request_config: matrix_sdk::config::RequestConfig,
+    ) -> matrix_sdk::BoxFuture<'a, matrix_sdk::Result<Vec<u8>, matrix_sdk::Error>> {
+        self.fetch(client, request, Some(request_config))
+    }
+}
+
+impl MediaProcessor {
+    fn fetch<'a>(
+        &'a self,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
+        request_config: Option<matrix_sdk::config::RequestConfig>,
+    ) -> matrix_sdk::BoxFuture<'a, matrix_sdk::Result<Vec<u8>, matrix_sdk::Error>> {
         let key = request.unique_key();
 
-        // Atomically check for (and if absent, register) an in-flight fetch for this
-        // key, so two concurrent requests for the same media share one network fetch
-        // instead of racing to write into the same `progresses` entry.
         let shared = match self.in_flight.entry(key.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),
             Entry::Vacant(entry) => {
@@ -881,7 +928,9 @@ impl matrix_sdk::media::MediaFetcher for MediaProcessor {
 
                 let fut: BoxFuture<'static, Result<Arc<Vec<u8>>, Arc<str>>> =
                     Box::pin(async move {
-                        let result = this.do_fetch(client, request, &progress).await;
+                        let result = this
+                            .do_fetch(client, request, &progress, request_config)
+                            .await;
                         this.in_flight.remove(&key_for_fut);
 
                         lock(&this.downloads).insert(

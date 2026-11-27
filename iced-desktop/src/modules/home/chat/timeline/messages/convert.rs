@@ -334,7 +334,7 @@ impl TimelineItemKind {
                                 is_editing: false,
 
                                 reactions: convert_reactions(
-                                    &m.reactions,
+                                    event.reactions(),
                                     own_user_id,
                                     &profile_store,
                                     room_id,

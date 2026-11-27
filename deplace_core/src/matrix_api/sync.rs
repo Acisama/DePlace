@@ -27,10 +27,6 @@ use super::matrixrtc::{cleanup_ghost_calls, handle_call_member_change, handle_to
 use super::members::handle_member_event;
 
 pub fn spawn_sync_runners(client: &Client, state: &AppState, own_device: Arc<UserDevice>) {
-    if let Err(e) = client.event_cache().subscribe() {
-        tracing::error!("Failed to subscribe to event cache: {e}");
-    }
-
     // The last session may have died without withdrawing our call
     // memberships, ghosting us into calls: other members keep seeing
     // and waiting for us long after the app is gone. Whatever is left

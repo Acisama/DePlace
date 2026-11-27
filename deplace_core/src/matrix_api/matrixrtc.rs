@@ -310,7 +310,10 @@ async fn ongoing_call_focus(room: &Room) -> Option<String> {
         };
 
         let focus_url = session.foci_preferred.iter().find_map(|focus| match focus {
-            Focus::Livekit(focus) => Some(normalize_focus_url(&focus.service_url)),
+            Focus::Livekit(LivekitFocus {
+                url: Some(service_url),
+                ..
+            }) => Some(normalize_focus_url(service_url)),
             _ => None,
         });
 
@@ -407,9 +410,9 @@ async fn join_call_in_steps(
     let default_livekit_focus_info = rtc_foci
         .iter()
         .find_map(|focus| match focus {
-            RtcTransport::LiveKit(info) => Some(LiveKitRtcTransport::new(normalize_focus_url(
-                &info.service_url,
-            ))),
+            RtcTransport::LiveKit(info) => {
+                Some(LiveKitRtcTransport::new(normalize_focus_url(&info.url)))
+            }
             _ => None,
         })
         .ok_or_else(|| anyhow!("No rtc focus information found"))?;
@@ -417,11 +420,11 @@ async fn join_call_in_steps(
     // The focus the call actually runs on: whatever discovery returns
     // fresh for us, or whatever an ongoing call already agreed on.
     let livekit_focus_info = match ongoing_call_focus(&room.room).await {
-        Some(call_focus) if call_focus != default_livekit_focus_info.service_url => {
+        Some(call_focus) if default_livekit_focus_info.url != call_focus => {
             event!(
                 Level::INFO,
                 "Joining the ongoing call through the focus of its oldest member ({call_focus}) instead of ours ({}), so we land in the same LiveKit room",
-                default_livekit_focus_info.service_url
+                default_livekit_focus_info.url
             );
             LiveKitRtcTransport::new(call_focus)
         }
@@ -431,10 +434,10 @@ async fn join_call_in_steps(
     event!(
         Level::INFO,
         "Joining the call through the SFU focus {}",
-        livekit_focus_info.service_url
+        livekit_focus_info.url
     );
 
-    let jwt_url = livekit_focus_info.service_url.clone() + "/sfu/get";
+    let jwt_url = livekit_focus_info.url.clone() + "/sfu/get";
 
     let openid_token = matrix_sdk::Account::request_openid_token(&matrix_client.account())
         .await
@@ -498,8 +501,7 @@ async fn join_call_in_steps(
             .into(),
         matrix_sdk::ruma::events::call::member::ActiveFocus::Livekit(ActiveLivekitFocus::new()),
         vec![Focus::Livekit(LivekitFocus::new(
-            canonical_room_id.clone(),
-            livekit_focus_info.service_url.to_string(),
+            livekit_focus_info.url.to_string(),
         ))],
         None,
         None,
