@@ -413,6 +413,13 @@ async fn join_call_in_steps(
             RtcTransport::LiveKit(info) => {
                 Some(LiveKitRtcTransport::new(normalize_focus_url(&info.url)))
             }
+
+            #[allow(deprecated)]
+            RtcTransport::LegacyLiveKit(info) => info
+                .service_url
+                .as_deref()
+                .or(info.url.as_deref())
+                .map(|url| LiveKitRtcTransport::new(normalize_focus_url(url))),
             _ => None,
         })
         .ok_or_else(|| anyhow!("No rtc focus information found"))?;
