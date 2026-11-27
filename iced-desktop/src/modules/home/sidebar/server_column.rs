@@ -15,7 +15,7 @@ use crate::{
     components::{
         PushElement, help_mode::SidebarHelpKey, phosphor_icon, profile::render_row_of_icons,
     },
-    modules::home::{SPEAKER_ICON, chat::render_member_numbers},
+    modules::home::{INVITE_ICON, SPEAKER_ICON, chat::render_member_numbers},
 };
 
 #[derive(Clone, Debug)]
@@ -173,6 +173,8 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
 
                 let has_call = room.has_call();
 
+                let is_invite = room.is_invite();
+
                 let num =
                     if notifications.highlight_count > 0 || notifications.notification_count > 0 {
                         Some(
@@ -184,7 +186,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         None
                     };
 
-                if num.is_none() && !has_call {
+                if num.is_none() && !has_call && !is_invite {
                     return None;
                 }
 
@@ -193,7 +195,7 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                         HelpKey::Sidebar(SidebarHelpKey::DmsWithNotifications),
                         "Direct messages with unread notifications or ongoing calls",
                         w::mouse_area(
-                            animated_button(room.render_simple_icon(
+                            animated_button(room.render_icon_maybe_with_presence(
                                 icon_size,
                                 theme,
                                 structure,
@@ -233,6 +235,12 @@ impl IcedWidget<ServerColumnMessage, ServerColumnAction> for ServerColumn {
                 if let Some(notif) = num {
                     badge = badge.br(CornerContent::text(
                         notif.to_string(),
+                        theme.solid_bg,
+                        theme.accent,
+                    ))
+                } else if is_invite {
+                    badge = badge.br(CornerContent::icon(
+                        INVITE_ICON,
                         theme.solid_bg,
                         theme.accent,
                     ))

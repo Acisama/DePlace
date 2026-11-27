@@ -173,7 +173,12 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                             HelpKey::Header(HeaderHelpKey::HeaderIcon),
                             "The icon of the active room, shows other user's icon in dms",
                             if self.active_server.borrow().is_home() {
-                                self.room.render_icon(button_size)
+                                self.room.render_icon_maybe_with_presence(
+                                    button_size,
+                                    theme,
+                                    structure,
+                                    theme.solid_bg.into(),
+                                )
                             } else {
                                 self.room.render_simple_icon(
                                     if self.room.is_dm() {

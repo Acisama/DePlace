@@ -22,7 +22,7 @@ use crate::{
         volume_bar::{self, volume_bar},
     },
     modules::home::{
-        MUTE_ICON,
+        INVITE_ICON, MUTE_ICON,
         overlay::{ContextMenu, ContextMenuKind},
     },
 };
@@ -420,13 +420,7 @@ fn render_channel(
             .width(Fill),
         themed_tooltip_text(
             if room.is_invite() {
-                Some(
-                    phosphor_icon(
-                        phosphor_svgs::icon::envelope::FILL,
-                        structure.font_size * 1.3,
-                    )
-                    .color(room_color),
-                )
+                Some(phosphor_icon(INVITE_ICON, structure.font_size * 1.3).color(room_color))
             } else if room.is_dm() {
                 Some(
                     phosphor_icon(

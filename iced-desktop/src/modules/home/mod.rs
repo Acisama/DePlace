@@ -51,6 +51,8 @@ pub const DOWNLOAD_ICON: &str = icons::download_simple::BOLD;
 pub const FULLSCREEN_ICON: &str = icons::corners_out::BOLD;
 pub const EXIT_FULLSCREEN_ICON: &str = icons::corners_in::BOLD;
 
+pub const INVITE_ICON: &str = icons::envelope::FILL;
+
 #[derive(Clone, Debug)]
 pub enum HomeMessage {
     Chat {
