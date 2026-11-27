@@ -1020,7 +1020,8 @@ pub struct VideoMessage {
     height: f32,
 
     is_encrypted: bool,
-    is_loaded: bool,
+    /// Whether the media store already holds the file
+    cached: bool,
 
     pub media_processor: MediaProcessor,
     pub parameters_key: String,

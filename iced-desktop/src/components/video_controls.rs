@@ -143,7 +143,7 @@ where
         media_processor,
         is_encrypted: false,
         info_total,
-        is_loaded: false,
+        cached: false,
         is_fullscreen: false,
         on_fullscreen_toggle: None,
     }
@@ -167,7 +167,7 @@ pub struct VideoControls<'a, Message> {
     is_encrypted: bool,
 
     info_total: Option<u64>,
-    is_loaded: bool,
+    cached: bool,
 
     is_fullscreen: bool,
     on_fullscreen_toggle: Option<Message>,
@@ -192,14 +192,26 @@ enum Local {
     Seek(f32),
     SeekReleased,
     StartDownload,
+    /// Writes an already downloaded video out and starts playing it.
+    StartPlayback,
     ToggleMute,
     SetVolume(f32),
     ToggleFullscreen,
 }
 
-fn build_not_started(phase: Phase) -> Element<'static, Local> {
+fn build_not_started(phase: Phase, cached: bool) -> Element<'static, Local> {
     let theme = theme();
     let structure = structure();
+
+    // A video the media store already holds is written to a temp file on press,
+    // anything else has to be downloaded first.
+    if !matches!(phase, Phase::NotStarted) {
+        return EMPTY_WIDGET.boxed();
+    }
+
+    if cached {
+        return play_overlay(phosphor_svgs::icon::play::FILL, Local::StartPlayback);
+    }
 
     match phase {
         Phase::NotStarted => w::container(
@@ -359,29 +371,35 @@ fn build_bar(
     .boxed();
 
     if let Some(overlay_icon) = overlay_icon {
-        w::stack![
-            content,
-            w::container(
-                default_button(
-                    w::container(phosphor_icon(overlay_icon, icon_size * 2.0).color(icon_color))
-                        .padding(structure.gap)
-                        .colored_rounded_with_border(
-                            theme.solid_bg,
-                            icon_size + structure.gap,
-                            structure.border_thickness,
-                            theme.border
-                        )
-                )
-                .on_press(Local::VideoPressed)
-            )
-            .width(Fill)
-            .height(Fill)
-            .center(Fill)
-        ]
-        .boxed()
+        w::stack![content, play_overlay(overlay_icon, Local::VideoPressed)].boxed()
     } else {
         content
     }
+}
+
+/// The big centred button a video shows while it is paused
+fn play_overlay(icon: &'static str, message: Local) -> Element<'static, Local> {
+    let theme = theme();
+    let structure = structure();
+    let icon_size = structure.large_font_size;
+
+    w::container(
+        default_button(
+            w::container(phosphor_icon(icon, icon_size * 2.0).color(theme.text.normal))
+                .padding(structure.gap)
+                .colored_rounded_with_border(
+                    theme.solid_bg,
+                    icon_size + structure.gap,
+                    structure.border_thickness,
+                    theme.border,
+                ),
+        )
+        .on_press(message),
+    )
+    .width(Fill)
+    .height(Fill)
+    .center(Fill)
+    .boxed()
 }
 
 fn build_status_overlay(status: Option<&VideoStatus>, alpha: f32) -> Element<'static, Local> {
@@ -449,7 +467,7 @@ where
 
     fn video(&self) -> Option<Arc<Video>> {
         match self.cell.read().as_ref() {
-            MediaState::Loaded((video, _feeder)) => Some(video.clone()),
+            MediaState::Loaded((video, _file)) => Some(video.clone()),
             _ => None,
         }
     }
@@ -469,8 +487,8 @@ where
         self
     }
 
-    pub fn loaded(mut self, is_loaded: bool) -> Self {
-        self.is_loaded = is_loaded;
+    pub fn cached(mut self, cached: bool) -> Self {
+        self.cached = cached;
         self
     }
 
@@ -523,7 +541,7 @@ where
 
     fn ensure_not_started(&mut self, phase: Phase) -> &mut Element<'a, Local> {
         if self.not_started.is_none() {
-            self.not_started = Some(build_not_started(phase));
+            self.not_started = Some(build_not_started(phase, self.cached));
         }
         #[allow(clippy::unwrap_used)]
         self.not_started.as_mut().unwrap()
@@ -536,7 +554,7 @@ where
         size: Size,
         phase: Phase,
     ) {
-        let mut not_started = build_not_started(phase);
+        let mut not_started = build_not_started(phase, self.cached);
         tree.children[3].diff(&mut not_started);
         not_started.layout(
             &mut tree.children[3],
@@ -655,10 +673,27 @@ where
     /// `Mutex<IndexMap>` lookup that clones a couple of `Arc<AtomicU64>`s,
     /// the same cost class as `Video::position()`/`paused()`.
     fn download_status(&self) -> Option<VideoStatus> {
-        match self
+        let Some(progress) = self
             .media_processor
-            .file_download_progress(&self.parameters_key)?
-        {
+            .file_download_progress(&self.parameters_key)
+        else {
+            if !matches!(self.cell.read().as_ref(), MediaState::Loading) {
+                return None;
+            }
+
+            // An already downloaded video is only copied out of the media
+            // store, anything else is downloading right now.
+            return Some(if self.cached {
+                VideoStatus::Preparing
+            } else {
+                VideoStatus::Downloading {
+                    text: "Downloading Video...".to_string(),
+                    percentage: 0.0,
+                }
+            });
+        };
+
+        match progress {
             DownloadProgress::Downloading {
                 total_bytes,
                 downloaded_bytes,
@@ -725,6 +760,8 @@ struct State {
     resume_after_drag: bool,
     last_seeked: Option<f32>,
     last_video_press: Option<Instant>,
+    /// Start playing as soon as the video is ready, after a play press.
+    autoplay: bool,
 }
 
 impl State {
@@ -737,6 +774,7 @@ impl State {
             resume_after_drag: false,
             last_seeked: None,
             last_video_press: None,
+            autoplay: false,
         }
     }
 
@@ -775,13 +813,9 @@ where
         // same row is scrolled back into view.
         let phase = match self.cell.read().as_ref() {
             MediaState::Loaded(_) => Phase::Done,
-            MediaState::LoadNotStarted { .. } => {
-                if self.is_loaded {
-                    Phase::Pending
-                } else {
-                    Phase::NotStarted
-                }
-            }
+            // Nothing is read from the media store until the row asks for it,
+            // so a video starts out waited for rather than loading.
+            MediaState::LoadNotStarted { .. } => Phase::NotStarted,
             // `Loading`/`Failed`: the fetch is already underway (or already
             // failed) elsewhere
             _ => Phase::Pending,
@@ -932,12 +966,6 @@ where
             {
                 let state = tree.state.downcast_mut::<State>();
 
-                if self.is_loaded
-                    && matches!(self.cell.read().as_ref(), MediaState::LoadNotStarted { .. })
-                {
-                    self.cell.clone().start_loading::<LoadedVideo>(true);
-                }
-
                 match state.phase {
                     Phase::NotStarted
                         if !matches!(
@@ -947,14 +975,7 @@ where
                     {
                         state.phase = Phase::Pending;
                     }
-                    // Always fades, even for an already-on-disk video `is_loaded`
-                    // auto-starts: that only skips the "Download video" button
-                    // (and the `NotStarted` phase it belongs to) -- the load
-                    // itself still takes a moment once this widget is built, so
-                    // it still deserves the same crossfade a slower download
-                    // gets once it resolves. `state()`'s own cache-hit check is
-                    // what skips the fade for a cell that's *already* `Loaded`
-                    // by construction time.
+                    // Always fades
                     Phase::Pending if video.is_some() => {
                         state.phase = Phase::Fading(Instant::now());
                     }
@@ -962,6 +983,16 @@ where
                         state.phase = Phase::Done;
                     }
                     _ => {}
+                }
+
+                // Pressing play on a video that was already downloaded should
+                // start it, not just show its first frame.
+                if !matches!(state.phase, Phase::NotStarted)
+                    && state.autoplay
+                    && let Some(video) = &video
+                {
+                    state.autoplay = false;
+                    video.set_paused(false);
                 }
             }
             let phase = tree.state.downcast_ref::<State>().phase;
@@ -1168,6 +1199,11 @@ where
                     }
                 }
                 Local::StartDownload => {
+                    self.cell.clone().start_loading::<LoadedVideo>(false);
+                    shell.request_redraw();
+                }
+                Local::StartPlayback => {
+                    state.autoplay = true;
                     self.cell.clone().start_loading::<LoadedVideo>(false);
                     shell.request_redraw();
                 }

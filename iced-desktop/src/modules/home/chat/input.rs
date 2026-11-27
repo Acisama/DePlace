@@ -235,6 +235,7 @@ fn video_preview_task(attachment: &Attachment) -> Task<InputMessage> {
 
     let id = attachment.id;
     let data = attachment.attachment.data.clone();
+    let source_path = attachment.attachment.source_path.clone();
     let mime_type = attachment.attachment.mime_type.clone();
 
     Task::future(async move {
@@ -242,6 +243,7 @@ fn video_preview_task(attachment: &Attachment) -> Task<InputMessage> {
         let handle = tokio::task::spawn_blocking(move || {
             deplace_core::matrix_api::video_info::probe_video(
                 &data,
+                source_path.as_deref(),
                 &format!(".{}", mime_type.subtype()),
             )
             .thumbnail_jpeg

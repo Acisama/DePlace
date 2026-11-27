@@ -2,7 +2,7 @@
 
 use gstreamer::prelude::*;
 use std::io::{Cursor, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Metadata probed from a video file.
@@ -54,7 +54,7 @@ pub(crate) fn prefer_hardware_decoders() {
 /// Probes one decoded frame for width, height, duration and blurhash, on
 /// failure the upload still proceeds with less metadata.
 #[allow(clippy::let_underscore_must_use)]
-pub fn probe_video(data: &[u8], file_suffix: &str) -> VideoMetadata {
+pub fn probe_video(data: &[u8], source: Option<&Path>, file_suffix: &str) -> VideoMetadata {
     let mut metadata = VideoMetadata {
         width: None,
         height: None,
@@ -65,20 +65,30 @@ pub fn probe_video(data: &[u8], file_suffix: &str) -> VideoMetadata {
         thumbnail_height: None,
     };
 
-    let Some(temp_path) = write_temp_file(data, file_suffix) else {
-        return metadata;
+    // Probing the file it came from costs nothing; bytes without a file (e.g. a
+    // clipboard paste) have to be written out first.
+    let temp_path = match source {
+        Some(_) => None,
+        None => match write_temp_file(data, file_suffix) {
+            Some(path) => Some(path),
+            None => return metadata,
+        },
     };
+    let probe_path = source
+        .map(Path::to_path_buf)
+        .or_else(|| temp_path.clone())
+        .expect("a probe path is always available");
 
     if let Err(error) = gstreamer::init() {
         tracing::warn!("GStreamer init failed: {error}");
-        let _ = std::fs::remove_file(&temp_path);
+        remove_temp_file(temp_path);
         return metadata;
     }
     prefer_hardware_decoders();
 
-    let Ok(uri) = gstreamer::glib::filename_to_uri(&temp_path, None) else {
+    let Ok(uri) = gstreamer::glib::filename_to_uri(&probe_path, None) else {
         tracing::warn!("Failed to build URI from video file");
-        let _ = std::fs::remove_file(&temp_path);
+        remove_temp_file(temp_path);
         return metadata;
     };
 
@@ -149,7 +159,7 @@ pub fn probe_video(data: &[u8], file_suffix: &str) -> VideoMetadata {
         metadata.height = height;
     }
 
-    let _ = std::fs::remove_file(&temp_path);
+    remove_temp_file(temp_path);
 
     let thumbnail = match jpeg.and_then(|jpeg| {
         image::ImageReader::new(Cursor::new(jpeg))
@@ -188,6 +198,13 @@ pub fn probe_video(data: &[u8], file_suffix: &str) -> VideoMetadata {
 
     metadata.thumbnail_jpeg = thumbnail;
     metadata
+}
+
+/// Removes a probe temp file, if one was needed at all.
+fn remove_temp_file(path: Option<PathBuf>) {
+    if let Some(path) = path {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// Writes the bytes to a uniquely named temporary file, returning `None` and

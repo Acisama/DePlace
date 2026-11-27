@@ -15,8 +15,6 @@ use crate::Shared;
 
 #[cfg(feature = "iced")]
 pub mod video;
-#[cfg(feature = "iced")]
-pub mod video_stream;
 
 /// Loads one kind of media (e.g. a thumbnail vs. the original file) for a
 /// [`MediaCache`]. `fetch` is only ever invoked once per cache key, by

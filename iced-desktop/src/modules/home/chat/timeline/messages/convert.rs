@@ -605,10 +605,10 @@ impl MessageContent {
                             thumbnail: state.thumbnail_cache().get(&thumbnail_parameters),
 
                             is_encrypted: matches!(&video.source, MediaSource::Encrypted(_)),
-                            is_loaded: state.video_cache().extra().is_cached(
-                                &thumbnail_parameters.source,
-                                &parameters.source.unique_key(),
-                            ),
+                            cached: state
+                                .video_cache()
+                                .extra()
+                                .is_cached(&parameters.unique_key()),
 
                             media_processor: state.media_processor().clone(),
                             parameters_key: parameters.unique_key(),

@@ -44,7 +44,6 @@ livekit.workspace = true
 macros.workspace = true
 matrix-sdk.workspace = true
 matrix-sdk-base.workspace = true
-matrix-sdk-store-encryption.workspace = true
 matrix-sdk-ui.workspace = true
 mime.workspace = true
 mime_guess.workspace = true

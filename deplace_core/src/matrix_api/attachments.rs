@@ -1,4 +1,9 @@
-use std::{io::Cursor, sync::Arc, time::SystemTime};
+use std::{
+    io::Cursor,
+    path::PathBuf,
+    sync::Arc,
+    time::SystemTime,
+};
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -9,9 +14,13 @@ use mime::Mime;
 use ruma::events::room::MediaSource;
 use tokio::{fs::File, io::AsyncWriteExt};
 
-use crate::state::{
-    AppState,
-    media_fetcher::{CompressionProgress, MediaProcessor},
+use crate::{
+    formatting::format_bytes,
+    settings::DataSizeUnit,
+    state::{
+        AppState,
+        media_fetcher::{CompressionProgress, MediaProcessor},
+    },
 };
 
 #[derive(Clone, PartialEq, Eq)]
@@ -19,6 +28,9 @@ pub struct MatrixAttachment {
     pub filename: String,
     pub mime_type: Mime,
     pub data: Bytes,
+    /// Where the bytes came from, so probing can decode the file itself instead
+    /// of a second copy of it.
+    pub source_path: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for MatrixAttachment {
@@ -37,6 +49,7 @@ impl MatrixAttachment {
             filename: filename.to_string(),
             mime_type,
             data: data.into(),
+            source_path: None,
         }
     }
 
@@ -59,6 +72,7 @@ impl MatrixAttachment {
             anyhow::bail!("{} is a directory, not a file", path.display());
         }
         let read_start = std::time::Instant::now();
+        check_upload_fits(&path)?;
         let data = handle.read().await;
         tracing::info!(
             "Read {} ({} bytes) in {:?}",
@@ -67,11 +81,16 @@ impl MatrixAttachment {
             read_start.elapsed()
         );
         let mime_type = mime_guess::from_path(&path).first_or_octet_stream();
-        Ok(Self::from_bytes(
-            path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
+        Ok(Self {
+            filename: path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file")
+                .to_string(),
             mime_type,
-            data,
-        ))
+            data: data.into(),
+            source_path: Some(path),
+        })
     }
 
     /// Builds an attachment from an arbitrary path, e.g. a dropped file.
@@ -80,13 +99,19 @@ impl MatrixAttachment {
         if path.is_dir() {
             return Self::compress_folder(path, state).await;
         }
+        check_upload_fits(&path)?;
         let data = tokio::fs::read(&path).await?;
         let mime_type = mime_guess::from_path(&path).first_or_octet_stream();
-        Ok(Self::from_bytes(
-            path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
+        Ok(Self {
+            filename: path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file")
+                .to_string(),
             mime_type,
-            data,
-        ))
+            data: data.into(),
+            source_path: Some(path),
+        })
     }
 
     pub async fn from_files_picker() -> Vec<MatrixAttachment> {
@@ -399,4 +424,37 @@ mod tests {
         let attachments = MatrixAttachment::from_clipboard_file_list(text).await;
         assert!(attachments.is_empty());
     }
+}
+
+/// Refuses a file that cannot be held in memory twice over, which is what
+/// uploading it costs: the bytes plus the copy the SDK makes while sending.
+fn check_upload_fits(path: &std::path::Path) -> Result<()> {
+    let Ok(size) = std::fs::metadata(path).map(|m| m.len()) else {
+        return Ok(());
+    };
+    let Some(available) = available_memory() else {
+        return Ok(());
+    };
+
+    if size.saturating_mul(2) > available {
+        anyhow::bail!(
+            "{} needs about {} of free memory to upload, but only {} is available",
+            format_bytes(size, DataSizeUnit::Bytes),
+            format_bytes(size.saturating_mul(2), DataSizeUnit::Bytes),
+            format_bytes(available, DataSizeUnit::Bytes),
+        );
+    }
+
+    Ok(())
+}
+
+/// The memory the system can still hand out, on platforms that report it.
+fn available_memory() -> Option<u64> {
+    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+
+    meminfo.lines().find_map(|line| {
+        let rest = line.strip_prefix("MemAvailable:")?;
+        let kib: u64 = rest.split_whitespace().next()?.parse().ok()?;
+        Some(kib * 1024)
+    })
 }

@@ -922,7 +922,7 @@ impl VideoMessage {
                 self.info.as_ref().and_then(|i| i.size),
             )
             .encrypted(self.is_encrypted)
-            .loaded(self.is_loaded)
+            .cached(self.cached)
             .radius(structure.inner_border_radius)
             .on_fullscreen_toggle(on_fullscreen_toggle)
             .boxed(),

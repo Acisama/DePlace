@@ -106,7 +106,6 @@ pub struct UserDevice {
     pub device_id: OwnedDeviceId,
 }
 
-pub mod local_file_encryption;
 pub mod media_fetcher;
 pub mod roles;
 
@@ -266,20 +265,10 @@ impl AppState {
         keybinds: Keybinds,
         important_paths: ImportantPaths,
     ) -> Result<Self> {
-        let media_processor = MediaProcessor::new(&client);
+        let media_processor = MediaProcessor::new();
         client
             .set_media_fetcher(Arc::new(media_processor.clone()))
             .await;
-
-        // The video cache encrypts plain downloads at rest; its sidecar cipher
-        // is bound to the keyring's store key of the logged-in user.
-        #[cfg(feature = "iced_desktop")]
-        let video_store_key = {
-            let Some(user_id) = client.user_id() else {
-                return Err(anyhow::anyhow!("client must have a restored session"));
-            };
-            crate::keyring::get_or_create_store_key(user_id.as_str()).await?
-        };
 
         let calls_tick = Sender::new(());
 
@@ -373,9 +362,8 @@ impl AppState {
                 video_cache: Arc::new(VideoCache::new(
                     client.clone(),
                     VideoCacheExtra::new(
-                        media_processor.clone(),
-                        video_store_key,
                         important_paths.cache_dir.as_ref(),
+                        media_processor.clone(),
                     ),
                 )),
 

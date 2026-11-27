@@ -90,6 +90,7 @@ impl RoomSendingExt for Room {
         // thread is driving this task, same as everywhere else that touches image data.
         let mime_type = attachment.mime_type.clone();
         let data = attachment.data.clone();
+        let source_path = attachment.source_path.clone();
         let probe_start = std::time::Instant::now();
         let (info, thumbnail) = tokio::task::spawn_blocking(move || match mime_type.type_() {
             mime::IMAGE => {
@@ -118,7 +119,11 @@ impl RoomSendingExt for Room {
             }
             mime::VIDEO => {
                 let metadata =
-                    super::video_info::probe_video(&data, &format!(".{}", mime_type.subtype()));
+                    super::video_info::probe_video(
+                        &data,
+                        source_path.as_deref(),
+                        &format!(".{}", mime_type.subtype()),
+                    );
 
                 let thumbnail = metadata.thumbnail_jpeg.map(|jpeg| {
                     (
@@ -256,6 +261,7 @@ impl RoomSendingExt for Timeline {
         let size = attachment.data.len() as u32;
         let mime_type = attachment.mime_type.clone();
         let data = attachment.data.clone();
+        let source_path = attachment.source_path.clone();
         let probe_start = std::time::Instant::now();
         let (info, thumbnail) = tokio::task::spawn_blocking(move || match mime_type.type_() {
             mime::IMAGE => {
@@ -284,7 +290,11 @@ impl RoomSendingExt for Timeline {
             }
             mime::VIDEO => {
                 let metadata =
-                    super::video_info::probe_video(&data, &format!(".{}", mime_type.subtype()));
+                    super::video_info::probe_video(
+                        &data,
+                        source_path.as_deref(),
+                        &format!(".{}", mime_type.subtype()),
+                    );
 
                 let thumbnail = metadata.thumbnail_jpeg.map(|jpeg| {
                     (
