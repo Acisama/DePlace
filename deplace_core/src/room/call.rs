@@ -58,7 +58,12 @@ impl CallMembers {
                 let member = profile_store.get_member(room_id, ev.state_key.user_id());
 
                 for membership in ev.content.active_memberships(Some(ev.origin_server_ts)) {
-                    call_participants.insert(CallMember::new(&membership, member.clone(), call));
+                    call_participants.insert(CallMember::new(
+                        &membership,
+                        member.clone(),
+                        call,
+                        own_device,
+                    ));
                 }
             }
         }
@@ -110,6 +115,8 @@ pub struct CallMember {
     pub call_intent: Arc<CallIntent>,
     pub created: Option<SystemTime>,
 
+    pub is_own: bool,
+
     handle: CallParticipantHandle,
 }
 impl Hash for CallMember {
@@ -143,6 +150,8 @@ impl CallMember {
         handle: CallParticipantHandle,
     ) -> Self {
         Self {
+            is_own: member.user_id() == own_device.user_id,
+
             member,
             device_id: Arc::new(own_device.device_id.clone()),
             call_intent: Arc::new(CallIntent::Audio),
@@ -152,13 +161,22 @@ impl CallMember {
         }
     }
 
-    pub(crate) fn new(membership: &MembershipData, member: Member, call: &RoomCall) -> Self {
+    pub(crate) fn new(
+        membership: &MembershipData,
+        member: Member,
+        call: &RoomCall,
+        own_device: &UserDevice,
+    ) -> Self {
         let user_id = member.user_id().to_owned();
         let device_id = membership.device_id().to_owned();
+
+        let is_own = user_id == own_device.user_id && device_id == own_device.device_id;
 
         let handle = call.call_handle(user_id, device_id.clone());
 
         Self {
+            is_own,
+
             member,
             device_id: Arc::new(device_id),
             call_intent: Arc::new(

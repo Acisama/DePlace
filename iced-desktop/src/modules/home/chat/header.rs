@@ -133,7 +133,6 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
 
         let help_view = HelpView::new(theme);
 
-        let icon_size = structure.header.icon_size;
         let button_size = structure.header.button_size;
 
         let render_icon = |color, active_color, active, icon, message, tooltip| {
@@ -172,26 +171,13 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         w::container(help_view.call(
                             HelpKey::Header(HeaderHelpKey::HeaderIcon),
                             "The icon of the active room, shows other user's icon in dms",
-                            if self.active_server.borrow().is_home() {
-                                self.room.render_icon_maybe_with_presence(
-                                    button_size,
-                                    theme,
-                                    structure,
-                                    theme.solid_bg.into(),
-                                )
-                            } else {
-                                self.room.render_simple_icon(
-                                    if self.room.is_dm() {
-                                        button_size
-                                    } else {
-                                        icon_size
-                                    },
-                                    theme,
-                                    structure,
-                                    theme.solid_bg.into(),
-                                )
-                            }
-                        ).radius(if self.room.is_dm() { button_size * 0.5 } else {icon_size * 0.25 }))
+                            self.room.render_icon_maybe_with_presence(
+                                button_size,
+                                theme,
+                                structure,
+                                theme.solid_bg.into(),
+                            )
+                        ).radius(if self.room.is_dm() { button_size * 0.5 } else { button_size * 0.25 }))
                         .style(move |_| ContainerStyle {
                             text_color: Some(theme.text.normal.into()),
                             ..Default::default()
