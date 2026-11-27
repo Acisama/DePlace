@@ -13,6 +13,7 @@ use crate::member::ProfileStore;
 use crate::member::synth::SignatureEvent;
 use crate::member::user_data::handle_presence_update;
 use crate::room::call::{CallMember, CallMembers};
+use crate::room::notifications::NotificationCounts;
 use crate::state::UserDevice;
 use crate::{
     matrix_api::{hierarchy::run_space_hierarchy_update, save_session},
@@ -414,7 +415,23 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
                 state.room_store_ref().recompute_home();
             }
 
-            let notifications = room.unread_notification_counts().into();
+            let notifications: NotificationCounts = room.unread_notification_counts().into();
+
+            // The open chat marks messages read as soon as they render, and the
+            // server keeps reporting counts until it has caught up with our
+            // receipt, so those must not pop a badge up in the meantime.
+            let watching = state.window_focused() && state.is_active_room(&room_id);
+            let already_seen = room.latest_event().event_id().is_some_and(|newest| {
+                state
+                    .room_seen_marker(&room_id)
+                    .is_some_and(|seen| seen == newest)
+            });
+
+            let notifications = if watching || already_seen {
+                NotificationCounts::default()
+            } else {
+                notifications
+            };
 
             dp_room.update_live_if_modified(|live| {
                 live.notification_counts = notifications;

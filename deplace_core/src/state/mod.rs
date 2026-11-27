@@ -13,7 +13,7 @@ use futures::{Stream, stream};
 use matrix_sdk::{
     Client,
     ruma::{
-        OwnedDeviceId, OwnedRoomId, OwnedUserId,
+        OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedUserId,
         api::client::receipt::create_receipt::v3::ReceiptType, events::receipt::ReceiptThread,
     },
 };
@@ -224,6 +224,9 @@ pub(crate) struct AppStateInner {
 
     window_title: Sender<String>,
     window_focused: Mutex<bool>,
+    /// Newest event we know we have seen per room, so unread counts the server
+    /// still reports for it can be recognised as stale and kept off screen.
+    seen_markers: Mutex<HashMap<OwnedRoomId, OwnedEventId>>,
     important_paths: ImportantPaths,
 
     notification_manager: NotificationManager,
@@ -373,7 +376,10 @@ impl AppState {
                 calls_tick,
 
                 window_title,
-                window_focused: Mutex::new(false),
+                // The window starts out focused and only window events change
+                // this, so a default of false would block read marking forever.
+                window_focused: Mutex::new(true),
+                seen_markers: Mutex::new(HashMap::new()),
                 important_paths,
 
                 own_display_name,
@@ -520,6 +526,38 @@ impl AppState {
 
     pub fn window_title(&self) -> Receiver<String> {
         self.inner.window_title.subscribe()
+    }
+
+    /// Records the newest event of `room_id` that the frontend has seen.
+    ///
+    /// Sync keeps reporting counts for it until the server has caught up with
+    /// our read receipt, so this marker is what tells those counts apart from
+    /// ones that actually need a badge.
+    pub fn mark_room_seen(&self, room_id: OwnedRoomId, event_id: OwnedEventId) {
+        self.inner
+            .seen_markers
+            .lock()
+            .unwrap_or_else(|posion| posion.into_inner())
+            .insert(room_id, event_id);
+    }
+
+    /// The newest event of `room_id` the frontend has seen, if any.
+    pub fn room_seen_marker(&self, room_id: &RoomId) -> Option<OwnedEventId> {
+        self.inner
+            .seen_markers
+            .lock()
+            .unwrap_or_else(|posion| posion.into_inner())
+            .get(room_id)
+            .cloned()
+    }
+
+    /// Whether `room_id` is the room the frontend is displaying right now.
+    pub fn is_active_room(&self, room_id: &RoomId) -> bool {
+        self.inner
+            .active_room
+            .borrow()
+            .as_ref()
+            .is_some_and(|room| room.room_id() == room_id)
     }
 
     /// Subscribes to a tick that fires on every processed sync response,
@@ -677,6 +715,8 @@ impl AppState {
             });
 
             if let Some(event_id) = room.room.latest_event().event_id() {
+                self.mark_room_seen(room_id.clone(), event_id.clone());
+
                 let sdk_room = room.room.clone();
                 tokio::spawn(async move {
                     if let Err(e) = sdk_room

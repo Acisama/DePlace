@@ -581,6 +581,13 @@ impl ChatTimeline {
 
         self.marked_last_message_id = Some(item_id);
 
+        // Remember how far we read, and clear the badges right away, waiting
+        // for the next sync to confirm the receipts would leave them up for a
+        // round trip, and the marker keeps the stale ones from coming back.
+        self.state
+            .mark_room_seen(self.room.room_id().to_owned(), event_id.clone());
+        self.room.clear_notification_counts();
+
         if !self.state.settings().get_send_read_markers() {
             return None;
         }

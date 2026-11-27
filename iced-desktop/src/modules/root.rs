@@ -351,11 +351,9 @@ impl Root {
             }),
             iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Window(event) => match event {
-                    iced::window::Event::Focused => {
-                        Some(AppMessage::Home(Box::new(HomeMessage::WindowFocused)))
-                    }
+                    iced::window::Event::Focused => Some(AppMessage::WindowFocus { focused: true }),
                     iced::window::Event::Unfocused => {
-                        Some(AppMessage::Home(Box::new(HomeMessage::WindowFocused)))
+                        Some(AppMessage::WindowFocus { focused: false })
                     }
                     iced::window::Event::FileHovered(path) => {
                         Some(AppMessage::Home(Box::new(HomeMessage::FileHovered(path))))
