@@ -133,7 +133,10 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
 
         let help_view = HelpView::new(theme);
 
+        let icon_size: f32 = structure.header.icon_size;
         let button_size = structure.header.button_size;
+
+        let in_home = self.active_server.borrow().is_home();
 
         let render_icon = |color, active_color, active, icon, message, tooltip| {
             themed_tooltip_text(
@@ -171,13 +174,28 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                         w::container(help_view.call(
                             HelpKey::Header(HeaderHelpKey::HeaderIcon),
                             "The icon of the active room, shows other user's icon in dms",
-                            self.room.render_icon_maybe_with_presence(
-                                button_size,
-                                theme,
-                                structure,
-                                theme.solid_bg.into(),
-                            )
-                        ).radius(if self.room.is_dm() { button_size * 0.5 } else { button_size * 0.25 }))
+                            if in_home {
+                                self.room.render_icon_maybe_with_presence(
+                                    button_size,
+                                    theme,
+                                    structure,
+                                    theme.solid_bg.into(),
+                                )
+                            } else {
+                                self.room.render_simple_icon(
+                                    icon_size,
+                                    theme,
+                                    structure,
+                                    theme.solid_bg.into(),
+                                )
+                            }
+                        ).radius(if in_home && self.room.is_dm() {
+                            button_size * 0.5
+                        } else if in_home {
+                            button_size * 0.25
+                        } else {
+                            icon_size * 0.25
+                        }))
                         .style(move |_| ContainerStyle {
                             text_color: Some(theme.text.normal.into()),
                             ..Default::default()
@@ -192,12 +210,6 @@ impl IcedWidget<HeaderMessage, HeaderAction> for Header {
                             ),
                         )
                     ]
-                    .align_y(Alignment::Center)
-                    .padding(if self.room.is_dm() {
-                        0.0
-                    } else {
-                        structure.header.inner_icon_padding()
-                    })
                     .align_y(Alignment::Center)
                     .spacing(structure.small_gap),
                     Space::new().width(Fill),
