@@ -39,7 +39,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc::RecvTimeoutError,
     },
     time::{Duration, Instant},
@@ -48,6 +48,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use livekit::webrtc::prelude::AudioFrame;
+use rtrb::{Consumer, Producer, RingBuffer};
 use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use tokio::sync::oneshot;
 use tracing::{Level, event};
@@ -242,9 +243,7 @@ impl Audio {
         for slot in self.frame_players.values_mut() {
             match Sink::try_new(mixer) {
                 Ok(sink) => {
-                    sink.append(FrameSource {
-                        samples: Arc::clone(&slot.samples),
-                    });
+                    sink.append(FrameSource::new(Arc::clone(&slot.samples)));
                     slot.sink = sink;
                 }
                 Err(error) => event!(
@@ -382,12 +381,10 @@ impl Audio {
     /// else and can be dropped to stop it.
     fn frame_player(&mut self, cmd_tx: &std::sync::mpsc::Sender<Command>) -> Result<FramePlayer> {
         self.open()?;
-        let samples = Arc::new(SharedSamples::default());
+        let samples = Arc::new(SharedSamples::new(MAX_BUFFERED_SAMPLES));
         let sink = Sink::try_new(&self.output.as_ref().expect("just opened").mixer)
             .context("Could not create a frame player")?;
-        sink.append(FrameSource {
-            samples: Arc::clone(&samples),
-        });
+        sink.append(FrameSource::new(Arc::clone(&samples)));
 
         let id = self.next_player_id;
         self.next_player_id += 1;
@@ -649,6 +646,17 @@ impl AudioThread {
             Ok(Err(error)) => Err(anyhow!("Could not connect to the sound device: {error}")),
             Err(_) => Err(anyhow!("The audio thread died before it could start")),
         }
+    }
+
+    /// Like [`Self::frame_player`], but blocking, for the pump thread.
+    pub fn frame_player_blocking(&self) -> Result<FramePlayer> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::FramePlayer { reply: reply_tx })
+            .context("The audio thread is gone")?;
+        reply_rx
+            .blocking_recv()
+            .context("The audio thread died mid-request")?
     }
 
     /// Creates a new player for live audio, like one call participant.
@@ -992,43 +1000,55 @@ impl FramePlayer {
     /// call it the moment a frame arrives.
     pub fn push(&self, frame: &AudioFrame<'_>) {
         let converted = frame_to_stereo_48k(frame);
-        let mut queue = self
+        if converted.is_empty() {
+            return;
+        }
+
+        // The ring is shared with the sound device's callback thread, so
+        // this never locks anything the callback touches: producers only
+        // coordinate among themselves.
+        let mut producer = self
             .samples
-            .queue
+            .producer
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        // Drop the oldest samples if too much piles up, capping the delay
-        // the listener hears behind the actual call.
-        if queue.len() + converted.len() > MAX_BUFFERED_SAMPLES {
-            let excess = (queue.len() + converted.len()).saturating_sub(MAX_BUFFERED_SAMPLES);
-            let to_drop = excess.min(queue.len());
-            queue.drain(..to_drop);
+        // Whatever does not fit is dropped: the buffer is full, meaning
+        // the listener is already `MAX_BUFFERED_SAMPLES` behind the call,
+        // and adding more only grows the delay. Count it so problems are
+        // visible through `overflows()`.
+        let (pushed, _remainder) = producer.push_partial_slice(&converted);
+        if pushed.len() < converted.len() {
             self.samples.overflows.fetch_add(1, Ordering::Relaxed);
         }
-
-        queue.extend(converted);
     }
 
-    /// Throws away everything buffered but not yet played. Use it when
-    /// leaving a call, so the next call does not start with old audio.
+    /// Throws away buffered audio; the player refills to the jitter target.
     pub fn clear(&self) {
-        self.samples
-            .queue
+        let mut consumer = self
+            .samples
+            .consumer
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clear();
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        while consumer.pop().is_ok() {}
+        self.samples.filling.store(true, Ordering::Relaxed);
     }
 
     /// How many milliseconds of audio sit in the buffer, how far the
     /// played sound lags behind what was received. Handy for debugging.
     pub fn buffered_millis(&self) -> u64 {
-        let len = self
-            .samples
-            .queue
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .len();
+        // The consumer side is the sound callback; take the count from the
+        // producer side instead, where `slots()` (free space) is available:
+        // occupied = capacity - free. A debug helper, so a slightly racy
+        // reading is fine.
+        let len = {
+            let producer = self
+                .samples
+                .producer
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            producer.buffer().capacity() - producer.slots()
+        };
 
         len as u64 * 1000 / (OUTPUT_SAMPLE_RATE as u64 * OUTPUT_CHANNELS as u64)
     }
@@ -1044,16 +1064,9 @@ impl FramePlayer {
         self.samples.overflows.load(Ordering::Relaxed)
     }
 
-    /// Sets how loud they play. 0.0 is silent, 1.0 is normal, anything
-    /// above boosts it.
-    ///
-    /// Survives the sink being recreated after a device switch.
+    /// Sets the playback volume; survives sink swaps, never locks.
     pub fn set_volume(&self, volume: f32) {
-        *self
-            .samples
-            .volume
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = volume;
+        self.samples.volume.store(volume.to_bits(), Ordering::Relaxed);
     }
 
     /// Pauses this player until it is played again.
@@ -1067,25 +1080,60 @@ impl FramePlayer {
     }
 }
 
-/// The buffer frames get pushed into and the sound device's thread reads out
-/// of. Shared between whoever pushes and the playback thread.
-#[derive(Default)]
+/// Ring buffer between the call pumps and the callback; lock-free to read.
 struct SharedSamples {
-    queue: Mutex<VecDeque<f32>>,
-    /// True while the buffer is empty and silence is being played
+    /// Producer half, shared by the call pump and `clear`.
+    producer: Mutex<Producer<f32>>,
+    /// Consumer half, read only by the sound device's callback.
+    consumer: Mutex<Consumer<f32>>,
+    /// Samples to buffer before playback starts or resumes, smoothing jitter.
+    jitter_target: AtomicU32,
+    /// True while refilling to `jitter_target`; the callback plays silence then.
+    filling: AtomicBool,
+    /// True while the buffer ran dry mid-playback.
     underrunning: AtomicBool,
     underruns: AtomicU64,
     overflows: AtomicU64,
-    /// Volume applied by the player itself, `1.0` normal, so it survives
-    /// the sink being recreated after a device switch.
-    volume: Mutex<f32>,
+    /// Playback volume, atomic so the callback never locks; survives sink swaps.
+    volume: AtomicU32,
     /// True while playback is paused and silence is played instead.
     paused: AtomicBool,
 }
 
-/// Turns a LiveKit frame into f32 stereo samples at 48 kHz, what the
-/// sound device wants. LiveKit normally already sends exactly that, so
-/// this is mostly a type conversion.
+impl SharedSamples {
+    /// An empty buffer that fits `capacity` samples (stereo-interleaved),
+    /// refilling to `jitter_target` samples before it starts playing.
+    fn with_target(capacity: usize, jitter_target: usize) -> Self {
+        let (producer, consumer) = RingBuffer::new(capacity.max(2).max(jitter_target + 1));
+        Self {
+            producer: Mutex::new(producer),
+            consumer: Mutex::new(consumer),
+            jitter_target: AtomicU32::new(jitter_target as u32),
+            filling: AtomicBool::new(true),
+            underrunning: AtomicBool::new(false),
+            underruns: AtomicU64::new(0),
+            overflows: AtomicU64::new(0),
+            volume: AtomicU32::new(1.0_f32.to_bits()),
+            paused: AtomicBool::new(false),
+        }
+    }
+
+    /// An empty buffer that fits `capacity` samples (stereo-interleaved)
+    /// with the default jitter target of [`JITTER_TARGET_MILLIS`].
+    fn new(capacity: usize) -> Self {
+        Self::with_target(capacity, jitter_target_samples())
+    }
+}
+
+/// How much audio to buffer before playback starts (or resumes).
+const JITTER_TARGET_MILLIS: u64 = 80;
+
+/// [`JITTER_TARGET_MILLIS`] as stereo-interleaved samples at 48 kHz.
+const fn jitter_target_samples() -> usize {
+    (JITTER_TARGET_MILLIS * OUTPUT_SAMPLE_RATE as u64 * OUTPUT_CHANNELS as u64 / 1000) as usize
+}
+
+/// Turns a LiveKit frame into the f32 stereo 48 kHz samples the device wants.
 fn frame_to_stereo_48k(frame: &AudioFrame<'_>) -> Vec<f32> {
     let channels = frame.num_channels.max(1) as usize;
     let samples: Vec<f32> = frame
@@ -1147,12 +1195,42 @@ fn resample(samples: &[f32], from_rate: u32) -> Vec<f32> {
         .collect()
 }
 
-/// Feeds the sound device from the shared buffer and plays silence when
-/// nothing is there. It never ends on purpose, a call player should not
-/// die just because it ran dry.
+/// Feeds the sound device, jitter-buffering and bending its rate to keep level.
 struct FrameSource {
     samples: Arc<SharedSamples>,
+    /// Read position in input samples; advances by the adapted rate.
+    read_pos: f64,
+    /// How many input samples have been taken out of the ring so far.
+    next_input: u64,
+    /// The two input samples the output interpolates between.
+    prev: f32,
+    cur: Option<f32>,
 }
+
+impl FrameSource {
+    fn new(samples: Arc<SharedSamples>) -> Self {
+        Self {
+            samples,
+            read_pos: 0.0,
+            next_input: 0,
+            prev: 0.0,
+            cur: None,
+        }
+    }
+
+    /// Forgets the reading position, so a resumed player starts sampling
+    /// at 1:1 again instead of carrying an old, wrong offset.
+    fn reset_reader(&mut self) {
+        self.read_pos = 0.0;
+        self.next_input = 0;
+        self.prev = 0.0;
+        self.cur = None;
+    }
+}
+
+/// How far the reading rate may bend from 1:1 (±5%), inaudible but enough
+/// to walk a drifted buffer back to the target.
+const MAX_RATE_ADJUST: f64 = 0.05;
 
 impl Iterator for FrameSource {
     type Item = f32;
@@ -1162,32 +1240,75 @@ impl Iterator for FrameSource {
             return Some(0.0);
         }
 
-        let volume = *self
-            .samples
-            .volume
+        // Atomic loads only: nothing in this path can be held up by
+        // whoever pushes frames, which is the whole point. The Arc is
+        // cloned out first, so the lock below never borrows `self` and
+        // the reader state can be reset mid-method.
+        let samples = std::sync::Arc::clone(&self.samples);
+        let volume = f32::from_bits(samples.volume.load(Ordering::Relaxed));
+        let mut consumer = samples
+            .consumer
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        let mut queue = self
-            .samples
-            .queue
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Jitter buffer: while the ring has less than the target depth,
+        // play silence WITHOUT consuming, so the buffer can actually
+        // reach the target. The first delivery after that is smooth
+        // instead of crackling through every delivery gap.
+        let target = samples.jitter_target.load(Ordering::Relaxed) as f64;
+        if samples.filling.load(Ordering::Relaxed)
+            && (consumer.slots() as f64) < target
+        {
+            return Some(0.0);
+        }
+        samples.filling.store(false, Ordering::Relaxed);
 
-        match queue.pop_front() {
-            Some(sample) => {
-                // The underrun is over once real data is flowing again.
-                self.samples.underrunning.store(false, Ordering::Relaxed);
-                Some(sample * volume)
-            }
-            None => {
-                // Nothing buffered: play silence and count the heart stroke once.
-                if !self.samples.underrunning.swap(true, Ordering::Relaxed) {
-                    self.samples.underruns.fetch_add(1, Ordering::Relaxed);
+        // Adapt the reading speed to the buffer level: fuller than the
+        // target, catch up gently; emptier, hold back gently. A plain
+        // proportional controller is enough — it settles just around the
+        // target and never oscillates.
+        let available = consumer.slots() as f64;
+        let error = if target > 0.0 {
+            ((available - target) / target).clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        let rate = 1.0 + (error * MAX_RATE_ADJUST).clamp(-MAX_RATE_ADJUST, MAX_RATE_ADJUST);
+
+        // This output samples the input stream at `position`; the next
+        // one samples at `position + rate`.
+        let position = self.read_pos;
+        self.read_pos += rate;
+
+        // Have the two samples the position interpolates between: the
+        // ones at floor(position) and floor(position) + 1.
+        let whole = position.floor() as u64;
+        while self.next_input <= whole + 1 {
+            match consumer.pop() {
+                Ok(sample) => {
+                    self.prev = self.cur.take().unwrap_or(sample);
+                    self.cur = Some(sample);
+                    self.next_input += 1;
                 }
-                Some(0.0)
+                // Ran dry mid-frame: play silence, count it once, and go
+                // back to refilling to the target. The reader resets, so
+                // the position it never reached cannot skew later reads.
+                Err(_) => {
+                    samples.filling.store(true, Ordering::Relaxed);
+                    if !samples.underrunning.swap(true, Ordering::Relaxed) {
+                        samples.underruns.fetch_add(1, Ordering::Relaxed);
+                    }
+                    self.reset_reader();
+                    return Some(0.0);
+                }
             }
         }
+
+        let t = position.fract() as f32;
+        let previous = self.prev;
+        let current = self.cur.unwrap_or(previous);
+        samples.underrunning.store(false, Ordering::Relaxed);
+        Some((previous * (1.0 - t) + current * t) * volume)
     }
 }
 
@@ -1206,5 +1327,177 @@ impl Source for FrameSource {
 
     fn total_duration(&self) -> Option<Duration> {
         None
+    }
+}
+
+// Tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A full ring drops the newest samples instead of growing.
+    #[test]
+    fn pushing_into_a_full_buffer_drops_and_counts() {
+        let samples = SharedSamples::with_target(8, 4);
+
+        let mut producer = samples.producer.lock().unwrap();
+        assert_eq!(producer.push_partial_slice(&[1.0; 6]).0.len(), 6);
+        // Only 2 of the 6 new samples fit.
+        let (pushed, _rest) = producer.push_partial_slice(&[2.0; 6]);
+        assert_eq!(pushed.len(), 2);
+        drop(producer);
+
+        let mut consumer = samples.consumer.lock().unwrap();
+        let drained: Vec<f32> = std::iter::from_fn(|| consumer.pop().ok()).collect();
+        assert_eq!(
+            drained,
+            vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0],
+            "old samples stay intact, overflow drops the newest"
+        );
+    }
+
+    /// Clear empties the ring in one go.
+    #[test]
+    fn clear_empties_the_ring() {
+        let samples = SharedSamples::new(64);
+
+        {
+            let mut producer = samples.producer.lock().unwrap();
+            let _ = producer.push_partial_slice(&[0.5; 50]);
+        }
+
+        let player = FramePlayer {
+            id: 0,
+            samples: Arc::new(samples),
+            cmd_tx: panic_command_channel(),
+        };
+        player.clear();
+
+        let producer = player.samples.producer.lock().unwrap();
+        assert_eq!(
+            producer.slots(),
+            producer.buffer().capacity(),
+            "the ring is empty again"
+        );
+    }
+
+    /// Volume rides along as an atomic, so the callback never locks.
+    #[test]
+    fn volume_round_trips_through_bits() {
+        let samples = SharedSamples::with_target(16, 0);
+        assert_eq!(f32::from_bits(samples.volume.load(Ordering::Relaxed)), 1.0);
+
+        samples.volume.store(0.25_f32.to_bits(), Ordering::Relaxed);
+        assert_eq!(
+            f32::from_bits(samples.volume.load(Ordering::Relaxed)),
+            0.25
+        );
+    }
+
+    /// Playback stays silent until the jitter target is reached, then reads.
+    #[test]
+    fn the_source_waits_for_the_jitter_target_then_underruns_once() {
+        let samples = Arc::new(SharedSamples::with_target(16, 4));
+        let mut source = FrameSource::new(std::sync::Arc::clone(&samples));
+
+        // Below the target: silence, and nothing is consumed.
+        {
+            let mut producer = samples.producer.lock().unwrap();
+            let _ = producer.push_partial_slice(&[0.75, 0.25]);
+        }
+        assert_eq!(source.next(), Some(0.0), "still filling");
+        {
+            let consumer = samples.consumer.lock().unwrap();
+            assert_eq!(consumer.slots(), 2, "the filling silence consumed nothing");
+        }
+
+        // Reached the target: playback starts, consuming the pushed values
+        // in order. The reader bends its rate a little (see
+        // `MAX_RATE_ADJUST`), so exact equality is checked only where the
+        // position sits on an integer.
+        {
+            let mut producer = samples.producer.lock().unwrap();
+            let _ = producer.push_partial_slice(&[0.5, 1.0]);
+        }
+        let mut player_samples = Vec::new();
+        player_samples.push(0.75f32);
+        player_samples.push(0.25);
+        player_samples.push(0.5);
+        player_samples.push(1.0);
+        for (n, expected) in player_samples.into_iter().enumerate() {
+            let got = source.next().expect("playing");
+            assert!(
+                (got - expected).abs() < 0.06,
+                "read {n}: {got} is not {expected}"
+            );
+        }
+
+        // Dry: silence, and the underrun is counted exactly once per run.
+        assert_eq!(source.next(), Some(0.0));
+        assert_eq!(source.next(), Some(0.0));
+        assert_eq!(samples.underruns.load(Ordering::Relaxed), 1);
+
+        // One refilled sample is below the target: still waiting, and the
+        // sample stays in the ring for when it can play.
+        {
+            let mut producer = samples.producer.lock().unwrap();
+            let _ = producer.push_partial_slice(&[0.75]);
+        }
+        assert_eq!(source.next(), Some(0.0));
+        {
+            let consumer = samples.consumer.lock().unwrap();
+            assert_eq!(consumer.slots(), 1, "kept for the resume");
+        }
+
+        // Refilled to the target: the underrun is over. Again tolerance
+        // based, the rate bends away from 1:1 between pushes.
+        {
+            let mut producer = samples.producer.lock().unwrap();
+            let _ = producer.push_partial_slice(&[1.0, -1.0, 2.0]);
+        }
+        let first = source.next().expect("playing again");
+        assert!(
+            (first - 0.75).abs() < 0.06,
+            "the resumed read follows the fresh audio: {first}"
+        );
+        assert_eq!(samples.underruns.load(Ordering::Relaxed), 1);
+        assert!(!samples.underrunning.load(Ordering::Relaxed));
+    }
+
+    /// Clearing the player does not just empty the ring: the jitter target
+    /// applies again, so old audio is thrown away instead of replayed.
+    #[test]
+    fn clear_rearms_the_jitter_target() {
+        let samples = SharedSamples::with_target(64, 4);
+        {
+            let mut producer = samples.producer.lock().unwrap();
+            let _ = producer.push_partial_slice(&[0.5; 50]);
+        }
+
+        let player = FramePlayer {
+            id: 0,
+            samples: Arc::new(samples),
+            cmd_tx: panic_command_channel(),
+        };
+        player.clear();
+
+        assert!(player.samples.filling.load(Ordering::Relaxed));
+        let mut source = FrameSource::new(std::sync::Arc::clone(&player.samples));
+        assert_eq!(source.next(), Some(0.0), "nothing left to play");
+        {
+            let producer = player.samples.producer.lock().unwrap();
+            assert_eq!(
+                producer.slots(),
+                producer.buffer().capacity(),
+                "the ring is empty again"
+            );
+        }
+    }
+
+    /// A helper the tests should never trip: a FramePlayer whose command
+    /// channel dies silently (nothing reads it).
+    fn panic_command_channel() -> std::sync::mpsc::Sender<Command> {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        tx
     }
 }

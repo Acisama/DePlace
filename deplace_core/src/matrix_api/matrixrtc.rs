@@ -5,7 +5,7 @@ use anyhow::{Context, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose;
 use base64::engine::{DecodePaddingMode, GeneralPurposeConfig};
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use livekit::e2ee::EncryptionType;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::prelude::TrackSid;
@@ -114,6 +114,19 @@ fn frame_volume(frame: &AudioFrame) -> f32 {
 const VOLUME_RELEASE: f32 = 0.85;
 const VOLUME_SILENCE_DECAY: f32 = 0.7;
 
+/// Wakes the pump thread's park when a frame lands.
+struct UnparkWaker(std::thread::Thread);
+
+impl std::task::Wake for UnparkWaker {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.unpark();
+    }
+}
+
 /// Forwards everything one remote call track says to the speakers until the
 /// call is left or the track goes away, reporting the measured loudness.
 fn spawn_remote_audio_pump(
@@ -122,7 +135,7 @@ fn spawn_remote_audio_pump(
     participant: CallParticipantId,
     cancellationtoken: CancellationToken,
     audio: AudioThread,
-) -> tokio::task::JoinHandle<()> {
+) -> CancellationToken {
     event!(
         Level::DEBUG,
         "Starting to play remote call track {}",
@@ -132,31 +145,42 @@ fn spawn_remote_audio_pump(
     // Looked up once, not on every frame
     let handle = call.call_handle(&participant);
 
-    tokio::spawn(async move {
-        let player = match audio.frame_player().await {
-            Ok(player) => player,
-            Err(e) => {
-                event!(
-                    Level::WARN,
-                    "Could not create a player for a call track: {e:#}"
-                );
-                return;
-            }
-        };
+    // A child token, so cancelling it stops this pump without ending the call
+    let pump_token = cancellationtoken.child_token();
+    let thread_token = pump_token.clone();
 
-        let mut stream = NativeAudioStream::new(track.rtc_track(), 48_000, 2);
+    std::thread::Builder::new()
+        .name(format!("deplace-audio-pump-{}", track.sid()))
+        .spawn(move || {
+            let player = match audio.frame_player_blocking() {
+                Ok(player) => player,
+                Err(e) => {
+                    event!(
+                        Level::WARN,
+                        "Could not create a player for a call track: {e:#}"
+                    );
+                    return;
+                }
+            };
 
-        // Smoothed loudness of this participant
-        let mut level = 0.0_f32;
+            let waker = std::task::Waker::from(Arc::new(UnparkWaker(std::thread::current())));
+            let mut context = std::task::Context::from_waker(&waker);
+            let mut stream = std::pin::pin!(NativeAudioStream::new(
+                track.rtc_track(),
+                48_000,
+                2
+            ));
 
-        loop {
-            tokio::select! {
-                biased;
+            // Smoothed loudness of this participant
+            let mut level = 0.0_f32;
 
-                _ = cancellationtoken.cancelled() => break,
+            loop {
+                if thread_token.is_cancelled() {
+                    break;
+                }
 
-                frame = stream.next() => match frame {
-                    Some(frame) => {
+                match stream.as_mut().poll_next(&mut context) {
+                    std::task::Poll::Ready(Some(frame)) => {
                         level = frame_volume(&frame).max(level * VOLUME_RELEASE);
                         call.set_participant_volume(&handle, level);
                         // How loud they play for us, whenever the user
@@ -165,29 +189,32 @@ fn spawn_remote_audio_pump(
                         player.push(&frame);
                     }
                     // Track is done, nothing will ever come again
-                    None => break,
-                },
+                    std::task::Poll::Ready(None) => break,
 
-                // No frame arrived: decay towards silence, so the meter
-                // also falls when the SFU just stops sending frames
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {
-                    if level > 0.0 {
-                        level *= VOLUME_SILENCE_DECAY;
-                        call.set_participant_volume(&handle, level);
+                    // No frame arrived: decay towards silence, so the meter
+                    // also falls when the SFU just stops sending frames
+                    std::task::Poll::Pending => {
+                        std::thread::park_timeout(Duration::from_millis(50));
+                        if level > 0.0 {
+                            level *= VOLUME_SILENCE_DECAY;
+                            call.set_participant_volume(&handle, level);
+                        }
+                        player.set_volume(handle.output_volume());
                     }
-                    player.set_volume(handle.output_volume());
-                },
+                }
             }
-        }
 
-        call.clear_participant_volume(&handle);
+            call.clear_participant_volume(&handle);
 
-        event!(
-            Level::DEBUG,
-            "Stopped playing remote call track {}",
-            track.sid()
-        );
-    })
+            event!(
+                Level::DEBUG,
+                "Stopped playing remote call track {}",
+                track.sid()
+            );
+        })
+        .expect("could not spawn the audio pump thread");
+
+    pump_token
 }
 
 use livekit::Room as LiveKitRoom;
@@ -780,10 +807,8 @@ async fn finish_joining_call(
     tokio::spawn(async move {
         // One pump per remote audio track, so their audio and measured
         // volume go away again when the track does
-        let mut audio_pumps: HashMap<
-            TrackSid,
-            (CallParticipantHandle, tokio::task::JoinHandle<()>),
-        > = HashMap::new();
+        let mut audio_pumps: HashMap<TrackSid, (CallParticipantHandle, CancellationToken)> =
+            HashMap::new();
 
         // How the call ended, left on purpose counts as Left, anything
         // else (channel closed, SFU disconnect) as Disconnected.
@@ -865,7 +890,7 @@ async fn finish_joining_call(
                                     audio_pumps.remove(&audio_track.sid())
                                 {
                                     call_loop.clear_participant_volume(&handle);
-                                    pump.abort();
+                                    pump.cancel();
                                 }
                             }
                         }
@@ -882,7 +907,7 @@ async fn finish_joining_call(
         // measured volume with it
         for (_, (handle, pump)) in audio_pumps {
             call_loop.clear_participant_volume(&handle);
-            pump.abort();
+            pump.cancel();
         }
 
         // We're out of the call: nobody's LiveKit state is known anymore

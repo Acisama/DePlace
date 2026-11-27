@@ -52,6 +52,7 @@ phosphor-svgs.workspace = true
 reqwest.workspace = true
 rfd.workspace = true
 rodio.workspace = true
+rtrb = "0.3"
 ruma.workspace = true
 ruma-html.workspace = true
 scraper = "0.27.0"
