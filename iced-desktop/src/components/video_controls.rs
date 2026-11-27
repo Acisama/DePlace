@@ -1226,24 +1226,27 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        if let Some(content) = &self.content
-            && let Some((content_layout, content_tree)) = layout.iter(&tree.children).next()
-        {
-            content.draw(
-                content_tree,
-                renderer,
-                theme,
-                style,
-                content_layout,
-                cursor,
-                viewport,
-            );
-        }
-
         let bounds = layout.bounds();
         let Some(clip) = bounds.intersection(viewport) else {
             return;
         };
+
+        // Children clip against the video, not against the chat
+        if let Some(content) = &self.content
+            && let Some((content_layout, content_tree)) = layout.iter(&tree.children).next()
+        {
+            renderer.with_layer(clip, |renderer| {
+                content.draw(
+                    content_tree,
+                    renderer,
+                    theme,
+                    style,
+                    content_layout,
+                    cursor,
+                    &clip,
+                );
+            });
+        }
 
         if let Some(overlay) = &self.status_overlay
             && let Some((overlay_layout, overlay_tree)) = layout.iter(&tree.children).nth(2)
@@ -1256,7 +1259,7 @@ where
                     style,
                     overlay_layout,
                     cursor,
-                    viewport,
+                    &clip,
                 );
             });
         }
@@ -1269,7 +1272,7 @@ where
         {
             renderer.with_layer(clip, |renderer| {
                 bar.draw(
-                    bar_tree, renderer, theme, style, bar_layout, cursor, viewport,
+                    bar_tree, renderer, theme, style, bar_layout, cursor, &clip,
                 );
             });
         }
@@ -1280,7 +1283,7 @@ where
             && let Some((ns_layout, ns_tree)) = layout.iter(&tree.children).nth(3)
         {
             renderer.with_layer(clip, |renderer| {
-                not_started.draw(ns_tree, renderer, theme, style, ns_layout, cursor, viewport);
+                not_started.draw(ns_tree, renderer, theme, style, ns_layout, cursor, &clip);
             });
         }
     }
