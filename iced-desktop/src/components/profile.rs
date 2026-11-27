@@ -113,6 +113,15 @@ pub trait ProfileRenderExt {
         decoration: NameDecoration,
         text_color: impl Into<Color>,
     ) -> Element<'a, T>;
+
+    /// Same as [`render_name_decorated`](Self::render_name_decorated), but
+    /// without the panning wrapper, for use inside lists.
+    fn render_name_decorated_still<'a, T: 'a>(
+        &self,
+        size: f32,
+        decoration: NameDecoration,
+        text_color: impl Into<Color>,
+    ) -> Element<'a, T>;
 }
 
 pub trait MemberRenderExt {
@@ -184,6 +193,21 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
         text_color: impl Into<Color>,
     ) -> Element<'a, T> {
         render_name_decorated(
+            self.displayname(),
+            size,
+            decoration,
+            text_color.into(),
+            self.color().into(),
+        )
+    }
+
+    fn render_name_decorated_still<'a, T: 'a>(
+        &self,
+        size: f32,
+        decoration: NameDecoration,
+        text_color: impl Into<Color>,
+    ) -> Element<'a, T> {
+        render_name_decorated_still(
             self.displayname(),
             size,
             decoration,
@@ -375,7 +399,28 @@ pub fn render_name_decorated<'a, T: 'a>(
     text_color: Color,
     decoration_color: Color,
 ) -> Element<'a, T> {
-    let name = match decoration {
+    pan(render_name_decorated_still(
+        name,
+        size,
+        decoration,
+        text_color,
+        decoration_color,
+    ))
+    .boxed()
+}
+
+/// Same as [`render_name_decorated`], but without the panning wrapper.
+///
+/// Rows in a list each got their own panning sub-layer, and text drawn there
+/// vanished, so lists draw the names still instead.
+pub fn render_name_decorated_still<'a, T: 'a>(
+    name: String,
+    size: f32,
+    decoration: NameDecoration,
+    text_color: Color,
+    decoration_color: Color,
+) -> Element<'a, T> {
+    match decoration {
         NameDecoration::None => w::text(name).size(size).color(text_color).boxed(),
         NameDecoration::FirstLetter => {
             let mut chars = name.chars();
@@ -410,9 +455,7 @@ pub fn render_name_decorated<'a, T: 'a>(
             .on_link_click(never)
             .boxed()
         }
-    };
-
-    pan(name).boxed()
+    }
 }
 
 pub fn render_presence_badge<'a, T: 'a>(

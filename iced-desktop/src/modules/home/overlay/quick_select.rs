@@ -7,10 +7,11 @@ use crate::common::*;
 
 use deplace_core::{settings::NameDecoration, state::AppState};
 use iced::{
-    Alignment, Element, Length,
+    Alignment, Element, Length, Rectangle, Task,
+    advanced::widget::{operate, operation::scrollable::scroll_to_reveal},
     keyboard::{Event, Key, key::Named},
     padding,
-    widget::{column, opaque, row, space, text_input},
+    widget::{Id, column, opaque, row, space, text_input},
 };
 use macros::iced_cache;
 use nucleo::{
@@ -19,8 +20,10 @@ use nucleo::{
 };
 
 use crate::common::{IcedWidget, ProfileRenderExt, themed_scrollable};
+use crate::components::track_bounds::track_bounds;
 
 pub const QUICK_SELECT_INPUT_ID: &str = "quick_select_input";
+pub const QUICK_SELECT_LIST_ID: Id = Id::new("quick_select_list");
 
 #[iced_cache(Clone)]
 pub struct QuickSelect {
@@ -41,6 +44,12 @@ pub struct QuickSelect {
     matcher: Arc<Mutex<Nucleo<OwnedRoomId>>>,
     injector: Injector<OwnedRoomId>,
     pooled_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
+
+    /// Top-left of the list content for relative coords
+    /// for scroll_to_reveal
+    list_origin: Arc<Mutex<Option<Point>>>,
+    /// Set by the arrow keys, so only a focus move scrolls the list.
+    reveal_pending: bool,
 }
 
 impl ExtraHash for QuickSelect {
@@ -61,10 +70,13 @@ pub enum QuickSelectMessage {
     RoomSwitchDone,
     HoverRoom(usize),
     UnhoverRoom(usize),
+    SelectedRoomBounds(Rectangle),
+    ListContentBounds(Rectangle),
 }
 
 #[derive(Debug)]
 pub enum QuickSelectAction {
+    Run(Task<()>),
     ChangeRoom(Option<DePlaceRoom>),
     Close,
 }
@@ -84,6 +96,9 @@ impl QuickSelect {
             matcher: Arc::new(Mutex::new(matcher)),
             injector,
             pooled_rooms: Arc::new(Mutex::new(HashSet::new())),
+
+            list_origin: Arc::new(Mutex::new(None)),
+            reveal_pending: false,
 
             selected_index: 0,
             hovered_index: None,
@@ -139,6 +154,23 @@ impl QuickSelect {
         self.input = String::from("");
         self.selected_index = 0;
     }
+
+    /// Drops any leftover search and selection, so the overlay opens fresh.
+    pub fn reset(&mut self) {
+        self.clear();
+        self.hovered_index = None;
+        self.reveal_pending = false;
+
+        if let Ok(mut matcher) = self.matcher.lock() {
+            matcher.pattern.reparse(
+                0,
+                "",
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                false,
+            );
+        }
+    }
 }
 
 impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
@@ -185,6 +217,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                         match key {
                             Key::Named(Named::ArrowDown) => {
                                 self.selected_index = (self.selected_index + 1) % count;
+                                self.reveal_pending = true;
                             }
                             Key::Named(Named::ArrowUp) => {
                                 if self.selected_index == 0 {
@@ -192,6 +225,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                                 } else {
                                     self.selected_index -= 1;
                                 }
+                                self.reveal_pending = true;
                             }
                             Key::Named(Named::Escape) => {
                                 self.clear();
@@ -213,6 +247,33 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                     }
                 }
                 None
+            }
+            QuickSelectMessage::ListContentBounds(bounds) => {
+                if let Ok(mut origin) = self.list_origin.lock() {
+                    *origin = Some(bounds.position());
+                }
+                None
+            }
+            QuickSelectMessage::SelectedRoomBounds(bounds) => {
+                if !self.reveal_pending {
+                    return None;
+                }
+
+                let origin = self.list_origin.lock().ok().and_then(|origin| *origin)?;
+                self.reveal_pending = false;
+
+                let target = Rectangle {
+                    x: bounds.x - origin.x,
+                    y: bounds.y - origin.y,
+                    width: bounds.width,
+                    height: bounds.height,
+                };
+
+                Some(QuickSelectAction::Run(operate(scroll_to_reveal::<()>(
+                    QUICK_SELECT_LIST_ID,
+                    target,
+                    w::operation::Animation::Smooth,
+                ))))
             }
             QuickSelectMessage::SelectRoom(room_id) => {
                 let room = self.room_store.get_room(&room_id);
@@ -293,7 +354,7 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                     w::container(
                         w::row![
                             room.render_simple_icon(icon_size, theme, structure, background_color),
-                            room.render_name_decorated(
+                            room.render_name_decorated_still(
                                 structure.font_size,
                                 name_decoration,
                                 text_color
@@ -321,13 +382,29 @@ impl IcedWidget<QuickSelectMessage, QuickSelectAction> for QuickSelect {
                 )
                 .on_press(QuickSelectMessage::SelectRoom(room_id));
 
-                room_list = room_list.push(item_button);
+                if is_selected {
+                    room_list = room_list.push(
+                        track_bounds(item_button, |bounds| {
+                            QuickSelectMessage::SelectedRoomBounds(bounds)
+                        })
+                        .boxed(),
+                    );
+                } else {
+                    room_list = room_list.push(item_button.boxed());
+                }
             }
         }
 
-        let scrollable_list = themed_scrollable(room_list, theme, structure)
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let scrollable_list = themed_scrollable(
+            track_bounds(room_list, |bounds| {
+                QuickSelectMessage::ListContentBounds(bounds)
+            }),
+            theme,
+            structure,
+        )
+        .id(QUICK_SELECT_LIST_ID)
+        .width(Length::Fill)
+        .height(Length::Fill);
 
         let inner_content = opaque(
             floating_tile(

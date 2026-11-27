@@ -5,8 +5,14 @@ use deplace_core::state::AppState;
 use iced::{
     Length::Fill,
     Task,
+    advanced::widget::{operate, operation::scrollable::snap_to},
     keyboard::key::Named,
-    widget::{container, mouse_area, operation::focus},
+    widget::{
+        container,
+        mouse_area,
+        operation::focus,
+        scrollable::RelativeOffset,
+    },
 };
 use macros::iced_cache;
 use matrix_sdk::ruma::events::room::MediaSource;
@@ -14,7 +20,10 @@ use matrix_sdk_ui::timeline::TimelineEventItemId;
 use media::{MediaOverlay, MediaOverlayAction, MediaOverlayMessage};
 use modify_item::{ModifyItemAction, ModifyItemMessage};
 use profile::{OverlayProfile, ProfileAction, ProfileMessage};
-use quick_select::{QUICK_SELECT_INPUT_ID, QuickSelect, QuickSelectAction, QuickSelectMessage};
+use quick_select::{
+    QUICK_SELECT_INPUT_ID, QUICK_SELECT_LIST_ID, QuickSelect, QuickSelectAction,
+    QuickSelectMessage,
+};
 use settings::{SETTINGS_INPUT_ID, SettingsAction, SettingsMessage, SettingsView};
 
 use crate::common::*;
@@ -119,7 +128,18 @@ impl Overlay {
             None
         } else {
             self.overlay_state = Some(OverlayState::QuickSelect);
-            Some(focus(QUICK_SELECT_INPUT_ID))
+            // The list keeps its scroll position between openings, so start it
+            // at the top again together with the reset selection.
+            self.quickselect.reset();
+
+            Some(Task::batch([
+                focus(QUICK_SELECT_INPUT_ID),
+                operate(snap_to(
+                    QUICK_SELECT_LIST_ID,
+                    RelativeOffset::START.into(),
+                    w::operation::Animation::Instant,
+                )),
+            ]))
         }
     }
 
@@ -206,6 +226,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                     return None;
                 }
                 match self.quickselect.update(msg)? {
+                    QuickSelectAction::Run(task) => Some(OverlayAction::Run(task)),
                     QuickSelectAction::ChangeRoom(room) => {
                         // TODO: Reset because quickselect is persistent
                         self.close();
@@ -228,6 +249,7 @@ impl IcedWidget<OverlayMessage, OverlayAction> for Overlay {
                         .quickselect
                         .update(QuickSelectMessage::KeyboardEvent(event))?
                     {
+                        QuickSelectAction::Run(task) => Some(OverlayAction::Run(task)),
                         QuickSelectAction::ChangeRoom(room) => {
                             self.overlay_state = None;
                             Some(OverlayAction::ChangeRoom(room))
