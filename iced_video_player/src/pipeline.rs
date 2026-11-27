@@ -196,9 +196,11 @@ impl VideoPipeline {
         (width, height): (u32, u32),
         frame: &[u8],
         stride: Option<u32>,
+        chroma_offset: u64,
     ) {
-        // Use stride from GStreamer's VideoMeta if available, otherwise assume stride == width
-        let stride = stride.unwrap_or(width);
+        // Use stride from GStreamer's VideoMeta if available, otherwise assume stride == width;
+        // never accept a stride smaller than the width.
+        let stride = stride.map_or(width, |stride| stride.max(width));
         if let Entry::Vacant(entry) = self.videos.entry(video_id) {
             let texture_y = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("iced_video_player texture"),
@@ -312,7 +314,7 @@ impl VideoPipeline {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &frame[..(stride * height) as usize],
+            &frame[..(chroma_offset as usize).max((stride * height) as usize)],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(stride),
@@ -332,7 +334,7 @@ impl VideoPipeline {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &frame[(stride * height) as usize..],
+            &frame[chroma_offset as usize..],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(stride),
@@ -482,6 +484,8 @@ impl Primitive for VideoPrimitive {
         if self.upload_frame || pipeline.needs_upload(self.video_id) {
             let frame_guard = self.frame.lock().expect("lock frame mutex");
             let stride = frame_guard.stride();
+            let chroma_offset =
+                frame_guard.uv_offset(stride.unwrap_or(self.size.0), self.size.1);
             if let Some(readable) = frame_guard.readable() {
                 pipeline.upload(
                     device,
@@ -491,6 +495,7 @@ impl Primitive for VideoPrimitive {
                     self.size,
                     readable.as_slice(),
                     stride,
+                    chroma_offset,
                 );
             };
         }
@@ -554,6 +559,7 @@ mod tests {
             (width, height),
             &frame,
             None,
+            u64::from(width * height), // no padding in the synthetic frame
         );
 
         // Same mapping VideoPrimitive::prepare applies to the widget bounds:

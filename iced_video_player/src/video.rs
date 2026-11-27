@@ -66,13 +66,36 @@ impl Frame {
     }
 
     /// Get the Y-plane stride (line pitch) in bytes from the frame's VideoMeta.
-    /// This is critical for proper NV12 decoding, as the stride may differ from width.
+    /// Falls back to the caps stride: VP8/VP9 pools pad rows, and assuming
+    /// `stride == width` there skews the picture.
     pub fn stride(&self) -> Option<u32> {
-        self.0.buffer().and_then(|buffer| {
-            buffer
-                .meta::<VideoMeta>()
-                .map(|meta| meta.stride()[0] as u32)
-        })
+        self.0
+            .buffer()
+            .and_then(|buffer| buffer.meta::<VideoMeta>().map(|meta| meta.stride()[0] as u32))
+            .or_else(|| {
+                let caps = self.0.caps()?;
+                gstreamer_video::VideoInfo::from_caps(&caps)
+                    .ok()
+                    .map(|info| info.stride()[0] as u32)
+            })
+    }
+
+    /// Byte offset of the UV plane, from the frame's VideoMeta.
+    ///
+    /// Falls back to the caps, whose plane height is padded (a 359-row frame
+    /// has 360: `stride * height` reads chroma one row early, as a green bar).
+    pub fn uv_offset(&self, stride: u32, height: u32) -> u64 {
+        self.0
+            .buffer()
+            .and_then(|buffer| buffer.meta::<VideoMeta>())
+            .map(|meta| meta.offset()[1] as u64)
+            .or_else(|| {
+                let caps = self.0.caps()?;
+                gstreamer_video::VideoInfo::from_caps(&caps)
+                    .ok()
+                    .map(|info| info.offset()[1] as u64)
+            })
+            .unwrap_or_else(|| u64::from(stride * height))
     }
 }
 
@@ -669,11 +692,22 @@ impl Video {
                     let frame_guard = inner.frame.lock().map_err(|_| Error::Lock)?;
                     let frame = frame_guard.readable().ok_or(Error::Lock)?;
                     let stride = frame_guard.stride();
+                    let chroma_offset = frame_guard.uv_offset(
+                        stride.unwrap_or(width as u32),
+                        height as u32,
+                    );
 
                     Ok(img::Handle::from_rgba(
                         inner.width as u32 / downscale,
                         inner.height as u32 / downscale,
-                        yuv_to_rgba(frame.as_slice(), width as _, height as _, downscale, stride),
+                        yuv_to_rgba(
+                            frame.as_slice(),
+                            width as _,
+                            height as _,
+                            downscale,
+                            stride,
+                            chroma_offset,
+                        ),
                     ))
                 })
                 .collect()
@@ -693,11 +727,12 @@ fn yuv_to_rgba(
     height: u32,
     downscale: u32,
     stride: Option<u32>,
+    chroma_offset: u64,
 ) -> Vec<u8> {
-    // Use stride from VideoMeta if available, otherwise assume stride == width
-    let stride = stride.unwrap_or(width);
+    // Never accept a stride smaller than the width: some pools report one.
+    let stride = stride.map_or(width, |stride| stride.max(width));
 
-    let uv_start = stride * height;
+    let uv_start = chroma_offset;
     let mut rgba = vec![];
 
     for y in 0..height / downscale {
@@ -710,7 +745,7 @@ fn yuv_to_rgba(
             // UV plane: stride bytes per row (same stride), starting at offset stride * height
             // Each pixel is 1 byte Y, and every 2x2 block shares 2 bytes (U, V)
             let y_offset = (y_src * stride + x_src) as usize;
-            let uv_offset = (uv_start + (y_src / 2) * stride + (x_src / 2) * 2) as usize;
+            let uv_offset = (uv_start + u64::from((y_src / 2) * stride + (x_src / 2) * 2)) as usize;
 
             let y = yuv[y_offset] as f32;
             let u = yuv[uv_offset] as f32;
