@@ -215,7 +215,11 @@ impl OrderKey<Arc<OwnedRoomId>> for DePlaceRoom {
 
 impl ProfileLike for DePlaceRoom {
     fn icon_border_radius_ratio(&self) -> f32 {
-        0.25
+        if let Some(member) = self.other_dm_member() {
+            member.icon_border_radius_ratio()
+        } else {
+            0.25
+        }
     }
 
     fn color(&self) -> DePlaceColor {
@@ -227,11 +231,19 @@ impl ProfileLike for DePlaceRoom {
     }
 
     fn initial(&self) -> String {
-        self.info.read().initial.to_string()
+        if let Some(member) = self.other_dm_member() {
+            member.initial()
+        } else {
+            self.info.read().initial.to_string()
+        }
     }
 
     fn icon(&self) -> PolyIcon {
-        self.polyicon
+        if let Some(member) = self.other_dm_member() {
+            member.icon()
+        } else {
+            self.polyicon
+        }
     }
 
     fn displayname(&self) -> String {
@@ -239,6 +251,9 @@ impl ProfileLike for DePlaceRoom {
     }
 
     fn avatars(&self) -> Option<ProfileAvatars> {
+        if let Some(member) = self.other_dm_member() {
+            return member.avatars();
+        }
         self.avatars()
     }
 }
