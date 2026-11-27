@@ -43,7 +43,7 @@ where
             height: Length::Fit,
             padding: 0.0.into(),
             duration: Duration::from_millis(100),
-            class: iced::Theme::default(),
+            class: Box::new(iced::widget::button::text),
         }
     }
 
@@ -78,7 +78,6 @@ where
         self
     }
 
-    #[must_use]
     pub fn style(mut self, style: impl Fn(Status) -> Style + 'static) -> Self {
         self.class =
             Box::new(move |_: &iced::Theme, status| style(status)) as StyleFn<'static, iced::Theme>;

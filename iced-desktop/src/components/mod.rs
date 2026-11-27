@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-use animated_button::animated_button;
+use animated_button::{AnimatedButton, animated_button};
 use deplace_core::{
     formatting::format_bytes, helpers::DisplayString, settings::DataSizeUnit, structure::Structure,
     theme::Theme,
@@ -662,15 +662,13 @@ pub fn color_stops<C: Into<Color>>(
 }
 
 /// An iced button with no padding and no background
-pub fn default_button<'a, Message: 'a, Content: 'a>(
+pub fn default_button<Message, Content: DePlaceWidget<Message>>(
     content: Content,
-) -> Button<'a, Message, Content> {
-    Button::new(content)
-        .padding(0.0)
-        .style(move |_, _| w::button::Style {
-            background: None,
-            ..Default::default()
-        })
+) -> AnimatedButton<Message, Content> {
+    animated_button(content).style(move |_| w::button::Style {
+        background: None,
+        ..Default::default()
+    })
 }
 
 /// Renders a media label with a caption and optional size.
