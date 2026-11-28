@@ -407,7 +407,6 @@ fn render_channel(
         notifications.highlights()
     };
 
-    let in_call = room.call().own_user_device_is_in_call();
     let has_call = room.has_call();
 
     let name_row = w::row![
@@ -446,27 +445,12 @@ fn render_channel(
                 theme,
             )
         }),
-        if is_invite {
-            Some(themed_tooltip_text(
-                phosphor_icon(INVITE_ICON, structure.font_size * 1.3).color(room_color),
-                "This is an invite",
-                structure,
-                theme,
-            ))
-        } else if room.is_dm() && !in_call {
-            Some(themed_tooltip_text(
-                phosphor_icon(
-                    phosphor_svgs::icon::chats_circle::REGULAR,
-                    structure.font_size * 1.3,
-                )
-                .color(room_color),
-                "This is a DM room",
-                structure,
-                theme,
-            ))
-        } else {
-            None
-        },
+        is_invite.then(|| themed_tooltip_text(
+            phosphor_icon(INVITE_ICON, structure.font_size * 1.3).color(room_color),
+            "This is an invite",
+            structure,
+            theme,
+        )),
         mentions.map(|mentions| render_mention_badge(mentions, theme, structure)),
     ]
     .spacing(structure.gap)

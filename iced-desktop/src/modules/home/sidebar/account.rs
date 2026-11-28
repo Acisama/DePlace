@@ -6,6 +6,7 @@ use crate::{
     common::*,
     components::{
         help_mode::SidebarHelpKey,
+        polyicon::polyicon,
         profile::{name_span, render_span},
     },
 };
@@ -78,19 +79,19 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
             .clone()
             .unwrap_or(user_id.to_string());
 
-        let initial = display_name.chars().next().unwrap_or('?');
+        let presence = self.profile_store.get_presence(&user_id);
 
-        let color = DePlaceColor::from(user_id.as_str()).to_iced();
+        let icon = user_id.as_str().into();
+        let color: DePlaceColor = user_id.as_str().into();
 
         let fallback = Box::new(move |_, opacity| {
-            text_icon(
-                initial,
+            polyicon(
+                icon,
                 button_size,
-                button_size * 0.5,
-                color.scale_alpha(opacity),
+                color,
+                color.set_lightness(0.2).scale_alpha(opacity),
             )
         });
-        let presence = self.profile_store.get_presence(&user_id);
 
         let avatar = render_avatar(
             button_size,
