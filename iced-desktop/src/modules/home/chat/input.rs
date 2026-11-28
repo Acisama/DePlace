@@ -1,6 +1,7 @@
 use deplace_core::{
     keybinds::Keybinds,
     matrix_api::{attachments::MatrixAttachment, messages::RoomSendingExt},
+    state::media_fetcher::MediaProcessor,
 };
 use iced::{
     Alignment, Length,
@@ -461,6 +462,7 @@ pub enum InputAction {
 #[iced_cache(Clone)]
 pub struct ChatInput {
     state: AppState,
+    media_processor: MediaProcessor,
     pub timeline: Option<Arc<Timeline>>,
 
     room: DePlaceRoom,
@@ -495,6 +497,7 @@ impl ChatInput {
     pub fn new(state: &AppState, room: &DePlaceRoom) -> Self {
         Self {
             state: state.clone(),
+            media_processor: state.media_processor(),
             timeline: None,
 
             room: room.clone(),
@@ -524,10 +527,10 @@ impl ChatInput {
 
     pub fn commit_hovered_file(&mut self, path: PathBuf) -> Task<InputMessage> {
         self.hovered_files.remove(&path);
-        let state = self.state.clone();
+        let media_processor = self.state.media_processor();
         Task::future(async move {
             let display_path = path.clone();
-            match MatrixAttachment::from_path(path, state).await {
+            match MatrixAttachment::from_path(path, &media_processor).await {
                 Ok(attachment) => Some(attachment),
                 Err(e) => {
                     tracing::error!("Failed to attach {}: {e}", display_path.display());
@@ -611,9 +614,13 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 // Paste order: text carrying file:// URIs, then files, then an
                 // image, and plain text only when there is nothing else.
                 tracing::debug!("Paste: starting the clipboard chain");
-                let task = iced::clipboard::read_text().then(|result| {
+                let media_processor = self.media_processor.clone();
+
+                let task = iced::clipboard::read_text().then(move |result| {
                     tracing::debug!(?result, "Paste: text read");
                     let text = result.ok().filter(|text| !text.is_empty());
+                    let media_processor = media_processor.clone();
+
                     match text {
                         Some(ref text) if text.contains("file://") => {
                             // File managers copy files as file:// URIs rather
@@ -621,6 +628,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                             tracing::debug!("Paste: text carries file URIs, attaching");
                             Task::future(MatrixAttachment::from_clipboard_file_list(
                                 text.to_string(),
+                                media_processor.clone(),
                             ))
                             .then(attachments_task)
                         }
@@ -635,6 +643,7 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                                             .map(|path| path.to_string_lossy().into_owned())
                                             .collect::<Vec<_>>()
                                             .join("\n"),
+                                        media_processor.clone(),
                                     ))
                                     .then(attachments_task)
                                 }
@@ -779,10 +788,10 @@ impl IcedWidget<InputMessage, InputAction> for ChatInput {
                 let text_task = Task::future({
                     let timeline = timeline.clone();
                     async move {
-                        if let Some(text) = text {
-                            if let Err(e) = timeline.send_message(text, replying_to).await {
-                                tracing::warn!("Failed to send message: {}", e);
-                            }
+                        if let Some(text) = text
+                            && let Err(e) = timeline.send_message(text, replying_to).await
+                        {
+                            tracing::warn!("Failed to send message: {}", e);
                         }
                     }
                 });

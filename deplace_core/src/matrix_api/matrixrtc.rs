@@ -169,11 +169,7 @@ fn spawn_remote_audio_pump(
 
             let waker = std::task::Waker::from(Arc::new(UnparkWaker(std::thread::current())));
             let mut context = std::task::Context::from_waker(&waker);
-            let mut stream = std::pin::pin!(NativeAudioStream::new(
-                track.rtc_track(),
-                48_000,
-                2
-            ));
+            let mut stream = std::pin::pin!(NativeAudioStream::new(track.rtc_track(), 48_000, 2));
 
             // Smoothed loudness of this participant
             let mut level = 0.0_f32;
@@ -348,6 +344,7 @@ async fn ongoing_call_focus(room: &Room) -> Option<String> {
                 Focus::LegacyLivekit(info) => info,
                 _ => return None,
             };
+            #[allow(deprecated)]
             info.service_url
                 .as_deref()
                 .or(info.url.as_deref())

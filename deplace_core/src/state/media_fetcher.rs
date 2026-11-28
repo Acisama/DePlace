@@ -637,6 +637,12 @@ impl MediaProcessor {
     }
 }
 
+impl Default for MediaProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl matrix_sdk::media::MediaFetcher for MediaProcessor {
     fn fetch_media_content<'a>(
         &'a self,

@@ -48,8 +48,8 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use livekit::webrtc::prelude::AudioFrame;
-use rtrb::{Consumer, Producer, RingBuffer};
 use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
+use rtrb::{Consumer, Producer, RingBuffer};
 use tokio::sync::oneshot;
 use tracing::{Level, event};
 
@@ -1066,7 +1066,9 @@ impl FramePlayer {
 
     /// Sets the playback volume; survives sink swaps, never locks.
     pub fn set_volume(&self, volume: f32) {
-        self.samples.volume.store(volume.to_bits(), Ordering::Relaxed);
+        self.samples
+            .volume
+            .store(volume.to_bits(), Ordering::Relaxed);
     }
 
     /// Pauses this player until it is played again.
@@ -1256,9 +1258,7 @@ impl Iterator for FrameSource {
         // reach the target. The first delivery after that is smooth
         // instead of crackling through every delivery gap.
         let target = samples.jitter_target.load(Ordering::Relaxed) as f64;
-        if samples.filling.load(Ordering::Relaxed)
-            && (consumer.slots() as f64) < target
-        {
+        if samples.filling.load(Ordering::Relaxed) && (consumer.slots() as f64) < target {
             return Some(0.0);
         }
         samples.filling.store(false, Ordering::Relaxed);
@@ -1332,6 +1332,7 @@ impl Source for FrameSource {
 
 // Tests
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::let_underscore_must_use)]
 mod tests {
     use super::*;
 
@@ -1388,10 +1389,7 @@ mod tests {
         assert_eq!(f32::from_bits(samples.volume.load(Ordering::Relaxed)), 1.0);
 
         samples.volume.store(0.25_f32.to_bits(), Ordering::Relaxed);
-        assert_eq!(
-            f32::from_bits(samples.volume.load(Ordering::Relaxed)),
-            0.25
-        );
+        assert_eq!(f32::from_bits(samples.volume.load(Ordering::Relaxed)), 0.25);
     }
 
     /// Playback stays silent until the jitter target is reached, then reads.
@@ -1419,11 +1417,7 @@ mod tests {
             let mut producer = samples.producer.lock().unwrap();
             let _ = producer.push_partial_slice(&[0.5, 1.0]);
         }
-        let mut player_samples = Vec::new();
-        player_samples.push(0.75f32);
-        player_samples.push(0.25);
-        player_samples.push(0.5);
-        player_samples.push(1.0);
+        let player_samples = vec![0.75f32, 0.25, 0.5, 1.0];
         for (n, expected) in player_samples.into_iter().enumerate() {
             let got = source.next().expect("playing");
             assert!(

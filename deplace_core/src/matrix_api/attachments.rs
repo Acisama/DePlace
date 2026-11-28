@@ -1,9 +1,4 @@
-use std::{
-    io::Cursor,
-    path::PathBuf,
-    sync::Arc,
-    time::SystemTime,
-};
+use std::{io::Cursor, path::PathBuf, sync::Arc, time::SystemTime};
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -95,9 +90,12 @@ impl MatrixAttachment {
 
     /// Builds an attachment from an arbitrary path, e.g. a dropped file.
     /// Directories are zipped the same way `compressed_from_folder_picker` does.
-    pub async fn from_path(path: std::path::PathBuf, state: AppState) -> Result<Self> {
+    pub async fn from_path(
+        path: std::path::PathBuf,
+        media_processor: &MediaProcessor,
+    ) -> Result<Self> {
         if path.is_dir() {
-            return Self::compress_folder(path, state).await;
+            return Self::compress_folder(path, media_processor).await;
         }
         check_upload_fits(&path)?;
         let data = tokio::fs::read(&path).await?;
@@ -140,7 +138,10 @@ impl MatrixAttachment {
 
     /// Attaches every `file://` URI in the given clipboard text
     /// Text without file URIs yields no attachments.
-    pub async fn from_clipboard_file_list(text: String) -> Vec<MatrixAttachment> {
+    pub async fn from_clipboard_file_list(
+        text: String,
+        media_processor: MediaProcessor,
+    ) -> Vec<MatrixAttachment> {
         // Each line is either a `file://` URI or a plain
         // filesystem path
         let paths: Vec<std::path::PathBuf> = text
@@ -156,25 +157,26 @@ impl MatrixAttachment {
                 Err(_) => Some(std::path::PathBuf::from(line)),
             })
             .collect();
+
         if paths.is_empty() {
             tracing::debug!("No usable clipboard file paths/URIs in: {text:?}");
         }
 
+        let results = futures::future::join_all(
+            paths
+                .into_iter()
+                .map(|path| Self::from_path(path, &media_processor)),
+        )
+        .await;
+
         let mut array = Vec::new();
-        for path in paths {
-            let data = match tokio::fs::read(&path).await {
-                Ok(data) => data,
+        for result in results {
+            match result {
+                Ok(attachment) => array.push(attachment),
                 Err(e) => {
-                    tracing::error!("Failed to read clipboard file {}: {}", path.display(), e);
-                    continue;
+                    tracing::error!("Failed to convert path: {}", e);
                 }
-            };
-            let mime_type = mime_guess::from_path(&path).first_or_octet_stream();
-            array.push(Self::from_bytes(
-                path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
-                mime_type,
-                data,
-            ));
+            }
         }
 
         array
@@ -190,7 +192,12 @@ impl MatrixAttachment {
             return None;
         };
 
-        match Self::compress_folder(folder_handle.path().to_path_buf(), state).await {
+        match Self::compress_folder(
+            folder_handle.path().to_path_buf(),
+            &state.inner.media_processor,
+        )
+        .await
+        {
             Ok(attachment) => Some(attachment),
             Err(e) => {
                 tracing::error!("Failed to compress folder: {}", e);
@@ -199,7 +206,10 @@ impl MatrixAttachment {
         }
     }
 
-    async fn compress_folder(folder_path: std::path::PathBuf, state: AppState) -> Result<Self> {
+    async fn compress_folder(
+        folder_path: std::path::PathBuf,
+        media_processor: &MediaProcessor,
+    ) -> Result<Self> {
         let folder_name = folder_path
             .file_name()
             .and_then(|n| n.to_str())
@@ -214,7 +224,6 @@ impl MatrixAttachment {
             .map(|m| m.len())
             .sum();
 
-        let media_processor = state.media_processor();
         let progress = media_processor.start_compression(folder_path.clone(), total);
         let started_at = progress.start_time();
 
@@ -344,7 +353,41 @@ pub async fn download_file_to_picked(source: MediaSource, file_name: String, sta
     }
 }
 
+/// Refuses a file that cannot be held in memory twice over, which is what
+/// uploading it costs: the bytes plus the copy the SDK makes while sending.
+fn check_upload_fits(path: &std::path::Path) -> Result<()> {
+    let Ok(size) = std::fs::metadata(path).map(|m| m.len()) else {
+        return Ok(());
+    };
+    let Some(available) = available_memory() else {
+        return Ok(());
+    };
+
+    if size.saturating_mul(2) > available {
+        anyhow::bail!(
+            "{} needs about {} of free memory to upload, but only {} is available",
+            format_bytes(size, DataSizeUnit::Bytes),
+            format_bytes(size.saturating_mul(2), DataSizeUnit::Bytes),
+            format_bytes(available, DataSizeUnit::Bytes),
+        );
+    }
+
+    Ok(())
+}
+
+/// The memory the system can still hand out, on platforms that report it.
+fn available_memory() -> Option<u64> {
+    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+
+    meminfo.lines().find_map(|line| {
+        let rest = line.strip_prefix("MemAvailable:")?;
+        let kib: u64 = rest.split_whitespace().next()?.parse().ok()?;
+        Some(kib * 1024)
+    })
+}
+
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::let_underscore_must_use)]
 mod tests {
     use super::*;
 
@@ -379,7 +422,9 @@ mod tests {
     #[tokio::test]
     async fn paste_of_a_file_uri_becomes_an_attachment() {
         let file = TempFile::with_bytes("screencast.webm", b"not really webm");
-        let attachments = MatrixAttachment::from_clipboard_file_list(file.file_url()).await;
+        let attachments =
+            MatrixAttachment::from_clipboard_file_list(file.file_url(), MediaProcessor::new())
+                .await;
         assert_eq!(attachments.len(), 1, "the video should attach");
         assert_eq!(
             attachments[0].filename,
@@ -393,7 +438,8 @@ mod tests {
     async fn paste_of_a_plain_path_becomes_an_attachment() {
         let file = TempFile::with_bytes("screencast.webm", b"not really webm");
         let text = file.0.to_string_lossy().into_owned();
-        let attachments = MatrixAttachment::from_clipboard_file_list(text).await;
+        let attachments =
+            MatrixAttachment::from_clipboard_file_list(text, MediaProcessor::new()).await;
         assert_eq!(attachments.len(), 1, "a bare path must attach");
         assert_eq!(
             attachments[0].filename,
@@ -409,7 +455,8 @@ mod tests {
         let a = TempFile::with_bytes("one.webm", b"a");
         let b = TempFile::with_bytes("two.png", b"b");
         let text = format!("{}\n{}", a.file_url(), b.0.to_string_lossy());
-        let attachments = MatrixAttachment::from_clipboard_file_list(text).await;
+        let attachments =
+            MatrixAttachment::from_clipboard_file_list(text, MediaProcessor::new()).await;
         assert_eq!(attachments.len(), 2, "both files should attach");
         let names: Vec<&str> = attachments.iter().map(|a| a.filename.as_str()).collect();
         assert!(names.contains(&a.0.file_name().unwrap().to_str().unwrap()));
@@ -421,40 +468,8 @@ mod tests {
     #[tokio::test]
     async fn paste_of_a_missing_path_is_skipped() {
         let text = "/nonexistent/deplace-paste-test-missing.webm".to_string();
-        let attachments = MatrixAttachment::from_clipboard_file_list(text).await;
+        let attachments =
+            MatrixAttachment::from_clipboard_file_list(text, MediaProcessor::new()).await;
         assert!(attachments.is_empty());
     }
-}
-
-/// Refuses a file that cannot be held in memory twice over, which is what
-/// uploading it costs: the bytes plus the copy the SDK makes while sending.
-fn check_upload_fits(path: &std::path::Path) -> Result<()> {
-    let Ok(size) = std::fs::metadata(path).map(|m| m.len()) else {
-        return Ok(());
-    };
-    let Some(available) = available_memory() else {
-        return Ok(());
-    };
-
-    if size.saturating_mul(2) > available {
-        anyhow::bail!(
-            "{} needs about {} of free memory to upload, but only {} is available",
-            format_bytes(size, DataSizeUnit::Bytes),
-            format_bytes(size.saturating_mul(2), DataSizeUnit::Bytes),
-            format_bytes(available, DataSizeUnit::Bytes),
-        );
-    }
-
-    Ok(())
-}
-
-/// The memory the system can still hand out, on platforms that report it.
-fn available_memory() -> Option<u64> {
-    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
-
-    meminfo.lines().find_map(|line| {
-        let rest = line.strip_prefix("MemAvailable:")?;
-        let kib: u64 = rest.split_whitespace().next()?.parse().ok()?;
-        Some(kib * 1024)
-    })
 }

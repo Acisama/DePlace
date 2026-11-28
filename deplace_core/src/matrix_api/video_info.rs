@@ -134,7 +134,7 @@ pub fn probe_video(data: &[u8], source: Option<&Path>, file_suffix: &str) -> Vid
                         .map(|bytes| bytes.as_slice().to_vec());
                     let (width, height) = sample
                         .caps()
-                        .and_then(|caps| gstreamer_video::VideoInfo::from_caps(&caps).ok())
+                        .and_then(|caps| gstreamer_video::VideoInfo::from_caps(caps).ok())
                         .map(|info| (Some(info.width()), Some(info.height())))
                         .unwrap_or((None, None));
                     (duration, jpeg, width, height)
@@ -202,8 +202,10 @@ pub fn probe_video(data: &[u8], source: Option<&Path>, file_suffix: &str) -> Vid
 
 /// Removes a probe temp file, if one was needed at all.
 fn remove_temp_file(path: Option<PathBuf>) {
-    if let Some(path) = path {
-        let _ = std::fs::remove_file(path);
+    if let Some(path) = path
+        && let Err(e) = std::fs::remove_file(path)
+    {
+        tracing::warn!("Failed to remove temp file for video probing: {}", e);
     }
 }
 
