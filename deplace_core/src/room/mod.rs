@@ -5,14 +5,14 @@ use std::{
 };
 
 use live::RoomLive;
-use matrix_sdk::{Room, RoomState};
+use matrix_sdk::Room;
 use ruma::{OwnedRoomId, RoomId, UserId};
 use tokio::sync::OnceCell;
 
 use crate::{
-    Shared,
-    cache::{ProfileAvatars, ThumbnailCache},
+    ProfileLike, Shared,
     call::{CallConnectionState, CallParticipantHandle, RoomCall},
+    media::{ProfileAvatars, cache::ImageCache},
     member::{Member, ProfileStore, room::RoomMembers},
     polyicon::PolyIcon,
     state::UserDevice,
@@ -26,7 +26,7 @@ pub mod notifications;
 pub mod store;
 pub mod timelines;
 
-use info::RoomInfo;
+use info::{OwnRoomState, RoomInfo};
 use timelines::RoomTimelines;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -98,7 +98,7 @@ impl DePlaceRoom {
         profile_store: &ProfileStore,
         own_device: Arc<UserDevice>,
         own_handle: CallParticipantHandle,
-        cache: &ThumbnailCache,
+        cache: &ImageCache,
         eagerly_load: bool,
     ) -> Self {
         let room_id = room.room_id();
@@ -234,11 +234,10 @@ impl DePlaceRoom {
     }
 
     pub fn get_input_placeholder(&self) -> String {
-        let name = self.info.data.load().display_string();
-        if self.room_type.read().is_direct() {
-            format!("@{name}")
+        if let Some(member) = self.other_dm_member() {
+            format!("@{}", member.displayname())
         } else {
-            format!("#{name}")
+            format!("#{}", self.displayname())
         }
     }
 
@@ -292,6 +291,15 @@ impl DePlaceRoom {
     }
 
     pub fn is_invite(&self) -> bool {
-        matches!(self.info.read().room_state, RoomState::Invited)
+        self.is_invited_by().is_some()
+    }
+
+    /// Returns the member who invited us into this room, if known, if this room is an invited room.
+    pub fn is_invited_by(&self) -> Option<Option<Member>> {
+        if let OwnRoomState::Invited(member) = &self.info.read().room_state {
+            Some(member.clone())
+        } else {
+            None
+        }
     }
 }

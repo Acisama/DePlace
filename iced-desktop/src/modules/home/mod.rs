@@ -433,10 +433,10 @@ impl Home {
                     self.overlay.open_modify_item(modify);
                     Some(HomeAction::Run(operate(unfocus())))
                 }
-                ChatAction::OpenMediaOverlay(params) => {
+                ChatAction::OpenMediaOverlay(media) => {
                     chat.clear_hover();
-                    let is_video = matches!(params.media, OverlayMediaType::Video(_));
-                    self.overlay.open_media_overlay(params);
+                    let is_video = matches!(media, OverlayMediaType::Video(_));
+                    self.overlay.open_media_overlay(media);
                     is_video.then_some(HomeAction::SetFullscreen(true))
                 }
             }

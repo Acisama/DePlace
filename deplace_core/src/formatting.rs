@@ -168,3 +168,11 @@ pub fn fit_dimensions(
 
     (width.min(max_w), height)
 }
+
+pub fn format_avatar_name(id: &str, size: u32) -> String {
+    format!("avatar_{id}_{size}x{size}")
+}
+
+pub fn format_thumbnail_name(filename: &str, width: u32, height: u32) -> String {
+    format!("thumbnail_{filename}_{width}x{height}")
+}

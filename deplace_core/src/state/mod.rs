@@ -24,16 +24,17 @@ use tokio::sync::watch::{self, Receiver, Sender};
 use crate::{
     APP_NAME,
     audio::AudioThread,
-    cache::{
-        ImageCache, ProfileAvatars, ThumbnailCache,
-        video::{VideoCache, VideoCacheExtra},
-    },
     call::CallRegistry,
     keybinds::Keybinds,
     matrix_api::{
         account_data::{BreadcrumbsContent, DePlaceAccountData, ServerOrderContent},
         matrixrtc::LiveKitRoomManager,
         sync::spawn_initial_load,
+    },
+    media::{
+        ProfileAvatars,
+        cache::ImageCache,
+        video::{VideoCache, VideoCacheExtra},
     },
     member::ProfileStore,
     notifications::NotificationManager,
@@ -255,7 +256,6 @@ pub(crate) struct AppStateInner {
     /// needed as snapshots, it is held in a mutex
     breadcrumbs: Mutex<BreadcrumbsContent>,
 
-    thumbnail_cache: Arc<ThumbnailCache>,
     image_cache: Arc<ImageCache>,
     video_cache: Arc<VideoCache>,
 }
@@ -278,16 +278,15 @@ impl AppState {
         let breadcrumbs_content = BreadcrumbsContent::fetch(&client).await;
         let last_server_order = ServerOrderContent::fetch(&client).await;
 
-        let better_thumbnail_cache = Arc::new(ThumbnailCache::new(client.clone(), ()));
-
-        let profile_store = Arc::new(ProfileStore::new(&client, better_thumbnail_cache.clone()));
+        let image_cache = Arc::new(ImageCache::new(client.clone(), ()));
+        let profile_store = Arc::new(ProfileStore::new(&client, image_cache.clone()));
         let room_store = Arc::new(
             RoomStore::new(
                 &client,
                 profile_store.clone(),
                 last_server_order,
                 own_device.clone(),
-                better_thumbnail_cache.clone(),
+                image_cache.clone(),
             )
             .await,
         );
@@ -359,8 +358,7 @@ impl AppState {
         Ok(Self {
             inner: Arc::new(AppStateInner {
                 own_avatar: Sender::default(),
-                thumbnail_cache: better_thumbnail_cache,
-                image_cache: Arc::new(ImageCache::new(client.clone(), ())),
+                image_cache,
 
                 video_cache: Arc::new(VideoCache::new(
                     client.clone(),
@@ -406,10 +404,6 @@ impl AppState {
                 breadcrumbs,
             }),
         })
-    }
-
-    pub fn thumbnail_cache(&self) -> &ThumbnailCache {
-        &self.inner.thumbnail_cache
     }
 
     pub fn image_cache(&self) -> &ImageCache {

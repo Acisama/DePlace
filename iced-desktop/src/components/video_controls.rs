@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use deplace_core::cache::MediaState;
-use deplace_core::cache::video::{DePlaceVideoShared, LoadedVideo};
+use deplace_core::media::MediaState;
+use deplace_core::media::video::{LoadedVideo, Video};
 use deplace_core::formatting::format_bytes;
-use deplace_core::state::media_fetcher::{DownloadProgress, MediaProcessor};
+use deplace_core::state::media_fetcher::DownloadProgress;
 use deplace_core::structure::Structure;
 use deplace_core::theme::Theme;
 use iced::Length::Fill;
@@ -26,7 +26,7 @@ use iced::{
     Color, Element, Event, Length, Rectangle, Renderer, Size, Theme as IcedTheme, Vector,
     Widget as _, window,
 };
-use iced_video_player::{Video, VideoPlayer};
+use iced_video_player::{Video as IcedVideo, VideoPlayer};
 
 use crate::common::{animated_button, pie_progress, structure, theme};
 use crate::helpers::{one_and_half_padding, smoothstep};
@@ -122,11 +122,8 @@ impl VideoStatus {
 }
 
 pub fn video_controls<'a, Message>(
-    cell: DePlaceVideoShared,
+    cell: Video,
     fallback: impl Fn(Radius, f32) -> Element<'a, Message> + 'a,
-    media_processor: MediaProcessor,
-    parameters_key: String,
-    info_total: Option<u64>,
 ) -> VideoControls<'a, Message>
 where
     Message: 'a,
@@ -139,10 +136,7 @@ where
         not_started: None,
         bar: None,
         status_overlay: None,
-        parameters_key,
-        media_processor,
         is_encrypted: false,
-        info_total,
         cached: false,
         is_fullscreen: false,
         on_fullscreen_toggle: None,
@@ -150,7 +144,7 @@ where
 }
 
 pub struct VideoControls<'a, Message> {
-    cell: DePlaceVideoShared,
+    cell: Video,
     fallback: Fallback<'a, Message>,
     radius: Radius,
 
@@ -162,11 +156,8 @@ pub struct VideoControls<'a, Message> {
     bar: Option<Element<'a, Local>>,
     status_overlay: Option<Element<'a, Local>>,
 
-    parameters_key: String,
-    media_processor: MediaProcessor,
     is_encrypted: bool,
 
-    info_total: Option<u64>,
     cached: bool,
 
     is_fullscreen: bool,
@@ -435,7 +426,7 @@ fn status_alpha(phase: Phase) -> f32 {
 }
 
 fn video_element<'a, Message: Clone + 'a>(
-    video: Arc<Video>,
+    video: Arc<IcedVideo>,
     radius: Radius,
     opacity: f32,
 ) -> Element<'a, Message> {
@@ -465,9 +456,12 @@ where
         self
     }
 
-    fn video(&self) -> Option<Arc<Video>> {
-        match self.cell.read().as_ref() {
-            MediaState::Loaded((video, _file)) => Some(video.clone()),
+    fn video(&self) -> Option<Arc<IcedVideo>> {
+        match self.cell.state().read().as_ref() {
+            MediaState::Loaded {
+                data: (video, _file),
+                ..
+            } => Some(video.clone()),
             _ => None,
         }
     }
@@ -565,7 +559,7 @@ where
         self.not_started = Some(not_started);
     }
 
-    fn bar_for(&self, video: Option<&Arc<Video>>) -> Element<'static, Local> {
+    fn bar_for(&self, video: Option<&Arc<IcedVideo>>) -> Element<'static, Local> {
         match video {
             Some(video) => {
                 let volume = video.volume_state();
@@ -674,10 +668,12 @@ where
     /// the same cost class as `Video::position()`/`paused()`.
     fn download_status(&self) -> Option<VideoStatus> {
         let Some(progress) = self
+            .cell
+            .extra()
             .media_processor
-            .file_download_progress(&self.parameters_key)
+            .file_download_progress(self.cell.parameters_key())
         else {
-            if !matches!(self.cell.read().as_ref(), MediaState::Loading) {
+            if !matches!(self.cell.state().read().as_ref(), MediaState::Loading) {
                 return None;
             }
 
@@ -707,7 +703,7 @@ where
                 }
 
                 let total = match total {
-                    0 => self.info_total,
+                    0 => self.cell.size(),
                     total => Some(total),
                 };
 
@@ -811,8 +807,8 @@ where
         // A cache hit (already `Loaded` the moment this widget is built)
         // skips the fade entirely rather than animating in every time the
         // same row is scrolled back into view.
-        let phase = match self.cell.read().as_ref() {
-            MediaState::Loaded(_) => Phase::Done,
+        let phase = match self.cell.state().read().as_ref() {
+            MediaState::Loaded { .. } => Phase::Done,
             // Nothing is read from the media store until the row asks for it,
             // so a video starts out waited for rather than loading.
             MediaState::LoadNotStarted { .. } => Phase::NotStarted,
@@ -969,7 +965,7 @@ where
                 match state.phase {
                     Phase::NotStarted
                         if !matches!(
-                            self.cell.read().as_ref(),
+                            self.cell.state().read().as_ref(),
                             MediaState::LoadNotStarted { .. }
                         ) =>
                     {
@@ -1199,7 +1195,7 @@ where
                     }
                 }
                 Local::StartDownload => {
-                    self.cell.clone().start_loading::<LoadedVideo>(false);
+                    self.cell.start_loading::<LoadedVideo>(false);
                     shell.request_redraw();
                 }
                 Local::StartPlayback => {

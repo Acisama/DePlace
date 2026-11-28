@@ -5,7 +5,7 @@ use matrix_sdk::{Client, Room, RoomMemberships, room::RoomMember};
 use ruma::{OwnedRoomId, OwnedUserId, RoomId, UserId};
 use tokio::sync::watch;
 
-use crate::{Shared, cache::ThumbnailCache};
+use crate::{Shared, media::cache::ImageCache};
 
 use super::{
     Member,
@@ -24,7 +24,7 @@ pub struct ProfileStore {
     room_map: RoomMemberMap,
     user_map: UserMap,
 
-    thumbnail_cache: Arc<ThumbnailCache>,
+    thumbnail_cache: Arc<ImageCache>,
 
     pub(crate) changed: watch::Sender<()>,
 }
@@ -39,7 +39,7 @@ impl std::fmt::Debug for ProfileStore {
 }
 
 impl ProfileStore {
-    pub fn new(client: &Client, thumbnail_cache: Arc<ThumbnailCache>) -> Self {
+    pub fn new(client: &Client, thumbnail_cache: Arc<ImageCache>) -> Self {
         Self {
             client: client.clone(),
             handle: tokio::runtime::Handle::current(),

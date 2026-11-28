@@ -36,7 +36,7 @@ pub use timeline::{
     messages::{ImageMessage, MessageEvent, TimelineItemMessage, VideoMessage},
 };
 
-use super::overlay::{ContextMenu, MediaOverlayParams, ModifyItem};
+use super::overlay::{ContextMenu, ModifyItem, OverlayMediaType};
 
 #[derive(Clone)]
 pub enum ChatMessage {
@@ -107,7 +107,7 @@ pub enum ChatAction {
     OpenHelpMenu,
     ContextMenu(Box<ContextMenu>),
     OpenModifyItem(ModifyItem),
-    OpenMediaOverlay(MediaOverlayParams),
+    OpenMediaOverlay(OverlayMediaType),
 }
 
 #[iced_cache(Clone)]
@@ -460,8 +460,8 @@ impl IcedWidget<ChatMessage, ChatAction> for Chat {
 
         let help_view = HelpView::new(theme);
 
-        let timeline_with_input = if self.room.is_invite() {
-            render_room_chat_invited(self.room.clone(), theme, structure)
+        let timeline_with_input = if let Some(member) = self.room.is_invited_by() {
+            render_room_chat_invited(self.room.clone(), member, theme, structure)
         } else {
             w::column![
                 lazy_view(self.timeline.clone(), ChatMessage::Timeline),

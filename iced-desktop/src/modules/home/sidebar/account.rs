@@ -1,8 +1,14 @@
-use deplace_core::{cache::ProfileAvatars, state::UserDevice};
+use deplace_core::{media::ProfileAvatars, state::UserDevice};
 use iced::Alignment;
 use macros::{iced_cache, iced_icon};
 
-use crate::{common::*, components::help_mode::SidebarHelpKey};
+use crate::{
+    common::*,
+    components::{
+        help_mode::SidebarHelpKey,
+        profile::{name_span, render_span},
+    },
+};
 
 #[derive(Debug, Clone)]
 pub enum AccountMessage {
@@ -106,7 +112,7 @@ impl IcedWidget<AccountMessage, AccountAction> for AccountView {
                         theme.solid_bg.into(),
                     ),
                     w::column![
-                        render_name(display_name, structure.font_size, color),
+                        render_span(name_span(display_name, color), structure.font_size,),
                         w::text(presence.display_string())
                             .color(theme.text.dim)
                             .size(structure.small_font_size)

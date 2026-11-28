@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use cache::ProfileAvatars;
 use colors::DePlaceColor;
+use media::ProfileAvatars;
 use polyicon::PolyIcon;
 use room::call::CallMember;
 use ruma::{OwnedRoomId, OwnedUserId, UInt, uint};
@@ -25,13 +25,13 @@ use const_format::formatcp;
 mod keyring;
 
 pub mod audio;
-pub mod cache;
 pub mod call;
 pub mod colors;
 pub mod formatting;
 pub mod helpers;
 pub mod keybinds;
 pub mod matrix_api;
+pub mod media;
 pub mod member;
 pub mod notifications;
 pub mod polyicon;

@@ -8,16 +8,60 @@ use crate::{
 use chrono_tz::Tz;
 use deplace_core::{
     formatting::format_message_long_date,
-    settings::{DateFormat, HourFormat},
+    media::cache::Image,
+    settings::{DataSizeUnit, DateFormat, HourFormat},
 };
 use iced::{Alignment, Length};
 use macros::iced_cache;
 use matrix_sdk_ui::timeline::TimelineEventItemId;
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub enum OverlayMediaType {
-    Image(Arc<ImageMessage>),
+    Image {
+        image: Arc<ImageMessage>,
+        sender: Member,
+        timestamp: SystemTime,
+        identifier: TimelineEventItemId,
+    },
+    Avatar {
+        image: Image,
+        member: Member,
+    },
     Video(Arc<VideoMessage>),
+}
+
+impl OverlayMediaType {
+    pub fn image(
+        image: Arc<ImageMessage>,
+        sender: Member,
+        timestamp: SystemTime,
+        identifier: TimelineEventItemId,
+    ) -> Self {
+        OverlayMediaType::Image {
+            image,
+            sender,
+            timestamp,
+            identifier,
+        }
+    }
+
+    pub fn avatar(image: Image, member: Member) -> Self {
+        OverlayMediaType::Avatar { image, member }
+    }
+
+    pub fn video(video: Arc<VideoMessage>) -> Self {
+        OverlayMediaType::Video(video)
+    }
+}
+
+impl Hash for OverlayMediaType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            OverlayMediaType::Image { .. } => {}
+            OverlayMediaType::Avatar { .. } => {}
+            OverlayMediaType::Video { .. } => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -44,19 +88,27 @@ pub struct MediaOverlay {
     #[hash]
     media: OverlayMediaType,
 
-    sender: Member,
-    timestamp: SystemTime,
-
-    identifier: TimelineEventItemId,
-
     timezone: Receiver<Tz>,
     hour_format: Receiver<HourFormat>,
     date_format: Receiver<DateFormat>,
+    data_size_unit: Receiver<DataSizeUnit>,
 }
 
 impl PartialEq for MediaOverlay {
     fn eq(&self, other: &Self) -> bool {
-        self.identifier == other.identifier
+        matches!(
+            (&self.media, &other.media),
+            (
+                OverlayMediaType::Image { .. },
+                OverlayMediaType::Image { .. }
+            ) | (
+                OverlayMediaType::Avatar { .. },
+                OverlayMediaType::Avatar { .. }
+            ) | (
+                OverlayMediaType::Video { .. },
+                OverlayMediaType::Video { .. }
+            )
+        )
     }
 }
 
@@ -69,23 +121,16 @@ impl ExtraHash for MediaOverlay {
 }
 
 impl MediaOverlay {
-    pub fn new(
-        state: &AppState,
-        media: OverlayMediaType,
-        sender: Member,
-        timestamp: SystemTime,
-        identifier: TimelineEventItemId,
-    ) -> Self {
+    pub fn new(state: &AppState, media: OverlayMediaType) -> Self {
+        let settings = state.settings();
+
         Self {
             media,
 
-            sender,
-            timestamp,
-            identifier,
-
-            timezone: state.settings().timezone.watch(),
-            hour_format: state.settings().hour_format.watch(),
-            date_format: state.settings().date_format.watch(),
+            timezone: settings.timezone.watch(),
+            hour_format: settings.hour_format.watch(),
+            date_format: settings.date_format.watch(),
+            data_size_unit: settings.data_size_unit.watch(),
         }
     }
 
@@ -115,24 +160,53 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
 
         let header = structure.header;
 
-        let image = match &self.media {
-            OverlayMediaType::Image(image) => image,
+        let (image, header_content, filename, size) = match &self.media {
             OverlayMediaType::Video(video) => {
                 return w::container(
-                    video_controls(
-                        video.video.clone(),
-                        video.fallback(theme),
-                        video.media_processor.clone(),
-                        video.parameters_key.clone(),
-                        video.info.as_ref().and_then(|i| i.size),
-                    )
-                    .fullscreen(true)
-                    .on_fullscreen_toggle(MediaOverlayMessage::ExitFullscreenVideo),
+                    video_controls(video.video.clone(), video.fallback(theme))
+                        .fullscreen(true)
+                        .on_fullscreen_toggle(MediaOverlayMessage::ExitFullscreenVideo),
                 )
                 .width(Fill)
                 .height(Fill)
                 .boxed();
             }
+            OverlayMediaType::Image {
+                image,
+                sender,
+                timestamp,
+                ..
+            } => (
+                image.image.clone(),
+                w::row![
+                    sender.render_icon(header.button_size),
+                    w::column![
+                        sender.render_name(structure.font_size),
+                        w::text(format_message_long_date(
+                            *timestamp,
+                            *self.timezone.borrow(),
+                            *self.hour_format.borrow(),
+                            *self.date_format.borrow()
+                        ))
+                        .size(structure.small_font_size)
+                        .color(theme.text.dim)
+                    ]
+                    .spacing(structure.small_gap / 4.0)
+                ]
+                .align_y(Alignment::Center)
+                .spacing(structure.small_gap)
+                .boxed(),
+                image.image.filename().to_string(),
+                image.image.size(),
+            ),
+            OverlayMediaType::Avatar { image, member } => (
+                image.clone(),
+                w::rich_text![w::span("Avatar of "), member.name_span()]
+                    .size(structure.font_size)
+                    .boxed(),
+                format!("avatar_{}", member.user_id()),
+                None,
+            ),
         };
 
         w::column![
@@ -140,32 +214,14 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
                 theme,
                 structure,
                 w::row![
-                    w::container(
-                        w::row![
-                            self.sender.render_icon(header.button_size),
-                            w::column![
-                                self.sender.render_name(structure.font_size),
-                                w::text(format_message_long_date(
-                                    self.timestamp,
-                                    *self.timezone.borrow(),
-                                    *self.hour_format.borrow(),
-                                    *self.date_format.borrow()
-                                ))
-                                .size(structure.small_font_size)
-                                .color(theme.text.dim)
-                            ]
-                            .spacing(structure.small_gap / 4.0)
-                        ]
-                        .align_y(Alignment::Center)
-                        .spacing(structure.small_gap)
-                    )
-                    .width(Length::FillPortion(1)),
+                    w::container(header_content).width(Length::FillPortion(1)),
                     w::container(render_media_label(
-                        image.filename.clone(),
-                        image.info.as_ref().and_then(|i| i.size),
-                        *image.data_size_unit.borrow(),
+                        filename.clone(),
+                        size,
+                        *self.data_size_unit.borrow(),
                         structure.font_size
                     ))
+                    .align_x(Alignment::Center)
                     .width(Length::FillPortion(1)),
                     w::row![
                         Space::new().width(Fill),
@@ -180,7 +236,7 @@ impl IcedWidget<MediaOverlayMessage, MediaOverlayAction> for MediaOverlay {
             .width(Fill)
             .padding(padding::left(header.button_padding()))
             .height(header.height),
-            w::container(render_image(image.image.clone()).fallback(Box::new(
+            w::container(render_image(image.clone(),).fallback(Box::new(
                 move |_radius, opacity| {
                     w::container(
                         w::container(

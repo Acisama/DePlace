@@ -16,14 +16,13 @@
 //! trick [`super::elapsed_time`] and [`super::animated_button`] already
 //! use for their own per-frame state.
 
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use deplace_core::cache::{DePlaceImageShared, ImageLoader};
-use deplace_core::{
-    Shared,
-    cache::{DePlaceImage, DePlaceThumbnailShared, MediaState, ThumbnailLoader},
-};
+use deplace_core::media::DePlaceMedia;
+use deplace_core::media::MediaState;
+use deplace_core::media::cache::DePlaceImage;
+use deplace_core::media::cache::ImageLoader;
+use deplace_core::media::cache::ThumbnailLoader;
 use iced::Length::Fill;
 use iced::{
     Color, Element, Event, Length, Renderer, Size, Theme, Vector, Widget as _,
@@ -57,9 +56,9 @@ pub type Fallback<'a, Message> = Box<dyn Fn(Radius, f32) -> Element<'a, Message>
 /// [`MediaState::Loaded`], to build the actual content; `fallback` is used
 /// for every other state, and continues to be called with a decreasing
 /// `alpha` while the real content fades in underneath it.
-pub fn render_media<'a, Message, I, E: Clone>(
-    cell: Arc<Shared<MediaState<I, E>>>,
-    start: impl FnOnce(Arc<Shared<MediaState<I, E>>>) + 'a,
+pub fn render_media<'a, Message, I, E>(
+    cell: DePlaceMedia<I, E>,
+    start: impl FnOnce(DePlaceMedia<I, E>) + 'a,
     width: impl Into<Length>,
     height: impl Into<Length>,
     radius: impl Into<Radius>,
@@ -68,13 +67,14 @@ pub fn render_media<'a, Message, I, E: Clone>(
 ) -> RenderMedia<'a, Message, I, E>
 where
     Message: 'a,
+    E: Clone + Send + Sync + 'static,
     I: Clone + Sync + Send + 'static,
 {
     RenderMedia::new(cell, start, width, height, radius, success, fallback)
 }
 
 pub struct RenderMedia<'a, Message, I: Clone, E: Clone> {
-    cell: Arc<Shared<MediaState<I, E>>>,
+    cell: DePlaceMedia<I, E>,
     success: Success<'a, Message, I>,
     fallback: Fallback<'a, Message>,
 
@@ -123,13 +123,13 @@ struct State {
 
 impl<'a, Message, I, E> RenderMedia<'a, Message, I, E>
 where
-    E: Clone,
     Message: 'a,
+    E: Clone + Send + Sync + 'static,
     I: Clone + Sync + Send + 'static,
 {
     pub fn new(
-        cell: Arc<Shared<MediaState<I, E>>>,
-        start: impl FnOnce(Arc<Shared<MediaState<I, E>>>) + 'a,
+        cell: DePlaceMedia<I, E>,
+        start: impl FnOnce(DePlaceMedia<I, E>) + 'a,
         width: impl Into<Length>,
         height: impl Into<Length>,
         radius: impl Into<Radius>,
@@ -221,7 +221,7 @@ where
 
     #[allow(clippy::too_many_arguments)]
     fn content_for(
-        cell: &Shared<MediaState<I, E>>,
+        cell: &DePlaceMedia<I, E>,
         success: &Success<'a, Message, I>,
         fallback: &Fallback<'a, Message>,
         width: Length,
@@ -232,18 +232,18 @@ where
     ) -> Element<'a, Message> {
         match phase {
             Phase::Pending => fallback(radius, 1.0),
-            Phase::Done => match cell.read().as_ref() {
-                MediaState::Loaded(item) => success(item, radius, opacity),
+            Phase::Done => match cell.state().read().as_ref() {
+                MediaState::Loaded { data: item, .. } => success(item, radius, opacity),
                 _ => fallback(radius, 1.0),
             },
             Phase::Fading(start) => {
                 let t = (start.elapsed().as_secs_f32() / FADE_DURATION.as_secs_f32()).min(1.0);
-                match cell.read().as_ref() {
+                match cell.state().read().as_ref() {
                     // The stack is the one thing here that still needs an
                     // explicit size: both layers are `Fill`-sized to cover
                     // whatever box *it* is given, so something has to be
                     // the authority on what that box actually is.
-                    MediaState::Loaded(item) => {
+                    MediaState::Loaded { data: item, .. } => {
                         // `fallback` sits at the bottom fully opaque and
                         // `success` fades in on top of it with increasing
                         // alpha -- not the other way around. Stacking two
@@ -274,8 +274,8 @@ where
     /// is built) skips the fade entirely rather than animating in every
     /// time the same row is scrolled back into view.
     fn initial_phase(&self) -> Phase {
-        match self.cell.read().as_ref() {
-            MediaState::Loaded(_) | MediaState::Failed(_) => Phase::Done,
+        match self.cell.state().read().as_ref() {
+            MediaState::Loaded { .. } | MediaState::Failed(_) => Phase::Done,
             MediaState::LoadNotStarted { .. } | MediaState::Loading => Phase::Pending,
         }
     }
@@ -283,7 +283,7 @@ where
     /// Identity of `self.cell`, to notice in `diff()` when it's been swapped
     /// out for a different one. See the field doc on `State::cell_id`.
     fn cell_id(&self) -> usize {
-        Arc::as_ptr(&self.cell) as *const () as usize
+        self.cell.as_ptr()
     }
 
     /// Called once, the moment the widget is fully settled (no more
@@ -346,6 +346,7 @@ impl<'a, Message, I: Clone, E: Clone> Widget<Message, Theme, Renderer>
     for RenderMedia<'a, Message, I, E>
 where
     Message: 'a,
+    E: Clone + Send + Sync + 'static,
     I: Clone + Sync + Send + 'static,
 {
     fn tag(&self) -> tree::Tag {
@@ -452,10 +453,10 @@ where
                 // below need a full `&mut self`, which can't happen while a
                 // guard borrowed from `self.cell` (holding `item: &I`) is
                 // still alive for the match.
-                let resolved = self.cell.get();
+                let shared = self.cell.state();
 
-                match resolved.as_ref() {
-                    MediaState::Loaded(_) => {
+                match *shared.get() {
+                    MediaState::Loaded { .. } => {
                         let start = Instant::now();
                         tree.state.downcast_mut::<State>().phase = Phase::Fading(start);
                         self.rebuild_content(tree, renderer, layout, Phase::Fading(start));
@@ -556,9 +557,9 @@ where
 
 impl<'a, Message, I: Clone, E> From<RenderMedia<'a, Message, I, E>> for Element<'a, Message>
 where
-    E: Clone + 'a,
     Message: 'a,
-    I: Clone + Sync + Send + 'static,
+    E: Clone + Send + Sync + 'static,
+    I: Clone + Send + Sync + 'static,
 {
     fn from(widget: RenderMedia<'a, Message, I, E>) -> Self {
         widget.boxed()
@@ -566,7 +567,7 @@ where
 }
 
 pub fn render_thumbnail<'a, Message: 'a>(
-    cell: DePlaceThumbnailShared,
+    cell: DePlaceMedia<DePlaceImage, ()>,
     fallback: bool,
 ) -> RenderMedia<'a, Message, DePlaceImage, ()> {
     RenderMedia::new(
@@ -582,17 +583,16 @@ pub fn render_thumbnail<'a, Message: 'a>(
     )
 }
 
-#[allow(clippy::type_complexity)]
 pub fn render_image<'a, Message: 'a>(
-    cell: DePlaceImageShared,
-) -> RenderMedia<'a, Message, (DePlaceImage, Option<(u32, u32)>), ()> {
+    cell: DePlaceMedia<DePlaceImage, ()>,
+) -> RenderMedia<'a, Message, DePlaceImage, ()> {
     RenderMedia::new(
         cell,
-        |cell| cell.start_loading::<ImageLoader>(true),
+        move |cell| cell.start_loading::<ImageLoader>(false),
         Fill,
         Fill,
         0.0,
-        |(image, _dimensions), radius, opacity| {
+        |image, radius, opacity| {
             render_deplace_image(image, radius, opacity, iced::ContentFit::Contain)
         },
         render_image_fallback,

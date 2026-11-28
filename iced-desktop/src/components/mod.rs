@@ -28,6 +28,7 @@ pub mod animated_number;
 pub mod animation_clock;
 pub mod bounds_button;
 pub mod call_grid;
+pub mod collapsible;
 pub mod copy_button;
 pub mod corner_badge;
 pub mod elapsed_time;
@@ -55,6 +56,7 @@ pub mod volume_bar;
 
 pub use animated_number::animated_number;
 pub use call_grid::call_grid;
+pub use collapsible::{Axis as CollapseAxis, collapsible};
 pub use copy_button::copy_button;
 pub use corner_badge::{CornerContent, corner_badge};
 pub use elapsed_time::elapsed_time;

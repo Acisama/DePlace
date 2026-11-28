@@ -1,4 +1,4 @@
-use crate::{Shared, cache::ProfileAvatars, colors::DePlaceColor, polyicon::PolyIcon};
+use crate::{Shared, colors::DePlaceColor, media::ProfileAvatars, polyicon::PolyIcon};
 use chrono::Duration;
 use profile::ProfileData;
 use rodio::buffer::SamplesBuffer;

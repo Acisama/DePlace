@@ -1,6 +1,5 @@
 use crate::{
-    common::*, components::profile::OpenProfileOverlayExt,
-    modules::home::overlay::MediaOverlayParams,
+    common::*, components::profile::OpenProfileOverlayExt, modules::home::overlay::OverlayMediaType,
 };
 use std::{
     fmt::Debug,
@@ -9,11 +8,10 @@ use std::{
 
 use chrono_tz::Tz;
 use deplace_core::{
-    cache::{DePlaceImageShared, DePlaceThumbnailShared, video::DePlaceVideoShared},
     formatting::format_date_divider,
+    media::{cache::Image, video::Video},
     rich_text::{FormattedBody, Mention},
     settings::{DataSizeUnit, DateFormat, HourFormat, SystemMessageType},
-    state::media_fetcher::MediaProcessor,
 };
 use enumset::EnumSet;
 use iced::Alignment;
@@ -72,7 +70,7 @@ pub enum TimelineItemMessage {
     OpenDeleteMenu(TimelineEventItemId),
     Mention(Mention),
     LinkClick(String),
-    OpenMediaOverlay(MediaOverlayParams),
+    OpenMediaOverlay(OverlayMediaType),
     ToggleReaction {
         reaction: String,
         event_id: OwnedEventId,
@@ -116,7 +114,7 @@ pub enum TimelineItemAction {
     OpenDeleteMenu(TimelineEventItemId),
     Mention(Mention),
     LinkClick(String),
-    OpenMediaOverlay(MediaOverlayParams),
+    OpenMediaOverlay(OverlayMediaType),
     ToggleReaction {
         reaction: String,
         event_id: OwnedEventId,
@@ -812,26 +810,6 @@ impl MessageEvent {
 }
 
 #[derive(Debug, Clone)]
-pub struct VisualInfo {
-    pub width: Option<u64>,
-    pub height: Option<u64>,
-    pub size: Option<u64>,
-    pub thumbnail_source: Option<MediaSource>,
-}
-
-impl Hash for VisualInfo {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.width.hash(state);
-        self.height.hash(state);
-        self.size.hash(state);
-        self.thumbnail_source
-            .as_ref()
-            .map(|s| s.unique_key())
-            .hash(state);
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum MessageContent {
     Audio,
     Emote {
@@ -849,7 +827,7 @@ pub enum MessageContent {
     },
     Image {
         is_hovered: bool,
-        image: ImageMessage,
+        message: ImageMessage,
     },
     Location,
     Notice {
@@ -866,7 +844,7 @@ pub enum MessageContent {
     },
     Video {
         is_hovered: bool,
-        video: VideoMessage,
+        message: VideoMessage,
     },
     /// Body is only present if the client doesn't support the key verification framework, this client doesn't support it
     VerificationRequest {
@@ -917,7 +895,10 @@ impl std::hash::Hash for MessageContent {
                         .hash(state);
                 }
             }
-            MessageContent::Image { is_hovered, image } => {
+            MessageContent::Image {
+                is_hovered,
+                message: image,
+            } => {
                 is_hovered.hash(state);
                 image.hash(state);
             }
@@ -939,7 +920,10 @@ impl std::hash::Hash for MessageContent {
                 body.hash(state);
                 formatted_body.hash(state);
             }
-            MessageContent::Video { is_hovered, video } => {
+            MessageContent::Video {
+                is_hovered,
+                message: video,
+            } => {
                 is_hovered.hash(state);
                 video.hash(state);
             }
@@ -980,26 +964,16 @@ pub struct ImageMessage {
     #[hash]
     formatted_caption: Option<FormattedBody>,
 
-    pub blur_preview: Option<ImageHandle>,
+    blur_preview: Option<ImageHandle>,
 
-    thumbnail: DePlaceThumbnailShared,
-    pub image: DePlaceImageShared,
+    thumbnail: Image,
+    pub image: Image,
 
-    width: f32,
-    height: f32,
-
-    #[hash]
-    pub filename: String,
-    pub source: MediaSource,
-    #[hash]
-    pub info: Option<VisualInfo>,
-
-    pub data_size_unit: Receiver<DataSizeUnit>,
+    data_size_unit: Receiver<DataSizeUnit>,
 }
 
 impl ExtraHash for ImageMessage {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.source.unique_key().hash(state);
         self.data_size_unit.borrow().hash(state);
     }
 }
@@ -1012,39 +986,20 @@ pub struct VideoMessage {
     formatted_caption: Option<FormattedBody>,
 
     blur_preview: Option<ImageHandle>,
-    thumbnail: DePlaceThumbnailShared,
+    thumbnail: Option<Image>,
 
-    pub video: DePlaceVideoShared,
-
-    width: f32,
-    height: f32,
+    pub video: Video,
 
     is_encrypted: bool,
     /// Whether the media store already holds the file
     cached: bool,
-
-    pub media_processor: MediaProcessor,
-    pub parameters_key: String,
-
-    #[hash]
-    filename: String,
-    source: MediaSource,
-    #[hash]
-    pub info: Option<VisualInfo>,
 
     data_size_unit: Receiver<DataSizeUnit>,
 }
 
 impl ExtraHash for VideoMessage {
     fn extra_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.source.unique_key().hash(state);
         self.data_size_unit.borrow().hash(state);
-        // TODO: Actually show download progress
-        // Hash the download progress so the view re-renders on progress ticks
-        // while the video is being downloaded.
-        // self.media_processor
-        //     .file_download_progress(&self.source)
-        //     .hash(state);
     }
 }
 

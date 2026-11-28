@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use iced_video_player::Video;
+use iced_video_player::Video as IcedVideo;
 use matrix_sdk::{
     Client,
     media::{
@@ -16,21 +16,21 @@ use matrix_sdk::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::{Shared, state::media_fetcher::MediaProcessor};
+use crate::state::media_fetcher::MediaProcessor;
 
-use super::{MediaCache, MediaLoader, MediaState};
+use super::{DePlaceMedia, MediaLoader, MediaState, cache::MediaCache};
 
-pub type DePlaceVideoShared = Arc<Shared<MediaState<LoadedVideo, VideoCacheExtra>>>;
+pub type Video = DePlaceMedia<LoadedVideo, VideoCacheExtra>;
 
 /// A loaded video and the temp file it plays from, which is removed once both
 /// are dropped.
-pub type LoadedVideo = (Arc<Video>, Arc<MediaFileHandle>);
+pub type LoadedVideo = (Arc<IcedVideo>, Arc<MediaFileHandle>);
 
 /// The video cache's surroundings: the media store holds the files, the marker
 /// directory only remembers which of them are in it.
 #[derive(Clone, Debug)]
 pub struct VideoCacheExtra {
-    media_processor: MediaProcessor,
+    pub media_processor: MediaProcessor,
     marker_dir: Arc<PathBuf>,
 }
 
@@ -91,16 +91,20 @@ impl MediaLoader<VideoCacheExtra> for LoadedVideo {
         parameters: MediaRequestParameters,
         extra: VideoCacheExtra,
         _fallback: bool,
-    ) -> MediaState<Self::Item, VideoCacheExtra> {
+    ) -> MediaState<Self::Item> {
         let key = parameters.unique_key();
         let cached = extra.is_cached(&key);
 
         match load(client, parameters, &extra.media_processor, cached).await {
-            Ok(loaded) => {
+            Ok((loaded, size)) => {
                 if let Err(e) = std::fs::write(extra.marker_path(&key), []) {
                     tracing::warn!("Failed to write the video marker: {e}");
                 }
-                MediaState::Loaded(loaded)
+                MediaState::Loaded {
+                    data: loaded,
+                    size,
+                    dimensions: None,
+                }
             }
             Err(e) => {
                 // A video that no longer loads must ask again next time.
@@ -120,7 +124,7 @@ async fn load(
     parameters: MediaRequestParameters,
     media_processor: &MediaProcessor,
     cached: bool,
-) -> Result<LoadedVideo, String> {
+) -> Result<(LoadedVideo, u64), String> {
     let request = MediaRequestParameters {
         source: parameters.source,
         format: MediaFormat::File,
@@ -142,13 +146,20 @@ async fn load(
         .await
         .map_err(|e| e.to_string())?;
 
-    let url = url::Url::from_file_path(file.path())
-        .map_err(|()| format!("invalid video temp file path: {}", file.path().display()))?;
+    let path = file.path();
 
-    let video = Video::new(&url).map_err(|e| e.to_string())?;
+    let size = tokio::fs::metadata(path)
+        .await
+        .map_err(|e| e.to_string())?
+        .len();
+
+    let url = url::Url::from_file_path(file.path())
+        .map_err(|()| format!("invalid video temp file path: {}", path.display()))?;
+
+    let video = IcedVideo::new(&url).map_err(|e| e.to_string())?;
     video.set_paused(true);
 
-    Ok((Arc::new(video), Arc::new(file)))
+    Ok(((Arc::new(video), Arc::new(file)), size))
 }
 
 /// Keeps a downloaded video, so playing it again is a local read.

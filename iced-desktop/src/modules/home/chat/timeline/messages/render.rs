@@ -33,11 +33,11 @@ use crate::{
     EMOJI_FONT, MONO_FONT,
     common::*,
     components::{
-        PushElement, animated_number, bounds_button::bounds_button, help_mode::MessageHelpKey,
-        link::link, phosphor_icon, profile::render_row_of_icons, render_media::render_thumbnail,
-        render_media_label, video_controls::video_controls,
+        PushElement, animated_number, bounds_button::bounds_button, collapsible,
+        help_mode::MessageHelpKey, link::link, phosphor_icon, profile::render_row_of_icons,
+        render_media::render_thumbnail, render_media_label, video_controls::video_controls,
     },
-    modules::home::overlay::{MediaOverlayParams, OverlayMediaType},
+    modules::home::overlay::OverlayMediaType,
 };
 
 use super::{
@@ -583,18 +583,20 @@ impl MessageContent {
                     ),
                 )
             }
-            MessageContent::Image { image, is_hovered } => {
-                let mut stack = w::stack![w::lazy(image.clone(), move |image| {
-                    image.image_view(theme, structure)
-                })];
-
-                if *is_hovered {
-                    stack = stack.push_element(
-                        w::container(
+            MessageContent::Image {
+                message,
+                is_hovered,
+            } => {
+                let stack = w::stack![
+                    w::lazy(message.clone(), move |image| {
+                        image.image_view(theme, structure)
+                    }),
+                    w::container(
+                        collapsible(
                             w::container(render_media_label(
-                                image.filename.clone(),
-                                image.info.as_ref().and_then(|i| i.size),
-                                *image.data_size_unit.borrow(),
+                                message.image.filename().to_string(),
+                                message.image.size(),
+                                *message.data_size_unit.borrow(),
                                 text_size,
                             ))
                             .style(move |_| ContainerStyle {
@@ -613,23 +615,24 @@ impl MessageContent {
                                 padding::vertical(structure.small_gap / 2.0)
                                     .horizontal(structure.small_gap),
                             ),
+                            *is_hovered
                         )
-                        .height(image.height)
-                        .padding(structure.small_gap / 2.0)
-                        .align_y(Alignment::End),
+                        .axis(collapsible::Axis::Horizontal)
                     )
-                }
+                    .height(message.image.dimensions().1)
+                    .padding(structure.small_gap / 2.0)
+                    .align_y(Alignment::End)
+                ];
 
-                let open_media = TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
-                    media: OverlayMediaType::Image(Arc::new(image.clone())),
-                    source: image.source.clone(),
-                    sender: sender.clone(),
-                    identifier: identifier.clone(),
+                let open_media = TimelineItemMessage::OpenMediaOverlay(OverlayMediaType::image(
+                    Arc::new(message.clone()),
+                    sender.clone(),
                     timestamp,
-                });
+                    identifier.clone(),
+                ));
 
                 (
-                    render_body(&image.formatted_caption),
+                    render_body(&message.formatted_caption),
                     Some(
                         w::mouse_area(stack)
                             .on_enter(TimelineItemMessage::MediaMouseEnter)
@@ -697,29 +700,26 @@ impl MessageContent {
             MessageContent::VerificationRequest { formatted_body, .. } => {
                 (render_body(formatted_body), None)
             }
-            MessageContent::Video { video, is_hovered } => {
-                let sender = sender.clone();
-                let mut stack = w::stack![w::lazy(video.clone(), move |video| {
-                    video.video_view(
-                        theme,
-                        structure,
-                        TimelineItemMessage::OpenMediaOverlay(MediaOverlayParams {
-                            media: OverlayMediaType::Video(Arc::new(video.clone())),
-                            source: video.source.clone(),
-                            sender: sender.clone(),
-                            timestamp,
-                            identifier: identifier.clone(),
-                        }),
-                    )
-                })];
-
-                if *is_hovered {
-                    stack = stack.push_element(
-                        w::container(
+            MessageContent::Video {
+                message,
+                is_hovered,
+            } => {
+                let stack = w::stack![
+                    w::lazy(message.clone(), move |video| {
+                        video.video_view(
+                            theme,
+                            structure,
+                            TimelineItemMessage::OpenMediaOverlay(OverlayMediaType::video(
+                                Arc::new(video.clone()),
+                            )),
+                        )
+                    }),
+                    w::container(
+                        collapsible(
                             w::container(render_media_label(
-                                video.filename.clone(),
-                                video.info.as_ref().and_then(|i| i.size),
-                                *video.data_size_unit.borrow(),
+                                message.video.filename().to_string(),
+                                message.video.size(),
+                                *message.data_size_unit.borrow(),
                                 structure.font_size,
                             ))
                             .style(move |_| ContainerStyle {
@@ -738,15 +738,17 @@ impl MessageContent {
                                 padding::vertical(structure.small_gap / 2.0)
                                     .horizontal(structure.small_gap),
                             ),
+                            *is_hovered
                         )
-                        .height(video.height)
-                        .padding(structure.small_gap / 2.0)
-                        .align_y(Alignment::Start),
+                        .axis(collapsible::Axis::Horizontal)
                     )
-                }
+                    .height(message.video.dimensions().1)
+                    .padding(structure.small_gap / 2.0)
+                    .align_y(Alignment::Start)
+                ];
 
                 (
-                    render_body(&video.formatted_caption),
+                    render_body(&message.formatted_caption),
                     Some(
                         w::mouse_area(stack)
                             .on_enter(TimelineItemMessage::MediaMouseEnter)
@@ -828,33 +830,14 @@ impl ImageMessage {
         theme: Theme,
         structure: Structure,
     ) -> Element<'static, TimelineItemMessage> {
-        let width = self.width;
-        let height = self.height;
+        let (width, height) = self.image.dimensions();
 
         w::container(
             render_thumbnail(self.thumbnail.clone(), true)
                 .width(width)
                 .height(height)
                 .radius(structure.inner_border_radius)
-                .fallback(if let Some(handle) = self.blur_preview.clone() {
-                    Box::new(move |radius, opacity| {
-                        w::image(handle.clone())
-                            .width(Fill)
-                            .height(Fill)
-                            .border_radius(radius)
-                            .opacity(opacity)
-                            .content_fit(iced::ContentFit::Fill)
-                            .boxed()
-                    })
-                } else {
-                    Box::new(move |radius, opacity| {
-                        w::container(EMPTY_WIDGET)
-                            .width(Fill)
-                            .height(Fill)
-                            .colored_rounded(theme.colors.offline.scale_alpha(opacity), radius)
-                            .boxed()
-                    })
-                }),
+                .fallback(blur_fallback(self.blur_preview.clone(), theme)),
         )
         .width(width)
         .height(height)
@@ -871,39 +854,51 @@ impl ImageMessage {
     }
 }
 
+fn blur_fallback<'a, T: 'a>(
+    blur_preview: Option<ImageHandle>,
+    theme: Theme,
+) -> Box<dyn Fn(Radius, f32) -> Element<'a, T>> {
+    if let Some(handle) = blur_preview {
+        Box::new(move |radius, opacity| {
+            w::image(handle.clone())
+                .width(Fill)
+                .height(Fill)
+                .border_radius(radius)
+                .opacity(opacity)
+                .content_fit(iced::ContentFit::Fill)
+                .boxed()
+        })
+    } else {
+        Box::new(move |radius, opacity| {
+            w::container(EMPTY_WIDGET)
+                .width(Fill)
+                .height(Fill)
+                .colored_rounded(theme.colors.offline.scale_alpha(opacity), radius)
+                .boxed()
+        })
+    }
+}
+
 impl VideoMessage {
     pub fn fallback<'a, T: 'a>(&self, theme: Theme) -> Box<dyn Fn(Radius, f32) -> Element<'a, T>> {
         let thumbnail = self.thumbnail.clone();
         let blur_preview = self.blur_preview.clone();
-        let width = self.width;
-        let height = self.height;
+
+        let (width, height) = self.video.dimensions();
 
         Box::new(move |radius, opacity| {
-            render_thumbnail(thumbnail.clone(), false)
-                .width(width)
-                .height(height)
-                .radius(radius)
-                .opacity(opacity)
-                .fallback(if let Some(handle) = blur_preview.clone() {
-                    Box::new(move |radius, opacity| {
-                        w::image(handle.clone())
-                            .width(Fill)
-                            .height(Fill)
-                            .border_radius(radius)
-                            .opacity(opacity)
-                            .content_fit(iced::ContentFit::Fill)
-                            .boxed()
-                    })
-                } else {
-                    Box::new(move |radius, opacity| {
-                        w::container(EMPTY_WIDGET)
-                            .width(Fill)
-                            .height(Fill)
-                            .colored_rounded(theme.colors.offline.scale_alpha(opacity), radius)
-                            .boxed()
-                    })
+            thumbnail
+                .clone()
+                .map(|thumbnail| {
+                    render_thumbnail(thumbnail.clone(), false)
+                        .width(width)
+                        .height(height)
+                        .radius(radius)
+                        .opacity(opacity)
+                        .fallback(blur_fallback(blur_preview.clone(), theme))
+                        .boxed()
                 })
-                .boxed()
+                .unwrap_or_else(|| blur_fallback(blur_preview.clone(), theme)(radius, opacity))
         })
     }
 
@@ -913,22 +908,18 @@ impl VideoMessage {
         structure: Structure,
         on_fullscreen_toggle: TimelineItemMessage,
     ) -> Element<'static, TimelineItemMessage> {
+        let (width, height) = self.video.dimensions();
+
         w::container(
-            video_controls(
-                self.video.clone(),
-                self.fallback(theme),
-                self.media_processor.clone(),
-                self.parameters_key.clone(),
-                self.info.as_ref().and_then(|i| i.size),
-            )
-            .encrypted(self.is_encrypted)
-            .cached(self.cached)
-            .radius(structure.inner_border_radius)
-            .on_fullscreen_toggle(on_fullscreen_toggle)
-            .boxed(),
+            video_controls(self.video.clone(), self.fallback(theme))
+                .encrypted(self.is_encrypted)
+                .cached(self.cached)
+                .radius(structure.inner_border_radius)
+                .on_fullscreen_toggle(on_fullscreen_toggle)
+                .boxed(),
         )
-        .width(self.width)
-        .height(self.height)
+        .width(width)
+        .height(height)
         .padding(structure.border_thickness)
         .style(move |_| ContainerStyle {
             border: Border {

@@ -4,9 +4,31 @@ use matrix_sdk::{Room, RoomState};
 use ruma::{OwnedMxcUri, OwnedRoomId};
 
 use crate::{
-    cache::{ProfileAvatars, ThumbnailCache},
+    Member,
     colors::DePlaceColor,
+    media::{ProfileAvatars, cache::ImageCache},
 };
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OwnRoomState {
+    Joined,
+    Left,
+    Invited(Option<Member>),
+    Knocked,
+    Banned,
+}
+
+impl From<&Room> for OwnRoomState {
+    fn from(room: &Room) -> Self {
+        match room.state() {
+            RoomState::Joined => OwnRoomState::Joined,
+            RoomState::Left => OwnRoomState::Left,
+            RoomState::Invited => OwnRoomState::Invited(None),
+            RoomState::Knocked => OwnRoomState::Knocked,
+            RoomState::Banned => OwnRoomState::Banned,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct RoomInfo {
@@ -19,7 +41,7 @@ pub struct RoomInfo {
     pub(crate) avatar_url: Option<OwnedMxcUri>,
     pub(crate) color: DePlaceColor,
 
-    pub(crate) room_state: RoomState,
+    pub(crate) room_state: OwnRoomState,
 
     avatars: Option<ProfileAvatars>,
 }
@@ -33,10 +55,10 @@ impl PartialEq for RoomInfo {
 }
 
 impl RoomInfo {
-    pub fn new(room: &Room, cache: &ThumbnailCache, eagerly_load: bool) -> Self {
+    pub fn new(room: &Room, cache: &ImageCache, eagerly_load: bool) -> Self {
         let room_id = room.room_id();
         let avatar_url = room.avatar_url();
-        let avatars = avatar_url.map(|url| ProfileAvatars::get(cache, url));
+        let avatars = avatar_url.map(|url| ProfileAvatars::get(cache, url, room_id.as_str()));
 
         if eagerly_load && let Some(avatars) = &avatars {
             avatars.start_load_all();
@@ -52,7 +74,7 @@ impl RoomInfo {
             avatar_url: room.avatar_url(),
             avatars,
 
-            room_state: room.state(),
+            room_state: OwnRoomState::from(room),
 
             color: DePlaceColor::from(room_id.as_str()),
         };
@@ -61,9 +83,9 @@ impl RoomInfo {
         info
     }
 
-    pub fn update_avatar(&mut self, avatar_url: Option<OwnedMxcUri>, cache: &ThumbnailCache) {
+    pub fn update_avatar(&mut self, avatar_url: Option<OwnedMxcUri>, cache: &ImageCache) {
         self.avatar_url = avatar_url.clone();
-        self.avatars = avatar_url.map(|url| ProfileAvatars::get(cache, url));
+        self.avatars = avatar_url.map(|url| ProfileAvatars::get(cache, url, self.room_id.as_str()));
     }
 
     pub fn avatar_url(&self) -> Option<OwnedMxcUri> {
@@ -100,7 +122,16 @@ impl RoomInfo {
         self.color
     }
 
-    pub fn room_state(&self) -> RoomState {
-        self.room_state
+    pub fn room_state(&self) -> &OwnRoomState {
+        &self.room_state
+    }
+
+    /// Fills in the inviter once it's been resolved asynchronously (see
+    /// `RoomStore::spawn_inviter_fix`). No-op if we're no longer in the
+    /// `Invited` state by the time this lands.
+    pub(crate) fn set_inviter(&mut self, member: Member) {
+        if let OwnRoomState::Invited(inviter) = &mut self.room_state {
+            *inviter = Some(member);
+        }
     }
 }

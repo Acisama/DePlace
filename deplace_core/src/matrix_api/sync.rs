@@ -7,8 +7,8 @@ use std::{
 };
 
 use crate::audio::AudioThread;
-use crate::cache::ProfileAvatars;
 use crate::call::play_signature_samples;
+use crate::media::ProfileAvatars;
 use crate::member::ProfileStore;
 use crate::member::synth::SignatureEvent;
 use crate::member::user_data::handle_presence_update;
@@ -354,9 +354,13 @@ async fn handle_sync_result(result: SyncResponse, state: &AppState) {
                 state.inner.own_avatar_url.send_replace(url);
 
                 if changed {
-                    state.inner.own_avatar.send_replace(
-                        original.map(|u| ProfileAvatars::get(state.thumbnail_cache(), u)),
-                    );
+                    state.inner.own_avatar.send_replace(original.map(|u| {
+                        ProfileAvatars::get(
+                            state.image_cache(),
+                            u,
+                            state.own_device_ref().user_id.as_str(),
+                        )
+                    }));
                 }
             }
             Err(e) => {
@@ -427,7 +431,7 @@ fn spawn_room_sync(client: Client, state: AppState, own_device: Arc<UserDevice>)
                         info.calculate_strings();
                     }
                     if avatar_url_changed {
-                        info.update_avatar(avatar_url.clone(), state.thumbnail_cache());
+                        info.update_avatar(avatar_url.clone(), state.image_cache());
                     }
                 });
             }

@@ -1,6 +1,6 @@
 use deplace_core::{
     DePlaceRoom, ProfileLike,
-    cache::ProfileAvatars,
+    media::ProfileAvatars,
     member::{Member, user_data::Presence},
     room::{DePlaceRoomType, call::CallMember},
     settings::NameDecoration,
@@ -9,7 +9,7 @@ use deplace_core::{
 };
 
 use iced::{
-    Alignment, Border, Color, Element,
+    Alignment, Border, Color, Element, Font,
     Length::Fill,
     Rectangle, Widget,
     alignment::{Horizontal, Vertical},
@@ -18,11 +18,12 @@ use iced::{
     never, padding,
     widget::{
         self as w, Space, Stack, responsive, svg,
-        text::{IntoFragment, LineHeight},
+        text::{IntoFragment, LineHeight, Span},
     },
 };
 
 use crate::{
+    MONO_FONT,
     common::{structure, theme},
     helpers::blend_color,
     modules::home::{DEFAULT_ROOM_ICON, SCREENSHARING_ICON, SPACE_ICON, SPEAKER_ICON},
@@ -103,6 +104,9 @@ pub trait ProfileRenderExt {
     /// Renders the profile's avatar icon.
     fn render_icon<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
 
+    /// Renders a span of text with the profile's color.
+    fn name_span<'a>(&self) -> Span<'a>;
+
     /// Renders the profile's name in bold using the profile's color.
     fn render_name<'a, T: 'a>(&self, size: f32) -> Element<'a, T>;
 
@@ -182,8 +186,12 @@ impl<Profile: ProfileLike> ProfileRenderExt for Profile {
         render_avatar(size, rounding, fallback, self.avatars())
     }
 
+    fn name_span<'a>(&self) -> Span<'a> {
+        name_span(self.displayname(), self.color().to_iced())
+    }
+
     fn render_name<'a, T: 'a>(&self, size: f32) -> Element<'a, T> {
-        render_name(self.displayname(), size, self.color().to_iced())
+        render_span(self.name_span(), size)
     }
 
     fn render_name_decorated<'a, T: 'a>(
@@ -375,21 +383,32 @@ impl RoomRenderExt for DePlaceRoom {
     }
 }
 
-pub fn render_name<'a, T: 'a>(name: String, size: f32, color: Color) -> Element<'a, T> {
-    weighted_text(name, Weight::Bold)
-        .size(size)
+pub fn name_span<'a>(name: String, color: impl Into<Color>) -> Span<'a> {
+    w::span(name)
+        .font(Font {
+            weight: Weight::Bold,
+            ..MONO_FONT
+        })
         .color(color)
         .line_height(LineHeight::Relative(1.0))
+}
+
+pub fn render_span<'a, T: 'a>(span: Span<'a>, size: f32) -> Element<'a, T> {
+    w::rich_text![span]
+        .size(size)
         .align_y(Alignment::Center)
         .boxed()
 }
 
 pub fn render_unknown_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
-    render_name("Unknown".to_string(), size, theme.colors.error.into())
+    render_span(name_span("Unknown".to_string(), theme.colors.error), size)
 }
 
 pub fn render_loading_name<'a, T: Clone + 'a>(size: f32, theme: Theme) -> Element<'a, T> {
-    render_name("Loading...".to_string(), size, theme.colors.offline.into())
+    render_span(
+        name_span("Loading...".to_string(), theme.colors.offline),
+        size,
+    )
 }
 
 pub fn render_name_decorated<'a, T: 'a>(
@@ -421,7 +440,11 @@ pub fn render_name_decorated_still<'a, T: 'a>(
     decoration_color: Color,
 ) -> Element<'a, T> {
     match decoration {
-        NameDecoration::None => w::text(name).size(size).color(text_color).boxed(),
+        NameDecoration::None => w::text(name)
+            .size(size)
+            .color(text_color)
+            .font(MONO_FONT)
+            .boxed(),
         NameDecoration::FirstLetter => {
             let mut chars = name.chars();
             let Some((first, rest)) = chars.next().map(|first| (first, chars.collect::<String>()))
@@ -429,10 +452,13 @@ pub fn render_name_decorated_still<'a, T: 'a>(
                 return Space::new().boxed();
             };
 
-            w::row![
-                w::text(first).size(size).color(decoration_color),
-                w::text(rest).size(size).color(text_color)
+            w::rich_text![
+                w::span(first).color(decoration_color),
+                w::span(rest).color(text_color)
             ]
+            .on_link_click(never)
+            .font(MONO_FONT)
+            .size(size)
             .boxed()
         }
         NameDecoration::FullColor => w::text(name).size(size).color(decoration_color).boxed(),
@@ -452,6 +478,7 @@ pub fn render_name_decorated_still<'a, T: 'a>(
                     })
                     .collect::<Vec<_>>(),
             )
+            .font(MONO_FONT)
             .on_link_click(never)
             .boxed()
         }

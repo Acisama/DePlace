@@ -397,6 +397,7 @@ fn render_channel(
 
     let expanded = !collapsed_categories.contains(room.room_id());
     let is_active = active_room_id.as_ref().is_some_and(|id| id == id_ref);
+    let is_invite = room.is_invite();
 
     let room_color = room.color();
     let mentions = if room.is_dm() {
@@ -445,7 +446,7 @@ fn render_channel(
                 theme,
             )
         }),
-        if room.is_invite() {
+        if is_invite {
             Some(themed_tooltip_text(
                 phosphor_icon(INVITE_ICON, structure.font_size * 1.3).color(room_color),
                 "This is an invite",
@@ -498,7 +499,9 @@ fn render_channel(
         .style(move |status| ButtonStyle {
             background: is_active.then_some(theme.solid_hover_bg.into()),
             border: Border {
-                color: if status.active() || is_active {
+                color: if is_invite {
+                    room_color.into()
+                } else if status.active() || is_active {
                     theme.border.into()
                 } else {
                     Color::TRANSPARENT

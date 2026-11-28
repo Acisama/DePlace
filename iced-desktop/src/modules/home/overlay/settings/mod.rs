@@ -1,11 +1,17 @@
-use crate::{common::*, components::phosphor_icon};
+use crate::{
+    common::*,
+    components::{
+        phosphor_icon,
+        profile::{name_span, render_span},
+    },
+};
 use components::{
     AppearanceSection, AppearanceSectionAction, AppearanceSectionMessage, AudioSection,
     AudioSectionAction, AudioSectionMessage, ChatsSection, ChatsSectionAction, ChatsSectionMessage,
     GeneralSection, GeneralSectionAction, GeneralSectionMessage, UpdatesSection,
     UpdatesSectionAction, UpdatesSectionMessage,
 };
-use deplace_core::{cache::ProfileAvatars, settings::SettingsSection, state::UserDevice};
+use deplace_core::{media::ProfileAvatars, settings::SettingsSection, state::UserDevice};
 use iced::{
     Alignment::{self, Center},
     Length,
@@ -320,10 +326,9 @@ fn render_profile_section(
                 avatar
             ),
             w::column![
-                render_name(
-                    display_name.unwrap_or(user_id.to_string()),
+                render_span(
+                    name_span(display_name.unwrap_or(user_id.to_string()), color,),
                     structure.font_size,
-                    color
                 ),
                 w::text("Edit Profile").size(structure.small_font_size),
             ]

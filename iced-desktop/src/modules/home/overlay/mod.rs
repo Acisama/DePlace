@@ -1,5 +1,3 @@
-use std::time::SystemTime;
-
 use context_menu::{ContextMenuAction, ContextMenuMessage};
 use deplace_core::state::AppState;
 use iced::{
@@ -7,22 +5,14 @@ use iced::{
     Task,
     advanced::widget::{operate, operation::scrollable::snap_to},
     keyboard::key::Named,
-    widget::{
-        container,
-        mouse_area,
-        operation::focus,
-        scrollable::RelativeOffset,
-    },
+    widget::{container, mouse_area, operation::focus, scrollable::RelativeOffset},
 };
 use macros::iced_cache;
-use matrix_sdk::ruma::events::room::MediaSource;
-use matrix_sdk_ui::timeline::TimelineEventItemId;
 use media::{MediaOverlay, MediaOverlayAction, MediaOverlayMessage};
 use modify_item::{ModifyItemAction, ModifyItemMessage};
 use profile::{OverlayProfile, ProfileAction, ProfileMessage};
 use quick_select::{
-    QUICK_SELECT_INPUT_ID, QUICK_SELECT_LIST_ID, QuickSelect, QuickSelectAction,
-    QuickSelectMessage,
+    QUICK_SELECT_INPUT_ID, QUICK_SELECT_LIST_ID, QuickSelect, QuickSelectAction, QuickSelectMessage,
 };
 use settings::{SETTINGS_INPUT_ID, SettingsAction, SettingsMessage, SettingsView};
 
@@ -38,15 +28,6 @@ mod settings;
 pub use context_menu::{ContextMenu, ContextMenuKind};
 pub use media::OverlayMediaType;
 pub use modify_item::ModifyItem;
-
-#[derive(Clone, Debug)]
-pub struct MediaOverlayParams {
-    pub media: OverlayMediaType,
-    pub source: MediaSource,
-    pub sender: Member,
-    pub timestamp: SystemTime,
-    pub identifier: TimelineEventItemId,
-}
 
 #[iced_cache(Clone)]
 pub struct Overlay {
@@ -169,14 +150,8 @@ impl Overlay {
         self.overlay_state = Some(OverlayState::ModifyItem(modify));
     }
 
-    pub fn open_media_overlay(&mut self, params: MediaOverlayParams) {
-        self.overlay_state = Some(OverlayState::Media(MediaOverlay::new(
-            &self.state,
-            params.media,
-            params.sender,
-            params.timestamp,
-            params.identifier,
-        )));
+    pub fn open_media_overlay(&mut self, media: OverlayMediaType) {
+        self.overlay_state = Some(OverlayState::Media(MediaOverlay::new(&self.state, media)));
     }
 }
 

@@ -9,7 +9,7 @@ use ruma::{
     },
 };
 
-use crate::cache::{ProfileAvatars, ThumbnailCache};
+use crate::media::{ProfileAvatars, cache::ImageCache};
 
 #[derive(Clone)]
 #[non_exhaustive]
@@ -46,15 +46,11 @@ impl ProfileData {
 }
 
 impl ProfileData {
-    pub(crate) fn from_room_member(
-        m: &RoomMember,
-        cache: &ThumbnailCache,
-        eagerly_load: bool,
-    ) -> Self {
+    pub(crate) fn from_room_member(m: &RoomMember, cache: &ImageCache, eagerly_load: bool) -> Self {
         let avatar_url = m.avatar_url().map(|u| u.to_owned());
         let avatars = avatar_url
             .clone()
-            .map(|url| ProfileAvatars::get(cache, url));
+            .map(|url| ProfileAvatars::get(cache, url, m.user_id().as_str()));
 
         if eagerly_load && let Some(avatar) = &avatars {
             avatar.start_load_all();
@@ -77,9 +73,9 @@ impl ProfileData {
         member
     }
 
-    pub(crate) fn reload_avatars(&mut self, new_url: Option<OwnedMxcUri>, cache: &ThumbnailCache) {
+    pub(crate) fn reload_avatars(&mut self, new_url: Option<OwnedMxcUri>, cache: &ImageCache) {
         if let Some(url) = new_url.clone() {
-            self.avatars = Some(ProfileAvatars::get(cache, url));
+            self.avatars = Some(ProfileAvatars::get(cache, url, self.user_id.as_str()));
         }
         self.avatar_url = new_url;
     }

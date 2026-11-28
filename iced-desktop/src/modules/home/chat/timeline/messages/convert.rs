@@ -1,7 +1,7 @@
-use deplace_core::formatting::fit_dimensions;
+use deplace_core::formatting::{fit_dimensions, format_thumbnail_name};
 use deplace_core::rich_text::FormattedBody;
 use deplace_core::thumbnail_format;
-use matrix_sdk::media::{MediaRequestParameters, UniqueKey};
+use matrix_sdk::media::{MediaRequestParameters, MediaThumbnailSettings, UniqueKey};
 use matrix_sdk::ruma::UInt;
 use matrix_sdk::ruma::events::StateEventType;
 use serde::Serialize;
@@ -15,12 +15,12 @@ use crate::modules::home::chat::timeline::messages::RtcNotification;
 
 use super::{
     ImageMessage, MessageContent, MessageEvent, ReactionInfoMap, ReplyContent, ReplyEvent,
-    ReplyToDetails, SystemEvent, SystemMessage, VideoMessage, VisualInfo,
+    ReplyToDetails, SystemEvent, SystemMessage, VideoMessage,
 };
 use super::{TimelineItem, TimelineItemKind};
 
-use matrix_sdk::ruma::events::room::message::{MessageType, VideoInfo};
-use matrix_sdk::ruma::events::room::{ImageInfo, MediaSource};
+use matrix_sdk::ruma::events::room::MediaSource;
+use matrix_sdk::ruma::events::room::message::MessageType;
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, EmbeddedEvent, EventTimelineItem, ReactionsByKeyBySender,
     TimelineItemKind as UiTimelineItemKind,
@@ -493,30 +493,60 @@ impl MessageContent {
                     data_size_unit: settings.data_size_unit.watch(),
                 },
                 MessageType::Image(image) => {
-                    let (width, height) = get_dimensions(
-                        image.info.as_ref().map(|i| (i.width, i.height)),
-                        structure(),
-                    );
+                    let structure = structure();
+                    let (width, height) =
+                        get_dimensions(image.info.as_ref().map(|i| (i.width, i.height)), structure);
                     let parameters = MediaRequestParameters {
                         source: image.source.clone(),
                         format: thumbnail_format(width as u64, height as u64),
                     };
 
-                    let thumbnail = state.thumbnail_cache().get(&parameters);
-                    let dp_image = state.image_cache().get(&parameters);
+                    let filename = image.filename().to_string();
+
+                    let thumbnail = image.info.as_ref().and_then(|info| {
+                        let source = info.thumbnail_source.as_ref()?;
+
+                        let (width, height) = get_dimensions(
+                            info.thumbnail_info.as_ref().map(|i| (i.width, i.height)),
+                            structure,
+                        );
+                        let width_u = width as u32;
+                        let height_u = height as u32;
+
+                        Some(state.image_cache().get(
+                            &MediaRequestParameters {
+                                source: source.clone(),
+                                format: matrix_sdk::media::MediaFormat::Thumbnail(
+                                    MediaThumbnailSettings::new(width_u.into(), height_u.into()),
+                                ),
+                            },
+                            None,
+                            (width_u, height_u),
+                            &format_thumbnail_name(&filename, width_u, height_u),
+                        ))
+                    });
+
+                    let size = image
+                        .info
+                        .as_ref()
+                        .and_then(|info| info.size.map(|u| u.into()));
+
+                    let dp_image = state.image_cache().get(
+                        &parameters,
+                        size,
+                        (width as u32, height as u32),
+                        &filename,
+                    );
 
                     MessageContent::Image {
-                        image: ImageMessage {
+                        message: ImageMessage {
                             caption: image.caption().map(|s| s.to_string()),
                             formatted_caption: FormattedBody::new(
                                 image.caption(),
                                 image.formatted_caption(),
                             ),
 
-                            width,
-                            height,
-
-                            thumbnail,
+                            thumbnail: thumbnail.unwrap_or(dp_image.clone()),
                             image: dp_image,
 
                             blur_preview: image.info.as_ref().and_then(|info| {
@@ -527,10 +557,6 @@ impl MessageContent {
                                         info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
                                     })
                             }),
-
-                            filename: image.filename().to_string(),
-                            source: image.source.clone(),
-                            info: image.info.as_ref().map(|info| info.into()),
 
                             data_size_unit: settings.data_size_unit.watch(),
                         },
@@ -561,33 +587,55 @@ impl MessageContent {
                     ),
                 },
                 MessageType::Video(video) => {
-                    let (width, height) = get_dimensions(
-                        video.info.as_ref().map(|i| (i.width, i.height)),
-                        structure(),
-                    );
+                    let structure = structure();
+                    let (width, height) =
+                        get_dimensions(video.info.as_ref().map(|i| (i.width, i.height)), structure);
 
                     let parameters = MediaRequestParameters {
                         source: video.source.clone(),
                         format: matrix_sdk::media::MediaFormat::File,
                     };
-                    // The event's own thumbnail is uploaded before the event is
-                    // sent, so it is always available, unlike a server-side
-                    // thumbnail of the video mxc
-                    let thumbnail_parameters = video
+
+                    let filename = video.filename().to_string();
+
+                    let thumbnail = video.info.as_ref().and_then(|info| {
+                        let source = info.thumbnail_source.as_ref()?;
+
+                        let (width, height) = get_dimensions(
+                            info.thumbnail_info.as_ref().map(|i| (i.width, i.height)),
+                            structure,
+                        );
+                        let width_u = width as u32;
+                        let height_u = height as u32;
+
+                        let params = MediaRequestParameters {
+                            source: source.clone(),
+                            format: matrix_sdk::media::MediaFormat::Thumbnail(
+                                MediaThumbnailSettings::new(width_u.into(), height_u.into()),
+                            ),
+                        };
+
+                        let size = info
+                            .thumbnail_info
+                            .as_ref()
+                            .and_then(|i| i.size.map(|u| u.into()));
+
+                        Some(state.image_cache().get(
+                            &params,
+                            size,
+                            (width_u, height_u),
+                            &format_thumbnail_name(&filename, width_u, height_u),
+                        ))
+                    });
+
+                    let size = video
                         .info
                         .as_ref()
-                        .and_then(|info| info.thumbnail_source.clone())
-                        .map(|source| MediaRequestParameters {
-                            source,
-                            format: matrix_sdk::media::MediaFormat::File,
-                        })
-                        .unwrap_or_else(|| MediaRequestParameters {
-                            source: video.source.clone(),
-                            format: thumbnail_format(width as u64, height as u64),
-                        });
+                        .and_then(|info| info.size)
+                        .map(|u| u.into());
 
                     MessageContent::Video {
-                        video: VideoMessage {
+                        message: VideoMessage {
                             caption: video.caption().map(|s| s.to_string()),
                             formatted_caption: FormattedBody::new(
                                 video.caption(),
@@ -602,7 +650,7 @@ impl MessageContent {
                                         info.blurhash.as_ref().and_then(|b| blurhash_to_image(b))
                                     })
                             }),
-                            thumbnail: state.thumbnail_cache().get(&thumbnail_parameters),
+                            thumbnail,
 
                             is_encrypted: matches!(&video.source, MediaSource::Encrypted(_)),
                             cached: state
@@ -610,17 +658,12 @@ impl MessageContent {
                                 .extra()
                                 .is_cached(&parameters.unique_key()),
 
-                            media_processor: state.media_processor().clone(),
-                            parameters_key: parameters.unique_key(),
-
-                            video: state.video_cache().get(&parameters),
-
-                            filename: video.filename().to_string(),
-                            source: video.source.clone(),
-                            info: video.info.as_ref().map(|info| info.into()),
-
-                            width,
-                            height,
+                            video: state.video_cache().get(
+                                &parameters,
+                                size,
+                                (width as u32, height as u32),
+                                &filename,
+                            ),
 
                             data_size_unit: settings.data_size_unit.watch(),
                         },
@@ -646,28 +689,6 @@ impl MessageContent {
             return MessageContent::Empty;
         }
         result
-    }
-}
-
-impl From<&Box<ImageInfo>> for VisualInfo {
-    fn from(value: &Box<ImageInfo>) -> Self {
-        Self {
-            width: value.width.map(|u| u.into()),
-            height: value.height.map(|u| u.into()),
-            size: value.size.map(|u| u.into()),
-            thumbnail_source: value.thumbnail_source.clone(),
-        }
-    }
-}
-
-impl From<&Box<VideoInfo>> for VisualInfo {
-    fn from(value: &Box<VideoInfo>) -> Self {
-        Self {
-            width: value.width.map(|u| u.into()),
-            height: value.height.map(|u| u.into()),
-            size: value.size.map(|u| u.into()),
-            thumbnail_source: value.thumbnail_source.clone(),
-        }
     }
 }
 

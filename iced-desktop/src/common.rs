@@ -12,8 +12,7 @@ pub use crate::components::{
     pie_progress::pie_progress,
     profile::{
         MemberRenderExt, ProfileRenderExt, RoomRenderExt, loading_icon, render_avatar,
-        render_loading_name, render_name, render_presence_badge, render_unknown_name, text_icon,
-        unknown_icon,
+        render_loading_name, render_presence_badge, render_unknown_name, text_icon, unknown_icon,
     },
     text_input, themed_scrollable,
     tile_background::floating_tile,

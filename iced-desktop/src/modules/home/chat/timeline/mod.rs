@@ -25,6 +25,7 @@ use matrix_sdk_ui::{Timeline, eyeball_im::VectorDiff, timeline::TimelineEventIte
 use messages::{MessageEvent, TimelineItem, TimelineItemAction, TimelineItemMessage};
 use sweeten::widget::list;
 
+use crate::modules::home::overlay::OverlayMediaType;
 use crate::{
     common::*,
     components::{
@@ -34,7 +35,7 @@ use crate::{
     },
     modules::home::{
         COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, SOURCE_ICON, UNPIN_ICON,
-        overlay::{ContextMenu, ContextMenuKind, MediaOverlayParams, ModifyItem},
+        overlay::{ContextMenu, ContextMenuKind, ModifyItem},
     },
 };
 
@@ -76,7 +77,7 @@ pub enum TimelineMessage {
     /// This is effectively dead code until we allow jumps into the middle
     /// of the timeline.
     NewerSkeletonBounds(Rectangle),
-    ContextMenu(ContextMenu),
+    ContextMenu(Box<ContextMenu>),
     /// Sent whenever this room becomes the active one (whether freshly
     /// created or reused from the LRU cache) to explicitly snap the
     /// scrollable back to where this room was left -- its own widget state
@@ -160,7 +161,7 @@ pub enum TimelineAction {
     HelpHover(Option<HelpKey>),
     ContextMenu(Box<ContextMenu>),
     OpenModifyItem(ModifyItem),
-    OpenMediaOverlay(MediaOverlayParams),
+    OpenMediaOverlay(OverlayMediaType),
     FocusInput,
     JoinCall,
 }
@@ -865,7 +866,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
                 None
             }
-            TimelineMessage::ContextMenu(menu) => Some(TimelineAction::ContextMenu(Box::new(menu))),
+            TimelineMessage::ContextMenu(menu) => Some(TimelineAction::ContextMenu(menu)),
             TimelineMessage::HelpHover(help_key) => Some(TimelineAction::HelpHover(help_key)),
             TimelineMessage::ButtonsHovered { id, hovered } => {
                 if self
@@ -1613,7 +1614,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     })
                     .id(SCROLLABLE_ID),
                     self.measure_generation,
-                    move |bounds| TimelineMessage::ViewportBounds(bounds),
+                    TimelineMessage::ViewportBounds,
                 ),
                 SCROLLABLE_ID,
                 TimelineMessage::ScrolledFromTop,
@@ -1731,7 +1732,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             .boxed();
 
             stack = stack
-                .push_element(context_menu_catcher.map_el(TimelineMessage::ContextMenu))
+                .push_element(
+                    context_menu_catcher
+                        .map_el(|menu| TimelineMessage::ContextMenu(Box::new(menu))),
+                )
                 .push_element(
                     w::float(render_timeline_item_buttons(
                         structure,

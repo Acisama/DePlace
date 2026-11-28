@@ -10,8 +10,8 @@ use ruma::{
 use tokio::sync::watch;
 
 use crate::{
-    Shared, cache::ThumbnailCache, call::CallParticipantHandle,
-    matrix_api::account_data::ServerOrderContent, member::ProfileStore, state::UserDevice,
+    Shared, call::CallParticipantHandle, matrix_api::account_data::ServerOrderContent,
+    media::cache::ImageCache, member::ProfileStore, state::UserDevice,
 };
 
 use super::{
@@ -28,7 +28,7 @@ pub struct RoomStore {
     own_device: Arc<UserDevice>,
     own_handle: CallParticipantHandle,
 
-    cache: Arc<ThumbnailCache>,
+    cache: Arc<ImageCache>,
 
     room_map: RoomMap,
 
@@ -43,7 +43,7 @@ impl RoomStore {
         profile_store: Arc<ProfileStore>,
         last_server_order: ServerOrderContent,
         own_device: Arc<UserDevice>,
-        cache: Arc<ThumbnailCache>,
+        cache: Arc<ImageCache>,
     ) -> Self {
         let rooms = client.rooms();
         let own_handle = CallParticipantHandle::default();
@@ -88,7 +88,8 @@ impl RoomStore {
             changed: watch::channel(()).0,
         };
         for room in invited_rooms {
-            store.spawn_room_type_fix(room);
+            store.spawn_room_type_fix(room.clone());
+            store.spawn_inviter_fix(room);
         }
 
         store.load_hierarchy(rooms).await;
@@ -129,16 +130,14 @@ impl RoomStore {
         );
     }
 
-    /// `Room::is_dm()` only reflects the `m.direct` account data, which isn't
-    /// populated yet for a fresh invite -- it's wrong until the invite's
-    /// stripped member event (with its own `is_direct` flag) has been
-    /// fetched. Recompute it properly in the background so invite UI (e.g.
-    /// "start a chat with" vs "join") settles once that's known.
     fn spawn_room_type_fix(&self, sdk_room: Room) {
         if sdk_room.state() != RoomState::Invited {
             return;
         }
-        let Some(dp_room) = self.room_map.get(sdk_room.room_id()).map(|e| e.value().clone())
+        let Some(dp_room) = self
+            .room_map
+            .get(sdk_room.room_id())
+            .map(|e| e.value().clone())
         else {
             return;
         };
@@ -149,6 +148,33 @@ impl RoomStore {
                 dp_room.set_room_type(DePlaceRoomType::Direct);
                 changed.send_modify(|_| ());
             }
+        });
+    }
+
+    fn spawn_inviter_fix(&self, sdk_room: Room) {
+        if sdk_room.state() != RoomState::Invited {
+            return;
+        }
+        let Some(dp_room) = self
+            .room_map
+            .get(sdk_room.room_id())
+            .map(|e| e.value().clone())
+        else {
+            return;
+        };
+        let profile_store = self.profile_store.clone();
+        let changed = self.changed.clone();
+
+        self.handle.spawn(async move {
+            let Ok(Some(own_member)) = sdk_room.get_member_no_sync(sdk_room.own_user_id()).await
+            else {
+                return;
+            };
+            let inviter_id = own_member.event().sender().to_owned();
+            let inviter = profile_store.get_member(sdk_room.room_id(), &inviter_id);
+
+            dp_room.update_info(|info| info.set_inviter(inviter.clone()));
+            changed.send_modify(|_| ());
         });
     }
 
@@ -218,6 +244,7 @@ impl RoomStore {
 
         if created {
             self.spawn_room_type_fix(sdk_room.clone());
+            self.spawn_inviter_fix(sdk_room.clone());
         }
 
         (room, created)
