@@ -11,6 +11,9 @@ use crate::common::DePlaceWidget;
 
 pub struct TrackBounds<Message, Content: DePlaceWidget<Message>> {
     content: Content,
+    /// Bumped by the caller to force a fresh measurement, see
+    /// [`track_bounds_after`].
+    generation: u64,
     on_change: Box<dyn Fn(Rectangle) -> Message + 'static>,
 }
 
@@ -18,8 +21,21 @@ pub fn track_bounds<Message, Content: DePlaceWidget<Message>>(
     content: Content,
     on_change: impl Fn(Rectangle) -> Message + 'static,
 ) -> TrackBounds<Message, Content> {
+    track_bounds_after(content, 0, on_change)
+}
+
+/// Same as [`track_bounds`], but reports again whenever `generation` changes.
+///
+/// The state lives in the widget tree, which outlives the view that built it,
+/// so identical bounds from a previous content would otherwise go unreported.
+pub fn track_bounds_after<Message, Content: DePlaceWidget<Message>>(
+    content: Content,
+    generation: u64,
+    on_change: impl Fn(Rectangle) -> Message + 'static,
+) -> TrackBounds<Message, Content> {
     TrackBounds {
         content,
+        generation,
         on_change: Box::new(on_change),
     }
 }
@@ -27,6 +43,7 @@ pub fn track_bounds<Message, Content: DePlaceWidget<Message>>(
 #[derive(Default)]
 struct State {
     last_bounds: Option<Rectangle>,
+    last_generation: Option<u64>,
     last_tick: Option<std::time::Instant>,
 }
 
@@ -72,8 +89,12 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
 
                 let bounds = layout.bounds(); // absolute window coordinates, same as Sensor uses
 
-                if state.last_bounds != Some(bounds) {
+                let fresh = state.last_bounds != Some(bounds)
+                    || state.last_generation != Some(self.generation);
+
+                if fresh {
                     state.last_bounds = Some(bounds);
+                    state.last_generation = Some(self.generation);
                     shell.publish((self.on_change)(bounds));
                 }
             }

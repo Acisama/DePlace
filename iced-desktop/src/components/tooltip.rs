@@ -11,7 +11,7 @@ pub fn themed_tooltip_text<'a, W>(
     tooltip: impl IntoFragment<'a>,
     structure: Structure,
     theme: Theme,
-) -> w::tooltip::Tooltip<'a, W, Container<'a, Container<'a, Text<'a>>>> {
+) -> w::tooltip::Tooltip<W, Container<'a, Container<'a, Text<'a>>>> {
     themed_tooltip_content(
         content,
         w::container(w::text(tooltip).color(theme.text.normal)),
@@ -29,22 +29,23 @@ pub fn themed_tooltip_content<'a, W, V>(
     theme: Theme,
     position: w::tooltip::Position,
     gap: impl Into<Pixels>,
-) -> w::tooltip::Tooltip<'a, W, Container<'a, V>> {
+) -> w::tooltip::Tooltip<W, Container<'a, V>> {
     w::tooltip(
         content,
-        w::container(tooltip_content).padding(one_and_half_padding(structure.small_gap)),
-        position,
+        w::container(tooltip_content)
+            .padding(one_and_half_padding(structure.small_gap))
+            .style(move |_| w::container::Style {
+                background: Some(theme.solid_bg.into()),
+                border: Border {
+                    color: theme.border.into(),
+                    width: structure.border_thickness,
+                    radius: structure.inner_border_radius.into(),
+                },
+                text_color: Some(theme.text.normal.into()),
+                ..Default::default()
+            }),
     )
+    .position(position)
     .gap(gap)
     .delay(std::time::Duration::from_millis(300))
-    .style(move |_| w::container::Style {
-        background: Some(theme.solid_bg.into()),
-        border: Border {
-            color: theme.border.into(),
-            width: structure.border_thickness,
-            radius: structure.inner_border_radius.into(),
-        },
-        text_color: Some(theme.text.normal.into()),
-        ..Default::default()
-    })
 }

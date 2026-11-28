@@ -365,17 +365,20 @@ fn main() -> iced::Result {
     )
     .title(Root::title)
     .subscription(Root::subscription)
-    .font(INTER_REGULAR_FONT)
-    .font(INTER_BOLD_FONT)
-    .font(INTER_ITALIC_FONT)
-    .font(INTER_BOLD_ITALIC_FONT)
-    .font(JETBRAINS_MONO_REGULAR_FONT)
-    .font(JETBRAINS_MONO_BOLD_FONT)
-    .font(JETBRAINS_MONO_ITALIC_FONT)
-    .font(JETBRAINS_MONO_BOLD_ITALIC_FONT)
+    .fonts([
+        INTER_REGULAR_FONT,
+        INTER_BOLD_FONT,
+        INTER_ITALIC_FONT,
+        INTER_BOLD_ITALIC_FONT,
+        JETBRAINS_MONO_REGULAR_FONT,
+        JETBRAINS_MONO_BOLD_FONT,
+        JETBRAINS_MONO_ITALIC_FONT,
+        JETBRAINS_MONO_BOLD_ITALIC_FONT,
+        // Loaded, but intentionally not set as the default font because it
+        // would overwrite stuff like numbers
+        NOTO_COLOR_EMOJI_FONT,
+    ])
     .default_font(UI_FONT)
-    // Loaded, but intentionally not set as the default font because it would overwrite stuff like numbers
-    .font(NOTO_COLOR_EMOJI_FONT)
     .run()
 }
 

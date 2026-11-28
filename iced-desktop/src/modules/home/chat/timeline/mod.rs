@@ -11,7 +11,7 @@ use iced::{
     Vector,
     advanced::widget::{
         operate,
-        operation::scrollable::{RelativeOffset, snap_to},
+        operation::scrollable::{AbsoluteOffset, RelativeOffset, scroll_by, snap_to},
     },
     keyboard::Key::Character,
     widget::operation::{self, scrollable::scroll_to_reveal},
@@ -28,7 +28,8 @@ use sweeten::widget::list;
 use crate::{
     common::*,
     components::{
-        PushElement, fills_parent, phosphor_icon, skeleton, track_bounds::track_bounds,
+        PushElement, fills_parent, phosphor_icon, skeleton,
+        track_bounds::{track_bounds, track_bounds_after},
         track_scroll::track_scroll,
     },
     modules::home::{
@@ -56,7 +57,6 @@ pub enum TimelineMessage {
     Diffs(Vec<VectorDiff<(String, Arc<TimelineItem>)>>),
     None,
     Scroll {
-        direction: Option<PaginationDirection>,
         position: RelativeOffset,
     },
     ScrolledFromTop(f32),
@@ -65,6 +65,17 @@ pub enum TimelineMessage {
         hovered: bool,
     },
     ChatAreaBounds(Rectangle),
+    /// Bounds of the list's viewport, the part of the timeline that is
+    /// actually visible.
+    ViewportBounds(Rectangle),
+    /// Bounds of the placeholder shown while older messages are loading, used
+    /// to paginate as soon as any of it scrolls into view.
+    OlderSkeletonBounds(Rectangle),
+    /// Same for the placeholder at the end of the timeline.
+    ///
+    /// This is effectively dead code until we allow jumps into the middle
+    /// of the timeline.
+    NewerSkeletonBounds(Rectangle),
     ContextMenu(ContextMenu),
     /// Sent whenever this room becomes the active one (whether freshly
     /// created or reused from the LRU cache) to explicitly snap the
@@ -76,6 +87,9 @@ pub enum TimelineMessage {
     KeyboardEvent(iced::keyboard::Event),
     ScrollTo(Option<Rectangle>),
     FillsParentNot,
+    /// A pagination finished without reaching an end of the timeline, so look
+    /// again whether a placeholder is still in view.
+    PaginationRetry,
     HelpHover(Option<HelpKey>),
     /// The newest message sent by someone else was that was rendered (and by
     /// extension seen by the user), if the window is focused
@@ -106,11 +120,15 @@ impl std::fmt::Debug for TimelineMessage {
             Self::ScrolledFromTop(..) => "ScrolledFromTop",
             Self::ButtonsHovered { .. } => "ButtonsHovered",
             Self::ChatAreaBounds(..) => "ChatAreaBounds",
+            Self::ViewportBounds(..) => "ViewportBounds",
+            Self::OlderSkeletonBounds(..) => "OlderSkeletonBounds",
+            Self::NewerSkeletonBounds(..) => "NewerSkeletonBounds",
             Self::ContextMenu(..) => "ContextMenu",
             Self::RestoreScrollPosition => "RestoreScrollPosition",
             Self::KeyboardEvent(..) => "KeyboardEvent",
             Self::ScrollTo(..) => "ScrollTo",
             Self::FillsParentNot => "FillsParent",
+            Self::PaginationRetry => "PaginationRetry",
             Self::HelpHover(..) => "HelpHover",
             Self::LastMessageRendered { id } => {
                 return f
@@ -147,6 +165,21 @@ pub enum TimelineAction {
     JoinCall,
 }
 const SCROLLABLE_ID: iced::widget::Id = iced::widget::Id::new("timeline-scrollable");
+/// How much of the visible chat area a page scroll with shift+k and stuff moves.
+const PAGE_SCROLL_RATIO: f32 = 0.4;
+/// How many times in a row an empty pagination may be retried before giving up
+/// until the user scrolls again.
+const MAX_PAGINATION_RETRIES: u8 = 8;
+
+/// Every new timeline needs a generation distinct from every previous one.
+///
+/// The widget tree, and with it the cached measurements, outlives a timeline,
+/// so counting from zero would silently reuse a previous chat's measurement.
+static MEASURE_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn next_measure_generation() -> u64 {
+    MEASURE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 #[iced_cache(Clone)]
 pub struct ChatTimeline {
@@ -193,6 +226,23 @@ pub struct ChatTimeline {
     replying_to: Option<String>,
 
     tile_bounds: Rectangle,
+    /// Bounds of the list's viewport, measured once it has been laid out.
+    viewport_bounds: Rectangle,
+    /// Bounds of the loading placeholders, while they exist.
+    older_skeleton_bounds: Option<Rectangle>,
+    newer_skeleton_bounds: Option<Rectangle>,
+    /// Translation of the list, so how many pixels of content are scrolled
+    /// past its top.
+    last_translation: f32,
+    /// A page of older messages just landed above the view, see
+    /// [`ChatTimeline::past_older_skeleton`].
+    pending_prepend: bool,
+    /// Consecutive pagination attempts that did not bring any content in, so a
+    /// pagination that keeps coming back empty can't spin.
+    pagination_retries: u8,
+    /// Bumped when this timeline is reshown, to force the bounds trackers to
+    /// measure again even if the bounds are identical to the previous chat's.
+    measure_generation: u64,
 
     content: list::Content<String, Arc<TimelineItem>>,
     #[hash]
@@ -301,6 +351,13 @@ impl ChatTimeline {
                 width: 2_000_000.0,
                 height: 2_000_000.0,
             },
+            viewport_bounds: Rectangle::default(),
+            older_skeleton_bounds: None,
+            newer_skeleton_bounds: None,
+            last_translation: 0.0,
+            pending_prepend: false,
+            pagination_retries: 0,
+            measure_generation: next_measure_generation(),
 
             content: list::Content::default(),
             messages_version: 0,
@@ -322,6 +379,92 @@ impl ChatTimeline {
             self.scroll_position.into(),
             w::operation::Animation::Smooth,
         ))
+    }
+
+    /// Translation at which the older placeholder has just left the viewport.
+    ///
+    /// Placeholders sit above the messages they stand in for, so anything that
+    /// keeps the view still would keep the placeholder on screen.
+    fn past_older_skeleton(&self) -> f32 {
+        self.older_skeleton_bounds.map_or(f32::MIN, |skeleton| {
+            skeleton.y + skeleton.height - self.viewport_bounds.y
+        })
+    }
+
+    /// Loads more messages as soon as a loading placeholder scrolls into view.
+    ///
+    /// Rows are laid out untranslated, so they are only shifted on screen by
+    /// the scroll translation.
+    fn pagination_for_visible_skeleton(&mut self) -> Option<TimelineAction> {
+        let bounds = self.viewport_bounds;
+        let translation = self.last_translation;
+
+        let visible = |placeholder: Option<Rectangle>| {
+            placeholder.is_some_and(|placeholder| {
+                let top = placeholder.y - translation;
+
+                top < bounds.y + bounds.height && top + placeholder.height > bounds.y
+            })
+        };
+
+        let older_visible = visible(self.older_skeleton_bounds);
+
+        if bounds.height <= 0.0 || self.pagination_retries >= MAX_PAGINATION_RETRIES {
+            if older_visible {
+                tracing::debug!(
+                    "Older pagination blocked for {}: retries={} bounds={:?}",
+                    self.room_id,
+                    self.pagination_retries,
+                    bounds
+                );
+            }
+
+            return None;
+        }
+
+        if !self.reached_top && !self.loading_top && older_visible {
+            tracing::debug!(
+                "Older pagination for {} at translation {} with {} items",
+                self.room_id,
+                translation,
+                self.content.len()
+            );
+
+            return self.pagination_task(PaginationDirection::Backward, 30);
+        }
+
+        if older_visible && !self.reached_top {
+            tracing::debug!(
+                "Older placeholder visible but skipped for {}: loading_top={}",
+                self.room_id,
+                self.loading_top
+            );
+        }
+
+        if !self.reached_bottom && !self.loading_bottom && visible(self.newer_skeleton_bounds) {
+            return self.pagination_task(PaginationDirection::Forward, 30);
+        }
+
+        None
+    }
+
+    /// Smoothly scrolls by part of a page, see [`PAGE_SCROLL_RATIO`].
+    ///
+    /// The list is anchored at the bottom, so its offset grows towards the top:
+    /// scrolling back in time means a positive delta.
+    fn scroll_page(&self, direction: PaginationDirection) -> Option<TimelineAction> {
+        let page = (self.viewport_bounds.height * PAGE_SCROLL_RATIO).max(1.0);
+
+        let delta = match direction {
+            PaginationDirection::Backward => page,
+            PaginationDirection::Forward => -page,
+        };
+
+        Some(TimelineAction::Run(operate(scroll_by(
+            SCROLLABLE_ID,
+            AbsoluteOffset { x: 0.0, y: delta },
+            w::operation::Animation::Smooth,
+        ))))
     }
 
     pub fn remove_replying(&mut self) {
@@ -500,10 +643,18 @@ impl ChatTimeline {
             PaginationDirection::Forward => {
                 self.reached_bottom = finished;
                 self.loading_bottom = false;
+
+                if finished {
+                    self.newer_skeleton_bounds = None;
+                }
             }
             PaginationDirection::Backward => {
                 self.reached_top = finished;
                 self.loading_top = false;
+
+                if finished {
+                    self.older_skeleton_bounds = None;
+                }
             }
         }
     }
@@ -616,25 +767,43 @@ impl ChatTimeline {
             return None;
         }
 
+        // Cloned first: bailing out after setting the flag would leave this
+        // direction marked as loading forever, and it would never paginate
+        // again.
+        let timeline = self.timeline.clone()?;
+
         match direction {
             PaginationDirection::Forward => self.loading_bottom = true,
             PaginationDirection::Backward => self.loading_top = true,
         };
+        self.pagination_retries = self.pagination_retries.saturating_add(1);
 
-        tracing::trace!("Scrolling to edge: direction={:?}", direction);
+        let room_id = self.room_id.clone();
 
-        let timeline = self.timeline.clone()?;
         Some(TimelineAction::Scroll {
             direction,
             task: Task::future(async move {
-                match direction {
+                let started = std::time::Instant::now();
+
+                let result = match direction {
                     PaginationDirection::Forward => timeline.paginate_forwards(amount).await,
                     PaginationDirection::Backward => timeline.paginate_backwards(amount).await,
-                }
-                .map_err(|e| {
-                    tracing::error!("Failed to paginate: {}", e);
-                })
-                .unwrap_or(true)
+                };
+
+                tracing::debug!(
+                    "Pagination {:?} for {} returned in {:?}",
+                    direction,
+                    room_id,
+                    started.elapsed()
+                );
+
+                result
+                    .map_err(|e| {
+                        tracing::error!("Failed to paginate: {}", e);
+                    })
+                    // A failure is not the end of the timeline, so it has to
+                    // stay retryable instead of being reported as finished.
+                    .unwrap_or(false)
             }),
         })
     }
@@ -896,6 +1065,9 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 self.timeline = Some(timeline);
                 self.power_levels = power_levels;
                 self.recalculate_with_power_levels();
+                // Fresh content means the placeholders are new, so measure them
+                // again even if their bounds match the previous chat's.
+                self.measure_generation = next_measure_generation();
 
                 self.content = list::Content::with_items((*initial).clone());
                 self.refresh_all_previous_linkage();
@@ -911,6 +1083,30 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     self.room_id,
                     diffs.len(),
                 );
+
+                // The list is anchored at the end, so its offset is the distance
+                // from the newest message and any content change keeps the view
+                // where it was by itself. Only older messages landing above a
+                // placeholder need a look, see `past_older_skeleton`.
+                let mut prepended = false;
+                let mut appended = false;
+
+                for diff in &diffs {
+                    match diff {
+                        VectorDiff::PushFront { .. } => prepended = true,
+                        VectorDiff::Insert { index, .. } if *index == 0 => prepended = true,
+                        VectorDiff::PushBack { .. } | VectorDiff::Append { .. } => appended = true,
+                        _ => {}
+                    }
+                }
+
+                if prepended {
+                    self.pending_prepend = true;
+                }
+
+                if prepended || appended {
+                    self.pagination_retries = 0;
+                }
 
                 for diff in diffs {
                     match diff {
@@ -1024,23 +1220,64 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     None
                 }
             }
-            TimelineMessage::Scroll {
-                direction,
-                position,
-            } => {
+            TimelineMessage::Scroll { position } => {
                 self.scroll_position = position;
+                // Nothing to keep here, the list's offset is measured from the
+                // newest message, so a size change leaves the offset alone and
+                // the view where it was. Only older pages need a look below.
+                self.pagination_retries = 0;
 
-                direction.and_then(|d| self.pagination_task(d, 30))
+                None
             }
             TimelineMessage::ScrolledFromTop(offset) => {
                 self.scrolled_from_top = offset;
-                None
+                self.last_translation = offset;
+
+                // Older messages landed above the view, whose offset already
+                // kept it in place. The one thing left is a placeholder that
+                // would stay on screen and page in the whole history, so scrolling
+                // past it shows what just arrived instead. Scrolls down only.
+                if self.pending_prepend {
+                    let keep = self.past_older_skeleton();
+
+                    if offset >= keep - 0.5 {
+                        self.pending_prepend = false;
+                    } else {
+                        return Some(TimelineAction::Run(operate(scroll_by(
+                            SCROLLABLE_ID,
+                            AbsoluteOffset {
+                                x: 0.0,
+                                y: offset - keep,
+                            },
+                            w::operation::Animation::Instant,
+                        ))));
+                    }
+                }
+
+                self.pagination_for_visible_skeleton()
             }
             TimelineMessage::ChatAreaBounds(bounds) => {
                 self.tile_bounds = bounds;
                 None
             }
+            TimelineMessage::ViewportBounds(bounds) => {
+                self.viewport_bounds = bounds;
+                None
+            }
+            TimelineMessage::OlderSkeletonBounds(bounds) => {
+                self.older_skeleton_bounds = Some(bounds);
+                self.pagination_for_visible_skeleton()
+            }
+            TimelineMessage::NewerSkeletonBounds(bounds) => {
+                self.newer_skeleton_bounds = Some(bounds);
+                self.pagination_for_visible_skeleton()
+            }
             TimelineMessage::RestoreScrollPosition => {
+                // This timeline is being shown, and the widget tree it draws
+                // into may have been left behind by another room, whose
+                // measurements would not be reported again. Ask for fresh ones.
+                self.measure_generation = next_measure_generation();
+
                 if self.content.is_empty() {
                     // Nothing loaded yet -- `Loaded`/`Diffs` will snap once
                     // there's actually content to snap against.
@@ -1051,7 +1288,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                 Some(TimelineAction::Run(self.restore_scroll_task()))
             }
             TimelineMessage::KeyboardEvent(event) => {
-                if let iced::keyboard::Event::KeyPressed { key, .. } = event {
+                if let iced::keyboard::Event::KeyPressed { key, modifiers, .. } = event {
                     let length = self.content.len();
 
                     if key == Character("i".into()) {
@@ -1113,17 +1350,21 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     }
 
                     if key == iced::keyboard::Key::Character("k".into()) {
+                        if modifiers.shift() {
+                            return self.scroll_page(PaginationDirection::Backward);
+                        }
+
                         let mut new_focus_index = match self
                             .focused_message_id
                             .as_ref()
                             .and_then(|id| self.content.index_map().get_index_of(id))
                         {
-                            Some(focus) => {
-                                if focus == 0 {
-                                    return None;
-                                } else {
-                                    focus.saturating_sub(1)
-                                }
+                            Some(focus) if focus > 0 => focus - 1,
+                            Some(_) => {
+                                // Already on the topmost row, so there is
+                                // nothing older to focus. Scroll up instead so
+                                // the list paginates backward.
+                                return self.scroll_page(PaginationDirection::Backward);
                             }
                             None => self.last_message_index()?,
                         };
@@ -1164,16 +1405,24 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             }
                             new_focus_index -= 1;
                         }
+
+                        // Nothing older is loaded. Scroll up instead, so the
+                        // list reaches its top edge and paginates backward.
+                        return self.scroll_page(PaginationDirection::Backward);
                     }
 
                     if key == iced::keyboard::Key::Character("j".into()) {
+                        if modifiers.shift() {
+                            return self.scroll_page(PaginationDirection::Forward);
+                        }
+
                         let mut new_focus_index = match self
                             .focused_message_id
                             .as_ref()
                             .and_then(|id| self.content.index_map().get_index_of(id))
                         {
-                            Some(focus) if focus >= length - 1 => {
-                                return None;
+                            Some(focus) if focus + 1 >= length => {
+                                return self.scroll_page(PaginationDirection::Forward);
                             }
                             Some(focus) => focus + 1,
                             None => self.last_message_index()?,
@@ -1215,7 +1464,10 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                             }
                             new_focus_index += 1;
                         }
-                        None
+
+                        // Nothing newer is loaded, so scroll down to reach the
+                        // bottom edge and let it paginate forward.
+                        self.scroll_page(PaginationDirection::Forward)
                     } else {
                         None
                     }
@@ -1232,6 +1484,7 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     w::operation::Animation::Smooth,
                 )))
             }
+            TimelineMessage::PaginationRetry => self.pagination_for_visible_skeleton(),
             TimelineMessage::FillsParentNot => {
                 if self.reached_top {
                     None
@@ -1254,8 +1507,6 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
 
         let reached_top = self.reached_top;
         let reached_bottom = self.reached_bottom;
-        let loading_top = self.loading_top;
-        let loading_bottom = self.loading_bottom;
 
         let focused_id = Rc::new(self.focused_message_id.clone());
 
@@ -1274,7 +1525,11 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         let mut column = w::Column::new();
 
         if !reached_top {
-            column = column.push_element(skeleton_row(padding::bottom(structure.small_gap)));
+            column = column.push_element(track_bounds_after(
+                skeleton_row(padding::bottom(structure.small_gap)),
+                self.measure_generation,
+                TimelineMessage::OlderSkeletonBounds,
+            ));
         }
 
         column = column.push_element(fills_parent(
@@ -1319,50 +1574,39 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
         ));
 
         if !reached_bottom {
-            column = column.push_element(skeleton_row(padding::top(structure.small_gap)));
+            column = column.push_element(track_bounds_after(
+                skeleton_row(padding::top(structure.small_gap)),
+                self.measure_generation,
+                TimelineMessage::NewerSkeletonBounds,
+            ));
         }
 
         let mut stack = w::stack![
             w::container(track_scroll(
-                themed_scrollable(
-                    w::container(column)
-                        .clip(true)
-                        .width(Fill)
-                        .height(Fill)
-                        .align_bottom(Fill),
-                    theme,
-                    structure,
-                )
-                .spacing(structure.small_gap)
-                .width(Fill)
-                .anchor_bottom()
-                .smooth_scroll(true)
-                .on_scroll(move |scroll| {
-                    let viewport = scroll.destination();
+                track_bounds_after(
+                    themed_scrollable(
+                        w::container(column)
+                            .clip(true)
+                            .width(Fill)
+                            .height(Fill)
+                            .align_bottom(Fill),
+                        theme,
+                        structure,
+                    )
+                    .spacing(structure.small_gap)
+                    .width(Fill)
+                    .anchor_bottom()
+                    .smooth_scroll(true)
+                    .on_scroll(move |scroll| {
+                        let viewport = scroll.destination();
+                        let position = viewport.relative_offset();
 
-                    let max_offset = (viewport.content.height - viewport.bounds.height).max(0.0);
-                    let offset = viewport.absolute_offset().y;
-                    let position = viewport.relative_offset();
-
-                    let mut direction = None;
-                    if !reached_top
-                        && !loading_top
-                        && max_offset - offset <= structure.chat.icon_size * 6.0
-                    {
-                        direction = Some(PaginationDirection::Backward);
-                    } else if !reached_bottom
-                        && !loading_bottom
-                        && offset <= structure.chat.icon_size * 6.0
-                    {
-                        direction = Some(PaginationDirection::Forward);
-                    }
-
-                    TimelineMessage::Scroll {
-                        direction,
-                        position,
-                    }
-                })
-                .id(SCROLLABLE_ID),
+                        TimelineMessage::Scroll { position }
+                    })
+                    .id(SCROLLABLE_ID),
+                    self.measure_generation,
+                    move |bounds| TimelineMessage::ViewportBounds(bounds),
+                ),
                 SCROLLABLE_ID,
                 TimelineMessage::ScrolledFromTop,
             ))

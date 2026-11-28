@@ -154,13 +154,15 @@ async fn run_sync_stream(client: Client, state: AppState) {
         // deadline never fires -- the loop is dead without a trace
         // while the watchdog keeps shouting into the void.
         let (response_tx, mut response_rx) = mpsc::channel::<matrix_sdk::Result<SyncResponse>>(1);
-        // Detached on purpose: the handle is never awaited, and the task
-        // stops itself once the channel receiver is replaced below.
-        // The stream borrows its `Client`, so it is created inside the
-        // task from a clone the task owns.
+        // The stream borrows its `Client`, so it is created inside the task
+        // from a clone the task owns. The handle is kept so that a stream
+        // wedged inside a poll can be aborted below: dropping the receiver
+        // only makes it stop *after* its next response, which a dead stream
+        // never produces -- the rebuild would then wait behind a sync that
+        // never finishes, and message reception stayed dead for as long.
         let puller_client = client.clone();
         let puller_settings = sync_settings.clone();
-        let _puller = tokio::spawn(async move {
+        let puller = tokio::spawn(async move {
             let sync_stream = puller_client.sync_stream(puller_settings).await;
             let mut sync_stream = pin!(sync_stream);
             while let Some(result) = sync_stream.next().await {
@@ -197,6 +199,10 @@ async fn run_sync_stream(client: Client, state: AppState) {
             };
 
             responses += 1;
+
+            // Noted on arrival, not once handling finished: the watchdog
+            // reports the stream's health, and a slow handler is not a stall.
+            note_sync_received();
 
             // Handling runs on its own task, with only its completion
             // awaited here: a response whose handling gets stuck in a
@@ -250,6 +256,11 @@ async fn run_sync_stream(client: Client, state: AppState) {
             }
         }
 
+        // A stalled stream never yields again, so it has to be aborted
+        // instead of left behind: a rebuild would otherwise wait for a sync
+        // that never returns, and no message would arrive at all.
+        puller.abort();
+
         restarts += 1;
         tokio::time::sleep(SYNC_REBUILD_PAUSE).await;
     }
@@ -295,9 +306,6 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
         }
     };
 
-    // Heartbeat: sync delivers a response at least every 30 s,
-    // so this line showing up regularly proves the loop is alive.
-    note_sync_received();
     let timeline_events: usize = result
         .rooms
         .joined

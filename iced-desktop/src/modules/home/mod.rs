@@ -685,10 +685,21 @@ impl IcedWidget<HomeMessage, HomeAction> for Home {
                 direction,
                 finished,
             } => {
-                let chat = self.chats.peek_mut(&room_id)?;
+                self.chats
+                    .peek_mut(&room_id)?
+                    .set_timeline_scroll_finished(direction, finished);
 
-                chat.set_timeline_scroll_finished(direction, finished);
-                None
+                // Not the end of the timeline so the pagination may have only
+                // adjusted how much is loaded lazily, so ask again while the
+                // placeholder is still on screen.
+                if finished {
+                    None
+                } else {
+                    self.dispatch_to_chat(
+                        room_id,
+                        ChatMessage::Timeline(TimelineMessage::PaginationRetry),
+                    )
+                }
             }
             HomeMessage::SettingsChanged => {
                 let chat = self
