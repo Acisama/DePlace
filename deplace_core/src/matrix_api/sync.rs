@@ -115,11 +115,9 @@ static LAST_SYNC: AtomicU64 = AtomicU64::new(0);
 /// Warn when no sync response arrived for this long.
 const SYNC_STALL_WARN_AFTER: u64 = 90;
 
-/// Hard deadline for one fetch from the sync stream, covering the 30 s
-/// long poll and the stream's own error-retry cycle (90 s worst case).
-/// If the iteration doens't yield within this time, an await is stuck
-/// which would explain the silent missing sync
-const SYNC_FETCH_DEADLINE: Duration = Duration::from_secs(120);
+/// Hard deadline for one fetch from the sync stream: the 30 s long poll plus
+/// one SDK retry. Rebuilding is cheap now that a wedged stream is aborted.
+const SYNC_FETCH_DEADLINE: Duration = Duration::from_secs(60);
 
 /// Hard deadline for handling one sync response
 const SYNC_HANDLE_DEADLINE: Duration = Duration::from_secs(120);
@@ -136,6 +134,9 @@ async fn run_sync_stream(client: Client, state: AppState) {
     let mut responses = 0u64;
     let mut restarts = 0u64;
     let mut handler_attached = false;
+
+    let (handle_tx, handle_rx) = mpsc::channel::<SyncResponse>(4);
+    spawn_sync_handler(state.clone(), handle_rx);
 
     // Outer loop: whenever the stream stalls or ends, a fresh one is
     // rebuilt from the client's stored sync token, so message reception
@@ -204,49 +205,16 @@ async fn run_sync_stream(client: Client, state: AppState) {
             // reports the stream's health, and a slow handler is not a stall.
             note_sync_received();
 
-            // Handling runs on its own task, with only its completion
-            // awaited here: a response whose handling gets stuck in a
-            // sync call (lock wedged from the outside, blocking FFI like
-            // the LiveKit key provider) wedges or kills just the handler
-            // task, while this loop stays reachable by its timers --
-            // the fetch deadline keeps firing and message reception
-            // survives either way. The overnight log showed the failure
-            // this guards against: after the last response neither the
-            // fetch nor the handle deadline ever fired because the
-            // worker executing this loop was parked inside the handler,
-            // and no sync arrived for ten hours.
-            // A dropped `JoinHandle` doesn't cancel the handler, so an
-            // over-deadline task may still finish in the background;
-            // only its side effects arrive late, never lost.
-            let handled = tokio::time::timeout(
-                SYNC_HANDLE_DEADLINE,
-                #[allow(clippy::useless_conversion)]
-                async {
-                    let state = state.clone();
-                    let result = result.into();
-                    tokio::spawn(async move { handle_sync_result(result, &state).await }).await
-                },
-            )
-            .await;
-
-            match handled {
-                Ok(Ok(())) => {}
-                Ok(Err(join_error)) => {
-                    tracing::error!(
-                        responses,
-                        "Handling a sync response panicked \
-                         ({join_error:?}); the handler task is the only \
-                         casualty, the sync stream itself stays alive"
-                    );
+            // Handled on its own task and queue, so a handler that blocks can
+            // never hold up the next fetch.
+            match result {
+                Ok(response) => {
+                    if handle_tx.send(response).await.is_err() {
+                        tracing::error!("Sync handler is gone, rebuilding the stream");
+                        break;
+                    }
                 }
-                Err(_elapsed) => {
-                    tracing::error!(
-                        responses,
-                        "Handling a sync response stalled for \
-                         {SYNC_HANDLE_DEADLINE:?}; it is dropped, but the \
-                         sync stream itself stays alive"
-                    );
-                }
+                Err(e) => tracing::error!("Sync loop returned an error: {e:?}"),
             }
 
             if !handler_attached {
@@ -264,6 +232,36 @@ async fn run_sync_stream(client: Client, state: AppState) {
         restarts += 1;
         tokio::time::sleep(SYNC_REBUILD_PAUSE).await;
     }
+}
+
+/// Applies sync responses one at a time, in arrival order.
+///
+/// Kept off the stream loop, so a blocking handler delays only the responses
+/// queued behind it.
+fn spawn_sync_handler(state: AppState, mut responses: mpsc::Receiver<SyncResponse>) {
+    tokio::spawn(async move {
+        while let Some(response) = responses.recv().await {
+            let state = state.clone();
+            let handler = tokio::spawn(async move { handle_sync_result(response, &state).await });
+
+            match tokio::time::timeout(SYNC_HANDLE_DEADLINE, handler).await {
+                Ok(Ok(())) => {}
+                Ok(Err(join_error)) => {
+                    tracing::error!(
+                        "Handling a sync response panicked \
+                         ({join_error:?}); the sync stream itself stays alive"
+                    );
+                }
+                Err(_elapsed) => {
+                    tracing::error!(
+                        "Handling a sync response stalled for \
+                         {SYNC_HANDLE_DEADLINE:?}; the next ones are handled \
+                         anyway, so the stream keeps its pace"
+                    );
+                }
+            }
+        }
+    });
 }
 
 /// Watches [`LAST_SYNC`] and warns while no sync response arrives, so a
@@ -297,15 +295,29 @@ fn note_sync_received() {
     LAST_SYNC.store(now, Ordering::Relaxed);
 }
 
-async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &AppState) {
-    let result = match result {
-        Ok(result) => result,
-        Err(e) => {
-            tracing::error!("Sync loop returned an error: {e:?}");
-            return;
-        }
-    };
+/// Time of the last own-profile refresh, zero means never.
+static LAST_PROFILE_REFRESH: AtomicU64 = AtomicU64::new(0);
 
+/// How often our own display name and avatar are re-fetched.
+const PROFILE_REFRESH_INTERVAL: u64 = 300;
+
+fn own_profile_is_stale() -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since_epoch| since_epoch.as_secs())
+        .unwrap_or(0);
+
+    let last = LAST_PROFILE_REFRESH.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < PROFILE_REFRESH_INTERVAL {
+        return false;
+    }
+
+    LAST_PROFILE_REFRESH.store(now, Ordering::Relaxed);
+
+    true
+}
+
+async fn handle_sync_result(result: SyncResponse, state: &AppState) {
     let timeline_events: usize = result
         .rooms
         .joined
@@ -323,29 +335,33 @@ async fn handle_sync_result(result: matrix_sdk::Result<SyncResponse>, state: &Ap
     // Call encryption keys arrive as decrypted to-device events
     handle_to_device_messages(result.to_device, state.livekit_room_manager()).await;
 
-    let account = state.client().account();
+    // Only every few minutes: each is its own HTTP request, and refreshing per
+    // response added two round trips to the sync path.
+    if own_profile_is_stale() {
+        let account = state.client().account();
 
-    match account.get_display_name().await {
-        Ok(name) => state.set_own_display_name(name),
-        Err(e) => {
-            tracing::error!("Failed to get own display name: {}", e);
-        }
-    }
-
-    match account.get_avatar_url().await {
-        Ok(original) => {
-            let url = original.clone().map(Arc::new);
-            let changed = state.inner.own_avatar_url.borrow().as_ref() != url.as_ref();
-            state.inner.own_avatar_url.send_replace(url);
-
-            if changed {
-                state.inner.own_avatar.send_replace(
-                    original.map(|u| ProfileAvatars::get(state.thumbnail_cache(), u)),
-                );
+        match account.get_display_name().await {
+            Ok(name) => state.set_own_display_name(name),
+            Err(e) => {
+                tracing::error!("Failed to get own display name: {}", e);
             }
         }
-        Err(e) => {
-            tracing::error!("Failed to get own avatar url: {}", e);
+
+        match account.get_avatar_url().await {
+            Ok(original) => {
+                let url = original.clone().map(Arc::new);
+                let changed = state.inner.own_avatar_url.borrow().as_ref() != url.as_ref();
+                state.inner.own_avatar_url.send_replace(url);
+
+                if changed {
+                    state.inner.own_avatar.send_replace(
+                        original.map(|u| ProfileAvatars::get(state.thumbnail_cache(), u)),
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to get own avatar url: {}", e);
+            }
         }
     }
 

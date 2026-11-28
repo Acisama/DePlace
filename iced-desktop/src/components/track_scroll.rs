@@ -14,13 +14,22 @@ use iced::{
 
 use crate::common::DePlaceWidget;
 
-struct FindScrolledFromTop {
-    target: Id,
-    value: Option<f32>,
+/// Scroll state of a scrollable, as reported to [`track_scroll`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollMetrics {
+    /// How far the content is scrolled past the top, in pixels.
+    pub translation: f32,
+    /// Height of the content, which the scroll range follows.
+    pub content: f32,
 }
 
-impl Operation<f32> for FindScrolledFromTop {
-    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<f32>)) {
+struct FindScrolledFromTop {
+    target: Id,
+    value: Option<ScrollMetrics>,
+}
+
+impl Operation<ScrollMetrics> for FindScrolledFromTop {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<ScrollMetrics>)) {
         operate(self);
     }
 
@@ -28,16 +37,19 @@ impl Operation<f32> for FindScrolledFromTop {
         &mut self,
         id: Option<&Id>,
         _bounds: Rectangle,
-        _content: Size,
+        content: Size,
         translation: Vector,
         _state: &mut dyn ScrollableOperationState,
     ) {
         if id == Some(&self.target) {
-            self.value = Some(translation.y);
+            self.value = Some(ScrollMetrics {
+                translation: translation.y,
+                content: content.height,
+            });
         }
     }
 
-    fn finish(&self) -> Outcome<f32> {
+    fn finish(&self) -> Outcome<ScrollMetrics> {
         match self.value {
             Some(v) => Outcome::Some(v),
             None => Outcome::None,
@@ -48,13 +60,13 @@ impl Operation<f32> for FindScrolledFromTop {
 pub struct TrackScroll<Message, Content: DePlaceWidget<Message>> {
     content: Content,
     scrollable_id: iced::widget::Id,
-    on_change: Box<dyn Fn(f32) -> Message + 'static>,
+    on_change: Box<dyn Fn(ScrollMetrics) -> Message + 'static>,
 }
 
 pub fn track_scroll<Message, Content: DePlaceWidget<Message>>(
     content: Content,
     scrollable_id: iced::widget::Id,
-    on_change: impl Fn(f32) -> Message + 'static,
+    on_change: impl Fn(ScrollMetrics) -> Message + 'static,
 ) -> TrackScroll<Message, Content> {
     TrackScroll {
         content,
@@ -65,7 +77,7 @@ pub fn track_scroll<Message, Content: DePlaceWidget<Message>>(
 
 #[derive(Default)]
 struct State {
-    last_value: Option<f32>,
+    last_value: Option<(f32, f32)>,
     last_tick: Option<std::time::Instant>,
 }
 
@@ -133,12 +145,12 @@ impl<Message, Content: DePlaceWidget<Message>> Widget<Message, Theme, Renderer>
             );
 
             if let Some(value) = operation.value {
-                // Rounded to whole pixels, the scrollable's offset jitters
-                // by sub-pixel amounts every frame while animating
-                let value = value.round();
+                // Rounded to whole pixels, both jitter by sub-pixel amounts
+                // every frame while animating
+                let rounded = (value.translation.round(), value.content.round());
                 let state: &mut State = tree.state.downcast_mut();
-                if state.last_value != Some(value) {
-                    state.last_value = Some(value);
+                if state.last_value != Some(rounded) {
+                    state.last_value = Some(rounded);
                     shell.publish((self.on_change)(value));
                 }
             }

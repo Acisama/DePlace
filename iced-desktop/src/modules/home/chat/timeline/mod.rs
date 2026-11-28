@@ -30,7 +30,7 @@ use crate::{
     components::{
         PushElement, fills_parent, phosphor_icon, skeleton,
         track_bounds::{track_bounds, track_bounds_after},
-        track_scroll::track_scroll,
+        track_scroll::{ScrollMetrics, track_scroll},
     },
     modules::home::{
         COPY_ICON, EDIT_ICON, PIN_ICON, REDACT_ICON, REPLY_ICON, SOURCE_ICON, UNPIN_ICON,
@@ -59,7 +59,7 @@ pub enum TimelineMessage {
     Scroll {
         position: RelativeOffset,
     },
-    ScrolledFromTop(f32),
+    ScrolledFromTop(ScrollMetrics),
     ButtonsHovered {
         id: String,
         hovered: bool,
@@ -181,6 +181,13 @@ fn next_measure_generation() -> u64 {
     MEASURE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Where the view was before content grew below it.
+#[derive(Clone, Copy)]
+struct ContentAnchor {
+    translation: f32,
+    content: f32,
+}
+
 #[iced_cache(Clone)]
 pub struct ChatTimeline {
     state: AppState,
@@ -234,9 +241,14 @@ pub struct ChatTimeline {
     /// Translation of the list, so how many pixels of content are scrolled
     /// past its top.
     last_translation: f32,
-    /// A page of older messages just landed above the view, see
-    /// [`ChatTimeline::past_older_skeleton`].
-    pending_prepend: bool,
+    /// Height of the list's content, which the scroll range follows.
+    last_content_height: f32,
+    /// Content grew below the view while it was scrolled up, so the view has to
+    /// be held still: the offset is measured from the end, and the end moved.
+    pending_append: Option<ContentAnchor>,
+    /// Whether the newest messages are on screen, in which case content below
+    /// them should scroll along instead of being held still.
+    at_bottom: bool,
     /// Consecutive pagination attempts that did not bring any content in, so a
     /// pagination that keeps coming back empty can't spin.
     pagination_retries: u8,
@@ -355,7 +367,9 @@ impl ChatTimeline {
             older_skeleton_bounds: None,
             newer_skeleton_bounds: None,
             last_translation: 0.0,
-            pending_prepend: false,
+            last_content_height: 0.0,
+            pending_append: None,
+            at_bottom: true,
             pagination_retries: 0,
             measure_generation: next_measure_generation(),
 
@@ -379,16 +393,6 @@ impl ChatTimeline {
             self.scroll_position.into(),
             w::operation::Animation::Smooth,
         ))
-    }
-
-    /// Translation at which the older placeholder has just left the viewport.
-    ///
-    /// Placeholders sit above the messages they stand in for, so anything that
-    /// keeps the view still would keep the placeholder on screen.
-    fn past_older_skeleton(&self) -> f32 {
-        self.older_skeleton_bounds.map_or(f32::MIN, |skeleton| {
-            skeleton.y + skeleton.height - self.viewport_bounds.y
-        })
     }
 
     /// Loads more messages as soon as a loading placeholder scrolls into view.
@@ -1084,10 +1088,8 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     diffs.len(),
                 );
 
-                // The list is anchored at the end, so its offset is the distance
-                // from the newest message and any content change keeps the view
-                // where it was by itself. Only older messages landing above a
-                // placeholder need a look, see `past_older_skeleton`.
+                // The list is anchored at the end, so prepending moves the offset
+                // and the rows together and the placeholder scrolls off by itself.
                 let mut prepended = false;
                 let mut appended = false;
 
@@ -1100,9 +1102,16 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
                     }
                 }
 
-                if prepended {
-                    self.pending_prepend = true;
-                }
+                // New messages below the view move the end the offset is
+                // measured from, so the view would drift up by their height.
+                self.pending_append = if appended && !self.at_bottom {
+                    Some(ContentAnchor {
+                        translation: self.last_translation,
+                        content: self.last_content_height,
+                    })
+                } else {
+                    None
+                };
 
                 if prepended || appended {
                     self.pagination_retries = 0;
@@ -1222,35 +1231,34 @@ impl IcedWidget<TimelineMessage, TimelineAction> for ChatTimeline {
             }
             TimelineMessage::Scroll { position } => {
                 self.scroll_position = position;
-                // Nothing to keep here, the list's offset is measured from the
-                // newest message, so a size change leaves the offset alone and
-                // the view where it was. Only older pages need a look below.
+                // Relative offset zero is the bottom of a list anchored there.
+                self.at_bottom = !(position.y > 0.001);
                 self.pagination_retries = 0;
 
                 None
             }
-            TimelineMessage::ScrolledFromTop(offset) => {
-                self.scrolled_from_top = offset;
-                self.last_translation = offset;
+            TimelineMessage::ScrolledFromTop(metrics) => {
+                self.scrolled_from_top = metrics.translation;
+                self.last_translation = metrics.translation;
+                self.last_content_height = metrics.content;
 
-                // Older messages landed above the view, whose offset already
-                // kept it in place. The one thing left is a placeholder that
-                // would stay on screen and page in the whole history, so scrolling
-                // past it shows what just arrived instead. Scrolls down only.
-                if self.pending_prepend {
-                    let keep = self.past_older_skeleton();
+                // Content landed below the view while it was scrolled up, so put
+                // the messages that were on screen back where they were.
+                if let Some(anchor) = self.pending_append {
+                    if metrics.content - anchor.content > 0.5 {
+                        self.pending_append = None;
 
-                    if offset >= keep - 0.5 {
-                        self.pending_prepend = false;
-                    } else {
-                        return Some(TimelineAction::Run(operate(scroll_by(
-                            SCROLLABLE_ID,
-                            AbsoluteOffset {
-                                x: 0.0,
-                                y: offset - keep,
-                            },
-                            w::operation::Animation::Instant,
-                        ))));
+                        let delta = metrics.translation - anchor.translation;
+
+                        if delta.abs() >= 0.5 {
+                            return Some(TimelineAction::Run(operate(scroll_by(
+                                SCROLLABLE_ID,
+                                AbsoluteOffset { x: 0.0, y: delta },
+                                w::operation::Animation::Instant,
+                            ))));
+                        }
+                    } else if (metrics.translation - anchor.translation).abs() >= 0.5 {
+                        self.pending_append = None;
                     }
                 }
 
